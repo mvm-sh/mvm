@@ -1,0 +1,27 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - gocritic
+    - godot
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+#    - modernize
+    - perfsprint
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - staticcheck
+    - unconvert
+    - unused
+  exclusions:
+    presets:
+      - common-false-positives
+    paths:
+      - stdlib/src
+formatters:
+  enable:
+    - gofumpt
