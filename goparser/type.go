@@ -79,7 +79,7 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string) (*vm.Type, error)
 	v, ok := pkg.Values[name]
 	if !ok {
 		if pkg.Bin {
-			return &vm.Type{Name: name, Rtype: vm.AnyRtype}, nil
+			return &vm.Type{Name: name, Rtype: vm.OpaqueRtype}, nil
 		}
 		return nil, ErrUndefined{s.Name + "." + name}
 	}
@@ -343,8 +343,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 }
 
 // parseTypeElems parses a line from an interface body consisting of a type-element
-// union (e.g. "~int | ~int8 | ~string"). Each "|"-separated segment may be preceded
-// by "~" to indicate an approximate-type constraint.
+// union (e.g. "~int | ~int8 | ~string").
 func (p *Parser) parseTypeElems(lt Tokens) ([]vm.TypeElem, error) {
 	var out []vm.TypeElem
 	for _, seg := range lt.Split(lang.Or) {

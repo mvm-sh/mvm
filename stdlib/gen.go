@@ -1,5 +1,20 @@
 // Code generation directive for stdlib bindings.
 // Run "go generate ./stdlib" to regenerate all binding files.
+//
+// Public stdlib packages intentionally not bound here:
+//   - unsafe, plugin, runtime/race: cannot be exposed via reflect bindings
+//     (compiler/linker intrinsics, native plugin loader, race-detector
+//     internals).
+//   - time/tzdata: blank-import side-effect package with no exported symbols.
+//   - cmp, iter, maps, slices: bound as interpreted source under stdlib/src/
+//     because their APIs are generic.
+//   - syscall: generated per-platform by the Makefile (syscall_<os>_<arch>.go).
+//
+// Stdlib packages that are listed below but currently produce only a stub
+// (just "package stdlib") because every exported symbol is generic and so
+// cannot be reflect-bound: crypto/hkdf, crypto/pbkdf2, unique, weak. The
+// stubs are kept so that bindings appear automatically once these packages
+// gain non-generic exports.
 
 package stdlib
 
@@ -18,7 +33,7 @@ package stdlib
 //go:generate go run ../cmd/extract -gen -o context.go context $GOROOT/src/context
 //go:generate go run ../cmd/extract -gen -o crypto.go crypto $GOROOT/src/crypto
 //go:generate go run ../cmd/extract -gen -o crypto_aes.go crypto/aes $GOROOT/src/crypto/aes
-// //go:generate go run ../cmd/extract -gen -o crypto_cipher.go crypto/cipher $GOROOT/src/crypto/cipher
+//go:generate go run ../cmd/extract -gen -o crypto_cipher.go crypto/cipher $GOROOT/src/crypto/cipher
 //go:generate go run ../cmd/extract -gen -o crypto_des.go crypto/des $GOROOT/src/crypto/des
 //go:generate go run ../cmd/extract -gen -o crypto_dsa.go crypto/dsa $GOROOT/src/crypto/dsa
 //go:generate go run ../cmd/extract -gen -o crypto_ecdh.go crypto/ecdh $GOROOT/src/crypto/ecdh
@@ -26,10 +41,12 @@ package stdlib
 //go:generate go run ../cmd/extract -gen -o crypto_ed25519.go crypto/ed25519 $GOROOT/src/crypto/ed25519
 //go:generate go run ../cmd/extract -gen -o crypto_elliptic.go crypto/elliptic $GOROOT/src/crypto/elliptic
 //go:generate go run ../cmd/extract -gen -o crypto_fips140.go crypto/fips140 $GOROOT/src/crypto/fips140
+//go:generate go run ../cmd/extract -gen -o crypto_hkdf.go crypto/hkdf $GOROOT/src/crypto/hkdf
 //go:generate go run ../cmd/extract -gen -o crypto_hmac.go crypto/hmac $GOROOT/src/crypto/hmac
 //go:generate go run ../cmd/extract -gen -o crypto_hpke.go crypto/hpke $GOROOT/src/crypto/hpke
 //go:generate go run ../cmd/extract -gen -o crypto_md5.go crypto/md5 $GOROOT/src/crypto/md5
 //go:generate go run ../cmd/extract -gen -o crypto_mlkem.go crypto/mlkem $GOROOT/src/crypto/mlkem
+//go:generate go run ../cmd/extract -gen -o crypto_pbkdf2.go crypto/pbkdf2 $GOROOT/src/crypto/pbkdf2
 //go:generate go run ../cmd/extract -gen -o crypto_rand.go crypto/rand $GOROOT/src/crypto/rand
 //go:generate go run ../cmd/extract -gen -o crypto_rc4.go crypto/rc4 $GOROOT/src/crypto/rc4
 //go:generate go run ../cmd/extract -gen -o crypto_rsa.go crypto/rsa $GOROOT/src/crypto/rsa
@@ -108,15 +125,15 @@ package stdlib
 //go:generate go run ../cmd/extract -gen -o math_bits.go math/bits $GOROOT/src/math/bits
 //go:generate go run ../cmd/extract -gen -o math_cmplx.go math/cmplx $GOROOT/src/math/cmplx
 //go:generate go run ../cmd/extract -gen -o math_rand.go math/rand $GOROOT/src/math/rand
-// //go:generate go run ../cmd/extract -gen -o math_rand_v2.go math/rand/v2 $GOROOT/src/math/rand/v2
+//go:generate go run ../cmd/extract -gen -o math_rand_v2.go math/rand/v2 $GOROOT/src/math/rand/v2
 //go:generate go run ../cmd/extract -gen -o mime.go mime $GOROOT/src/mime
-// //go:generate go run ../cmd/extract -gen -o mime_multipart.go mime/multipart $GOROOT/src/mime/multipart
+//go:generate go run ../cmd/extract -gen -o mime_multipart.go mime/multipart $GOROOT/src/mime/multipart
 //go:generate go run ../cmd/extract -gen -o mime_quotedprintable.go mime/quotedprintable $GOROOT/src/mime/quotedprintable
 //go:generate go run ../cmd/extract -gen -o net.go net $GOROOT/src/net
 //go:generate go run ../cmd/extract -gen -o net_http.go net/http $GOROOT/src/net/http
 //go:generate go run ../cmd/extract -gen -o net_http_cgi.go net/http/cgi $GOROOT/src/net/http/cgi
 //go:generate go run ../cmd/extract -gen -o net_http_cookiejar.go net/http/cookiejar $GOROOT/src/net/http/cookiejar
-// //go:generate go run ../cmd/extract -gen -o net_http_fcgi.go net/http/fcgi $GOROOT/src/net/http/fcgi
+//go:generate go run ../cmd/extract -gen -o net_http_fcgi.go net/http/fcgi $GOROOT/src/net/http/fcgi
 //go:generate go run ../cmd/extract -gen -o net_http_httptest.go net/http/httptest $GOROOT/src/net/http/httptest
 //go:generate go run ../cmd/extract -gen -o net_http_httptrace.go net/http/httptrace $GOROOT/src/net/http/httptrace
 //go:generate go run ../cmd/extract -gen -o net_http_httputil.go net/http/httputil $GOROOT/src/net/http/httputil
@@ -137,7 +154,7 @@ package stdlib
 //go:generate go run ../cmd/extract -gen -o reflect.go reflect $GOROOT/src/reflect
 //go:generate go run ../cmd/extract -gen -o regexp.go regexp $GOROOT/src/regexp
 //go:generate go run ../cmd/extract -gen -o regexp_syntax.go regexp/syntax $GOROOT/src/regexp/syntax
-// //go:generate go run ../cmd/extract -gen -o runtime.go runtime $GOROOT/src/runtime
+//go:generate go run ../cmd/extract -gen -o runtime.go runtime $GOROOT/src/runtime
 //go:generate go run ../cmd/extract -gen -o runtime_cgo.go runtime/cgo $GOROOT/src/runtime/cgo
 //go:generate go run ../cmd/extract -gen -o runtime_coverage.go runtime/coverage $GOROOT/src/runtime/coverage
 //go:generate go run ../cmd/extract -gen -o runtime_debug.go runtime/debug $GOROOT/src/runtime/debug
@@ -151,15 +168,19 @@ package stdlib
 //go:generate go run ../cmd/extract -gen -o sync.go sync $GOROOT/src/sync
 //go:generate go run ../cmd/extract -gen -o sync_atomic.go sync/atomic $GOROOT/src/sync/atomic
 //go:generate go run ../cmd/extract -gen -o testing.go testing $GOROOT/src/testing
+//go:generate go run ../cmd/extract -gen -o testing_cryptotest.go testing/cryptotest $GOROOT/src/testing/cryptotest
 //go:generate go run ../cmd/extract -gen -o testing_fstest.go testing/fstest $GOROOT/src/testing/fstest
 //go:generate go run ../cmd/extract -gen -o testing_iotest.go testing/iotest $GOROOT/src/testing/iotest
 //go:generate go run ../cmd/extract -gen -o testing_quick.go testing/quick $GOROOT/src/testing/quick
+//go:generate go run ../cmd/extract -gen -o testing_slogtest.go testing/slogtest $GOROOT/src/testing/slogtest
 //go:generate go run ../cmd/extract -gen -o testing_synctest.go testing/synctest $GOROOT/src/testing/synctest
 //go:generate go run ../cmd/extract -gen -o text_scanner.go text/scanner $GOROOT/src/text/scanner
 //go:generate go run ../cmd/extract -gen -o text_tabwriter.go text/tabwriter $GOROOT/src/text/tabwriter
-// //go:generate go run ../cmd/extract -gen -o text_template.go text/template $GOROOT/src/text/template
+//go:generate go run ../cmd/extract -gen -o text_template.go text/template $GOROOT/src/text/template
 //go:generate go run ../cmd/extract -gen -o text_template_parse.go text/template/parse $GOROOT/src/text/template/parse
 //go:generate go run ../cmd/extract -gen -o time.go time $GOROOT/src/time
 //go:generate go run ../cmd/extract -gen -o unicode.go unicode $GOROOT/src/unicode
 //go:generate go run ../cmd/extract -gen -o unicode_utf16.go unicode/utf16 $GOROOT/src/unicode/utf16
 //go:generate go run ../cmd/extract -gen -o unicode_utf8.go unicode/utf8 $GOROOT/src/unicode/utf8
+//go:generate go run ../cmd/extract -gen -o unique.go unique $GOROOT/src/unique
+//go:generate go run ../cmd/extract -gen -o weak.go weak $GOROOT/src/weak

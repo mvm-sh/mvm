@@ -7,7 +7,7 @@ import "path"
 // "v[0-9]*" (module versioning suffix).
 func PackageName(importPath string) string {
 	d, f := path.Split(importPath)
-	if ok, _ := path.Match(f, "v[0-9]*"); d != "" && ok {
+	if ok, _ := path.Match("v[0-9]*", f); d != "" && ok {
 		return path.Base(d)
 	}
 	return f

@@ -311,6 +311,9 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 	tok = lang.Int
 	hasDot := false
 	hasExp := false
+	// Hex literals use 'e'/'E' as digits, not exponent markers (hex floats
+	// use 'p'/'P'). Detect once; the body skips the exponent case for hex.
+	isHex := len(src) >= 2 && src[0] == '0' && (src[1] == 'x' || src[1] == 'X')
 
 	// Handle leading dot (e.g. .5, .0312).
 	if len(src) > 0 && src[0] == '.' {
@@ -332,7 +335,7 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 			}
 		case r == '.' && i == 0 && hasDot:
 			// Leading dot already accounted for.
-		case (r == 'e' || r == 'E') && !hasExp:
+		case (r == 'e' || r == 'E') && !hasExp && !isHex:
 			hasExp = true
 			tok = lang.Float
 			// Allow optional +/- after exponent.

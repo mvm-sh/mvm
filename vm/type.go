@@ -75,6 +75,12 @@ type Iface struct {
 // AnyRtype is the reflect.Type for the empty interface (any).
 var AnyRtype = reflect.TypeOf((*any)(nil)).Elem()
 
+// Opaque stands in for an external type which could not be resolved at parse time.
+type Opaque struct{}
+
+// OpaqueRtype is the reflect.Type for Opaque.
+var OpaqueRtype = reflect.TypeFor[Opaque]()
+
 var ifaceRtype = reflect.TypeOf(Iface{})
 
 // MvmFunc bundles a mvm func value with its native Go reflect.MakeFunc wrapper.
@@ -132,8 +138,7 @@ func (t *Type) SameAs(u *Type) bool {
 // iface.IfaceMethods must have IDs populated (by the compiler) before calling this.
 func (t *Type) Implements(iface *Type) bool {
 	// Native interface types (e.g. io.Reader) have their method set in Rtype,
-	// so reflect can check implementation. Interpreted interfaces have
-	// Rtype == interface{} with no methods, so reflect can't help.
+	// so reflect can check implementation.
 	nativeIface := iface.Rtype.NumMethod() > 0
 	for _, im := range iface.IfaceMethods {
 		if im.ID < 0 || im.ID >= len(t.Methods) || !t.Methods[im.ID].IsResolved() {
@@ -148,8 +153,7 @@ func (t *Type) Implements(iface *Type) bool {
 }
 
 // NativeImplements reports whether native reflect type rt has all the methods
-// required by interface type t. This is used for type assertions when the
-// concrete value is a native Go type (not a mvm-interpreted type).
+// required by interface type t.
 func (t *Type) NativeImplements(rt reflect.Type) bool {
 	if !t.IsInterface() {
 		return false
@@ -304,8 +308,7 @@ func numBits(rv reflect.Value) uint64 {
 
 // TypeValue returns a zero value for use as a type descriptor in the data table.
 // Preserves the exact reflect.Type for all kinds so opcodes like MkChan can
-// recover it via ref.Type(). NewValue is not suitable here: it stores func and
-// interface variables as interface{} for runtime flexibility.
+// recover it via ref.Type().
 func TypeValue(typ reflect.Type) Value {
 	return Value{ref: reflect.New(typ).Elem()}
 }
@@ -487,8 +490,6 @@ func FromReflect(rv reflect.Value) Value {
 }
 
 // resetNumRef ensures ref is non-addressable after an arithmetic operation.
-// This prevents Reflect()/Interface() from using a stale addressable ref.
-// Skips the reflect.Zero call when ref is already non-addressable (common case).
 func resetNumRef(v *Value) {
 	if v.ref.CanAddr() {
 		v.ref = reflect.Zero(v.ref.Type())
@@ -518,7 +519,6 @@ func (v Value) IfaceVal() Iface {
 	return v.ref.Interface().(Iface)
 }
 
-// isNilable reports whether rv is of a nilable kind (func, ptr, map, slice, chan, interface, unsafe.Pointer).
 func isNilable(rv reflect.Value) bool {
 	switch rv.Kind() {
 	case reflect.Func, reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Interface, reflect.UnsafePointer:
@@ -527,8 +527,6 @@ func isNilable(rv reflect.Value) bool {
 	return false
 }
 
-// nilEqual reports whether v equals an untyped nil: true if v is a nil nilable
-// type, or if v is itself invalid (nil == nil).
 func nilEqual(v Value) bool {
 	if isNilable(v.ref) {
 		return v.ref.IsNil()
@@ -599,7 +597,6 @@ func FuncOf(arg, ret []*Type, variadic bool) *Type {
 }
 
 // StructOf returns the struct type with the given field types, embedded field info, and tags.
-// tags may be nil or shorter than fields; missing entries are treated as empty.
 func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 	rf := make([]reflect.StructField, len(fields))
 	embSet := make(map[int]bool, len(embedded))
@@ -686,8 +683,6 @@ func (t *Type) FieldLookup(name string) ([]int, *Type) {
 	return t.embeddedFieldLookup(name)
 }
 
-// embeddedFieldLookup walks mvm Embedded info to find promoted fields that
-// reflect.VisibleFields cannot see (because Anonymous was not set on the reflect struct field).
 func (t *Type) embeddedFieldLookup(name string) ([]int, *Type) {
 	for _, emb := range t.Embedded {
 		rt := t.Rtype.Field(emb.FieldIdx).Type
