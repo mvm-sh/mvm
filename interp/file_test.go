@@ -11,7 +11,7 @@ import (
 
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/stdlib"
-	_ "github.com/mvm-sh/mvm/stdlib/jsonx"
+	_ "github.com/mvm-sh/mvm/stdlib/all"
 )
 
 func TestFile(t *testing.T) {

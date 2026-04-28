@@ -14,7 +14,7 @@ import (
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/stdlib"
-	_ "github.com/mvm-sh/mvm/stdlib/jsonx"
+	_ "github.com/mvm-sh/mvm/stdlib/all"
 )
 
 // newlineTracker wraps a writer and tracks whether the last byte written was a newline.

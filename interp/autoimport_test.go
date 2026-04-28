@@ -7,6 +7,7 @@ import (
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/stdlib"
+	_ "github.com/mvm-sh/mvm/stdlib/all"
 	"github.com/mvm-sh/mvm/symbol"
 )
 
