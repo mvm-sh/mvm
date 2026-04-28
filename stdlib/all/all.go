@@ -4,7 +4,7 @@
 package all
 
 import (
-	_ "github.com/mvm-sh/mvm/stdlib/core"
-	_ "github.com/mvm-sh/mvm/stdlib/ext"
-	_ "github.com/mvm-sh/mvm/stdlib/jsonx"
+	_ "github.com/mvm-sh/mvm/stdlib/core"  // init all bindings
+	_ "github.com/mvm-sh/mvm/stdlib/ext"   // init all bindings
+	_ "github.com/mvm-sh/mvm/stdlib/jsonx" // init all bindings
 )

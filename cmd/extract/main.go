@@ -57,7 +57,7 @@ func mainErr() error {
 		}
 		importPath, dir := args[0], args[1]
 		path := filepath.Join(subDir(importPath), bindingFilename(importPath, *targetOS, *targetArch))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return err
 		}
 		f, err := os.Create(path)

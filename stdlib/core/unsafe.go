@@ -1,9 +1,8 @@
+// Package core provides wrappers for core standard library packages.
+package core
+
 // Hand-written binding for the "unsafe" pseudo-package.
 // unsafe has no parseable Go source, so cmd/extract cannot generate this file.
-// Do not add the cmd/extract "Code generated" marker: `make clean_generate`
-// greps for that marker and would delete this file.
-
-package core
 
 import (
 	"reflect"
