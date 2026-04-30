@@ -65,7 +65,6 @@ func init() {
 		"NewCertPool":                               reflect.ValueOf(x509.NewCertPool),
 		"NoValidChains":                             reflect.ValueOf(x509.NoValidChains),
 		"NotAuthorizedToSign":                       reflect.ValueOf(x509.NotAuthorizedToSign),
-		"OIDFromASN1OID":                            reflect.ValueOf(x509.OIDFromASN1OID),
 		"OIDFromInts":                               reflect.ValueOf(x509.OIDFromInts),
 		"PEMCipher3DES":                             reflect.ValueOf(x509.PEMCipher3DES),
 		"PEMCipherAES128":                           reflect.ValueOf(x509.PEMCipherAES128),

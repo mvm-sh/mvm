@@ -169,7 +169,6 @@ func init() {
 		"NoBody":                              reflect.ValueOf(&http.NoBody),
 		"ServerContextKey":                    reflect.ValueOf(&http.ServerContextKey),
 		"Client":                              reflect.ValueOf((*http.Client)(nil)),
-		"ClientConn":                          reflect.ValueOf((*http.ClientConn)(nil)),
 		"CloseNotifier":                       reflect.ValueOf((*http.CloseNotifier)(nil)),
 		"ConnState":                           reflect.ValueOf((*http.ConnState)(nil)),
 		"Cookie":                              reflect.ValueOf((*http.Cookie)(nil)),

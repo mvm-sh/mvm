@@ -109,7 +109,6 @@ func init() {
 		"ErrExist":            reflect.ValueOf(&os.ErrExist),
 		"ErrInvalid":          reflect.ValueOf(&os.ErrInvalid),
 		"ErrNoDeadline":       reflect.ValueOf(&os.ErrNoDeadline),
-		"ErrNoHandle":         reflect.ValueOf(&os.ErrNoHandle),
 		"ErrNotExist":         reflect.ValueOf(&os.ErrNotExist),
 		"ErrPermission":       reflect.ValueOf(&os.ErrPermission),
 		"ErrProcessDone":      reflect.ValueOf(&os.ErrProcessDone),
