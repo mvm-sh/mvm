@@ -54,10 +54,13 @@ var Core = map[string]bool{
 }
 
 // BuildTags is an optional per-package //go:build expression to emit at the
-// top of the generated file. Used to keep cgo-only stdlib bindings out of
-// builds where cgo is disabled (notably GOOS=js GOARCH=wasm).
+// top of the generated file. Used to keep cgo-only bindings out of builds
+// where cgo is disabled (notably GOOS=js GOARCH=wasm), and to gate bindings
+// for stdlib packages that only exist in newer Go releases.
 var BuildTags = map[string]string{
-	"runtime/cgo": "cgo",
+	"runtime/cgo":        "cgo",
+	"crypto/hpke":        "go1.26",
+	"testing/cryptotest": "go1.26",
 }
 
 func subDir(importPath string) string {
