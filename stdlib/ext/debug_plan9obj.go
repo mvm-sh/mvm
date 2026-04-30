@@ -11,17 +11,17 @@ import (
 
 func init() {
 	stdlib.Values["debug/plan9obj"] = map[string]reflect.Value{
-		"Magic386": reflect.ValueOf(plan9obj.Magic386),
-		"Magic64": reflect.ValueOf(plan9obj.Magic64),
-		"MagicAMD64": reflect.ValueOf(plan9obj.MagicAMD64),
-		"MagicARM": reflect.ValueOf(plan9obj.MagicARM),
-		"NewFile": reflect.ValueOf(plan9obj.NewFile),
-		"Open": reflect.ValueOf(plan9obj.Open),
-		"ErrNoSymbols": reflect.ValueOf(&plan9obj.ErrNoSymbols),
-		"File": reflect.ValueOf((*plan9obj.File)(nil)),
-		"FileHeader": reflect.ValueOf((*plan9obj.FileHeader)(nil)),
-		"Section": reflect.ValueOf((*plan9obj.Section)(nil)),
+		"Magic386":      reflect.ValueOf(plan9obj.Magic386),
+		"Magic64":       reflect.ValueOf(plan9obj.Magic64),
+		"MagicAMD64":    reflect.ValueOf(plan9obj.MagicAMD64),
+		"MagicARM":      reflect.ValueOf(plan9obj.MagicARM),
+		"NewFile":       reflect.ValueOf(plan9obj.NewFile),
+		"Open":          reflect.ValueOf(plan9obj.Open),
+		"ErrNoSymbols":  reflect.ValueOf(&plan9obj.ErrNoSymbols),
+		"File":          reflect.ValueOf((*plan9obj.File)(nil)),
+		"FileHeader":    reflect.ValueOf((*plan9obj.FileHeader)(nil)),
+		"Section":       reflect.ValueOf((*plan9obj.Section)(nil)),
 		"SectionHeader": reflect.ValueOf((*plan9obj.SectionHeader)(nil)),
-		"Sym": reflect.ValueOf((*plan9obj.Sym)(nil)),
+		"Sym":           reflect.ValueOf((*plan9obj.Sym)(nil)),
 	}
 }

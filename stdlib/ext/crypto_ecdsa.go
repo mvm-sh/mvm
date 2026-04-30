@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["crypto/ecdsa"] = map[string]reflect.Value{
-		"GenerateKey": reflect.ValueOf(ecdsa.GenerateKey),
-		"ParseRawPrivateKey": reflect.ValueOf(ecdsa.ParseRawPrivateKey),
+		"GenerateKey":                reflect.ValueOf(ecdsa.GenerateKey),
+		"ParseRawPrivateKey":         reflect.ValueOf(ecdsa.ParseRawPrivateKey),
 		"ParseUncompressedPublicKey": reflect.ValueOf(ecdsa.ParseUncompressedPublicKey),
-		"Sign": reflect.ValueOf(ecdsa.Sign),
-		"SignASN1": reflect.ValueOf(ecdsa.SignASN1),
-		"Verify": reflect.ValueOf(ecdsa.Verify),
-		"VerifyASN1": reflect.ValueOf(ecdsa.VerifyASN1),
-		"PrivateKey": reflect.ValueOf((*ecdsa.PrivateKey)(nil)),
-		"PublicKey": reflect.ValueOf((*ecdsa.PublicKey)(nil)),
+		"Sign":                       reflect.ValueOf(ecdsa.Sign),
+		"SignASN1":                   reflect.ValueOf(ecdsa.SignASN1),
+		"Verify":                     reflect.ValueOf(ecdsa.Verify),
+		"VerifyASN1":                 reflect.ValueOf(ecdsa.VerifyASN1),
+		"PrivateKey":                 reflect.ValueOf((*ecdsa.PrivateKey)(nil)),
+		"PublicKey":                  reflect.ValueOf((*ecdsa.PublicKey)(nil)),
 	}
 }

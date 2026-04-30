@@ -2,7 +2,7 @@ package goparser
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -404,7 +404,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 		case lang.Ellipsis:
 
 		default:
-			log.Println("unexpected token:", t)
+			return out, fmt.Errorf("unexpected token: %v", t)
 		}
 	}
 	for len(ops) > 0 {

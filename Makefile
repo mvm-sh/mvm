@@ -23,4 +23,10 @@ test:
 cover: test
 	go tool cover -html=cover.out
 
-.PHONY: clean_generate test cover lint
+# Remove build artifacts left in the working tree (binaries, coverage,
+# the C example outputs). Tracked sources are not touched.
+clean:
+	rm -f mvm extract demo cover.out
+	$(MAKE) -C examples/c clean
+
+.PHONY: clean clean_generate test cover lint

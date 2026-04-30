@@ -11,11 +11,11 @@ import (
 
 func init() {
 	stdlib.Values["errors"] = map[string]reflect.Value{
-		"As": reflect.ValueOf(errors.As),
-		"Is": reflect.ValueOf(errors.Is),
-		"Join": reflect.ValueOf(errors.Join),
-		"New": reflect.ValueOf(errors.New),
-		"Unwrap": reflect.ValueOf(errors.Unwrap),
+		"As":             reflect.ValueOf(errors.As),
+		"Is":             reflect.ValueOf(errors.Is),
+		"Join":           reflect.ValueOf(errors.Join),
+		"New":            reflect.ValueOf(errors.New),
+		"Unwrap":         reflect.ValueOf(errors.Unwrap),
 		"ErrUnsupported": reflect.ValueOf(&errors.ErrUnsupported),
 	}
 }

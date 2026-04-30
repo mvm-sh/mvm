@@ -11,10 +11,10 @@ import (
 
 func init() {
 	stdlib.Values["hash/maphash"] = map[string]reflect.Value{
-		"Bytes": reflect.ValueOf(maphash.Bytes),
+		"Bytes":    reflect.ValueOf(maphash.Bytes),
 		"MakeSeed": reflect.ValueOf(maphash.MakeSeed),
-		"String": reflect.ValueOf(maphash.String),
-		"Hash": reflect.ValueOf((*maphash.Hash)(nil)),
-		"Seed": reflect.ValueOf((*maphash.Seed)(nil)),
+		"String":   reflect.ValueOf(maphash.String),
+		"Hash":     reflect.ValueOf((*maphash.Hash)(nil)),
+		"Seed":     reflect.ValueOf((*maphash.Seed)(nil)),
 	}
 }

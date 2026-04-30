@@ -3,8 +3,8 @@
 package ext
 
 import (
-	"testing/cryptotest"
 	"reflect"
+	"testing/cryptotest"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )

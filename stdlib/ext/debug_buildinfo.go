@@ -11,8 +11,8 @@ import (
 
 func init() {
 	stdlib.Values["debug/buildinfo"] = map[string]reflect.Value{
-		"Read": reflect.ValueOf(buildinfo.Read),
-		"ReadFile": reflect.ValueOf(buildinfo.ReadFile),
+		"Read":      reflect.ValueOf(buildinfo.Read),
+		"ReadFile":  reflect.ValueOf(buildinfo.ReadFile),
 		"BuildInfo": reflect.ValueOf((*buildinfo.BuildInfo)(nil)),
 	}
 }

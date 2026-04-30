@@ -11,18 +11,18 @@ import (
 
 func init() {
 	stdlib.Values["crypto/dsa"] = map[string]reflect.Value{
-		"GenerateKey": reflect.ValueOf(dsa.GenerateKey),
-		"GenerateParameters": reflect.ValueOf(dsa.GenerateParameters),
-		"L1024N160": reflect.ValueOf(dsa.L1024N160),
-		"L2048N224": reflect.ValueOf(dsa.L2048N224),
-		"L2048N256": reflect.ValueOf(dsa.L2048N256),
-		"L3072N256": reflect.ValueOf(dsa.L3072N256),
-		"Sign": reflect.ValueOf(dsa.Sign),
-		"Verify": reflect.ValueOf(dsa.Verify),
+		"GenerateKey":         reflect.ValueOf(dsa.GenerateKey),
+		"GenerateParameters":  reflect.ValueOf(dsa.GenerateParameters),
+		"L1024N160":           reflect.ValueOf(dsa.L1024N160),
+		"L2048N224":           reflect.ValueOf(dsa.L2048N224),
+		"L2048N256":           reflect.ValueOf(dsa.L2048N256),
+		"L3072N256":           reflect.ValueOf(dsa.L3072N256),
+		"Sign":                reflect.ValueOf(dsa.Sign),
+		"Verify":              reflect.ValueOf(dsa.Verify),
 		"ErrInvalidPublicKey": reflect.ValueOf(&dsa.ErrInvalidPublicKey),
-		"ParameterSizes": reflect.ValueOf((*dsa.ParameterSizes)(nil)),
-		"Parameters": reflect.ValueOf((*dsa.Parameters)(nil)),
-		"PrivateKey": reflect.ValueOf((*dsa.PrivateKey)(nil)),
-		"PublicKey": reflect.ValueOf((*dsa.PublicKey)(nil)),
+		"ParameterSizes":      reflect.ValueOf((*dsa.ParameterSizes)(nil)),
+		"Parameters":          reflect.ValueOf((*dsa.Parameters)(nil)),
+		"PrivateKey":          reflect.ValueOf((*dsa.PrivateKey)(nil)),
+		"PublicKey":           reflect.ValueOf((*dsa.PublicKey)(nil)),
 	}
 }

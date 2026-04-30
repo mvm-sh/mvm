@@ -3,23 +3,23 @@
 package core
 
 import (
-	"sync"
 	"reflect"
+	"sync"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["sync"] = map[string]reflect.Value{
-		"NewCond": reflect.ValueOf(sync.NewCond),
-		"OnceFunc": reflect.ValueOf(sync.OnceFunc),
-		"Cond": reflect.ValueOf((*sync.Cond)(nil)),
-		"Locker": reflect.ValueOf((*sync.Locker)(nil)),
-		"Map": reflect.ValueOf((*sync.Map)(nil)),
-		"Mutex": reflect.ValueOf((*sync.Mutex)(nil)),
-		"Once": reflect.ValueOf((*sync.Once)(nil)),
-		"Pool": reflect.ValueOf((*sync.Pool)(nil)),
-		"RWMutex": reflect.ValueOf((*sync.RWMutex)(nil)),
+		"NewCond":   reflect.ValueOf(sync.NewCond),
+		"OnceFunc":  reflect.ValueOf(sync.OnceFunc),
+		"Cond":      reflect.ValueOf((*sync.Cond)(nil)),
+		"Locker":    reflect.ValueOf((*sync.Locker)(nil)),
+		"Map":       reflect.ValueOf((*sync.Map)(nil)),
+		"Mutex":     reflect.ValueOf((*sync.Mutex)(nil)),
+		"Once":      reflect.ValueOf((*sync.Once)(nil)),
+		"Pool":      reflect.ValueOf((*sync.Pool)(nil)),
+		"RWMutex":   reflect.ValueOf((*sync.RWMutex)(nil)),
 		"WaitGroup": reflect.ValueOf((*sync.WaitGroup)(nil)),
 	}
 }

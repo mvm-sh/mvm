@@ -6,3 +6,4 @@ demo
 extract
 mvm
 tags
+examples/c/libmvm.h

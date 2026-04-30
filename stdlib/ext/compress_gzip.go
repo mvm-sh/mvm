@@ -11,18 +11,18 @@ import (
 
 func init() {
 	stdlib.Values["compress/gzip"] = map[string]reflect.Value{
-		"BestCompression": reflect.ValueOf(gzip.BestCompression),
-		"BestSpeed": reflect.ValueOf(gzip.BestSpeed),
+		"BestCompression":    reflect.ValueOf(gzip.BestCompression),
+		"BestSpeed":          reflect.ValueOf(gzip.BestSpeed),
 		"DefaultCompression": reflect.ValueOf(gzip.DefaultCompression),
-		"HuffmanOnly": reflect.ValueOf(gzip.HuffmanOnly),
-		"NewReader": reflect.ValueOf(gzip.NewReader),
-		"NewWriter": reflect.ValueOf(gzip.NewWriter),
-		"NewWriterLevel": reflect.ValueOf(gzip.NewWriterLevel),
-		"NoCompression": reflect.ValueOf(gzip.NoCompression),
-		"ErrChecksum": reflect.ValueOf(&gzip.ErrChecksum),
-		"ErrHeader": reflect.ValueOf(&gzip.ErrHeader),
-		"Header": reflect.ValueOf((*gzip.Header)(nil)),
-		"Reader": reflect.ValueOf((*gzip.Reader)(nil)),
-		"Writer": reflect.ValueOf((*gzip.Writer)(nil)),
+		"HuffmanOnly":        reflect.ValueOf(gzip.HuffmanOnly),
+		"NewReader":          reflect.ValueOf(gzip.NewReader),
+		"NewWriter":          reflect.ValueOf(gzip.NewWriter),
+		"NewWriterLevel":     reflect.ValueOf(gzip.NewWriterLevel),
+		"NoCompression":      reflect.ValueOf(gzip.NoCompression),
+		"ErrChecksum":        reflect.ValueOf(&gzip.ErrChecksum),
+		"ErrHeader":          reflect.ValueOf(&gzip.ErrHeader),
+		"Header":             reflect.ValueOf((*gzip.Header)(nil)),
+		"Reader":             reflect.ValueOf((*gzip.Reader)(nil)),
+		"Writer":             reflect.ValueOf((*gzip.Writer)(nil)),
 	}
 }

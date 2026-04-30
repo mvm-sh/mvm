@@ -12,9 +12,9 @@ import (
 func init() {
 	stdlib.Values["hash"] = map[string]reflect.Value{
 		"Cloner": reflect.ValueOf((*hash.Cloner)(nil)),
-		"Hash": reflect.ValueOf((*hash.Hash)(nil)),
+		"Hash":   reflect.ValueOf((*hash.Hash)(nil)),
 		"Hash32": reflect.ValueOf((*hash.Hash32)(nil)),
 		"Hash64": reflect.ValueOf((*hash.Hash64)(nil)),
-		"XOF": reflect.ValueOf((*hash.XOF)(nil)),
+		"XOF":    reflect.ValueOf((*hash.XOF)(nil)),
 	}
 }

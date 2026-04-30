@@ -3,15 +3,15 @@
 package ext
 
 import (
-	"testing/slogtest"
 	"reflect"
+	"testing/slogtest"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["testing/slogtest"] = map[string]reflect.Value{
-		"Run": reflect.ValueOf(slogtest.Run),
+		"Run":         reflect.ValueOf(slogtest.Run),
 		"TestHandler": reflect.ValueOf(slogtest.TestHandler),
 	}
 }

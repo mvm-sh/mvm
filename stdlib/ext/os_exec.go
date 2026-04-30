@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["os/exec"] = map[string]reflect.Value{
-		"Command": reflect.ValueOf(exec.Command),
+		"Command":        reflect.ValueOf(exec.Command),
 		"CommandContext": reflect.ValueOf(exec.CommandContext),
-		"LookPath": reflect.ValueOf(exec.LookPath),
-		"ErrDot": reflect.ValueOf(&exec.ErrDot),
-		"ErrNotFound": reflect.ValueOf(&exec.ErrNotFound),
-		"ErrWaitDelay": reflect.ValueOf(&exec.ErrWaitDelay),
-		"Cmd": reflect.ValueOf((*exec.Cmd)(nil)),
-		"Error": reflect.ValueOf((*exec.Error)(nil)),
-		"ExitError": reflect.ValueOf((*exec.ExitError)(nil)),
+		"LookPath":       reflect.ValueOf(exec.LookPath),
+		"ErrDot":         reflect.ValueOf(&exec.ErrDot),
+		"ErrNotFound":    reflect.ValueOf(&exec.ErrNotFound),
+		"ErrWaitDelay":   reflect.ValueOf(&exec.ErrWaitDelay),
+		"Cmd":            reflect.ValueOf((*exec.Cmd)(nil)),
+		"Error":          reflect.ValueOf((*exec.Error)(nil)),
+		"ExitError":      reflect.ValueOf((*exec.ExitError)(nil)),
 	}
 }

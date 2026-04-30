@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["net/http/httptest"] = map[string]reflect.Value{
-		"DefaultRemoteAddr": reflect.ValueOf(httptest.DefaultRemoteAddr),
-		"NewRecorder": reflect.ValueOf(httptest.NewRecorder),
-		"NewRequest": reflect.ValueOf(httptest.NewRequest),
+		"DefaultRemoteAddr":     reflect.ValueOf(httptest.DefaultRemoteAddr),
+		"NewRecorder":           reflect.ValueOf(httptest.NewRecorder),
+		"NewRequest":            reflect.ValueOf(httptest.NewRequest),
 		"NewRequestWithContext": reflect.ValueOf(httptest.NewRequestWithContext),
-		"NewServer": reflect.ValueOf(httptest.NewServer),
-		"NewTLSServer": reflect.ValueOf(httptest.NewTLSServer),
-		"NewUnstartedServer": reflect.ValueOf(httptest.NewUnstartedServer),
-		"ResponseRecorder": reflect.ValueOf((*httptest.ResponseRecorder)(nil)),
-		"Server": reflect.ValueOf((*httptest.Server)(nil)),
+		"NewServer":             reflect.ValueOf(httptest.NewServer),
+		"NewTLSServer":          reflect.ValueOf(httptest.NewTLSServer),
+		"NewUnstartedServer":    reflect.ValueOf(httptest.NewUnstartedServer),
+		"ResponseRecorder":      reflect.ValueOf((*httptest.ResponseRecorder)(nil)),
+		"Server":                reflect.ValueOf((*httptest.Server)(nil)),
 	}
 }

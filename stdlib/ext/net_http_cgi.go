@@ -11,9 +11,9 @@ import (
 
 func init() {
 	stdlib.Values["net/http/cgi"] = map[string]reflect.Value{
-		"Request": reflect.ValueOf(cgi.Request),
+		"Request":        reflect.ValueOf(cgi.Request),
 		"RequestFromMap": reflect.ValueOf(cgi.RequestFromMap),
-		"Serve": reflect.ValueOf(cgi.Serve),
-		"Handler": reflect.ValueOf((*cgi.Handler)(nil)),
+		"Serve":          reflect.ValueOf(cgi.Serve),
+		"Handler":        reflect.ValueOf((*cgi.Handler)(nil)),
 	}
 }

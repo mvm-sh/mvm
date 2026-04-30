@@ -11,10 +11,10 @@ import (
 
 func init() {
 	stdlib.Values["net/rpc/jsonrpc"] = map[string]reflect.Value{
-		"Dial": reflect.ValueOf(jsonrpc.Dial),
-		"NewClient": reflect.ValueOf(jsonrpc.NewClient),
+		"Dial":           reflect.ValueOf(jsonrpc.Dial),
+		"NewClient":      reflect.ValueOf(jsonrpc.NewClient),
 		"NewClientCodec": reflect.ValueOf(jsonrpc.NewClientCodec),
 		"NewServerCodec": reflect.ValueOf(jsonrpc.NewServerCodec),
-		"ServeConn": reflect.ValueOf(jsonrpc.ServeConn),
+		"ServeConn":      reflect.ValueOf(jsonrpc.ServeConn),
 	}
 }

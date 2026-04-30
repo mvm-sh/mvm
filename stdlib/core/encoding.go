@@ -11,11 +11,11 @@ import (
 
 func init() {
 	stdlib.Values["encoding"] = map[string]reflect.Value{
-		"BinaryAppender": reflect.ValueOf((*encoding.BinaryAppender)(nil)),
-		"BinaryMarshaler": reflect.ValueOf((*encoding.BinaryMarshaler)(nil)),
+		"BinaryAppender":    reflect.ValueOf((*encoding.BinaryAppender)(nil)),
+		"BinaryMarshaler":   reflect.ValueOf((*encoding.BinaryMarshaler)(nil)),
 		"BinaryUnmarshaler": reflect.ValueOf((*encoding.BinaryUnmarshaler)(nil)),
-		"TextAppender": reflect.ValueOf((*encoding.TextAppender)(nil)),
-		"TextMarshaler": reflect.ValueOf((*encoding.TextMarshaler)(nil)),
-		"TextUnmarshaler": reflect.ValueOf((*encoding.TextUnmarshaler)(nil)),
+		"TextAppender":      reflect.ValueOf((*encoding.TextAppender)(nil)),
+		"TextMarshaler":     reflect.ValueOf((*encoding.TextMarshaler)(nil)),
+		"TextUnmarshaler":   reflect.ValueOf((*encoding.TextUnmarshaler)(nil)),
 	}
 }

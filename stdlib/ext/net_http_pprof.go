@@ -13,9 +13,9 @@ func init() {
 	stdlib.Values["net/http/pprof"] = map[string]reflect.Value{
 		"Cmdline": reflect.ValueOf(pprof.Cmdline),
 		"Handler": reflect.ValueOf(pprof.Handler),
-		"Index": reflect.ValueOf(pprof.Index),
+		"Index":   reflect.ValueOf(pprof.Index),
 		"Profile": reflect.ValueOf(pprof.Profile),
-		"Symbol": reflect.ValueOf(pprof.Symbol),
-		"Trace": reflect.ValueOf(pprof.Trace),
+		"Symbol":  reflect.ValueOf(pprof.Symbol),
+		"Trace":   reflect.ValueOf(pprof.Trace),
 	}
 }

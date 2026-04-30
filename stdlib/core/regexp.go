@@ -3,22 +3,22 @@
 package core
 
 import (
-	"regexp"
 	"reflect"
+	"regexp"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["regexp"] = map[string]reflect.Value{
-		"Compile": reflect.ValueOf(regexp.Compile),
-		"CompilePOSIX": reflect.ValueOf(regexp.CompilePOSIX),
-		"Match": reflect.ValueOf(regexp.Match),
-		"MatchReader": reflect.ValueOf(regexp.MatchReader),
-		"MatchString": reflect.ValueOf(regexp.MatchString),
-		"MustCompile": reflect.ValueOf(regexp.MustCompile),
+		"Compile":          reflect.ValueOf(regexp.Compile),
+		"CompilePOSIX":     reflect.ValueOf(regexp.CompilePOSIX),
+		"Match":            reflect.ValueOf(regexp.Match),
+		"MatchReader":      reflect.ValueOf(regexp.MatchReader),
+		"MatchString":      reflect.ValueOf(regexp.MatchString),
+		"MustCompile":      reflect.ValueOf(regexp.MustCompile),
 		"MustCompilePOSIX": reflect.ValueOf(regexp.MustCompilePOSIX),
-		"QuoteMeta": reflect.ValueOf(regexp.QuoteMeta),
-		"Regexp": reflect.ValueOf((*regexp.Regexp)(nil)),
+		"QuoteMeta":        reflect.ValueOf(regexp.QuoteMeta),
+		"Regexp":           reflect.ValueOf((*regexp.Regexp)(nil)),
 	}
 }

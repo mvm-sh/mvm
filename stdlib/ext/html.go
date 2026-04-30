@@ -11,7 +11,7 @@ import (
 
 func init() {
 	stdlib.Values["html"] = map[string]reflect.Value{
-		"EscapeString": reflect.ValueOf(html.EscapeString),
+		"EscapeString":   reflect.ValueOf(html.EscapeString),
 		"UnescapeString": reflect.ValueOf(html.UnescapeString),
 	}
 }

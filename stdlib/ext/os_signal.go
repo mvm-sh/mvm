@@ -11,11 +11,11 @@ import (
 
 func init() {
 	stdlib.Values["os/signal"] = map[string]reflect.Value{
-		"Ignore": reflect.ValueOf(signal.Ignore),
-		"Ignored": reflect.ValueOf(signal.Ignored),
-		"Notify": reflect.ValueOf(signal.Notify),
+		"Ignore":        reflect.ValueOf(signal.Ignore),
+		"Ignored":       reflect.ValueOf(signal.Ignored),
+		"Notify":        reflect.ValueOf(signal.Notify),
 		"NotifyContext": reflect.ValueOf(signal.NotifyContext),
-		"Reset": reflect.ValueOf(signal.Reset),
-		"Stop": reflect.ValueOf(signal.Stop),
+		"Reset":         reflect.ValueOf(signal.Reset),
+		"Stop":          reflect.ValueOf(signal.Stop),
 	}
 }

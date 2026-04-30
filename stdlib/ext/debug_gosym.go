@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["debug/gosym"] = map[string]reflect.Value{
-		"NewLineTable": reflect.ValueOf(gosym.NewLineTable),
-		"NewTable": reflect.ValueOf(gosym.NewTable),
-		"DecodingError": reflect.ValueOf((*gosym.DecodingError)(nil)),
-		"Func": reflect.ValueOf((*gosym.Func)(nil)),
-		"LineTable": reflect.ValueOf((*gosym.LineTable)(nil)),
-		"Obj": reflect.ValueOf((*gosym.Obj)(nil)),
-		"Sym": reflect.ValueOf((*gosym.Sym)(nil)),
-		"Table": reflect.ValueOf((*gosym.Table)(nil)),
+		"NewLineTable":     reflect.ValueOf(gosym.NewLineTable),
+		"NewTable":         reflect.ValueOf(gosym.NewTable),
+		"DecodingError":    reflect.ValueOf((*gosym.DecodingError)(nil)),
+		"Func":             reflect.ValueOf((*gosym.Func)(nil)),
+		"LineTable":        reflect.ValueOf((*gosym.LineTable)(nil)),
+		"Obj":              reflect.ValueOf((*gosym.Obj)(nil)),
+		"Sym":              reflect.ValueOf((*gosym.Sym)(nil)),
+		"Table":            reflect.ValueOf((*gosym.Table)(nil)),
 		"UnknownFileError": reflect.ValueOf((*gosym.UnknownFileError)(nil)),
 		"UnknownLineError": reflect.ValueOf((*gosym.UnknownLineError)(nil)),
 	}

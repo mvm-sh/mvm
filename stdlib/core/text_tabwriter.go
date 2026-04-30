@@ -3,22 +3,22 @@
 package core
 
 import (
-	"text/tabwriter"
 	"reflect"
+	"text/tabwriter"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["text/tabwriter"] = map[string]reflect.Value{
-		"AlignRight": reflect.ValueOf(tabwriter.AlignRight),
-		"Debug": reflect.ValueOf(tabwriter.Debug),
+		"AlignRight":          reflect.ValueOf(tabwriter.AlignRight),
+		"Debug":               reflect.ValueOf(tabwriter.Debug),
 		"DiscardEmptyColumns": reflect.ValueOf(tabwriter.DiscardEmptyColumns),
-		"Escape": reflect.ValueOf(tabwriter.Escape),
-		"FilterHTML": reflect.ValueOf(tabwriter.FilterHTML),
-		"NewWriter": reflect.ValueOf(tabwriter.NewWriter),
-		"StripEscape": reflect.ValueOf(tabwriter.StripEscape),
-		"TabIndent": reflect.ValueOf(tabwriter.TabIndent),
-		"Writer": reflect.ValueOf((*tabwriter.Writer)(nil)),
+		"Escape":              reflect.ValueOf(tabwriter.Escape),
+		"FilterHTML":          reflect.ValueOf(tabwriter.FilterHTML),
+		"NewWriter":           reflect.ValueOf(tabwriter.NewWriter),
+		"StripEscape":         reflect.ValueOf(tabwriter.StripEscape),
+		"TabIndent":           reflect.ValueOf(tabwriter.TabIndent),
+		"Writer":              reflect.ValueOf((*tabwriter.Writer)(nil)),
 	}
 }

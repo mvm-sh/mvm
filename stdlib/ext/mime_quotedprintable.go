@@ -13,7 +13,7 @@ func init() {
 	stdlib.Values["mime/quotedprintable"] = map[string]reflect.Value{
 		"NewReader": reflect.ValueOf(quotedprintable.NewReader),
 		"NewWriter": reflect.ValueOf(quotedprintable.NewWriter),
-		"Reader": reflect.ValueOf((*quotedprintable.Reader)(nil)),
-		"Writer": reflect.ValueOf((*quotedprintable.Writer)(nil)),
+		"Reader":    reflect.ValueOf((*quotedprintable.Reader)(nil)),
+		"Writer":    reflect.ValueOf((*quotedprintable.Writer)(nil)),
 	}
 }

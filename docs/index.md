@@ -16,6 +16,7 @@ Mvm is an experimental Go interpreter built from a pipeline of composable packag
 - [vm](modules/vm.md) -- stack-based bytecode virtual machine
 - [interp](modules/interp.md) -- integration layer and REPL
 - [stdlib](modules/stdlib.md) -- standard library wrappers for native Go imports
+- [cmd/extract](modules/extract.md) -- generator for stdlib binding files
 
 ## Architecture Decision Records
 
@@ -31,3 +32,4 @@ Mvm is an experimental Go interpreter built from a pipeline of composable packag
 - [ADR-010: Compiler intrinsics for math and bit manipulation](decisions/ADR-010-intrinsics.md)
 - [ADR-011: Generics via monomorphization](decisions/ADR-011-generics-monomorphization.md)
 - [ADR-012: Package patchers and argument proxies](decisions/ADR-012-package-patchers-arg-proxies.md)
+- [ADR-013: Split stdlib bindings into `core` and `ext`](decisions/ADR-013-stdlib-core-ext-split.md)

@@ -11,7 +11,7 @@ import (
 
 func init() {
 	stdlib.Values["index/suffixarray"] = map[string]reflect.Value{
-		"New": reflect.ValueOf(suffixarray.New),
+		"New":   reflect.ValueOf(suffixarray.New),
 		"Index": reflect.ValueOf((*suffixarray.Index)(nil)),
 	}
 }

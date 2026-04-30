@@ -11,9 +11,9 @@ import (
 
 func init() {
 	stdlib.Values["net/http/cookiejar"] = map[string]reflect.Value{
-		"New": reflect.ValueOf(cookiejar.New),
-		"Jar": reflect.ValueOf((*cookiejar.Jar)(nil)),
-		"Options": reflect.ValueOf((*cookiejar.Options)(nil)),
+		"New":              reflect.ValueOf(cookiejar.New),
+		"Jar":              reflect.ValueOf((*cookiejar.Jar)(nil)),
+		"Options":          reflect.ValueOf((*cookiejar.Options)(nil)),
 		"PublicSuffixList": reflect.ValueOf((*cookiejar.PublicSuffixList)(nil)),
 	}
 }

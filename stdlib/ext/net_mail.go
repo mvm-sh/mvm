@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["net/mail"] = map[string]reflect.Value{
-		"ParseAddress": reflect.ValueOf(mail.ParseAddress),
-		"ParseAddressList": reflect.ValueOf(mail.ParseAddressList),
-		"ParseDate": reflect.ValueOf(mail.ParseDate),
-		"ReadMessage": reflect.ValueOf(mail.ReadMessage),
+		"ParseAddress":        reflect.ValueOf(mail.ParseAddress),
+		"ParseAddressList":    reflect.ValueOf(mail.ParseAddressList),
+		"ParseDate":           reflect.ValueOf(mail.ParseDate),
+		"ReadMessage":         reflect.ValueOf(mail.ReadMessage),
 		"ErrHeaderNotPresent": reflect.ValueOf(&mail.ErrHeaderNotPresent),
-		"Address": reflect.ValueOf((*mail.Address)(nil)),
-		"AddressParser": reflect.ValueOf((*mail.AddressParser)(nil)),
-		"Header": reflect.ValueOf((*mail.Header)(nil)),
-		"Message": reflect.ValueOf((*mail.Message)(nil)),
+		"Address":             reflect.ValueOf((*mail.Address)(nil)),
+		"AddressParser":       reflect.ValueOf((*mail.AddressParser)(nil)),
+		"Header":              reflect.ValueOf((*mail.Header)(nil)),
+		"Message":             reflect.ValueOf((*mail.Message)(nil)),
 	}
 }

@@ -11,9 +11,9 @@ import (
 
 func init() {
 	stdlib.Values["go/importer"] = map[string]reflect.Value{
-		"Default": reflect.ValueOf(importer.Default),
-		"For": reflect.ValueOf(importer.For),
+		"Default":     reflect.ValueOf(importer.Default),
+		"For":         reflect.ValueOf(importer.For),
 		"ForCompiler": reflect.ValueOf(importer.ForCompiler),
-		"Lookup": reflect.ValueOf((*importer.Lookup)(nil)),
+		"Lookup":      reflect.ValueOf((*importer.Lookup)(nil)),
 	}
 }

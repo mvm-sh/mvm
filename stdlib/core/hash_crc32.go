@@ -11,17 +11,17 @@ import (
 
 func init() {
 	stdlib.Values["hash/crc32"] = map[string]reflect.Value{
-		"Castagnoli": reflect.ValueOf(crc32.Castagnoli),
-		"Checksum": reflect.ValueOf(crc32.Checksum),
+		"Castagnoli":   reflect.ValueOf(crc32.Castagnoli),
+		"Checksum":     reflect.ValueOf(crc32.Checksum),
 		"ChecksumIEEE": reflect.ValueOf(crc32.ChecksumIEEE),
-		"IEEE": reflect.ValueOf(crc32.IEEE),
-		"Koopman": reflect.ValueOf(crc32.Koopman),
-		"MakeTable": reflect.ValueOf(crc32.MakeTable),
-		"New": reflect.ValueOf(crc32.New),
-		"NewIEEE": reflect.ValueOf(crc32.NewIEEE),
-		"Size": reflect.ValueOf(crc32.Size),
-		"Update": reflect.ValueOf(crc32.Update),
-		"IEEETable": reflect.ValueOf(&crc32.IEEETable),
-		"Table": reflect.ValueOf((*crc32.Table)(nil)),
+		"IEEE":         reflect.ValueOf(crc32.IEEE),
+		"Koopman":      reflect.ValueOf(crc32.Koopman),
+		"MakeTable":    reflect.ValueOf(crc32.MakeTable),
+		"New":          reflect.ValueOf(crc32.New),
+		"NewIEEE":      reflect.ValueOf(crc32.NewIEEE),
+		"Size":         reflect.ValueOf(crc32.Size),
+		"Update":       reflect.ValueOf(crc32.Update),
+		"IEEETable":    reflect.ValueOf(&crc32.IEEETable),
+		"Table":        reflect.ValueOf((*crc32.Table)(nil)),
 	}
 }

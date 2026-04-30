@@ -3,24 +3,24 @@
 package ext
 
 import (
-	"runtime/metrics"
 	"reflect"
+	"runtime/metrics"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["runtime/metrics"] = map[string]reflect.Value{
-		"All": reflect.ValueOf(metrics.All),
-		"KindBad": reflect.ValueOf(metrics.KindBad),
-		"KindFloat64": reflect.ValueOf(metrics.KindFloat64),
+		"All":                  reflect.ValueOf(metrics.All),
+		"KindBad":              reflect.ValueOf(metrics.KindBad),
+		"KindFloat64":          reflect.ValueOf(metrics.KindFloat64),
 		"KindFloat64Histogram": reflect.ValueOf(metrics.KindFloat64Histogram),
-		"KindUint64": reflect.ValueOf(metrics.KindUint64),
-		"Read": reflect.ValueOf(metrics.Read),
-		"Description": reflect.ValueOf((*metrics.Description)(nil)),
-		"Float64Histogram": reflect.ValueOf((*metrics.Float64Histogram)(nil)),
-		"Sample": reflect.ValueOf((*metrics.Sample)(nil)),
-		"Value": reflect.ValueOf((*metrics.Value)(nil)),
-		"ValueKind": reflect.ValueOf((*metrics.ValueKind)(nil)),
+		"KindUint64":           reflect.ValueOf(metrics.KindUint64),
+		"Read":                 reflect.ValueOf(metrics.Read),
+		"Description":          reflect.ValueOf((*metrics.Description)(nil)),
+		"Float64Histogram":     reflect.ValueOf((*metrics.Float64Histogram)(nil)),
+		"Sample":               reflect.ValueOf((*metrics.Sample)(nil)),
+		"Value":                reflect.ValueOf((*metrics.Value)(nil)),
+		"ValueKind":            reflect.ValueOf((*metrics.ValueKind)(nil)),
 	}
 }

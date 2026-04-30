@@ -13,6 +13,6 @@ func init() {
 	stdlib.Values["go/version"] = map[string]reflect.Value{
 		"Compare": reflect.ValueOf(version.Compare),
 		"IsValid": reflect.ValueOf(version.IsValid),
-		"Lang": reflect.ValueOf(version.Lang),
+		"Lang":    reflect.ValueOf(version.Lang),
 	}
 }

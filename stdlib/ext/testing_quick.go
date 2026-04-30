@@ -3,21 +3,21 @@
 package ext
 
 import (
-	"testing/quick"
 	"reflect"
+	"testing/quick"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["testing/quick"] = map[string]reflect.Value{
-		"Check": reflect.ValueOf(quick.Check),
-		"CheckEqual": reflect.ValueOf(quick.CheckEqual),
-		"Value": reflect.ValueOf(quick.Value),
+		"Check":           reflect.ValueOf(quick.Check),
+		"CheckEqual":      reflect.ValueOf(quick.CheckEqual),
+		"Value":           reflect.ValueOf(quick.Value),
 		"CheckEqualError": reflect.ValueOf((*quick.CheckEqualError)(nil)),
-		"CheckError": reflect.ValueOf((*quick.CheckError)(nil)),
-		"Config": reflect.ValueOf((*quick.Config)(nil)),
-		"Generator": reflect.ValueOf((*quick.Generator)(nil)),
-		"SetupError": reflect.ValueOf((*quick.SetupError)(nil)),
+		"CheckError":      reflect.ValueOf((*quick.CheckError)(nil)),
+		"Config":          reflect.ValueOf((*quick.Config)(nil)),
+		"Generator":       reflect.ValueOf((*quick.Generator)(nil)),
+		"SetupError":      reflect.ValueOf((*quick.SetupError)(nil)),
 	}
 }

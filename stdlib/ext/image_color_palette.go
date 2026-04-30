@@ -11,7 +11,7 @@ import (
 
 func init() {
 	stdlib.Values["image/color/palette"] = map[string]reflect.Value{
-		"Plan9": reflect.ValueOf(&palette.Plan9),
+		"Plan9":   reflect.ValueOf(&palette.Plan9),
 		"WebSafe": reflect.ValueOf(&palette.WebSafe),
 	}
 }

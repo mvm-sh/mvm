@@ -11,8 +11,8 @@ import (
 
 func init() {
 	stdlib.Values["crypto/rc4"] = map[string]reflect.Value{
-		"NewCipher": reflect.ValueOf(rc4.NewCipher),
-		"Cipher": reflect.ValueOf((*rc4.Cipher)(nil)),
+		"NewCipher":    reflect.ValueOf(rc4.NewCipher),
+		"Cipher":       reflect.ValueOf((*rc4.Cipher)(nil)),
 		"KeySizeError": reflect.ValueOf((*rc4.KeySizeError)(nil)),
 	}
 }

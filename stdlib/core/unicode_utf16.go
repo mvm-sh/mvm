@@ -3,20 +3,20 @@
 package core
 
 import (
-	"unicode/utf16"
 	"reflect"
+	"unicode/utf16"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["unicode/utf16"] = map[string]reflect.Value{
-		"AppendRune": reflect.ValueOf(utf16.AppendRune),
-		"Decode": reflect.ValueOf(utf16.Decode),
-		"DecodeRune": reflect.ValueOf(utf16.DecodeRune),
-		"Encode": reflect.ValueOf(utf16.Encode),
-		"EncodeRune": reflect.ValueOf(utf16.EncodeRune),
+		"AppendRune":  reflect.ValueOf(utf16.AppendRune),
+		"Decode":      reflect.ValueOf(utf16.Decode),
+		"DecodeRune":  reflect.ValueOf(utf16.DecodeRune),
+		"Encode":      reflect.ValueOf(utf16.Encode),
+		"EncodeRune":  reflect.ValueOf(utf16.EncodeRune),
 		"IsSurrogate": reflect.ValueOf(utf16.IsSurrogate),
-		"RuneLen": reflect.ValueOf(utf16.RuneLen),
+		"RuneLen":     reflect.ValueOf(utf16.RuneLen),
 	}
 }

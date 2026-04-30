@@ -11,13 +11,13 @@ import (
 
 func init() {
 	stdlib.Values["crypto/subtle"] = map[string]reflect.Value{
-		"ConstantTimeByteEq": reflect.ValueOf(subtle.ConstantTimeByteEq),
-		"ConstantTimeCompare": reflect.ValueOf(subtle.ConstantTimeCompare),
-		"ConstantTimeCopy": reflect.ValueOf(subtle.ConstantTimeCopy),
-		"ConstantTimeEq": reflect.ValueOf(subtle.ConstantTimeEq),
-		"ConstantTimeLessOrEq": reflect.ValueOf(subtle.ConstantTimeLessOrEq),
-		"ConstantTimeSelect": reflect.ValueOf(subtle.ConstantTimeSelect),
+		"ConstantTimeByteEq":        reflect.ValueOf(subtle.ConstantTimeByteEq),
+		"ConstantTimeCompare":       reflect.ValueOf(subtle.ConstantTimeCompare),
+		"ConstantTimeCopy":          reflect.ValueOf(subtle.ConstantTimeCopy),
+		"ConstantTimeEq":            reflect.ValueOf(subtle.ConstantTimeEq),
+		"ConstantTimeLessOrEq":      reflect.ValueOf(subtle.ConstantTimeLessOrEq),
+		"ConstantTimeSelect":        reflect.ValueOf(subtle.ConstantTimeSelect),
 		"WithDataIndependentTiming": reflect.ValueOf(subtle.WithDataIndependentTiming),
-		"XORBytes": reflect.ValueOf(subtle.XORBytes),
+		"XORBytes":                  reflect.ValueOf(subtle.XORBytes),
 	}
 }

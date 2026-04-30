@@ -12,6 +12,6 @@ import (
 func init() {
 	stdlib.Values["crypto/hmac"] = map[string]reflect.Value{
 		"Equal": reflect.ValueOf(hmac.Equal),
-		"New": reflect.ValueOf(hmac.New),
+		"New":   reflect.ValueOf(hmac.New),
 	}
 }

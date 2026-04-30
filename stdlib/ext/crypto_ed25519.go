@@ -11,17 +11,17 @@ import (
 
 func init() {
 	stdlib.Values["crypto/ed25519"] = map[string]reflect.Value{
-		"GenerateKey": reflect.ValueOf(ed25519.GenerateKey),
-		"NewKeyFromSeed": reflect.ValueOf(ed25519.NewKeyFromSeed),
-		"PrivateKeySize": reflect.ValueOf(ed25519.PrivateKeySize),
-		"PublicKeySize": reflect.ValueOf(ed25519.PublicKeySize),
-		"SeedSize": reflect.ValueOf(ed25519.SeedSize),
-		"Sign": reflect.ValueOf(ed25519.Sign),
-		"SignatureSize": reflect.ValueOf(ed25519.SignatureSize),
-		"Verify": reflect.ValueOf(ed25519.Verify),
+		"GenerateKey":       reflect.ValueOf(ed25519.GenerateKey),
+		"NewKeyFromSeed":    reflect.ValueOf(ed25519.NewKeyFromSeed),
+		"PrivateKeySize":    reflect.ValueOf(ed25519.PrivateKeySize),
+		"PublicKeySize":     reflect.ValueOf(ed25519.PublicKeySize),
+		"SeedSize":          reflect.ValueOf(ed25519.SeedSize),
+		"Sign":              reflect.ValueOf(ed25519.Sign),
+		"SignatureSize":     reflect.ValueOf(ed25519.SignatureSize),
+		"Verify":            reflect.ValueOf(ed25519.Verify),
 		"VerifyWithOptions": reflect.ValueOf(ed25519.VerifyWithOptions),
-		"Options": reflect.ValueOf((*ed25519.Options)(nil)),
-		"PrivateKey": reflect.ValueOf((*ed25519.PrivateKey)(nil)),
-		"PublicKey": reflect.ValueOf((*ed25519.PublicKey)(nil)),
+		"Options":           reflect.ValueOf((*ed25519.Options)(nil)),
+		"PrivateKey":        reflect.ValueOf((*ed25519.PrivateKey)(nil)),
+		"PublicKey":         reflect.ValueOf((*ed25519.PublicKey)(nil)),
 	}
 }

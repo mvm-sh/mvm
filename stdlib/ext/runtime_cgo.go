@@ -5,16 +5,16 @@
 package ext
 
 import (
-	"runtime/cgo"
 	"reflect"
+	"runtime/cgo"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["runtime/cgo"] = map[string]reflect.Value{
-		"NewHandle": reflect.ValueOf(cgo.NewHandle),
-		"Handle": reflect.ValueOf((*cgo.Handle)(nil)),
+		"NewHandle":  reflect.ValueOf(cgo.NewHandle),
+		"Handle":     reflect.ValueOf((*cgo.Handle)(nil)),
 		"Incomplete": reflect.ValueOf((*cgo.Incomplete)(nil)),
 	}
 }

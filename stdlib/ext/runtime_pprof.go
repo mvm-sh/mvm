@@ -3,27 +3,27 @@
 package ext
 
 import (
-	"runtime/pprof"
 	"reflect"
+	"runtime/pprof"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["runtime/pprof"] = map[string]reflect.Value{
-		"Do": reflect.ValueOf(pprof.Do),
-		"ForLabels": reflect.ValueOf(pprof.ForLabels),
-		"Label": reflect.ValueOf(pprof.Label),
-		"Labels": reflect.ValueOf(pprof.Labels),
-		"Lookup": reflect.ValueOf(pprof.Lookup),
-		"NewProfile": reflect.ValueOf(pprof.NewProfile),
-		"Profiles": reflect.ValueOf(pprof.Profiles),
+		"Do":                 reflect.ValueOf(pprof.Do),
+		"ForLabels":          reflect.ValueOf(pprof.ForLabels),
+		"Label":              reflect.ValueOf(pprof.Label),
+		"Labels":             reflect.ValueOf(pprof.Labels),
+		"Lookup":             reflect.ValueOf(pprof.Lookup),
+		"NewProfile":         reflect.ValueOf(pprof.NewProfile),
+		"Profiles":           reflect.ValueOf(pprof.Profiles),
 		"SetGoroutineLabels": reflect.ValueOf(pprof.SetGoroutineLabels),
-		"StartCPUProfile": reflect.ValueOf(pprof.StartCPUProfile),
-		"StopCPUProfile": reflect.ValueOf(pprof.StopCPUProfile),
-		"WithLabels": reflect.ValueOf(pprof.WithLabels),
-		"WriteHeapProfile": reflect.ValueOf(pprof.WriteHeapProfile),
-		"LabelSet": reflect.ValueOf((*pprof.LabelSet)(nil)),
-		"Profile": reflect.ValueOf((*pprof.Profile)(nil)),
+		"StartCPUProfile":    reflect.ValueOf(pprof.StartCPUProfile),
+		"StopCPUProfile":     reflect.ValueOf(pprof.StopCPUProfile),
+		"WithLabels":         reflect.ValueOf(pprof.WithLabels),
+		"WriteHeapProfile":   reflect.ValueOf(pprof.WriteHeapProfile),
+		"LabelSet":           reflect.ValueOf((*pprof.LabelSet)(nil)),
+		"Profile":            reflect.ValueOf((*pprof.Profile)(nil)),
 	}
 }

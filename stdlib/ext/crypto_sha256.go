@@ -12,11 +12,11 @@ import (
 func init() {
 	stdlib.Values["crypto/sha256"] = map[string]reflect.Value{
 		"BlockSize": reflect.ValueOf(sha256.BlockSize),
-		"New": reflect.ValueOf(sha256.New),
-		"New224": reflect.ValueOf(sha256.New224),
-		"Size": reflect.ValueOf(sha256.Size),
-		"Size224": reflect.ValueOf(sha256.Size224),
-		"Sum224": reflect.ValueOf(sha256.Sum224),
-		"Sum256": reflect.ValueOf(sha256.Sum256),
+		"New":       reflect.ValueOf(sha256.New),
+		"New224":    reflect.ValueOf(sha256.New224),
+		"Size":      reflect.ValueOf(sha256.Size),
+		"Size224":   reflect.ValueOf(sha256.Size224),
+		"Sum224":    reflect.ValueOf(sha256.Sum224),
+		"Sum256":    reflect.ValueOf(sha256.Sum256),
 	}
 }

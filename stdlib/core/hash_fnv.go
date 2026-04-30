@@ -11,11 +11,11 @@ import (
 
 func init() {
 	stdlib.Values["hash/fnv"] = map[string]reflect.Value{
-		"New128": reflect.ValueOf(fnv.New128),
+		"New128":  reflect.ValueOf(fnv.New128),
 		"New128a": reflect.ValueOf(fnv.New128a),
-		"New32": reflect.ValueOf(fnv.New32),
-		"New32a": reflect.ValueOf(fnv.New32a),
-		"New64": reflect.ValueOf(fnv.New64),
-		"New64a": reflect.ValueOf(fnv.New64a),
+		"New32":   reflect.ValueOf(fnv.New32),
+		"New32a":  reflect.ValueOf(fnv.New32a),
+		"New64":   reflect.ValueOf(fnv.New64),
+		"New64a":  reflect.ValueOf(fnv.New64a),
 	}
 }

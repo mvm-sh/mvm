@@ -11,16 +11,16 @@ import (
 
 func init() {
 	stdlib.Values["encoding/base64"] = map[string]reflect.Value{
-		"NewDecoder": reflect.ValueOf(base64.NewDecoder),
-		"NewEncoder": reflect.ValueOf(base64.NewEncoder),
-		"NewEncoding": reflect.ValueOf(base64.NewEncoding),
-		"NoPadding": reflect.ValueOf(base64.NoPadding),
-		"StdPadding": reflect.ValueOf(base64.StdPadding),
-		"RawStdEncoding": reflect.ValueOf(&base64.RawStdEncoding),
-		"RawURLEncoding": reflect.ValueOf(&base64.RawURLEncoding),
-		"StdEncoding": reflect.ValueOf(&base64.StdEncoding),
-		"URLEncoding": reflect.ValueOf(&base64.URLEncoding),
+		"NewDecoder":        reflect.ValueOf(base64.NewDecoder),
+		"NewEncoder":        reflect.ValueOf(base64.NewEncoder),
+		"NewEncoding":       reflect.ValueOf(base64.NewEncoding),
+		"NoPadding":         reflect.ValueOf(base64.NoPadding),
+		"StdPadding":        reflect.ValueOf(base64.StdPadding),
+		"RawStdEncoding":    reflect.ValueOf(&base64.RawStdEncoding),
+		"RawURLEncoding":    reflect.ValueOf(&base64.RawURLEncoding),
+		"StdEncoding":       reflect.ValueOf(&base64.StdEncoding),
+		"URLEncoding":       reflect.ValueOf(&base64.URLEncoding),
 		"CorruptInputError": reflect.ValueOf((*base64.CorruptInputError)(nil)),
-		"Encoding": reflect.ValueOf((*base64.Encoding)(nil)),
+		"Encoding":          reflect.ValueOf((*base64.Encoding)(nil)),
 	}
 }

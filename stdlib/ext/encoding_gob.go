@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["encoding/gob"] = map[string]reflect.Value{
-		"NewDecoder": reflect.ValueOf(gob.NewDecoder),
-		"NewEncoder": reflect.ValueOf(gob.NewEncoder),
-		"Register": reflect.ValueOf(gob.Register),
+		"NewDecoder":   reflect.ValueOf(gob.NewDecoder),
+		"NewEncoder":   reflect.ValueOf(gob.NewEncoder),
+		"Register":     reflect.ValueOf(gob.Register),
 		"RegisterName": reflect.ValueOf(gob.RegisterName),
-		"CommonType": reflect.ValueOf((*gob.CommonType)(nil)),
-		"Decoder": reflect.ValueOf((*gob.Decoder)(nil)),
-		"Encoder": reflect.ValueOf((*gob.Encoder)(nil)),
-		"GobDecoder": reflect.ValueOf((*gob.GobDecoder)(nil)),
-		"GobEncoder": reflect.ValueOf((*gob.GobEncoder)(nil)),
+		"CommonType":   reflect.ValueOf((*gob.CommonType)(nil)),
+		"Decoder":      reflect.ValueOf((*gob.Decoder)(nil)),
+		"Encoder":      reflect.ValueOf((*gob.Encoder)(nil)),
+		"GobDecoder":   reflect.ValueOf((*gob.GobDecoder)(nil)),
+		"GobEncoder":   reflect.ValueOf((*gob.GobEncoder)(nil)),
 	}
 }

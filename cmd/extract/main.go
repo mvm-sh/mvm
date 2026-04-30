@@ -11,10 +11,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
 	"go/constant"
+	"go/format"
 	"io"
 	"log"
 	"os"
@@ -204,7 +206,8 @@ func runGen(out io.Writer, dir, importPath string) error {
 	// Determine the Go package name (last non-version path element).
 	alias := goparser.PackageName(importPath)
 
-	w := func(format string, args ...any) { _, _ = fmt.Fprintf(out, format, args...) }
+	var buf bytes.Buffer
+	w := func(f string, args ...any) { _, _ = fmt.Fprintf(&buf, f, args...) }
 	if tag := BuildTags[importPath]; tag != "" {
 		w("//go:build %s\n\n", tag)
 	} else if *targetOS != "" && *targetArch != "" {
@@ -216,36 +219,41 @@ func runGen(out io.Writer, dir, importPath string) error {
 	// Emit a stub file when the package exposes no extractable concrete
 	// symbols (e.g. only generic functions). This keeps the generated file
 	// valid Go even if there is nothing to register.
-	if len(values) == 0 && len(vars) == 0 && len(types) == 0 {
-		return nil
-	}
-
-	w("\nimport (\n")
-	if importPath != "reflect" {
-		w("\t%q\n", importPath)
-	}
-	w("\t\"reflect\"\n")
-	w("\n\t\"github.com/mvm-sh/mvm/stdlib\"\n")
-	w(")\n")
-	w("\nfunc init() {\n")
-	w("\tstdlib.Values[%q] = map[string]reflect.Value{\n", importPath)
-
-	for _, name := range values {
-		if wrap, ok := typedConsts[name]; ok {
-			w("\t\t%q: reflect.ValueOf(%s(%s.%s)),\n", name, wrap, alias, name)
-		} else {
-			w("\t\t%q: reflect.ValueOf(%s.%s),\n", name, alias, name)
+	if len(values) > 0 || len(vars) > 0 || len(types) > 0 {
+		w("\nimport (\n")
+		if importPath != "reflect" {
+			w("\t%q\n", importPath)
 		}
-	}
-	for _, name := range vars {
-		w("\t\t%q: reflect.ValueOf(&%s.%s),\n", name, alias, name)
-	}
-	for _, name := range types {
-		w("\t\t%q: reflect.ValueOf((*%s.%s)(nil)),\n", name, alias, name)
+		w("\t\"reflect\"\n")
+		w("\n\t\"github.com/mvm-sh/mvm/stdlib\"\n")
+		w(")\n")
+		w("\nfunc init() {\n")
+		w("\tstdlib.Values[%q] = map[string]reflect.Value{\n", importPath)
+
+		for _, name := range values {
+			if wrap, ok := typedConsts[name]; ok {
+				w("\t\t%q: reflect.ValueOf(%s(%s.%s)),\n", name, wrap, alias, name)
+			} else {
+				w("\t\t%q: reflect.ValueOf(%s.%s),\n", name, alias, name)
+			}
+		}
+		for _, name := range vars {
+			w("\t\t%q: reflect.ValueOf(&%s.%s),\n", name, alias, name)
+		}
+		for _, name := range types {
+			w("\t\t%q: reflect.ValueOf((*%s.%s)(nil)),\n", name, alias, name)
+		}
+
+		w("\t}\n}\n")
 	}
 
-	w("\t}\n}\n")
-	return nil
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		_, _ = out.Write(buf.Bytes())
+		return fmt.Errorf("format generated source for %s: %w", importPath, err)
+	}
+	_, err = out.Write(formatted)
+	return err
 }
 
 // extractImports reads all .go files in dir (excluding _test.go) and returns

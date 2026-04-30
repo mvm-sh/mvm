@@ -3,23 +3,23 @@
 package ext
 
 import (
-	"testing/iotest"
 	"reflect"
+	"testing/iotest"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
 func init() {
 	stdlib.Values["testing/iotest"] = map[string]reflect.Value{
-		"DataErrReader": reflect.ValueOf(iotest.DataErrReader),
-		"ErrReader": reflect.ValueOf(iotest.ErrReader),
-		"HalfReader": reflect.ValueOf(iotest.HalfReader),
-		"NewReadLogger": reflect.ValueOf(iotest.NewReadLogger),
+		"DataErrReader":  reflect.ValueOf(iotest.DataErrReader),
+		"ErrReader":      reflect.ValueOf(iotest.ErrReader),
+		"HalfReader":     reflect.ValueOf(iotest.HalfReader),
+		"NewReadLogger":  reflect.ValueOf(iotest.NewReadLogger),
 		"NewWriteLogger": reflect.ValueOf(iotest.NewWriteLogger),
-		"OneByteReader": reflect.ValueOf(iotest.OneByteReader),
-		"TestReader": reflect.ValueOf(iotest.TestReader),
-		"TimeoutReader": reflect.ValueOf(iotest.TimeoutReader),
+		"OneByteReader":  reflect.ValueOf(iotest.OneByteReader),
+		"TestReader":     reflect.ValueOf(iotest.TestReader),
+		"TimeoutReader":  reflect.ValueOf(iotest.TimeoutReader),
 		"TruncateWriter": reflect.ValueOf(iotest.TruncateWriter),
-		"ErrTimeout": reflect.ValueOf(&iotest.ErrTimeout),
+		"ErrTimeout":     reflect.ValueOf(&iotest.ErrTimeout),
 	}
 }

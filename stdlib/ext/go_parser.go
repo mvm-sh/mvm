@@ -11,18 +11,18 @@ import (
 
 func init() {
 	stdlib.Values["go/parser"] = map[string]reflect.Value{
-		"AllErrors": reflect.ValueOf(parser.AllErrors),
-		"DeclarationErrors": reflect.ValueOf(parser.DeclarationErrors),
-		"ImportsOnly": reflect.ValueOf(parser.ImportsOnly),
-		"PackageClauseOnly": reflect.ValueOf(parser.PackageClauseOnly),
-		"ParseComments": reflect.ValueOf(parser.ParseComments),
-		"ParseDir": reflect.ValueOf(parser.ParseDir),
-		"ParseExpr": reflect.ValueOf(parser.ParseExpr),
-		"ParseExprFrom": reflect.ValueOf(parser.ParseExprFrom),
-		"ParseFile": reflect.ValueOf(parser.ParseFile),
+		"AllErrors":            reflect.ValueOf(parser.AllErrors),
+		"DeclarationErrors":    reflect.ValueOf(parser.DeclarationErrors),
+		"ImportsOnly":          reflect.ValueOf(parser.ImportsOnly),
+		"PackageClauseOnly":    reflect.ValueOf(parser.PackageClauseOnly),
+		"ParseComments":        reflect.ValueOf(parser.ParseComments),
+		"ParseDir":             reflect.ValueOf(parser.ParseDir),
+		"ParseExpr":            reflect.ValueOf(parser.ParseExpr),
+		"ParseExprFrom":        reflect.ValueOf(parser.ParseExprFrom),
+		"ParseFile":            reflect.ValueOf(parser.ParseFile),
 		"SkipObjectResolution": reflect.ValueOf(parser.SkipObjectResolution),
-		"SpuriousErrors": reflect.ValueOf(parser.SpuriousErrors),
-		"Trace": reflect.ValueOf(parser.Trace),
-		"Mode": reflect.ValueOf((*parser.Mode)(nil)),
+		"SpuriousErrors":       reflect.ValueOf(parser.SpuriousErrors),
+		"Trace":                reflect.ValueOf(parser.Trace),
+		"Mode":                 reflect.ValueOf((*parser.Mode)(nil)),
 	}
 }

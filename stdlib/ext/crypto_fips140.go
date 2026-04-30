@@ -11,9 +11,9 @@ import (
 
 func init() {
 	stdlib.Values["crypto/fips140"] = map[string]reflect.Value{
-		"Enabled": reflect.ValueOf(fips140.Enabled),
-		"Enforced": reflect.ValueOf(fips140.Enforced),
-		"Version": reflect.ValueOf(fips140.Version),
+		"Enabled":            reflect.ValueOf(fips140.Enabled),
+		"Enforced":           reflect.ValueOf(fips140.Enforced),
+		"Version":            reflect.ValueOf(fips140.Version),
 		"WithoutEnforcement": reflect.ValueOf(fips140.WithoutEnforcement),
 	}
 }

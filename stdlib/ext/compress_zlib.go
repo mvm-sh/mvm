@@ -11,20 +11,20 @@ import (
 
 func init() {
 	stdlib.Values["compress/zlib"] = map[string]reflect.Value{
-		"BestCompression": reflect.ValueOf(zlib.BestCompression),
-		"BestSpeed": reflect.ValueOf(zlib.BestSpeed),
+		"BestCompression":    reflect.ValueOf(zlib.BestCompression),
+		"BestSpeed":          reflect.ValueOf(zlib.BestSpeed),
 		"DefaultCompression": reflect.ValueOf(zlib.DefaultCompression),
-		"HuffmanOnly": reflect.ValueOf(zlib.HuffmanOnly),
-		"NewReader": reflect.ValueOf(zlib.NewReader),
-		"NewReaderDict": reflect.ValueOf(zlib.NewReaderDict),
-		"NewWriter": reflect.ValueOf(zlib.NewWriter),
-		"NewWriterLevel": reflect.ValueOf(zlib.NewWriterLevel),
+		"HuffmanOnly":        reflect.ValueOf(zlib.HuffmanOnly),
+		"NewReader":          reflect.ValueOf(zlib.NewReader),
+		"NewReaderDict":      reflect.ValueOf(zlib.NewReaderDict),
+		"NewWriter":          reflect.ValueOf(zlib.NewWriter),
+		"NewWriterLevel":     reflect.ValueOf(zlib.NewWriterLevel),
 		"NewWriterLevelDict": reflect.ValueOf(zlib.NewWriterLevelDict),
-		"NoCompression": reflect.ValueOf(zlib.NoCompression),
-		"ErrChecksum": reflect.ValueOf(&zlib.ErrChecksum),
-		"ErrDictionary": reflect.ValueOf(&zlib.ErrDictionary),
-		"ErrHeader": reflect.ValueOf(&zlib.ErrHeader),
-		"Resetter": reflect.ValueOf((*zlib.Resetter)(nil)),
-		"Writer": reflect.ValueOf((*zlib.Writer)(nil)),
+		"NoCompression":      reflect.ValueOf(zlib.NoCompression),
+		"ErrChecksum":        reflect.ValueOf(&zlib.ErrChecksum),
+		"ErrDictionary":      reflect.ValueOf(&zlib.ErrDictionary),
+		"ErrHeader":          reflect.ValueOf(&zlib.ErrHeader),
+		"Resetter":           reflect.ValueOf((*zlib.Resetter)(nil)),
+		"Writer":             reflect.ValueOf((*zlib.Writer)(nil)),
 	}
 }

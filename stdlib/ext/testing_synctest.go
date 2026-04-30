@@ -3,8 +3,8 @@
 package ext
 
 import (
-	"testing/synctest"
 	"reflect"
+	"testing/synctest"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )

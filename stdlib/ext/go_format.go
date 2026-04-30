@@ -11,7 +11,7 @@ import (
 
 func init() {
 	stdlib.Values["go/format"] = map[string]reflect.Value{
-		"Node": reflect.ValueOf(format.Node),
+		"Node":   reflect.ValueOf(format.Node),
 		"Source": reflect.ValueOf(format.Source),
 	}
 }

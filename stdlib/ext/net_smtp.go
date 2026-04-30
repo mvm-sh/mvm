@@ -12,12 +12,12 @@ import (
 func init() {
 	stdlib.Values["net/smtp"] = map[string]reflect.Value{
 		"CRAMMD5Auth": reflect.ValueOf(smtp.CRAMMD5Auth),
-		"Dial": reflect.ValueOf(smtp.Dial),
-		"NewClient": reflect.ValueOf(smtp.NewClient),
-		"PlainAuth": reflect.ValueOf(smtp.PlainAuth),
-		"SendMail": reflect.ValueOf(smtp.SendMail),
-		"Auth": reflect.ValueOf((*smtp.Auth)(nil)),
-		"Client": reflect.ValueOf((*smtp.Client)(nil)),
-		"ServerInfo": reflect.ValueOf((*smtp.ServerInfo)(nil)),
+		"Dial":        reflect.ValueOf(smtp.Dial),
+		"NewClient":   reflect.ValueOf(smtp.NewClient),
+		"PlainAuth":   reflect.ValueOf(smtp.PlainAuth),
+		"SendMail":    reflect.ValueOf(smtp.SendMail),
+		"Auth":        reflect.ValueOf((*smtp.Auth)(nil)),
+		"Client":      reflect.ValueOf((*smtp.Client)(nil)),
+		"ServerInfo":  reflect.ValueOf((*smtp.ServerInfo)(nil)),
 	}
 }

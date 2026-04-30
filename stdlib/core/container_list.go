@@ -11,8 +11,8 @@ import (
 
 func init() {
 	stdlib.Values["container/list"] = map[string]reflect.Value{
-		"New": reflect.ValueOf(list.New),
+		"New":     reflect.ValueOf(list.New),
 		"Element": reflect.ValueOf((*list.Element)(nil)),
-		"List": reflect.ValueOf((*list.List)(nil)),
+		"List":    reflect.ValueOf((*list.List)(nil)),
 	}
 }

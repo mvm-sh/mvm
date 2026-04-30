@@ -11,15 +11,15 @@ import (
 
 func init() {
 	stdlib.Values["image/gif"] = map[string]reflect.Value{
-		"Decode": reflect.ValueOf(gif.Decode),
-		"DecodeAll": reflect.ValueOf(gif.DecodeAll),
-		"DecodeConfig": reflect.ValueOf(gif.DecodeConfig),
+		"Decode":             reflect.ValueOf(gif.Decode),
+		"DecodeAll":          reflect.ValueOf(gif.DecodeAll),
+		"DecodeConfig":       reflect.ValueOf(gif.DecodeConfig),
 		"DisposalBackground": reflect.ValueOf(gif.DisposalBackground),
-		"DisposalNone": reflect.ValueOf(gif.DisposalNone),
-		"DisposalPrevious": reflect.ValueOf(gif.DisposalPrevious),
-		"Encode": reflect.ValueOf(gif.Encode),
-		"EncodeAll": reflect.ValueOf(gif.EncodeAll),
-		"GIF": reflect.ValueOf((*gif.GIF)(nil)),
-		"Options": reflect.ValueOf((*gif.Options)(nil)),
+		"DisposalNone":       reflect.ValueOf(gif.DisposalNone),
+		"DisposalPrevious":   reflect.ValueOf(gif.DisposalPrevious),
+		"Encode":             reflect.ValueOf(gif.Encode),
+		"EncodeAll":          reflect.ValueOf(gif.EncodeAll),
+		"GIF":                reflect.ValueOf((*gif.GIF)(nil)),
+		"Options":            reflect.ValueOf((*gif.Options)(nil)),
 	}
 }

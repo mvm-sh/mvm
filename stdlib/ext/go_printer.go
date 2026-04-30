@@ -11,13 +11,13 @@ import (
 
 func init() {
 	stdlib.Values["go/printer"] = map[string]reflect.Value{
-		"Fprint": reflect.ValueOf(printer.Fprint),
-		"RawFormat": reflect.ValueOf(printer.RawFormat),
-		"SourcePos": reflect.ValueOf(printer.SourcePos),
-		"TabIndent": reflect.ValueOf(printer.TabIndent),
-		"UseSpaces": reflect.ValueOf(printer.UseSpaces),
+		"Fprint":        reflect.ValueOf(printer.Fprint),
+		"RawFormat":     reflect.ValueOf(printer.RawFormat),
+		"SourcePos":     reflect.ValueOf(printer.SourcePos),
+		"TabIndent":     reflect.ValueOf(printer.TabIndent),
+		"UseSpaces":     reflect.ValueOf(printer.UseSpaces),
 		"CommentedNode": reflect.ValueOf((*printer.CommentedNode)(nil)),
-		"Config": reflect.ValueOf((*printer.Config)(nil)),
-		"Mode": reflect.ValueOf((*printer.Mode)(nil)),
+		"Config":        reflect.ValueOf((*printer.Config)(nil)),
+		"Mode":          reflect.ValueOf((*printer.Mode)(nil)),
 	}
 }

@@ -3,8 +3,8 @@
 package core
 
 import (
-	"structs"
 	"reflect"
+	"structs"
 
 	"github.com/mvm-sh/mvm/stdlib"
 )

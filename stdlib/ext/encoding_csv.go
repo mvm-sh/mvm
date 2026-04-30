@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["encoding/csv"] = map[string]reflect.Value{
-		"NewReader": reflect.ValueOf(csv.NewReader),
-		"NewWriter": reflect.ValueOf(csv.NewWriter),
-		"ErrBareQuote": reflect.ValueOf(&csv.ErrBareQuote),
-		"ErrFieldCount": reflect.ValueOf(&csv.ErrFieldCount),
-		"ErrQuote": reflect.ValueOf(&csv.ErrQuote),
+		"NewReader":        reflect.ValueOf(csv.NewReader),
+		"NewWriter":        reflect.ValueOf(csv.NewWriter),
+		"ErrBareQuote":     reflect.ValueOf(&csv.ErrBareQuote),
+		"ErrFieldCount":    reflect.ValueOf(&csv.ErrFieldCount),
+		"ErrQuote":         reflect.ValueOf(&csv.ErrQuote),
 		"ErrTrailingComma": reflect.ValueOf(&csv.ErrTrailingComma),
-		"ParseError": reflect.ValueOf((*csv.ParseError)(nil)),
-		"Reader": reflect.ValueOf((*csv.Reader)(nil)),
-		"Writer": reflect.ValueOf((*csv.Writer)(nil)),
+		"ParseError":       reflect.ValueOf((*csv.ParseError)(nil)),
+		"Reader":           reflect.ValueOf((*csv.Reader)(nil)),
+		"Writer":           reflect.ValueOf((*csv.Writer)(nil)),
 	}
 }

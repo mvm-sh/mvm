@@ -11,14 +11,14 @@ import (
 
 func init() {
 	stdlib.Values["encoding/base32"] = map[string]reflect.Value{
-		"NewDecoder": reflect.ValueOf(base32.NewDecoder),
-		"NewEncoder": reflect.ValueOf(base32.NewEncoder),
-		"NewEncoding": reflect.ValueOf(base32.NewEncoding),
-		"NoPadding": reflect.ValueOf(base32.NoPadding),
-		"StdPadding": reflect.ValueOf(base32.StdPadding),
-		"HexEncoding": reflect.ValueOf(&base32.HexEncoding),
-		"StdEncoding": reflect.ValueOf(&base32.StdEncoding),
+		"NewDecoder":        reflect.ValueOf(base32.NewDecoder),
+		"NewEncoder":        reflect.ValueOf(base32.NewEncoder),
+		"NewEncoding":       reflect.ValueOf(base32.NewEncoding),
+		"NoPadding":         reflect.ValueOf(base32.NoPadding),
+		"StdPadding":        reflect.ValueOf(base32.StdPadding),
+		"HexEncoding":       reflect.ValueOf(&base32.HexEncoding),
+		"StdEncoding":       reflect.ValueOf(&base32.StdEncoding),
 		"CorruptInputError": reflect.ValueOf((*base32.CorruptInputError)(nil)),
-		"Encoding": reflect.ValueOf((*base32.Encoding)(nil)),
+		"Encoding":          reflect.ValueOf((*base32.Encoding)(nil)),
 	}
 }

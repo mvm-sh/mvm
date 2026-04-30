@@ -11,15 +11,15 @@ import (
 
 func init() {
 	stdlib.Values["image/draw"] = map[string]reflect.Value{
-		"Draw": reflect.ValueOf(draw.Draw),
-		"DrawMask": reflect.ValueOf(draw.DrawMask),
-		"Over": reflect.ValueOf(draw.Over),
-		"Src": reflect.ValueOf(draw.Src),
+		"Draw":           reflect.ValueOf(draw.Draw),
+		"DrawMask":       reflect.ValueOf(draw.DrawMask),
+		"Over":           reflect.ValueOf(draw.Over),
+		"Src":            reflect.ValueOf(draw.Src),
 		"FloydSteinberg": reflect.ValueOf(&draw.FloydSteinberg),
-		"Drawer": reflect.ValueOf((*draw.Drawer)(nil)),
-		"Image": reflect.ValueOf((*draw.Image)(nil)),
-		"Op": reflect.ValueOf((*draw.Op)(nil)),
-		"Quantizer": reflect.ValueOf((*draw.Quantizer)(nil)),
-		"RGBA64Image": reflect.ValueOf((*draw.RGBA64Image)(nil)),
+		"Drawer":         reflect.ValueOf((*draw.Drawer)(nil)),
+		"Image":          reflect.ValueOf((*draw.Image)(nil)),
+		"Op":             reflect.ValueOf((*draw.Op)(nil)),
+		"Quantizer":      reflect.ValueOf((*draw.Quantizer)(nil)),
+		"RGBA64Image":    reflect.ValueOf((*draw.RGBA64Image)(nil)),
 	}
 }

@@ -11,11 +11,11 @@ import (
 
 func init() {
 	stdlib.Values["container/heap"] = map[string]reflect.Value{
-		"Fix": reflect.ValueOf(heap.Fix),
-		"Init": reflect.ValueOf(heap.Init),
-		"Pop": reflect.ValueOf(heap.Pop),
-		"Push": reflect.ValueOf(heap.Push),
-		"Remove": reflect.ValueOf(heap.Remove),
+		"Fix":       reflect.ValueOf(heap.Fix),
+		"Init":      reflect.ValueOf(heap.Init),
+		"Pop":       reflect.ValueOf(heap.Pop),
+		"Push":      reflect.ValueOf(heap.Push),
+		"Remove":    reflect.ValueOf(heap.Remove),
 		"Interface": reflect.ValueOf((*heap.Interface)(nil)),
 	}
 }

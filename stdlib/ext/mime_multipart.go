@@ -12,14 +12,14 @@ import (
 func init() {
 	stdlib.Values["mime/multipart"] = map[string]reflect.Value{
 		"FileContentDisposition": reflect.ValueOf(multipart.FileContentDisposition),
-		"NewReader": reflect.ValueOf(multipart.NewReader),
-		"NewWriter": reflect.ValueOf(multipart.NewWriter),
-		"ErrMessageTooLarge": reflect.ValueOf(&multipart.ErrMessageTooLarge),
-		"File": reflect.ValueOf((*multipart.File)(nil)),
-		"FileHeader": reflect.ValueOf((*multipart.FileHeader)(nil)),
-		"Form": reflect.ValueOf((*multipart.Form)(nil)),
-		"Part": reflect.ValueOf((*multipart.Part)(nil)),
-		"Reader": reflect.ValueOf((*multipart.Reader)(nil)),
-		"Writer": reflect.ValueOf((*multipart.Writer)(nil)),
+		"NewReader":              reflect.ValueOf(multipart.NewReader),
+		"NewWriter":              reflect.ValueOf(multipart.NewWriter),
+		"ErrMessageTooLarge":     reflect.ValueOf(&multipart.ErrMessageTooLarge),
+		"File":                   reflect.ValueOf((*multipart.File)(nil)),
+		"FileHeader":             reflect.ValueOf((*multipart.FileHeader)(nil)),
+		"Form":                   reflect.ValueOf((*multipart.Form)(nil)),
+		"Part":                   reflect.ValueOf((*multipart.Part)(nil)),
+		"Reader":                 reflect.ValueOf((*multipart.Reader)(nil)),
+		"Writer":                 reflect.ValueOf((*multipart.Writer)(nil)),
 	}
 }

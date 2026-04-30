@@ -11,13 +11,13 @@ import (
 
 func init() {
 	stdlib.Values["hash/crc64"] = map[string]reflect.Value{
-		"Checksum": reflect.ValueOf(crc64.Checksum),
-		"ECMA": reflect.ValueOf(uint64(crc64.ECMA)),
-		"ISO": reflect.ValueOf(uint64(crc64.ISO)),
+		"Checksum":  reflect.ValueOf(crc64.Checksum),
+		"ECMA":      reflect.ValueOf(uint64(crc64.ECMA)),
+		"ISO":       reflect.ValueOf(uint64(crc64.ISO)),
 		"MakeTable": reflect.ValueOf(crc64.MakeTable),
-		"New": reflect.ValueOf(crc64.New),
-		"Size": reflect.ValueOf(crc64.Size),
-		"Update": reflect.ValueOf(crc64.Update),
-		"Table": reflect.ValueOf((*crc64.Table)(nil)),
+		"New":       reflect.ValueOf(crc64.New),
+		"Size":      reflect.ValueOf(crc64.Size),
+		"Update":    reflect.ValueOf(crc64.Update),
+		"Table":     reflect.ValueOf((*crc64.Table)(nil)),
 	}
 }

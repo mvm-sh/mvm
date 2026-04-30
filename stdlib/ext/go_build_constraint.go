@@ -11,16 +11,16 @@ import (
 
 func init() {
 	stdlib.Values["go/build/constraint"] = map[string]reflect.Value{
-		"GoVersion": reflect.ValueOf(constraint.GoVersion),
-		"IsGoBuild": reflect.ValueOf(constraint.IsGoBuild),
-		"IsPlusBuild": reflect.ValueOf(constraint.IsPlusBuild),
-		"Parse": reflect.ValueOf(constraint.Parse),
+		"GoVersion":      reflect.ValueOf(constraint.GoVersion),
+		"IsGoBuild":      reflect.ValueOf(constraint.IsGoBuild),
+		"IsPlusBuild":    reflect.ValueOf(constraint.IsPlusBuild),
+		"Parse":          reflect.ValueOf(constraint.Parse),
 		"PlusBuildLines": reflect.ValueOf(constraint.PlusBuildLines),
-		"AndExpr": reflect.ValueOf((*constraint.AndExpr)(nil)),
-		"Expr": reflect.ValueOf((*constraint.Expr)(nil)),
-		"NotExpr": reflect.ValueOf((*constraint.NotExpr)(nil)),
-		"OrExpr": reflect.ValueOf((*constraint.OrExpr)(nil)),
-		"SyntaxError": reflect.ValueOf((*constraint.SyntaxError)(nil)),
-		"TagExpr": reflect.ValueOf((*constraint.TagExpr)(nil)),
+		"AndExpr":        reflect.ValueOf((*constraint.AndExpr)(nil)),
+		"Expr":           reflect.ValueOf((*constraint.Expr)(nil)),
+		"NotExpr":        reflect.ValueOf((*constraint.NotExpr)(nil)),
+		"OrExpr":         reflect.ValueOf((*constraint.OrExpr)(nil)),
+		"SyntaxError":    reflect.ValueOf((*constraint.SyntaxError)(nil)),
+		"TagExpr":        reflect.ValueOf((*constraint.TagExpr)(nil)),
 	}
 }

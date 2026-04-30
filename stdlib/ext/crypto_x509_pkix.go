@@ -11,15 +11,15 @@ import (
 
 func init() {
 	stdlib.Values["crypto/x509/pkix"] = map[string]reflect.Value{
-		"AlgorithmIdentifier": reflect.ValueOf((*pkix.AlgorithmIdentifier)(nil)),
-		"AttributeTypeAndValue": reflect.ValueOf((*pkix.AttributeTypeAndValue)(nil)),
-		"AttributeTypeAndValueSET": reflect.ValueOf((*pkix.AttributeTypeAndValueSET)(nil)),
-		"CertificateList": reflect.ValueOf((*pkix.CertificateList)(nil)),
-		"Extension": reflect.ValueOf((*pkix.Extension)(nil)),
-		"Name": reflect.ValueOf((*pkix.Name)(nil)),
-		"RDNSequence": reflect.ValueOf((*pkix.RDNSequence)(nil)),
+		"AlgorithmIdentifier":          reflect.ValueOf((*pkix.AlgorithmIdentifier)(nil)),
+		"AttributeTypeAndValue":        reflect.ValueOf((*pkix.AttributeTypeAndValue)(nil)),
+		"AttributeTypeAndValueSET":     reflect.ValueOf((*pkix.AttributeTypeAndValueSET)(nil)),
+		"CertificateList":              reflect.ValueOf((*pkix.CertificateList)(nil)),
+		"Extension":                    reflect.ValueOf((*pkix.Extension)(nil)),
+		"Name":                         reflect.ValueOf((*pkix.Name)(nil)),
+		"RDNSequence":                  reflect.ValueOf((*pkix.RDNSequence)(nil)),
 		"RelativeDistinguishedNameSET": reflect.ValueOf((*pkix.RelativeDistinguishedNameSET)(nil)),
-		"RevokedCertificate": reflect.ValueOf((*pkix.RevokedCertificate)(nil)),
-		"TBSCertificateList": reflect.ValueOf((*pkix.TBSCertificateList)(nil)),
+		"RevokedCertificate":           reflect.ValueOf((*pkix.RevokedCertificate)(nil)),
+		"TBSCertificateList":           reflect.ValueOf((*pkix.TBSCertificateList)(nil)),
 	}
 }
