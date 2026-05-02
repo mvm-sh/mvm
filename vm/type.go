@@ -521,7 +521,7 @@ func (v Value) IfaceVal() Iface {
 
 func isNilable(rv reflect.Value) bool {
 	switch rv.Kind() {
-	case reflect.Func, reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Interface, reflect.UnsafePointer:
+	case reflect.Func, reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Interface, reflect.UnsafePointer:
 		return true
 	}
 	return false

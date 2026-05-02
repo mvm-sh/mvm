@@ -284,7 +284,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 				return nil, nil, 0, ErrUndefined{Name: typeName}
 			}
 			rt := ts.Type.Rtype
-			if rt.Kind() == reflect.Ptr {
+			if rt.Kind() == reflect.Pointer {
 				rt = rt.Elem()
 			}
 			if rt.Kind() != reflect.Struct {
@@ -326,7 +326,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			case l >= 3 && in[l-1].Tok == lang.Period && in[l-2].Tok == lang.Ident && in[l-3].Tok == lang.Ident:
 				if s, _, ok := p.Symbols.Get(in[l-2].Str, p.scope); ok && s.Type != nil {
 					bt := s.Type.Rtype
-					if bt.Kind() == reflect.Ptr {
+					if bt.Kind() == reflect.Pointer {
 						bt = bt.Elem()
 					}
 					if bt.Kind() == reflect.Struct {
@@ -337,7 +337,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 				}
 			}
 			if rt != nil && (fname == "len" || fname == "cap") {
-				if rt.Kind() == reflect.Ptr {
+				if rt.Kind() == reflect.Pointer {
 					rt = rt.Elem()
 				}
 				if rt.Kind() == reflect.Array {
@@ -467,7 +467,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 				return nil, op, 0, err
 			}
 			rt := base.Rtype
-			if rt.Kind() == reflect.Ptr {
+			if rt.Kind() == reflect.Pointer {
 				rt = rt.Elem()
 			}
 			if rt.Kind() != reflect.Struct {

@@ -3070,7 +3070,7 @@ func numSet(dst reflect.Value, src Value) {
 
 // derefArray dereferences a pointer-to-array so it can be sliced.
 func derefArray(v reflect.Value) reflect.Value {
-	if v.Kind() == reflect.Ptr && v.Elem().Kind() == reflect.Array {
+	if v.Kind() == reflect.Pointer && v.Elem().Kind() == reflect.Array {
 		return v.Elem()
 	}
 	return v

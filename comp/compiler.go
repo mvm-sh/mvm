@@ -1952,7 +1952,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				stack = stack[:len(stack)-3]
 			}
 			rtype := coll.Type.Rtype
-			if rtype.Kind() == reflect.Ptr && rtype.Elem().Kind() == reflect.Array {
+			if rtype.Kind() == reflect.Pointer && rtype.Elem().Kind() == reflect.Array {
 				rtype = rtype.Elem()
 			}
 			if rtype.Kind() == reflect.Array {
