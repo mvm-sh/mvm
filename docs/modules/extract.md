@@ -69,8 +69,8 @@ and sorted within each group for deterministic generation.
 
 `runGen` writes through a `bytes.Buffer`, then runs `go/format.Source`
 on the buffered text and writes the formatted bytes to the target
-file. This makes generated output gofmt-clean by construction — no
-post-pass `gofmt -w` is needed.
+file. This makes generated output gofmt-clean by construction.
+No post-pass `gofmt -w` is needed.
 
 The emitted file structure:
 
@@ -96,29 +96,29 @@ func init() {
 ```
 
 Packages that expose only generic symbols produce a stub file with
-just the package clause — kept so bindings appear automatically once
+just the package clause. Kept so bindings appear automatically once
 the package gains non-generic exports.
 
 ### `categories.go`
 
 Two top-level maps:
 
-- **`Core`** — set of import paths routed to `stdlib/core/`. Everything
+- **`Core`**: set of import paths routed to `stdlib/core/`. Everything
   not listed goes to `stdlib/ext/`. The criterion is "pure-compute and
   light on transitive deps" (see [ADR-013](../decisions/ADR-013-stdlib-core-ext-split.md)).
-- **`BuildTags`** — optional `//go:build` expression per package.
+- **`BuildTags`**: optional `//go:build` expression per package.
   Currently used only to gate `runtime/cgo` behind the `cgo` tag so
   cgo-disabled builds (notably `GOOS=js GOARCH=wasm`) still link.
 
 ## Dependencies
 
-- `github.com/mvm-sh/mvm/goparser` — used to parse the package source
+- `github.com/mvm-sh/mvm/goparser`: used to parse the package source
   with the same build-tag handling as the interpreter itself, so
   `extract` sees only files that mvm would actually run.
-- `github.com/mvm-sh/mvm/symbol` — `Kind`, `Symbol`.
-- `github.com/mvm-sh/mvm/lang/golang` — Go language spec for the parser.
-- `go/constant` — for the over-`int64` const detection.
-- `go/format` — gofmt the buffered output before writing.
+- `github.com/mvm-sh/mvm/symbol`: `Kind`, `Symbol`.
+- `github.com/mvm-sh/mvm/lang/golang`: Go language spec for the parser.
+- `go/constant`: for the over-`int64` const detection.
+- `go/format`: gofmt the buffered output before writing.
 
 ## Open questions / TODOs
 

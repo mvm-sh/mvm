@@ -41,15 +41,15 @@ standard library. It has three responsibilities:
 Generated bindings split across two sub-packages so that consumers can
 control the transitive-dependency footprint of an embedded mvm:
 
-- **`stdlib/core/`** — pure-compute, browser-safe packages with modest
+- **`stdlib/core/`**: pure-compute, browser-safe packages with modest
   transitive footprint (`fmt`, `bytes`, `strings`, `time`,
   `encoding/json`, `regexp`, ...). One file per import path, e.g.
   `stdlib/core/bytes.go`. ~40 files.
-- **`stdlib/ext/`** — host-coupled or transitively heavy packages
+- **`stdlib/ext/`**: host-coupled or transitively heavy packages
   (`net/*`, `os/*`, `crypto/*`, `image/*`, `runtime/*`, `syscall/*`,
   ...). Each `syscall` binding is platform-specific
   (`syscall_<os>_<arch>.go`). ~170 files.
-- **`stdlib/all/`** — convenience aggregator. Blank-importing this
+- **`stdlib/all/`**: convenience aggregator. Blank-importing this
   package pulls in `core + ext + jsonx` for the full set. Consumers
   who want a smaller link footprint import `stdlib/core` directly.
 

@@ -14,8 +14,8 @@ Early on, all generated bindings lived in a single `stdlib/` package.
 A blank-import (`_ "github.com/mvm-sh/mvm/stdlib"`) pulled in
 everything: `net/http`, `crypto/tls`, `image/jpeg`, `runtime/pprof`,
 the full `syscall` matrix. For embedders who want to run untrusted
-interpreted Go in a tight binary — or in a `js/wasm` build, or in
-a sandbox where syscalls are off-limits — that "all or nothing" choice
+interpreted Go in a tight binary, or in a `js/wasm` build, or in
+a sandbox where syscalls are off-limits. That "all or nothing" choice
 was wrong.
 
 ## Decision
@@ -23,16 +23,16 @@ was wrong.
 Split generated bindings into two sub-packages plus a convenience
 aggregator:
 
-- **`stdlib/core/`** — pure-compute, browser-safe packages with modest
+- **`stdlib/core/`**: pure-compute, browser-safe packages with modest
   transitive footprint: `fmt`, `bytes`, `strings`, `strconv`,
   `encoding/json`, `regexp`, `time`, `math/*`, the container types,
   `sync`, `sort`, etc. ~40 packages.
-- **`stdlib/ext/`** — host-coupled or transitively heavy packages:
+- **`stdlib/ext/`**: host-coupled or transitively heavy packages:
   `net/*`, `os/*`, `crypto/*` (except hashes), `image/*`,
   `runtime/*`, `database/sql`, `syscall/*` (per platform), `testing`,
   `text/template`, etc. ~170 files (counting per-platform syscall
   variants).
-- **`stdlib/all/`** — blank-imports `core`, `ext`, and `jsonx`. The
+- **`stdlib/all/`**: blank-imports `core`, `ext`, and `jsonx`. The
   full bundle, kept as one line for embedders that want everything.
 
 The split is data-driven: `cmd/extract/categories.go` carries a `Core`

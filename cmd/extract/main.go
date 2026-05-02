@@ -94,9 +94,8 @@ func bindingFilename(importPath, goos, goarch string) string {
 func extract(dir string) (map[symbol.Kind][]string, map[string]string, error) {
 	imports, err := extractImports(dir, *targetOS, *targetArch)
 	if err != nil {
-		return nil, nil, fmt.Errorf("scanning imports: %w", err)
+		return nil, nil, fmt.Errorf("scanning imports of %s: %w", dir, err)
 	}
-	log.Println("extract", dir, *targetOS, *targetArch)
 
 	p := goparser.NewParser(golang.GoSpec, false)
 	if *targetOS != "" && *targetArch != "" {
@@ -113,7 +112,7 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, error) {
 
 	p.SetPkgfs(filepath.Dir(dir))
 	if _, err := p.ParseAll(filepath.Base(dir), ""); err != nil {
-		fmt.Fprintln(os.Stderr, "warning:", err)
+		fmt.Fprintf(os.Stderr, "parsing %s warning: %v\n", dir, err)
 	}
 
 	groups := map[symbol.Kind][]string{
@@ -306,8 +305,6 @@ func writeBinding(path, importPath, buildTag string, supplement bool, values, va
 	return err
 }
 
-// taggedSymbols returns name → tag for the configured per-symbol build tags
-// of importPath, or nil when none are configured.
 func taggedSymbols(importPath string) map[string]string {
 	tags := SymbolBuildTags[importPath]
 	if len(tags) == 0 {
@@ -322,8 +319,6 @@ func taggedSymbols(importPath string) map[string]string {
 	return out
 }
 
-// splitByTag separates names into those without a build tag (returned as the
-// first slice, in input order) and those with one (grouped by tag).
 func splitByTag(names []string, tagged map[string]string) (base []string, byTag map[string][]string) {
 	byTag = map[string][]string{}
 	for _, n := range names {
@@ -336,8 +331,6 @@ func splitByTag(names []string, tagged map[string]string) (base []string, byTag 
 	return base, byTag
 }
 
-// sortedKeys returns the distinct tag values from the configured map, sorted
-// for deterministic file emission order.
 func sortedKeys(tagged map[string]string) []string {
 	seen := map[string]bool{}
 	for _, tag := range tagged {
@@ -351,8 +344,6 @@ func sortedKeys(tagged map[string]string) []string {
 	return out
 }
 
-// supplementFilename derives the filename for a per-tag supplement file,
-// appending the tag's configured suffix before the .go extension.
 func supplementFilename(importPath, tag, goos, goarch string) string {
 	suffix, ok := tagFileSuffix[tag]
 	if !ok {
@@ -437,7 +428,6 @@ func scanImports(src string) []string {
 	return imports
 }
 
-// extractQuoted returns the first double-quoted string found in line.
 func extractQuoted(line string) string {
 	i := strings.IndexByte(line, '"')
 	if i < 0 {
