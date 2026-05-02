@@ -576,15 +576,25 @@ func (m *Machine) Run() (err error) {
 				m.heapFrames = append(m.heapFrames, prevHeap)
 				fpVal |= heapSavedFlag
 			}
-			if sp+3 >= len(mem) {
-				mem = growStack(mem, sp, 3)
+			// Inline the callee's leading Grow (when present); see CallImm.
+			var locals, slack int
+			if g := m.code[nip]; g.Op == Grow {
+				locals, slack = int(g.A), int(g.B)
+				nip++
+			}
+			if sp+3+locals+slack >= len(mem) {
+				mem = growStack(mem, sp, 3+locals+slack)
 			}
 			mem[sp+1] = Value{}
 			mem[sp+2] = Value{num: packRetIP(ip+1, nret, narg+4)}
 			mem[sp+3] = Value{num: fpVal}
 			sp += 3 // deferHead, retIP+info, prevFP+heapFlag
-			ip = nip
 			fp = sp + 1
+			for i := 1; i <= locals; i++ {
+				mem[sp+i] = Value{}
+			}
+			sp += locals
+			ip = nip
 			continue
 		case CallImm:
 			narg := int(c.B) >> 16
@@ -596,15 +606,27 @@ func (m *Machine) Run() (err error) {
 				fpVal |= heapSavedFlag
 				m.heap = nil
 			}
-			if sp+3 >= len(mem) {
-				mem = growStack(mem, sp, 3)
+			nip := int(m.globals[int(c.A)].num) //nolint:gosec
+			// Inline the callee's leading Grow (when present) to save one
+			// dispatch per call and combine its bounds check with our own.
+			var locals, slack int
+			if g := m.code[nip]; g.Op == Grow {
+				locals, slack = int(g.A), int(g.B)
+				nip++
+			}
+			if sp+3+locals+slack >= len(mem) {
+				mem = growStack(mem, sp, 3+locals+slack)
 			}
 			mem[sp+1] = Value{} // clear deferHead slot
 			mem[sp+2] = Value{num: packRetIP(ip+1, nret, narg+3)}
 			mem[sp+3] = Value{num: fpVal}
 			sp += 3
 			fp = sp + 1
-			ip = int(m.globals[int(c.A)].num) //nolint:gosec
+			for i := 1; i <= locals; i++ {
+				mem[sp+i] = Value{}
+			}
+			sp += locals
+			ip = nip
 			continue
 		case Deref:
 			r := mem[sp].ref.Elem()
