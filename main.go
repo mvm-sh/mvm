@@ -101,7 +101,15 @@ func runCmd(arg []string) error {
 		if err != nil {
 			return err
 		}
-		_, err = i.Eval("f:"+fpath, string(buf))
+		src := string(buf)
+		if strings.HasPrefix(src, "#!") {
+			if nl := strings.IndexByte(src, '\n'); nl >= 0 {
+				src = src[nl:]
+			} else {
+				src = ""
+			}
+		}
+		_, err = i.Eval("f:"+fpath, src)
 	}
 	// Ensure output ends with a newline so the shell prompt is not overwritten.
 	if out.written && out.last != '\n' {
