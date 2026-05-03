@@ -18,6 +18,7 @@ programs.
 - Fast, portable bytecode virtual machine
 - Aims for full Go language compatibility
 - Embeddable in Go and C host programs (see [`examples/`](examples/))
+- pure Go, zero dependency
 - Integrated REPL, debugger (`trap()` builtin), and test runner
 - One single static binary, batteries included (full stdlib)
 

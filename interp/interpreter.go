@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 
 	"github.com/mvm-sh/mvm/comp"
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/stdlib"
+	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
 
@@ -29,7 +31,7 @@ func NewInterpreter(s *lang.Spec) *Interp {
 }
 
 // Eval evaluates code string and return the last produced value if any, or an error.
-// name identifies the source ("m:<content>" for inline, "f:<path>" for file).
+// name labels the source for error positions (a file path or any identifier).
 func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	codeOffset := len(i.Code)
 	dataOffset := 0
@@ -108,4 +110,23 @@ func (i *Interp) patchFmtBindings() {
 	if _, ok := pkg.Values["Stringer"]; !ok {
 		pkg.Values["Stringer"] = vm.FromReflect(reflect.ValueOf((*fmt.Stringer)(nil)))
 	}
+}
+
+// FuncNames returns names of top-level functions whose name starts with
+// prefix and whose first character after prefix is an ASCII uppercase letter.
+// It is intended for callers that need to enumerate Test*, Benchmark* or
+// Example* functions after evaluating sources. The order is unspecified.
+func (i *Interp) FuncNames(prefix string) []string {
+	var names []string
+	for name, s := range i.Symbols {
+		if s.Kind != symbol.Func || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		rest := name[len(prefix):]
+		if rest == "" || rest[0] < 'A' || rest[0] > 'Z' {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
 }

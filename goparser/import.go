@@ -121,11 +121,7 @@ func (p *Parser) ParseAll(name, src string) (out []Tokens, err error) {
 		}
 	} else {
 		decls, err = p.scanDecls(src)
-		srcName := name
-		if len(name) >= 2 && name[1] == ':' && (name[0] == 'f' || name[0] == 'm') {
-			srcName = name[2:]
-		}
-		p.PosBase = p.Sources.Add(srcName, src)
+		p.PosBase = p.Sources.Add(name, src)
 		if err != nil {
 			return out, err
 		}

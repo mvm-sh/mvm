@@ -1,4 +1,4 @@
-// The mvm command interprets programs.
+// The mvm command interprets Go programs.
 package main
 
 import (
@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -90,7 +90,7 @@ func runCmd(arg []string) error {
 	switch {
 	case str != "":
 		i.AutoImportPackages()
-		_, err = i.Eval("m:"+str, str)
+		_, err = i.Eval(str, str)
 	case len(args) == 0:
 		i.AutoImportPackages()
 		return i.Repl(os.Stdin)
@@ -109,7 +109,7 @@ func runCmd(arg []string) error {
 				src = ""
 			}
 		}
-		_, err = i.Eval("f:"+fpath, src)
+		_, err = i.Eval(fpath, src)
 	}
 	// Ensure output ends with a newline so the shell prompt is not overwritten.
 	if out.written && out.last != '\n' {
@@ -118,18 +118,14 @@ func runCmd(arg []string) error {
 	return err
 }
 
-var (
-	testFuncRE  = regexp.MustCompile(`(?m)^func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*\w+\s+\*testing\.T\s*\)`)
-	pkgClauseRE = regexp.MustCompile(`(?m)^package\s+\w+\s*$`)
-)
+const testUsageText = `Usage: mvm test [dir] [testing-flags]
+Runs Go tests found in *_test.go files of the given package directory (default ".").
+Flags after [dir] are forwarded to testing.Main; use the -test. prefix (e.g. -test.v, -test.run REGEX).
+`
 
 func testCmd(arg []string) error {
 	tflag := flag.NewFlagSet("test", flag.ContinueOnError)
-	tflag.Usage = func() {
-		fmt.Println("Usage: mvm test [dir] [testing-flags]")
-		fmt.Println("Runs Go tests found in *_test.go files of the given package directory (default \".\").")
-		fmt.Println("Flags after [dir] are forwarded to testing.Main; use the -test. prefix (e.g. -test.v, -test.run REGEX).")
-	}
+	tflag.Usage = func() { _, _ = fmt.Fprint(os.Stdout, testUsageText) }
 	if err := tflag.Parse(arg); err != nil {
 		return err
 	}
@@ -150,68 +146,51 @@ func testCmd(arg []string) error {
 	if err != nil {
 		return err
 	}
-	var pkgSources, testSources []string
+	var paths []string
+	hasTest := false
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
 			continue
 		}
-		buf, err := os.ReadFile(filepath.Join(absDir, e.Name()))
-		if err != nil {
-			return err
-		}
+		paths = append(paths, filepath.Join(absDir, e.Name()))
 		if strings.HasSuffix(e.Name(), "_test.go") {
-			testSources = append(testSources, string(buf))
-		} else {
-			pkgSources = append(pkgSources, string(buf))
+			hasTest = true
 		}
 	}
-	if len(testSources) == 0 {
+	if !hasTest {
 		return fmt.Errorf("no *_test.go files found in %s", absDir)
 	}
-
-	seen := map[string]bool{}
-	var testNames []string
-	for _, s := range testSources {
-		for _, m := range testFuncRE.FindAllStringSubmatch(s, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				testNames = append(testNames, m[1])
-			}
-		}
-	}
-	if len(testNames) == 0 {
-		fmt.Fprintln(os.Stderr, "testing: warning: no tests to run")
-		return nil
-	}
-
-	var b strings.Builder
-	b.WriteString("package main\n\nimport \"testing\"\n\n")
-	for _, s := range pkgSources {
-		b.WriteString(pkgClauseRE.ReplaceAllString(s, ""))
-		b.WriteString("\n")
-	}
-	for _, s := range testSources {
-		b.WriteString(pkgClauseRE.ReplaceAllString(s, ""))
-		b.WriteString("\n")
-	}
-	b.WriteString("func main() {\n")
-	b.WriteString("\ttesting.Main(\n")
-	b.WriteString("\t\tfunc(pat, str string) (bool, error) { return true, nil },\n")
-	b.WriteString("\t\t[]testing.InternalTest{\n")
-	for _, name := range testNames {
-		fmt.Fprintf(&b, "\t\t\t{Name: %q, F: %s},\n", name, name)
-	}
-	b.WriteString("\t\t},\n")
-	b.WriteString("\t\tnil, nil,\n")
-	b.WriteString("\t)\n")
-	b.WriteString("}\n")
 
 	os.Args = append([]string{"mvm-test"}, pass...)
 
 	i := interp.NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
+	i.AutoImportPackages()
 	i.SetIO(os.Stdin, os.Stdout, os.Stderr)
 
-	_, err = i.Eval("m:_testmain", b.String())
+	for _, p := range paths {
+		buf, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if _, err := i.Eval(p, string(buf)); err != nil {
+			return err
+		}
+	}
+
+	testNames := i.FuncNames("Test")
+	if len(testNames) == 0 {
+		fmt.Fprintln(os.Stderr, "testing: warning: no tests to run")
+		return nil
+	}
+	sort.Strings(testNames)
+
+	var driver strings.Builder
+	driver.WriteString("testing.Main(func(p, s string) (bool, error) { return true, nil }, []testing.InternalTest{")
+	for _, name := range testNames {
+		fmt.Fprintf(&driver, "{Name: %q, F: %s},", name, name)
+	}
+	driver.WriteString("}, nil, nil)")
+	_, err = i.Eval("_testmain", driver.String())
 	return err
 }
