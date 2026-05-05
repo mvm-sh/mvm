@@ -176,11 +176,11 @@ func TestAssign(t *testing.T) {
 		{n: "#25", src: "func f() int { a := [3]int{5,3,1}; a[0], a[2] = a[2], a[0]; return 100*a[0]+10*a[1]+a[2] }; f()", res: "135"},
 		// pointer deref tuple swap
 		{n: "#26", src: "func f() int { a, b := 1, 2; pa, pb := &a, &b; *pa, *pb = *pb, *pa; return a*10+b }; f()", res: "21"},
-		// Stdlib package interface-typed vars (e.g. crypto/rand.Reader) are registered
-		// with their dynamic concrete type, so type inference for `var r = pkg.IfaceVar`
-		// produces the unexported concrete type and the runtime assignment panics.
-		// Blocks `import "github.com/google/uuid"` (uuid.go:40 has `rander = rand.Reader`).
-		{n: "stdlib_iface_var", skip: true, src: `import "crypto/rand"; var r = rand.Reader; r != nil`, res: "true"},
+		// Stdlib package interface-typed vars (e.g. crypto/rand.Reader) must keep
+		// their declared interface type when inferred via :=, otherwise the runtime
+		// assignment panics with "io.Reader is not assignable to rand.reader".
+		{n: "stdlib_iface_var", src: `import "crypto/rand"; var r = rand.Reader; r != nil`, res: "true"},
+		{n: "stdlib_iface_short_decl", src: `import "crypto/rand"; r := rand.Reader; r != nil`, res: "true"},
 	})
 }
 

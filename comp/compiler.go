@@ -1505,7 +1505,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						c.SymAdd(l, name, nv, symbol.Type, &vm.Type{Name: rtype.Name(), Rtype: rtype})
 					} else {
 						c.Data = append(c.Data, v)
-						c.SymAdd(l, name, v, symbol.Value, vm.TypeOf(v.Interface()))
+						// Use the reflect.Value's static type (v.Type()), not the dynamic
+						// type via v.Interface(). For interface-typed package vars (e.g.
+						// crypto/rand.Reader), the static type is io.Reader; going through
+						// .Interface() unboxes to the concrete dynamic type and breaks
+						// later assignments like `r := rand.Reader`.
+						rt := v.Type()
+						c.SymAdd(l, name, v, symbol.Value, &vm.Type{Name: rt.Name(), Rtype: rt})
 					}
 					sym = c.Symbols[name]
 				}

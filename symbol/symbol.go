@@ -146,16 +146,31 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 		typName := sym.Type.Name
 		// For types with no Name (e.g. mvm-created structs, or pointer types),
 		// search the symbol table for a named Type with a matching Rtype.
+		// Multiple keys can map to the same type (e.g. importSrc registers a
+		// qualified alias `pkgpath.T` aside the short `T`, and zeroInitLocals
+		// can register an anonymous-struct stringification like `struct{...}`).
+		// Methods are registered under the short receiver name (`*T.M`), so
+		// prefer whichever candidate key actually has a registered method.
 		if typName == "" {
 			rtype := sym.Type.Rtype
 			if rtype.Kind() == reflect.Pointer {
 				rtype = rtype.Elem()
 			}
+			var firstName string
 			for k, s := range sm {
-				if s.Kind == Type && s.Type != nil && s.Type.Rtype == rtype && k != "" {
+				if s.Kind != Type || s.Type == nil || s.Type.Rtype != rtype || k == "" {
+					continue
+				}
+				if firstName == "" {
+					firstName = k
+				}
+				if sm[k+"."+name] != nil || sm["*"+k+"."+name] != nil {
 					typName = k
 					break
 				}
+			}
+			if typName == "" {
+				typName = firstName
 			}
 		}
 		if m := sm[typName+"."+name]; m != nil {
