@@ -13,11 +13,36 @@ import (
 func moveDefaultLast(clauses []Tokens) {
 	last := len(clauses) - 1
 	for i, cl := range clauses {
+		if len(cl) < 2 {
+			continue
+		}
 		if cl[1].Tok == lang.Colon && i != last {
 			clauses[i], clauses[last] = clauses[last], clauses[i]
 			return
 		}
 	}
+}
+
+// caseClauses splits body at the lang.Case keyword, drops any leading or
+// trailing segment that doesn't start with Case or Default (e.g. a stray
+// comment between '{' and the first 'case'), and moves the default clause
+// to the last position. Such dropped segments cannot be valid clauses on
+// their own and would crash downstream indexing in parseCaseClause /
+// parseSelectCase / parseTypeSwitchClause.
+func (p *Parser) caseClauses(body Tokens) []Tokens {
+	sc := body.SplitStart(lang.Case)
+	out := sc[:0]
+	for _, cl := range sc {
+		if len(cl) == 0 {
+			continue
+		}
+		if cl[0].Tok != lang.Case && cl[0].Tok != lang.Default {
+			continue
+		}
+		out = append(out, cl)
+	}
+	moveDefaultLast(out)
+	return out
 }
 
 // splitAndSortVarDecls splits var(...) blocks into individual declarations,

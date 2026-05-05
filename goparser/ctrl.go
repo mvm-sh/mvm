@@ -338,8 +338,7 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 	if err != nil {
 		return nil, err
 	}
-	sc := clauses.SplitStart(lang.Case)
-	moveDefaultLast(sc)
+	sc := p.caseClauses(clauses)
 	// Process each clause.
 	nc := len(sc) - 1
 	prevFallthrough := false
@@ -387,8 +386,7 @@ func (p *Parser) parseTypeSwitch(in, init, cond Tokens, periodIdx int) (out Toke
 	if err != nil {
 		return nil, err
 	}
-	sc := clauses.SplitStart(lang.Case)
-	moveDefaultLast(sc)
+	sc := p.caseClauses(clauses)
 	nc := len(sc) - 1
 	for i, cl := range sc {
 		co, err := p.parseTypeSwitchClause(cl, i, nc, tsName, varName)
@@ -697,12 +695,10 @@ func (p *Parser) parseSelect(in Tokens) (out Tokens, err error) {
 	if err != nil {
 		return nil, err
 	}
-	caseClauses := clauses.SplitStart(lang.Case)
+	cs := p.caseClauses(clauses)
 
-	moveDefaultLast(caseClauses)
-
-	cases := make([]selectCase, len(caseClauses))
-	for i, cl := range caseClauses {
+	cases := make([]selectCase, len(cs))
+	for i, cl := range cs {
 		if err := p.parseSelectCase(cl, i, pos, &cases[i]); err != nil {
 			return nil, err
 		}

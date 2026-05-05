@@ -176,6 +176,11 @@ func TestAssign(t *testing.T) {
 		{n: "#25", src: "func f() int { a := [3]int{5,3,1}; a[0], a[2] = a[2], a[0]; return 100*a[0]+10*a[1]+a[2] }; f()", res: "135"},
 		// pointer deref tuple swap
 		{n: "#26", src: "func f() int { a, b := 1, 2; pa, pb := &a, &b; *pa, *pb = *pb, *pa; return a*10+b }; f()", res: "21"},
+		// Stdlib package interface-typed vars (e.g. crypto/rand.Reader) are registered
+		// with their dynamic concrete type, so type inference for `var r = pkg.IfaceVar`
+		// produces the unexported concrete type and the runtime assignment panics.
+		// Blocks `import "github.com/google/uuid"` (uuid.go:40 has `rander = rand.Reader`).
+		{n: "stdlib_iface_var", skip: true, src: `import "crypto/rand"; var r = rand.Reader; r != nil`, res: "true"},
 	})
 }
 
@@ -605,6 +610,12 @@ func TestSwitch(t *testing.T) {
 		{n: "empty", src: `switch {}; 1`, res: "1"},
 
 		{n: "default_in_range", src: `r := ""; for _, c := range "abc" { switch c { case 97: r += "A"; default: r += string(c) } }; r`, res: "Abc"},
+
+		// Stray comment between '{' and the first 'case' must not crash; this
+		// pattern appears in github.com/google/uuid/uuid.go (Parse, Validate).
+		{n: "comment_before_first_case", src: "func f(x int) string {\n\tswitch x {\n\t// leading comment\n\tcase 1: return \"one\"\n\tdefault: return \"other\"\n\t}\n}; f(1)", res: "one"},
+		{n: "comment_in_type_switch", src: "func f(v interface{}) string {\n\tswitch v.(type) {\n\t// numeric branch\n\tcase int: return \"int\"\n\tdefault: return \"other\"\n\t}\n}; f(42)", res: "int"},
+		{n: "comment_in_select", src: "func f() int {\n\tch := make(chan int, 1); ch <- 7\n\tselect {\n\t// pick from ch\n\tcase v := <-ch: return v\n\t}\n\treturn 0\n}; f()", res: "7"},
 	})
 }
 
