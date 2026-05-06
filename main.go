@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -234,7 +233,6 @@ func runTestDriver(i *interp.Interp) error {
 		fmt.Fprintln(os.Stderr, "testing: warning: no tests to run")
 		return nil
 	}
-	sort.Strings(testNames)
 
 	var driver strings.Builder
 	driver.WriteString("testing.Main(func(p, s string) (bool, error) { return true, nil }, []testing.InternalTest{")

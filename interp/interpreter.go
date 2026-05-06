@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/mvm-sh/mvm/comp"
 	"github.com/mvm-sh/mvm/lang"
@@ -113,20 +115,43 @@ func (i *Interp) patchFmtBindings() {
 }
 
 // FuncNames returns names of top-level functions whose name starts with
-// prefix and whose first character after prefix is an ASCII uppercase letter.
-// It is intended for callers that need to enumerate Test*, Benchmark* or
-// Example* functions after evaluating sources. The order is unspecified.
+// prefix and whose first character after prefix is an ASCII uppercase letter,
+// in source-declaration order. Intended for callers that enumerate Test*,
+// Benchmark* or Example* functions after evaluating sources. Source order
+// matches `go test` semantics — important for tests that mutate package
+// globals (e.g. uuid's TestRandPool exhausts `rander`; subsequent
+// TestRandomUUID would panic if it ran after).
 func (i *Interp) FuncNames(prefix string) []string {
-	var names []string
+	type entry struct {
+		name string
+		pos  vm.Pos
+	}
+	var entries []entry
 	for name, s := range i.Symbols {
 		if s.Kind != symbol.Func || !strings.HasPrefix(name, prefix) {
 			continue
 		}
 		rest := name[len(prefix):]
-		if rest == "" || rest[0] < 'A' || rest[0] > 'Z' {
+		if rest == "" || !unicode.IsUpper(rune(rest[0])) {
 			continue
 		}
-		names = append(names, name)
+		var pos vm.Pos
+		if s.Value.IsValid() {
+			if addr := int(s.Value.Int()); addr >= 0 && addr < len(i.Code) {
+				pos = i.Code[addr].Pos
+			}
+		}
+		entries = append(entries, entry{name, pos})
+	}
+	sort.Slice(entries, func(a, b int) bool {
+		if entries[a].pos != entries[b].pos {
+			return entries[a].pos < entries[b].pos
+		}
+		return entries[a].name < entries[b].name
+	})
+	names := make([]string, len(entries))
+	for j, e := range entries {
+		names[j] = e.name
 	}
 	return names
 }
