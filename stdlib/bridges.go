@@ -11,6 +11,18 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
+// passthroughIface returns the underlying typed value of a mvm Iface.
+// Used for native functions like reflect.DeepEqual.
+func passthroughIface(_ *vm.Machine, ifc vm.Iface) reflect.Value {
+	if rv := ifc.Val.Reflect(); rv.IsValid() {
+		return rv
+	}
+	if ifc.Typ != nil {
+		return reflect.Zero(ifc.Typ.Rtype)
+	}
+	return reflect.Value{}
+}
+
 // Bridge types for common interface methods.
 // Each bridge is a struct with a Fn field and a pointer-receiver method
 // that delegates to Fn. At the native call boundary, the VM allocates a
@@ -209,4 +221,10 @@ func init() {
 	vm.InterfaceBridges[reflect.TypeOf((*sort.Interface)(nil)).Elem()] = reflect.TypeOf((*BridgeSortInterface)(nil))
 	vm.InterfaceBridges[reflect.TypeOf((*heap.Interface)(nil)).Elem()] = reflect.TypeOf((*BridgeHeapInterface)(nil))
 	vm.InterfaceBridges[reflect.TypeOf((*flag.Value)(nil)).Elem()] = reflect.TypeOf((*BridgeFlagValue)(nil))
+
+	// reflect.DeepEqual inspects its `any` args via reflection — Bridge
+	// wrappers wouldn't compare equal even for identical underlying values.
+	// Pass the raw typed value through instead.
+	vm.RegisterArgProxy(reflect.DeepEqual, 0, passthroughIface)
+	vm.RegisterArgProxy(reflect.DeepEqual, 1, passthroughIface)
 }

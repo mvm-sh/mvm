@@ -536,6 +536,13 @@ func nilEqual(v Value) bool {
 
 // Equal reports whether v is equal to u.
 func (v Value) Equal(u Value) bool {
+	// Unwrap bridge wrappers to compare underlying values.
+	if uv := unbridgeValue(v.ref); uv.IsValid() {
+		v = FromReflect(uv)
+	}
+	if uu := unbridgeValue(u.ref); uu.IsValid() {
+		u = FromReflect(uu)
+	}
 	if v.IsIface() {
 		if !u.IsValid() {
 			return false // non-nil interface != nil

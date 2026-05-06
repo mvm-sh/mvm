@@ -985,7 +985,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.MapSet)
 				}
 
-			case symbol.Type, symbol.Unset, symbol.Generic:
+			case symbol.Type, symbol.Unset, symbol.Generic, symbol.Builtin, symbol.Pkg:
 				fieldName := ks.Name
 				if ks.Kind == symbol.Type {
 					// Field name matches a type name: Ident emitted a spurious Fnew for it.
