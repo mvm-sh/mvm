@@ -80,6 +80,14 @@ func (p *Parser) resolveEllipsisArray(elemTyp *vm.Type, toks Tokens, braceIdx in
 }
 
 func (p *Parser) resolvePkgType(s *symbol.Symbol, name string) (*vm.Type, error) {
+	// Prefer the qualified-alias symbol registered by importSrc, which carries
+	// full mvm-level type info (Methods, ElemType, Fields, ...). Falling back
+	// to pkg.Values would synthesize a stripped Type{Name, Rtype} that loses
+	// method reachability for source-defined types whose Rtype is the
+	// underlying primitive (e.g. UUID's Rtype is [16]uint8 with no .Name()).
+	if sym, ok := p.Symbols[s.PkgPath+"."+name]; ok && sym.Kind == symbol.Type && sym.Type != nil {
+		return sym.Type, nil
+	}
 	pkg, ok := p.Packages[s.PkgPath]
 	if !ok {
 		return nil, fmt.Errorf("package not found: %s", s.PkgPath)
@@ -688,14 +696,11 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			ft := *types[i]
 			ft.Name = name
 			ft.PkgPath = pkgPath
-			// Back-link to the source type so late-bound info (Methods,
-			// registered after this copy was taken when a struct is defined
-			// before its methods) remains reachable via ft.Base.
-			if types[i].Base != nil {
-				ft.Base = types[i].Base
-			} else {
-				ft.Base = types[i]
-			}
+			// Back-link to the source type so methods registered on it after
+			// this clone was taken (typical: struct decl precedes method decls,
+			// or named types whose Methods are populated by the compiler later)
+			// remain reachable via MethodByName's ft.Base walk.
+			ft.Base = types[i]
 			fields = append(fields, &ft)
 			tags = append(tags, tag)
 		}

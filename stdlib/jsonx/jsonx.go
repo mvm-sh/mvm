@@ -135,22 +135,21 @@ func decodeInto(m *vm.Machine, data []byte, dst reflect.Value, typ *vm.Type) err
 	// When typ is already a pointer, dst IS the pointer (taking another Addr
 	// would pass **T where the receiver expects *T). Allocate if nil.
 	if method, ok := m.MethodByName(typ, "UnmarshalJSON"); ok {
-		var recv reflect.Value
-		switch {
-		case typ.Rtype.Kind() == reflect.Pointer:
-			if dst.IsNil() {
-				if !dst.CanSet() {
-					return errors.New("json.Unmarshal: non-settable pointer destination")
-				}
-				dst.Set(reflect.New(typ.Rtype.Elem()))
-			}
-			recv = dst
-		case dst.CanAddr():
-			recv = dst.Addr()
+		if ifc, err := unmarshalReceiver(typ, dst); err != nil {
+			return err
+		} else if ifc != nil {
+			return invokeUnmarshal(m, "UnmarshalJSON", data, *ifc, method)
 		}
-		if recv.IsValid() {
-			ptrIfc := vm.Iface{Typ: typ, Val: vm.FromReflect(recv)}
-			return invokeUnmarshalJSON(m, data, ptrIfc, method)
+	}
+	// Fallback: encoding/json calls UnmarshalText if the type implements it
+	// (encoding.TextUnmarshaler). Used when the JSON value is a string.
+	if method, ok := m.MethodByName(typ, "UnmarshalText"); ok {
+		if text, isStr := jsonStringPayload(data); isStr {
+			if ifc, err := unmarshalReceiver(typ, dst); err != nil {
+				return err
+			} else if ifc != nil {
+				return invokeUnmarshal(m, "UnmarshalText", text, *ifc, method)
+			}
 		}
 	}
 	switch typ.Rtype.Kind() {
@@ -319,21 +318,58 @@ func callUnmarshalJSON(m *vm.Machine, data []byte, ifc vm.Iface) (bool, error) {
 	if !found {
 		return false, nil
 	}
-	return true, invokeUnmarshalJSON(m, data, ifc, method)
+	return true, invokeUnmarshal(m, "UnmarshalJSON", data, ifc, method)
 }
 
-// invokeUnmarshalJSON dispatches the mvm UnmarshalJSON method via
-// the VM with the given bytes.
-func invokeUnmarshalJSON(m *vm.Machine, data []byte, ifc vm.Iface, method vm.Method) error {
+// jsonStringPayload returns the unquoted bytes of data if it is a JSON
+// string literal. Anything else (including "null") returns ok=false so
+// the caller can apply non-string fallback semantics.
+func jsonStringPayload(data []byte) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) < 2 || trimmed[0] != '"' {
+		return nil, false
+	}
+	var s string
+	if err := json.Unmarshal(trimmed, &s); err != nil {
+		return nil, false
+	}
+	return []byte(s), true
+}
+
+// unmarshalReceiver builds a pointer Iface receiver suitable for invoking
+// an UnmarshalJSON / UnmarshalText method. Returns (nil, nil) if dst can
+// neither be addressed nor pre-allocated; (nil, err) on a settable-pointer
+// allocation failure.
+func unmarshalReceiver(typ *vm.Type, dst reflect.Value) (*vm.Iface, error) {
+	var recv reflect.Value
+	switch {
+	case typ.Rtype.Kind() == reflect.Pointer:
+		if dst.IsNil() {
+			if !dst.CanSet() {
+				return nil, errors.New("json.Unmarshal: non-settable pointer destination")
+			}
+			dst.Set(reflect.New(typ.Rtype.Elem()))
+		}
+		recv = dst
+	case dst.CanAddr():
+		recv = dst.Addr()
+	}
+	if !recv.IsValid() {
+		return nil, nil
+	}
+	return &vm.Iface{Typ: typ, Val: vm.FromReflect(recv)}, nil
+}
+
+// invokeUnmarshal dispatches a `func([]byte) error`-shaped method via the
+// VM. methodName is used only for the "wrong return arity" error message.
+func invokeUnmarshal(m *vm.Machine, methodName string, data []byte, ifc vm.Iface, method vm.Method) error {
 	fval := m.MakeMethodCallable(ifc, method)
-	fnType := reflect.TypeOf((func([]byte) error)(nil))
-	in := []reflect.Value{reflect.ValueOf(data)}
-	out, err := m.CallFunc(fval, fnType, in)
+	out, err := m.CallFunc(fval, unmarshalFnType, []reflect.Value{reflect.ValueOf(data)})
 	if err != nil {
 		return err
 	}
 	if len(out) != 1 {
-		return fmt.Errorf("UnmarshalJSON: expected 1 return, got %d", len(out))
+		return fmt.Errorf("%s: expected 1 return, got %d", methodName, len(out))
 	}
 	if out[0].IsValid() && !out[0].IsNil() {
 		if e, ok := out[0].Interface().(error); ok {
@@ -383,6 +419,18 @@ func encodeIfaceTo(buf *bytes.Buffer, m *vm.Machine, ifc vm.Iface) error {
 		buf.Write(data)
 		return nil
 	}
+	// Fallback: encoding/json emits TextMarshaler results as JSON strings.
+	if text, ok, err := callMarshalText(m, ifc); ok {
+		if err != nil {
+			return err
+		}
+		quoted, qerr := json.Marshal(string(text))
+		if qerr != nil {
+			return qerr
+		}
+		buf.Write(quoted)
+		return nil
+	}
 	rv := ifc.Val.Reflect()
 	if !rv.IsValid() {
 		buf.WriteString("null")
@@ -427,22 +475,28 @@ func nativeMarshal(buf *bytes.Buffer, v any) error {
 	return nil
 }
 
-// callMarshalJSON dispatches a mvm MarshalJSON method on ifc, if
-// one is registered. ok=false means no such method; err propagates the
+// Cached fnTypes for VM dispatch of marshal/unmarshal-shaped methods.
+// These are stable across all calls so we precompute them once.
+var (
+	marshalFnType   = reflect.TypeOf((func() ([]byte, error))(nil))
+	unmarshalFnType = reflect.TypeOf((func([]byte) error)(nil))
+)
+
+// callMarshal dispatches a `func() ([]byte, error)`-shaped method (MarshalJSON
+// or MarshalText) on ifc. ok=false means no such method; err propagates the
 // method's own error return.
-func callMarshalJSON(m *vm.Machine, ifc vm.Iface) (data []byte, ok bool, err error) {
-	method, found := m.MethodByName(ifc.Typ, "MarshalJSON")
+func callMarshal(m *vm.Machine, methodName string, ifc vm.Iface) (data []byte, ok bool, err error) {
+	method, found := m.MethodByName(ifc.Typ, methodName)
 	if !found {
 		return nil, false, nil
 	}
 	fval := m.MakeMethodCallable(ifc, method)
-	fnType := reflect.TypeOf((func() ([]byte, error))(nil))
-	out, err := m.CallFunc(fval, fnType, nil)
+	out, err := m.CallFunc(fval, marshalFnType, nil)
 	if err != nil {
 		return nil, true, err
 	}
 	if len(out) != 2 {
-		return nil, true, fmt.Errorf("MarshalJSON: expected 2 returns, got %d", len(out))
+		return nil, true, fmt.Errorf("%s: expected 2 returns, got %d", methodName, len(out))
 	}
 	if out[0].IsValid() && !out[0].IsZero() {
 		data = out[0].Bytes()
@@ -453,6 +507,14 @@ func callMarshalJSON(m *vm.Machine, ifc vm.Iface) (data []byte, ok bool, err err
 		}
 	}
 	return data, true, err
+}
+
+func callMarshalJSON(m *vm.Machine, ifc vm.Iface) ([]byte, bool, error) {
+	return callMarshal(m, "MarshalJSON", ifc)
+}
+
+func callMarshalText(m *vm.Machine, ifc vm.Iface) ([]byte, bool, error) {
+	return callMarshal(m, "MarshalText", ifc)
 }
 
 // encodeStructTo writes a struct as a JSON object into buf, honouring

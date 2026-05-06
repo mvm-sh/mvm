@@ -2763,10 +2763,10 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 		if !rv.IsValid() {
 			// A nil/zero value (e.g. nil error) must be typed for MakeFunc callers.
 			rv = reflect.Zero(funcType.Out(i))
-		} else if rv.Type() == ifaceRtype {
+		} else if m.mem[i].IsIface() {
 			// Unwrap Iface return values so MakeFunc callers see the concrete value.
-			ifc := rv.Interface().(Iface)
-			rv = m.bridgeIface(ifc, funcType.Out(i))
+			// IsIface handles both direct Iface and Iface inside an interface{} slot.
+			rv = m.bridgeIface(m.mem[i].IfaceVal(), funcType.Out(i))
 		} else if outType := funcType.Out(i); rv.Type() != outType && outType.Kind() == reflect.Interface {
 			// Interface locals use interface{} internally; convert to the expected
 			// interface type (e.g. interface{} -> error) for MakeFunc callers.

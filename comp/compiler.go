@@ -369,7 +369,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	flen := []int{}               // stack length according to function scopes
 	funcStack := []string{}       // names of functions currently being compiled
 	jumpDepth := map[string]int{} // expected compile-stack depth at short-circuit merge labels
-	exprBase := -1                // compile-stack depth at start of current expression statement (-1 = not in expr stmt)
+	exprBaseStack := []int{}      // stack of compile-stack depths at expression-statement starts; nested (closure body inside outer call args) requires a stack, not a single base
 	growPos := []int{}            // code positions of Grow instructions per function scope
 	maxExprDepth := []int{}       // max expression depth above locals per function scope
 	hasDefer := []bool{}          // whether current function scope uses defer
@@ -1453,17 +1453,20 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		case lang.PopExpr:
 			if t.Arg[0].(int) == 0 {
 				// Mark: save the compile-time stack depth before the expression.
-				exprBase = len(stack)
+				exprBaseStack = append(exprBaseStack, len(stack))
 			} else {
 				// Pop unused return values left by the expression statement.
-				if exprBase >= 0 && len(stack) > exprBase {
-					excess := len(stack) - exprBase
-					for range excess {
-						pop()
+				if n := len(exprBaseStack); n > 0 {
+					exprBase := exprBaseStack[n-1]
+					exprBaseStack = exprBaseStack[:n-1]
+					if len(stack) > exprBase {
+						excess := len(stack) - exprBase
+						for range excess {
+							pop()
+						}
+						c.emit(t, vm.Pop, excess)
 					}
-					c.emit(t, vm.Pop, excess)
 				}
-				exprBase = -1
 			}
 
 		case lang.Period:
