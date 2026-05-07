@@ -10,6 +10,14 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 	rhs := in[aindex+1:].Split(lang.Comma)
 	lhs := in[:aindex].Split(lang.Comma)
 	define := in[aindex].Tok == lang.Define
+	// `a[i], ok = f()` and similar: the multi-assign branch in
+	// compiler.go assumes Var/LocalVar lhs and mishandles indexed/deref'd
+	// lhs (the Index/Deref opcode runs at parse-emit time and consumes
+	// the container/pointer). Desugar to N temps + N single-value
+	// assigns so each lhs flows through Assign / IndexAssign / DerefAssign.
+	if !define && len(rhs) == 1 && len(lhs) > 1 && lhsNeedsTemps(lhs) {
+		return p.parseAssignSingleRHSViaTemps(lhs, rhs[0], in[aindex].Pos)
+	}
 	if len(rhs) == 1 {
 		var isRange bool
 		// Track positions of LHS tokens for local fixup (one entry per lhs element).
@@ -99,6 +107,53 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 	return p.parseAssignMultiRHS(in, lhs, rhs, aindex, define)
 }
 
+func lhsNeedsTemps(lhs []Tokens) bool {
+	for _, e := range lhs {
+		if len(e) == 1 && e[0].Tok == lang.Ident {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (p *Parser) parseAssignSingleRHSViaTemps(lhs []Tokens, rhsExpr Tokens, pos int) (out Tokens, err error) {
+	tmpNames := make([]string, len(lhs))
+	for i := range lhs {
+		tmpNames[i] = p.addTempVar(fmt.Sprintf("_ma_%d_", i))
+		out = append(out, newToken(lang.Ident, tmpNames[i], pos, 0))
+	}
+	rhsToks, err := p.parseExpr(rhsExpr, "")
+	if err != nil {
+		return out, err
+	}
+	out = append(out, rhsToks...)
+	out = append(out, newToken(lang.Define, "", pos, len(lhs)))
+	for i := range lhs {
+		toks, err := p.parseExpr(lhs[i], "")
+		if err != nil {
+			return out, err
+		}
+		out = append(out, toks...)
+		out = appendSingleAssign(out, newToken(lang.Ident, tmpNames[i], pos, 0), pos)
+	}
+	return out, nil
+}
+
+func appendSingleAssign(out Tokens, src Token, pos int) Tokens {
+	switch out[len(out)-1].Tok {
+	case lang.Index:
+		out = out[:len(out)-1]
+		out = append(out, src, newToken(lang.IndexAssign, "", pos, 1))
+	case lang.Deref:
+		out = out[:len(out)-1]
+		out = append(out, src, newToken(lang.DerefAssign, "", pos, 1))
+	default:
+		out = append(out, src, newToken(lang.Assign, "", pos, 1))
+	}
+	return out
+}
+
 func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, define bool) (out Tokens, err error) {
 	// For plain-ident non-define assignments (e.g. a, b = b, a), use a batched approach:
 	// emit all LHS first, then all RHS, then one Assign(n). This ensures all RHS values
@@ -154,20 +209,7 @@ func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, d
 				return out, err
 			}
 			out = append(out, toks...)
-			rhsTok := newToken(lang.Ident, tmpNames[i], pos, 0)
-			switch out[len(out)-1].Tok {
-			case lang.Index:
-				out = out[:len(out)-1]
-				out = append(out, rhsTok)
-				out = append(out, newToken(lang.IndexAssign, "", pos, 1))
-			case lang.Deref:
-				out = out[:len(out)-1]
-				out = append(out, rhsTok)
-				out = append(out, newToken(lang.DerefAssign, "", pos, 1))
-			default:
-				out = append(out, rhsTok)
-				out = append(out, newToken(lang.Assign, "", pos, 1))
-			}
+			out = appendSingleAssign(out, newToken(lang.Ident, tmpNames[i], pos, 0), pos)
 		}
 		return out, err
 	}

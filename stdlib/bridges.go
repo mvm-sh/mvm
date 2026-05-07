@@ -222,9 +222,6 @@ func init() {
 	vm.InterfaceBridges[reflect.TypeOf((*heap.Interface)(nil)).Elem()] = reflect.TypeOf((*BridgeHeapInterface)(nil))
 	vm.InterfaceBridges[reflect.TypeOf((*flag.Value)(nil)).Elem()] = reflect.TypeOf((*BridgeFlagValue)(nil))
 
-	// reflect.DeepEqual inspects its `any` args via reflection — Bridge
-	// wrappers wouldn't compare equal even for identical underlying values.
-	// Pass the raw typed value through instead.
 	vm.RegisterArgProxy(reflect.DeepEqual, 0, passthroughIface)
 	vm.RegisterArgProxy(reflect.DeepEqual, 1, passthroughIface)
 }

@@ -552,6 +552,11 @@ func (v Value) Equal(u Value) bool {
 		}
 		return v.IfaceVal().Val.Equal(u)
 	}
+	if u.IsIface() {
+		// v is a concrete value (e.g. unbridged from *BridgeError),
+		// u is still boxed as Iface; compare against the boxed value.
+		return u.IfaceVal().Val.Equal(v)
+	}
 	if isNum(v.ref.Kind()) && isNum(u.ref.Kind()) {
 		return v.num == u.num
 	}

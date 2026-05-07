@@ -116,11 +116,7 @@ func (i *Interp) patchFmtBindings() {
 
 // FuncNames returns names of top-level functions whose name starts with
 // prefix and whose first character after prefix is an ASCII uppercase letter,
-// in source-declaration order. Intended for callers that enumerate Test*,
-// Benchmark* or Example* functions after evaluating sources. Source order
-// matches `go test` semantics — important for tests that mutate package
-// globals (e.g. uuid's TestRandPool exhausts `rander`; subsequent
-// TestRandomUUID would panic if it ran after).
+// in source-declaration order.
 func (i *Interp) FuncNames(prefix string) []string {
 	type entry struct {
 		name string

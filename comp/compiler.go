@@ -1197,7 +1197,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						}
 					}
 				}
-				if !lhs.Used {
+				// Param slots alias the caller's pushed Value, so SetLocal would
+				// write through dst.ref to the caller. New detaches the slot, but
+				// the Used optimization skips it on later compile-emitted assigns;
+				// re-emit per branch since runtime may take a branch the optimizer
+				// didn't pick first.
+				if !lhs.Used || lhs.IsParam() {
 					if !lhs.NeedsCell() {
 						typeIdx := c.typeSym(lhs.Type).Index
 						c.fixPtrFnewE(lhs.Type, typeIdx)

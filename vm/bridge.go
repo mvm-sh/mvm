@@ -6,10 +6,8 @@ import "reflect"
 // holding the original concrete value. Populated at init time by stdlib.
 var ValBridgeTypes = map[reflect.Type]bool{}
 
-// unbridgeValue checks whether rv is a known bridge wrapper and returns the
-// original concrete value stored in its Val field. This is used during type
-// assertions to look through bridge wrappers created at the native boundary.
 func unbridgeValue(rv reflect.Value) reflect.Value {
+	rv = unwrapIface(rv)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || !ValBridgeTypes[rv.Type()] {
 		return reflect.Value{}
 	}
@@ -61,31 +59,16 @@ type argProxyKey struct {
 	arg   int
 }
 
-// funcArgProxies registers ProxyFactory callbacks for plain native
-// functions, keyed by (reflect.Value.Pointer(), arg index). Populated
-// via RegisterArgProxy.
 var funcArgProxies = map[argProxyKey]ProxyFactory{}
 
-// methodProxyKey keys an entry in methodArgProxies: the receiver
-// reflect.Type, the method name, and the zero-based argument index
-// (receiver not counted). Bound method Pointer()s share a single
-// reflect trampoline across all methods and types, so methods must
-// be keyed by (type, name) rather than by pointer.
 type methodProxyKey struct {
 	recvType reflect.Type
 	method   string
-	arg      int
+	arg      int // method arg count (without receiver)
 }
 
-// methodArgProxies registers ProxyFactory callbacks for native methods,
-// keyed by (receiver type, method name, arg index). Populated via
-// RegisterArgProxyMethod.
 var methodArgProxies = map[methodProxyKey]ProxyFactory{}
 
-// methodsWithArgProxies is the set of (receiver type, method name)
-// pairs that have at least one entry in methodArgProxies. Used as a
-// cheap check at IfaceCall time to decide whether to wrap the bound
-// method in a boundProxyCall sentinel.
 type methodProxySet struct {
 	recvType reflect.Type
 	method   string
@@ -120,21 +103,14 @@ func RegisterArgProxyMethod(recvInstance any, methodName string, arg int, factor
 	methodsWithArgProxies[methodProxySet{t, methodName}] = true
 }
 
-// hasMethodArgProxies reports whether (recvType, methodName) has any
-// registered arg proxy. Cheap test used at IfaceCall to decide whether
-// to wrap the bound method in a boundProxyCall sentinel.
 func hasMethodArgProxies(recvType reflect.Type, methodName string) bool {
 	return methodsWithArgProxies[methodProxySet{recvType, methodName}]
 }
 
-// lookupFuncArgProxy returns the factory registered for plain function
-// fnPtr at arg, or nil.
 func lookupFuncArgProxy(fnPtr uintptr, arg int) ProxyFactory {
 	return funcArgProxies[argProxyKey{fnPtr, arg}]
 }
 
-// lookupMethodArgProxy returns the factory registered for method
-// (recvType, methodName) at arg, or nil.
 func lookupMethodArgProxy(recvType reflect.Type, methodName string, arg int) ProxyFactory {
 	return methodArgProxies[methodProxyKey{recvType, methodName, arg}]
 }

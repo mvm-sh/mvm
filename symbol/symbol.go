@@ -93,6 +93,9 @@ func (s *Symbol) IsPtr() bool { return s.Type.Rtype.Kind() == reflect.Pointer }
 // IsInt returns true if symbol is an int.
 func (s *Symbol) IsInt() bool { return s.Type.Rtype.Kind() == reflect.Int }
 
+// IsParam reports whether s is a function parameter slot.
+func (s *Symbol) IsParam() bool { return s.Index < 0 && s.Index != UnsetAddr }
+
 // Vtype returns the VM type of a symbol.
 func Vtype(s *Symbol) *vm.Type {
 	if s.Type != nil {
