@@ -75,6 +75,9 @@ func (p *Parser) splitAndSortVarDecls(decls []Tokens) []Tokens {
 		return expanded
 	}
 
+	// Pre-populate Symbol.Reads only when there's something to reorder.
+	p.collectFuncReads(expanded)
+
 	// Extract var declarations, sort by dependency, and place back.
 	vars := make([]Tokens, len(varSlots))
 	for i, s := range varSlots {
@@ -205,6 +208,11 @@ func (p *Parser) collectFuncReads(decls []Tokens) {
 	calls := map[*symbol.Symbol]map[*symbol.Symbol]bool{}
 	for _, decl := range decls {
 		if len(decl) < 2 || decl[0].Tok != lang.Func {
+			continue
+		}
+		// init() runs after var-inits and is uncallable from code per Go
+		// spec, so its body's reads can't affect var-init ordering.
+		if decl[1].Tok == lang.Ident && decl[1].Str == "init" {
 			continue
 		}
 		sym, body, scope := p.funcSymBodyScope(decl)

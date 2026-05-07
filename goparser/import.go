@@ -230,9 +230,6 @@ func (p *Parser) ParseAll(name, src string) (out []Tokens, err error) {
 		p.importRemaining = nil
 	}
 
-	// Populate Symbol.Reads for var-init topo sort.
-	p.collectFuncReads(remaining)
-
 	// Phase 2: split var blocks, sort var declarations by dependency,
 	// then generate code in two passes. All symbols (including methods)
 	// are registered in Phase 1 with their signatures.
