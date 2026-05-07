@@ -960,6 +960,25 @@ type MyTime struct { time.Time }
 t := MyTime{}
 t.Time = time.Date(2009, time.November, 10, 23, 4, 5, 0, time.UTC)
 t.Second()`, res: "5"},
+
+		{n: "embedded_iface_method_via_ptr", src: `
+import "fmt"
+type withMessage struct { cause error; msg string }
+func (w *withMessage) Error() string { return w.msg + ": " + w.cause.Error() }
+type withStack struct { error }
+func wrap(err error, msg string) error {
+	return &withStack{&withMessage{cause: err, msg: msg}}
+}
+e := wrap(fmt.Errorf("boom"), "oops")
+e.Error()`, res: "oops: boom"},
+
+		{n: "method_value_from_unexp_field", src: `
+type T struct { count int }
+func (t T) Get() int { return t.count }
+type wrap struct { inner T }
+w := wrap{T{5}}
+fn := w.inner.Get
+fn()`, res: "5"},
 	})
 }
 
@@ -1714,6 +1733,19 @@ import "errors"
 type T struct { P1 int }
 var i interface{} = errors.New("boom")
 _, ok := i.(T)
+ok`, res: "false"},
+
+		// Type-assert a native error to a user-defined interface that the
+		// concrete type does not satisfy. Regression: vm.go's TypeAssert used
+		// rv.Type().AssignableTo(dstTyp.Rtype) which is always true for
+		// user-defined interfaces (Rtype = AnyRtype), bypassing the method-set
+		// check. pkg/errors's Cause() relies on this: native errorString must
+		// NOT satisfy the local `causer` interface (Cause() error).
+		{n: "user_iface_native_err_no_match", src: `
+import "errors"
+type causer interface { Cause() error }
+e := errors.New("test")
+_, ok := e.(causer)
 ok`, res: "false"},
 	})
 }

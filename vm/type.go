@@ -5,6 +5,7 @@ import (
 	"math"
 	"reflect"
 	"unicode"
+	"unsafe"
 )
 
 // Runtime type and value representations (based on reflect).
@@ -511,12 +512,40 @@ func (v Value) IsIface() bool {
 	return false
 }
 
+// Exportable returns rv with its read-only flag cleared so that .Interface()
+// and .Call() do not panic on values obtained from unexported struct fields.
+func Exportable(rv reflect.Value) reflect.Value {
+	if rv.CanInterface() {
+		return rv
+	}
+	if rv.CanAddr() {
+		return reflect.NewAt(rv.Type(), unsafe.Pointer(rv.UnsafeAddr())).Elem()
+	}
+	// Non-addressable read-only value (typical: a method value taken off
+	// an unexported field, or the result of an unexported func-typed field
+	// access). Clear flagStickyRO and flagEmbedRO directly. The reflect.Value
+	// layout has been stable across recent Go releases; if the bit positions
+	// ever change, this will fail loudly via panic on the next .Interface()
+	// rather than silently misbehave.
+	// rvHeader mirrors reflect.Value's internal layout (typ, ptr, flag).
+	type rvHeader struct {
+		typ  unsafe.Pointer //nolint:unused
+		ptr  unsafe.Pointer //nolint:unused
+		flag uintptr
+	}
+	const flagRO = (1 << 5) | (1 << 6) // flagStickyRO | flagEmbedRO
+	out := rv
+	(*rvHeader)(unsafe.Pointer(&out)).flag &^= flagRO
+	return out
+}
+
 // IfaceVal extracts the Iface from a boxed interface value.
 func (v Value) IfaceVal() Iface {
-	if v.ref.Kind() == reflect.Interface {
-		return v.ref.Elem().Interface().(Iface)
+	rv := Exportable(v.ref)
+	if rv.Kind() == reflect.Interface {
+		return rv.Elem().Interface().(Iface)
 	}
-	return v.ref.Interface().(Iface)
+	return rv.Interface().(Iface)
 }
 
 func isNilable(rv reflect.Value) bool {

@@ -497,16 +497,34 @@ func (m *Machine) Run() (err error) {
 			if fval.ref.Kind() == reflect.Func && fval.ref.CanAddr() {
 				fval = m.resolveFuncField(fval)
 			}
+			fval.ref = Exportable(fval.ref)
 			prevHeap := m.heap
 			var nip int
-			if isNum(fval.ref.Kind()) {
+			// fval.ref may be non-addressable AND read-only (method value
+			// taken off an unexported struct field). In that case .Interface()
+			// panics, so guard the Closure/int checks with CanInterface — such
+			// values are plain func values and fall through to the func path.
+			canCallInterface := fval.ref.CanInterface()
+			var clo Closure
+			var isClosure, isInt bool
+			var iv int
+			if canCallInterface {
+				clo, isClosure = fval.ref.Interface().(Closure)
+				if !isClosure {
+					iv, isInt = fval.ref.Interface().(int)
+				}
+			}
+			// Cannot use switch here: the final else branch contains a `break`
+			// that must exit the outer Op switch (native func call returns
+			// values directly without setting up a call frame).
+			if isNum(fval.ref.Kind()) { //nolint:gocritic
 				// Plain int code address stored inline in num.
 				nip = int(fval.num) //nolint:gosec
 				m.heap = nil
-			} else if clo, ok := fval.ref.Interface().(Closure); ok {
+			} else if isClosure {
 				nip = clo.Code
 				m.heap = clo.Heap
-			} else if iv, ok := fval.ref.Interface().(int); ok {
+			} else if isInt {
 				// Function variable slot holds a plain code address boxed as interface{}.
 				nip = iv
 				m.heap = nil
@@ -527,6 +545,7 @@ func (m *Machine) Run() (err error) {
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
 				}
+				rv = Exportable(rv)
 				if rv.Kind() == reflect.Func {
 					funcType := rv.Type()
 					in := make([]reflect.Value, narg)
@@ -1012,7 +1031,18 @@ func (m *Machine) Run() (err error) {
 						rv = rv.Elem()
 					}
 				}
-				matched := !isNil && (rv.Type().AssignableTo(dstTyp.Rtype) || dstTyp.NativeImplements(rv.Type()))
+				// For interface targets, check the method set directly. AssignableTo
+				// would yield a false positive when dstTyp.Rtype is AnyRtype (the
+				// reflect placeholder for user-defined interfaces) since every type
+				// is assignable to `interface{}`.
+				matched := false
+				if !isNil {
+					if dstTyp.IsInterface() {
+						matched = dstTyp.NativeImplements(rv.Type())
+					} else {
+						matched = rv.Type().AssignableTo(dstTyp.Rtype) || dstTyp.NativeImplements(rv.Type())
+					}
+				}
 				// If the value is a bridge wrapper (e.g. *BridgeError wrapping an
 				// interpreted value), try unwrapping to recover the original value.
 				if !matched && !isNil {
