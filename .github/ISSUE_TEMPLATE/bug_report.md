@@ -32,6 +32,4 @@ func main() {
 
 ### Environment
 
-- mvm version / commit:
-- Go version (`go version`):
-- OS / arch:
+- `mvm version` output:

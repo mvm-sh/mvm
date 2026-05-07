@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -64,6 +66,21 @@ func main() {
 	}
 }
 
+func versionString() string {
+	v, gv := "(devel)", ""
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		gv = bi.GoVersion
+		v = bi.Main.Version
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" && s.Value != "" {
+				v = s.Value
+				break
+			}
+		}
+	}
+	return fmt.Sprintf("%.12s %s %s/%s", v, gv, runtime.GOOS, runtime.GOARCH)
+}
+
 func dispatch(args []string) error {
 	if len(args) == 0 {
 		return runCmd(nil)
@@ -76,6 +93,9 @@ func dispatch(args []string) error {
 		return runCmd(args[1:])
 	case "test":
 		return testCmd(args[1:])
+	case "version", "-v", "--version":
+		fmt.Println(versionString())
+		return nil
 	}
 	return runCmd(args)
 }
@@ -84,9 +104,10 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage: mvm <command> [arguments]")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Commands:")
-	_, _ = fmt.Fprintln(w, "  run    run a Go source file, evaluate an expression, or start the REPL")
-	_, _ = fmt.Fprintln(w, "  test   run Go tests in a package directory")
-	_, _ = fmt.Fprintln(w, "  help   show this help")
+	_, _ = fmt.Fprintln(w, "  run     run a Go source file, evaluate an expression, or start the REPL")
+	_, _ = fmt.Fprintln(w, "  test    run Go tests in a package directory")
+	_, _ = fmt.Fprintln(w, "  version print the mvm version, OS, and architecture")
+	_, _ = fmt.Fprintln(w, "  help    show this help")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, `Use "mvm <command> -h" for details on a command.`)
 }

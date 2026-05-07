@@ -20,4 +20,4 @@ Paste the full command and its output below.
 $ mvm ...
 ```
 
-mvm version:
+`mvm version` output:
