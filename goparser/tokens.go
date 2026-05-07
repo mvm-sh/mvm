@@ -47,6 +47,17 @@ func (toks Tokens) LastIndex(tok lang.Token) int {
 	return -1
 }
 
+// TrimComments returns toks with leading and trailing Comment tokens removed.
+func (toks Tokens) TrimComments() Tokens {
+	for len(toks) > 0 && toks[len(toks)-1].Tok == lang.Comment {
+		toks = toks[:len(toks)-1]
+	}
+	for len(toks) > 0 && toks[0].Tok == lang.Comment {
+		toks = toks[1:]
+	}
+	return toks
+}
+
 // Split returns a slice of token arrays, separated by tok.
 func (toks Tokens) Split(tok lang.Token) (result []Tokens) {
 	for {

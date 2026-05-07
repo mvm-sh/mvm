@@ -72,7 +72,62 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 		}
 		out = append(out, PackageSource{Name: e.Name(), Content: src})
 	}
+	// When loading tests, filter out external _test.go files (those declaring
+	// `package X_test` instead of `package X`). Go's testing tool compiles
+	// them as a separate package; mvm does not support that yet, and feeding
+	// them into the same parser scope would mis-resolve qualified imports
+	// (e.g. `errors.WithMessage` where `errors` aliases the package under test).
+	if includeTests {
+		names := make([]string, len(out))
+		var mainPkg string
+		for i, s := range out {
+			names[i] = extractPackageName(s.Content)
+			if mainPkg == "" && names[i] != "" && !strings.HasSuffix(s.Name, "_test.go") {
+				mainPkg = names[i]
+			}
+		}
+		if mainPkg != "" {
+			filtered := out[:0]
+			for i, s := range out {
+				if !strings.HasSuffix(s.Name, "_test.go") || names[i] == mainPkg {
+					filtered = append(filtered, s)
+				}
+			}
+			out = filtered
+		}
+	}
 	return out, nil
+}
+
+func extractPackageName(src string) string {
+	// skipped; block comments before `package` are not handled (Go style places
+	// `package` directly after build tags, so this is sufficient in practice).
+	for src != "" {
+		var line string
+		if i := strings.IndexByte(src, '\n'); i >= 0 {
+			line, src = src[:i], src[i+1:]
+		} else {
+			line, src = src, ""
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		rest, ok := strings.CutPrefix(line, "package ")
+		if !ok {
+			return ""
+		}
+		rest = strings.TrimSpace(rest)
+		end := len(rest)
+		for i, r := range rest {
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+				end = i
+				break
+			}
+		}
+		return rest[:end]
+	}
+	return ""
 }
 
 func (p *Parser) importSrc(pkgPath string) (err error) {
@@ -253,6 +308,7 @@ func (p *Parser) preRegisterTypes(decls []Tokens) {
 				continue
 			}
 			for _, lt := range inner.Split(lang.Semicolon) {
+				lt = lt.TrimComments()
 				if len(lt) >= 2 && lt[0].Tok == lang.Ident {
 					n := lt[0].Str
 					switch lt[1].Tok {

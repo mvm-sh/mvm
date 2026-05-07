@@ -223,7 +223,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			if err != nil {
 				return out, err
 			}
-			if i == 0 || in[i-1].Tok.IsOperator() {
+			if isUnaryCtx(i) {
 				out = append(out, toks...)
 			} else {
 				flushops(p.precedence(newCall(0)))
@@ -281,7 +281,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			ops = append(ops, newComposite(ctype, t.Pos, sliceLen))
 
 		case lang.BracketBlock:
-			if i == 0 || in[i-1].Tok.IsOperator() || in[i-1].Tok == lang.Range || in[i-1].Tok == lang.Colon {
+			if isUnaryCtx(i) {
 				// Array or slice type expression.
 				elemTyp, n, err := p.parseTypeExpr(in[i:])
 				if errors.Is(err, ErrEllipsisArray) {

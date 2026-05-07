@@ -669,6 +669,8 @@ len(buf{}.data)`, res: "32"},
 		{n: "uint64_maxint", src: `const a = int64(^uint64(0) >> 1); a`, res: "9223372036854775807"},
 		{n: "uint8_complement", src: `import "fmt"; const a = ^uint8(0); fmt.Sprintf("%T %v", a, a)`, res: "uint8 255"},
 		{n: "uint64_nested_conv", src: `const a = int64(int64(^uint64(0) >> 1)); a`, res: "9223372036854775807"},
+
+		{n: "leading_comment_in_block", src: "const (\n\t// header comment\n\ta = 1\n\tb = 2\n)\na+b", res: "3"},
 	})
 }
 
@@ -1167,6 +1169,11 @@ func f() string {
 	return a.Field
 }
 f()`, res: "test"},
+
+		// Comment-only line at the start of a type block must not be carried
+		// into the first declaration's tokens. Same shape as the const block
+		// regression in TestConst/leading_comment_in_block.
+		{n: "leading_comment_in_block", src: "type (\n\t// header comment\n\tA int\n\tB int\n)\nvar a A = 1; var b B = 2; int(a) + int(b)", res: "3"},
 	})
 }
 
@@ -1867,6 +1874,8 @@ func TestImport(t *testing.T) {
 		{n: "#12", src: `import "bytes"; b := bytes.NewBuffer(nil); b.WriteString("hello"); b.String()`, res: "hello"},
 		{n: "#13", src: `import "net/url"; v := url.Values{}; v.Set("a", "b"); v.Get("a")`, res: "b"},
 		{n: "#14", src: `import . "net"; v := IP{}; v`, res: "<nil>"},
+
+		{n: "#15", src: "import (\n\t// header comment\n\t\"strings\"\n)\nstrings.ToUpper(\"ok\")", res: "OK"},
 	})
 }
 
@@ -1892,13 +1901,13 @@ func TestComposite(t *testing.T) {
 		{n: "#17", src: `a := [3]int{1, 2, 3}; a`, res: `[1 2 3]`},
 		{n: "#18", src: `import "time"; t := time.Time{}; t.IsZero()`, res: `true`},
 		{n: "#19", src: `import "time"; t := &time.Time{}; t.IsZero()`, res: `true`},
-		{n: "iface_slice_display", src: `import "fmt"; type T struct{name string}; fmt.Sprintf("%v", []interface{}{T{"hello"}})`, res: `[{hello}]`},
+		{n: "#20", src: `import "fmt"; type T struct{name string}; fmt.Sprintf("%v", []interface{}{T{"hello"}})`, res: `[{hello}]`},
 		// Inline closure as composite literal field value.
-		{n: "func_field_closure", src: `type T struct{ F func() int }; s := T{F: func() int { return 42 }}; s.F()`, res: `42`},
+		{n: "#21", src: `type T struct{ F func() int }; s := T{F: func() int { return 42 }}; s.F()`, res: `42`},
 		// Comment-only line between struct fields inside a slice literal.
 		// Regression: scanner used to insert an auto-Semicolon after the
 		// comment, which leaked into parseExpr (pkg/errors errors_test.go).
-		{n: "comment_between_struct_fields", src: "type T struct{ a, b int }\n" +
+		{n: "#22", src: "type T struct{ a, b int }\n" +
 			"s := []T{{\n" +
 			"\t// leading comment\n" +
 			"\ta: 1,\n" +
@@ -1909,6 +1918,12 @@ func TestComposite(t *testing.T) {
 			"\tb: 4,\n" +
 			"}}\n" +
 			"s[0].a + s[1].b", res: `5`},
+		// Parenthesized type conversion as a struct-literal field value.
+		// Regression: parseExpr treated `(error)` after `field:` as a
+		// function call (since Colon is not an operator), turning
+		// `field: (error)(nil)` into call(call(field, error), nil).
+		// pkg/errors errors_test.go uses `err: (error)(nil)`.
+		{n: "#23", src: `type T struct{ e error }; t := T{e: (error)(nil)}; t.e == nil`, res: "true"},
 	})
 }
 
@@ -2040,6 +2055,17 @@ func TestMethod(t *testing.T) {
 			var s string
 			f := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) { s = "done" })
 			t := &T{f}; t.Do(); s`, res: "done"},
+
+		// Defined type whose underlying is a basic type, accessed through a
+		// struct field, then chain-called: the named type is lost (treated
+		// as the underlying type), so the method lookup fails.
+		// Surfaces in pkg/errors json_test.go: `tt.Frame.MarshalText()`.
+		// `var f Frame = tt.F` works; `f := tt.F` does not.
+		{n: "named_type_method_via_field_chain", skip: true, src: `type Frame uintptr
+			func (f Frame) Tag() string { return "ok" }
+			type T struct{ F Frame }
+			tt := T{F: Frame(0)}
+			tt.F.Tag()`, res: `ok`},
 	})
 }
 

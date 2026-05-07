@@ -250,12 +250,7 @@ func (p *Parser) drainPendingMethods(out *Tokens) {
 // ParseDecl resolves a declaration's symbols (Phase 1) without emitting code.
 // Returns handled=true if fully resolved, false if code generation is needed.
 func (p *Parser) ParseDecl(toks Tokens) (handled bool, err error) {
-	for len(toks) > 0 && toks[len(toks)-1].Tok == lang.Comment {
-		toks = toks[:len(toks)-1]
-	}
-	for len(toks) > 0 && toks[0].Tok == lang.Comment {
-		toks = toks[1:]
-	}
+	toks = toks.TrimComments()
 	if len(toks) == 0 {
 		return true, nil
 	}

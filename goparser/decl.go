@@ -36,10 +36,7 @@ func (p *Parser) parseConst(in Tokens) (out Tokens, err error) {
 	var prev Tokens
 	var iotaIdx int
 	for _, lt := range lines {
-		// Strip trailing comments and skip comment-only lines.
-		for len(lt) > 0 && lt[len(lt)-1].Tok == lang.Comment {
-			lt = lt[:len(lt)-1]
-		}
+		lt = lt.TrimComments()
 		if len(lt) == 0 {
 			continue
 		}
@@ -647,6 +644,7 @@ func (p *Parser) parseImports(in Tokens) (out Tokens, err error) {
 }
 
 func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
+	in = in.TrimComments()
 	l := len(in)
 	if l == 0 {
 		return out, errors.New("empty import declaration")
@@ -723,6 +721,7 @@ func (p *Parser) parseType(in Tokens) (out Tokens, err error) {
 }
 
 func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
+	in = in.TrimComments()
 	if len(in) < 2 {
 		return out, ErrMissingType
 	}

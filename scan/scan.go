@@ -145,15 +145,16 @@ func (sc *Scanner) Scan(src string, semiEOF bool) (tokens []Token, err error) {
 				j--
 			}
 			last := tokens[j]
-			if last.Tok == lang.Comment {
+			switch {
+			case last.Tok == lang.Comment:
 				// Only comments precede this newline: nothing to terminate.
 				skip = true
-			} else if last.Tok.IsKeyword() && sc.TokenProps[last.Tok].SkipSemi ||
-				last.Tok.IsOperator() && !sc.TokenProps[last.Tok].SkipSemi ||
-				last.Tok == lang.Comma ||
-				last.Tok == lang.Semicolon {
+			case last.Tok.IsKeyword() && sc.TokenProps[last.Tok].SkipSemi,
+				last.Tok.IsOperator() && !sc.TokenProps[last.Tok].SkipSemi,
+				last.Tok == lang.Comma,
+				last.Tok == lang.Semicolon:
 				skip = true
-			} else {
+			default:
 				t.Tok = lang.Semicolon
 				t.Str = ";"
 			}
