@@ -59,8 +59,12 @@ go run . _samples/fib.go            # run a Go source file
 go run . run _samples/fib.go        # same. "run" is the default subcommand
 go run . run -e "fmt.Println(1+2)"  # evaluate an inline expression
 go run . test ./pkg                 # run TestX functions in a package directory
+go run . test github.com/google/uuid  # fetch a remote module and run its tests
 go run . help                       # list subcommands
 ```
+
+Remote import paths (run or test) are resolved through the Go module
+proxy and held in memory, so no module sources are written to disk.
 
 A `trap()` builtin drops the program into an interactive debug REPL
 where you can inspect the call stack and memory.
