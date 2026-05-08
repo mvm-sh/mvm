@@ -1008,6 +1008,15 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.emit(t, vm.FieldSet, j...)
 
 			case symbol.LocalVar, symbol.Var:
+				if ts.Type != nil && ts.Type.Rtype.Kind() == reflect.Map {
+					elemTyp := ts.Type.Elem()
+					if elemTyp.IsPtr() && vs.Kind == symbol.Type {
+						c.emit(t, vm.Addr)
+					}
+					c.emitMapValueWrap(t, elemTyp, vs)
+					c.emit(t, vm.MapSet)
+					break
+				}
 				if ts.Type == nil || ts.Type.Rtype.Kind() != reflect.Struct {
 					break
 				}
