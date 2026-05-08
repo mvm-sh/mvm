@@ -6,16 +6,53 @@ import "reflect"
 // holding the original concrete value. Populated at init time by stdlib.
 var ValBridgeTypes = map[reflect.Type]bool{}
 
-func unbridgeValue(rv reflect.Value) reflect.Value {
+func unbridgeValue(rv reflect.Value) reflect.Value { return UnbridgeValue(rv) }
+
+// asBridge returns the bridge struct's elem (settable) if rv is a known
+// bridge wrapper with a non-nil pointer; otherwise an invalid Value.
+func asBridge(rv reflect.Value) reflect.Value {
 	rv = unwrapIface(rv)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || !ValBridgeTypes[rv.Type()] {
 		return reflect.Value{}
 	}
-	valField := rv.Elem().FieldByName("Val")
+	return rv.Elem()
+}
+
+// UnbridgeValue extracts the underlying interpreted value from a bridge
+// wrapper (e.g. *BridgeError, *BridgeErrorUnwrap). Returns an invalid
+// reflect.Value when rv is not a known bridge with a populated Val
+// field. Exported for stdlib intercept packages such as errorsx.
+func UnbridgeValue(rv reflect.Value) reflect.Value {
+	elem := asBridge(rv)
+	if !elem.IsValid() {
+		return reflect.Value{}
+	}
+	valField := elem.FieldByName("Val")
 	if !valField.IsValid() || valField.IsNil() {
 		return reflect.Value{}
 	}
 	return reflect.ValueOf(valField.Interface())
+}
+
+// UnbridgeIface returns the original mvm Iface stored in a bridge
+// wrapper (in the Ifc field), if any. Used at the native->mvm return
+// boundary to restore the interpreted Iface so subsequent operations
+// (reflect.DeepEqual proxy, equality, etc.) see the same value the
+// caller originally passed in.
+func UnbridgeIface(rv reflect.Value) (Iface, bool) {
+	elem := asBridge(rv)
+	if !elem.IsValid() {
+		return Iface{}, false
+	}
+	fld := elem.FieldByName("Ifc")
+	if !fld.IsValid() {
+		return Iface{}, false
+	}
+	ifc, ok := fld.Interface().(Iface)
+	if !ok || ifc.Typ == nil {
+		return Iface{}, false
+	}
+	return ifc, true
 }
 
 // Bridges maps interface method names to their bridge pointer types.

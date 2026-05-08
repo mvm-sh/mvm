@@ -11,9 +11,11 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// passthroughIface returns the underlying typed value of a mvm Iface.
-// Used for native functions like reflect.DeepEqual.
-func passthroughIface(_ *vm.Machine, ifc vm.Iface) reflect.Value {
+// PassthroughIface returns the underlying typed value of a mvm Iface,
+// or a zero of its declared type when the Val is unset. Used as a
+// vm.ProxyFactory for native functions that need the concrete value
+// rather than a bridge wrapper (reflect.DeepEqual; errorsx targetProxy).
+func PassthroughIface(_ *vm.Machine, ifc vm.Iface) reflect.Value {
 	if rv := ifc.Val.Reflect(); rv.IsValid() {
 		return rv
 	}
@@ -43,18 +45,47 @@ func formatBridgeDisplay(f fmt.State, verb rune, display func() string, val any)
 
 // BridgeError bridges the error interface method.
 // Val holds the concrete value for non-string format verbs (%d, %x, etc.).
+// FnFormat, when non-nil, dispatches to the interpreted type's own
+// fmt.Formatter so user-defined Format(s, verb) bodies are invoked
+// instead of the display fallback. Ifc preserves the original mvm
+// Iface so the bridge can be unwrapped back at native->mvm boundaries
+// (vm.UnbridgeIface).
 type BridgeError struct {
-	Fn  func() string
-	Val any
+	Fn       func() string
+	FnFormat func(fmt.State, rune)
+	Val      any
+	Ifc      vm.Iface
 }
 
 // Error implements the error interface.
 func (b *BridgeError) Error() string { return b.Fn() }
 
-// Format implements fmt.Formatter.
+// Format implements fmt.Formatter. Routes to the user-defined Format
+// method when set, otherwise uses the display fallback.
 func (b *BridgeError) Format(f fmt.State, verb rune) {
+	if b.FnFormat != nil {
+		b.FnFormat(f, verb)
+		return
+	}
 	formatBridgeDisplay(f, verb, b.Error, b.Val)
 }
+
+// Is enables stderrors.Is to compare two BridgeError instances that
+// wrap the same underlying interpreted value. Two bridges of the same
+// mvm Iface share Val (the interpreted struct pointer), so this gives
+// stderrors.Is a value-level fallback when interface == fails.
+func (b *BridgeError) Is(target error) bool {
+	if t, ok := target.(bridgedValue); ok {
+		return b.Val != nil && b.Val == t.bridgeVal()
+	}
+	return false
+}
+
+// bridgedValue exposes the underlying interpreted value held by a
+// bridge, used for cross-bridge identity comparisons (Is, As).
+type bridgedValue interface{ bridgeVal() any }
+
+func (b *BridgeError) bridgeVal() any { return b.Val }
 
 // BridgeGoString bridges the fmt.GoStringer interface method.
 type BridgeGoString struct {
@@ -201,10 +232,16 @@ func (b *BridgeUnwrap) Unwrap() error { return b.Fn() }
 // both Error() string and Unwrap() error. Required so a value bridged
 // as `error` also satisfies the anonymous `interface{ Unwrap() error }`
 // assertion that errors.Is / errors.As / errors.Unwrap perform when
-// walking a chain.
+// walking a chain. FnFormat is set (by wrapIfaceMulti) when the type
+// also defines fmt.Formatter, so user Format() is invoked. Val holds
+// the underlying interpreted value for identity-based comparisons in
+// Is and for unbridgeValue.
 type BridgeErrorUnwrap struct {
 	FnError  func() string
 	FnUnwrap func() error
+	FnFormat func(fmt.State, rune)
+	Val      any
+	Ifc      vm.Iface
 }
 
 // Error implements the error interface.
@@ -212,6 +249,27 @@ func (b *BridgeErrorUnwrap) Error() string { return b.FnError() }
 
 // Unwrap implements the standard-library single-error unwrap protocol.
 func (b *BridgeErrorUnwrap) Unwrap() error { return b.FnUnwrap() }
+
+// Format implements fmt.Formatter. Routes to the user-defined Format
+// method when set, otherwise uses the display fallback.
+func (b *BridgeErrorUnwrap) Format(f fmt.State, verb rune) {
+	if b.FnFormat != nil {
+		b.FnFormat(f, verb)
+		return
+	}
+	formatBridgeDisplay(f, verb, b.Error, b.Val)
+}
+
+// Is enables stderrors.Is to match two BridgeErrorUnwrap instances
+// that wrap the same underlying interpreted value.
+func (b *BridgeErrorUnwrap) Is(target error) bool {
+	if t, ok := target.(bridgedValue); ok {
+		return b.Val != nil && b.Val == t.bridgeVal()
+	}
+	return false
+}
+
+func (b *BridgeErrorUnwrap) bridgeVal() any { return b.Val }
 
 // BridgeFlagValue bridges flag.Value (String, Set).
 type BridgeFlagValue struct {
@@ -254,6 +312,7 @@ func init() {
 	vm.DisplayBridges["String"] = true
 
 	vm.ValBridgeTypes[reflect.TypeOf((*BridgeError)(nil))] = true
+	vm.ValBridgeTypes[reflect.TypeOf((*BridgeErrorUnwrap)(nil))] = true
 	vm.ValBridgeTypes[reflect.TypeOf((*BridgeGoString)(nil))] = true
 	vm.ValBridgeTypes[reflect.TypeOf((*BridgeString)(nil))] = true
 
@@ -261,6 +320,6 @@ func init() {
 	vm.InterfaceBridges[reflect.TypeOf((*heap.Interface)(nil)).Elem()] = reflect.TypeOf((*BridgeHeapInterface)(nil))
 	vm.InterfaceBridges[reflect.TypeOf((*flag.Value)(nil)).Elem()] = reflect.TypeOf((*BridgeFlagValue)(nil))
 
-	vm.RegisterArgProxy(reflect.DeepEqual, 0, passthroughIface)
-	vm.RegisterArgProxy(reflect.DeepEqual, 1, passthroughIface)
+	vm.RegisterArgProxy(reflect.DeepEqual, 0, PassthroughIface)
+	vm.RegisterArgProxy(reflect.DeepEqual, 1, PassthroughIface)
 }

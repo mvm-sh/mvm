@@ -594,7 +594,21 @@ func (m *Machine) Run() (err error) {
 					} else {
 						out = rv.Call(in)
 					}
-					for _, v := range out {
+					nout := funcType.NumOut()
+					for i, v := range out {
+						// When a native func returns an interface value
+						// holding a bridge wrapper of an mvm Iface, restore
+						// the original Iface so subsequent mvm-side operations
+						// (equality, reflect.DeepEqual proxy, etc.) see the
+						// same identity the caller passed in. Only applies
+						// when the static return type is an interface; for
+						// concrete returns the bridge itself is the value.
+						if i < nout && funcType.Out(i).Kind() == reflect.Interface &&
+							v.IsValid() && !v.IsNil() {
+							if ifc, ok := UnbridgeIface(v.Elem()); ok {
+								v = reflect.ValueOf(ifc)
+							}
+						}
 						if sp+1 >= len(mem) {
 							mem = growStack(mem, sp, 1)
 						}
@@ -3287,10 +3301,6 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 	}
 
 	// Single pass: collect all methods that have registered bridges.
-	type bridgedMethod struct {
-		name   string
-		method Method
-	}
 	var bridged [8]bridgedMethod
 	count := 0
 
@@ -3333,34 +3343,47 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 		}
 	}
 
-	// Prefer the Format bridge when available: a user-defined fmt.Formatter
-	// handles every verb itself, so fmt never has to fall back to display
-	// bridges or to reflect-based default printing of the raw mvm value.
-	// Skip when the method is promoted from an embedded interface — the
-	// embedded-iface closure dispatches via native reflect and cannot
-	// re-enter mvm correctly for that path.
+	// Single-method fallback. Prefer "primary" bridges (Error, String,
+	// GoString) over Format because BridgeError/String/GoString now also
+	// dispatch user Format via FnFormat (populated by populateBridgeAux),
+	// AND they satisfy native type assertions like fmt.Errorf's `%w` ->
+	// error. Returning *BridgeFormat for a value that also implements
+	// error would lose the error capability and break Unwrap chains.
+	for _, primary := range primaryBridgeOrder {
+		if w := m.tryBridge(ifc, bridged[:count], required, targetType, nonEmpty, primary); w.IsValid() {
+			return w
+		}
+	}
+	// Last resort: any matching bridge (catches Format-only types).
 	for _, bm := range bridged[:count] {
-		if bm.name != "Format" || !required[bm.name] || bm.method.EmbedIface {
-			continue
+		if w := m.tryBridge(ifc, bridged[:count], required, targetType, nonEmpty, bm.name); w.IsValid() {
+			return w
 		}
-		bridgePtrType := Bridges["Format"]
-		bridge := reflect.New(bridgePtrType.Elem())
-		if nonEmpty && !bridge.Type().Implements(targetType) {
-			continue
-		}
-		fnField := bridge.Elem().FieldByName("Fn")
-		fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
-		return bridge
 	}
 
-	// Fall back to single-method bridge.
-	for _, bm := range bridged[:count] {
-		if !required[bm.name] {
+	return reflect.Value{}
+}
+
+// primaryBridgeOrder lists method names whose single-method bridge type
+// also satisfies higher-level Go interfaces (error, fmt.Stringer,
+// fmt.GoStringer). These are preferred over a Format-only bridge so a
+// value with both Error and Format keeps its error capability when
+// passed through interface{}.
+var primaryBridgeOrder = [...]string{"Error", "String", "GoString"}
+
+// tryBridge attempts to build a single-method bridge for the named
+// method against targetType. Returns an invalid Value if no method on
+// ifc with that name has a registered bridge that satisfies the target.
+func (m *Machine) tryBridge(ifc Iface, bridged []bridgedMethod, required map[string]bool, targetType reflect.Type, nonEmpty bool, name string) reflect.Value {
+	if !required[name] {
+		return reflect.Value{}
+	}
+	for _, bm := range bridged {
+		if bm.name != name {
 			continue
 		}
 		bridgePtrType := Bridges[bm.name]
 		bridge := reflect.New(bridgePtrType.Elem())
-		// Skip single-method bridges that don't satisfy the target interface.
 		if nonEmpty && !bridge.Type().Implements(targetType) {
 			continue
 		}
@@ -3370,15 +3393,53 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 		} else {
 			fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
 		}
-		if valField := bridge.Elem().FieldByName("Val"); valField.IsValid() {
-			if rv := ifc.Val.Reflect(); rv.IsValid() {
-				valField.Set(reflect.ValueOf(rv.Interface()))
-			}
-		}
+		m.populateBridgeAux(bridge.Elem(), ifc, bridged, bm.name)
 		return bridge
 	}
-
 	return reflect.Value{}
+}
+
+// populateBridgeAux fills optional bridge fields after the primary
+// method closure is set. Val carries the underlying interpreted value
+// (used by unbridgeValue and the bridge Is method). Ifc preserves the
+// full Iface so UnbridgeIface can restore it at native->mvm return
+// boundaries. FnFormat routes fmt verbs to the interpreted type's
+// own Format method when present, so user-defined fmt.Formatter
+// bodies are invoked instead of the display fallback. skipName avoids
+// overwriting the field already set by the caller (e.g. the primary
+// method's Fn).
+func (m *Machine) populateBridgeAux(elem reflect.Value, ifc Iface, bridged []bridgedMethod, skipName string) {
+	if valField := elem.FieldByName("Val"); valField.IsValid() {
+		if rv := ifc.Val.Reflect(); rv.IsValid() {
+			valField.Set(reflect.ValueOf(rv.Interface()))
+		}
+	}
+	if ifcField := elem.FieldByName("Ifc"); ifcField.IsValid() && ifcField.Type() == ifaceMetaType {
+		ifcField.Set(reflect.ValueOf(ifc))
+	}
+	if skipName == "Format" {
+		return
+	}
+	if fmtField := elem.FieldByName("FnFormat"); fmtField.IsValid() {
+		for _, bm := range bridged {
+			if bm.name != "Format" || bm.method.EmbedIface {
+				continue
+			}
+			fmtField.Set(m.makeBridgeClosure(ifc, bm.method, fmtField.Type()))
+			return
+		}
+	}
+}
+
+// ifaceMetaType is the reflect.Type of vm.Iface, used to gate setting
+// of optional "Ifc" bridge fields.
+var ifaceMetaType = reflect.TypeOf(Iface{})
+
+// bridgedMethod pairs a bridgeable method with its registered name.
+// Hoisted to package scope so populateBridgeAux can take a slice of them.
+type bridgedMethod struct {
+	name   string
+	method Method
 }
 
 // wrapIfaceMulti creates a bridge that implements a multi-method interface
@@ -3415,6 +3476,8 @@ func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.
 	if !matched {
 		return reflect.Value{}
 	}
+	// FnFormat is auto-populated above by the Fn<MethodName> loop, so skip it here.
+	m.populateBridgeAux(elem, ifc, nil, "Format")
 	return bridge
 }
 
