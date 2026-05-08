@@ -401,6 +401,14 @@ current `globals` slice to a fresh backing array so inner writes don't
 affect the outer run's globals. This differs from `newGoroutine`, which
 intentionally shares the same backing array.
 
+`makeCallFunc` (the trampoline returned by `WrapFunc`) does not reuse
+`m`; it creates a fresh `Machine` per native callback via
+`runnerState.newRunner`. The captured `runnerState` therefore also
+carries `debugInfoFn`, so bridges that introspect the callback runner
+(e.g. the runtime.Callers replacement, see [Runtime virtualization
+bridges](#runtime-virtualization-bridges)) can still resolve symbols
+through `m.DebugInfo()`.
+
 ### Trap and interactive debug mode
 
 The `Trap` opcode pauses VM execution and enters an interactive debug
@@ -436,6 +444,39 @@ multi-file/REPL position resolution, label-to-name mappings,
 global-index-to-name mappings, and per-function local variable lists.
 `DumpFrame` and `DumpCallStack` use this information to annotate memory
 slots with human-readable names and source positions.
+`Machine.DebugInfo()` returns the result of `debugInfoFn` (or nil) and
+is the entry point used by native bridges that need symbolic info.
+
+`DumpCallStack` walks the frame-pointer chain directly today; the same
+walk has been factored into the public `WalkCallStack` iterator (see
+[Call-stack walking](#call-stack-walking)) for reuse by bridges and the
+planned profiler. A future cleanup can fold `DumpCallStack` onto that
+iterator once `StackFrame` exposes the per-slot annotation state
+(`narg`, `nret`, `funcAddr`).
+
+### Call-stack walking
+
+`Machine.WalkCallStack(yield)` (`vm/debug.go`) is the public iterator
+over the live call stack. It yields `StackFrame{IP, Pos}` from
+innermost (the currently running function) to outermost; the first
+frame's `IP` is `m.ip-1` (the just-executed instruction), each
+subsequent frame's `IP` is `retIP-1` taken from the inner frame's
+`mem[fp-2]` slot -- the call instruction in the caller, whose `Pos`
+points at the source line of the call. `yield` returns `false` to stop
+early.
+
+Symbolization is not the iterator's job; callers compose with:
+
+- `DebugInfo.FuncAt(ip)` -- linear scan of `Labels` returning the
+  function whose code address is the largest `<= ip`.
+- `DebugInfo.Sources.Resolve(int(Pos))` -- (file, line, col) for a
+  byte offset.
+
+Splitting walk from symbolize matters for the planned sampling
+profiler, which must produce IPs cheaply on a tick and resolve only at
+profile-export time. Today's consumers are the `runtime.Callers`
+bridge (see [Runtime virtualization bridges](#runtime-virtualization-bridges))
+and (partially) `DumpCallStack`.
 
 ### Interface bridging at the native call boundary
 
@@ -483,6 +524,26 @@ compilation). Dispatch order per argument:
 The closure creates a fresh `Machine` and calls `CallFunc` for re-entrant
 execution.
 
+**`BridgeFormat`** is the bridge for `fmt.Formatter`. When an interpreted
+type defines `Format(fmt.State, rune)`, the bridge routes every fmt verb
+through user code -- `%s`, `%v`, `%q`, `%+v`, etc. -- instead of just the
+display verbs that `BridgeError`/`BridgeString`/`BridgeGoString` cover.
+This makes interpreted error wrappers (e.g. `pkg/errors`) faithfully
+render their custom verbs through native `fmt`.
+
+**Pointer-receiver method dispatch.** `IfaceCall` resolves the method
+set via `Type.ResolveMethodType`, which walks to `ElemType.Methods` for
+pointer types. Methods registered on `T` are therefore visible when the
+runtime concrete value is `*T`, matching Go's own pointer-method
+inheritance.
+
+**Method intercept hook.** `nativeMethodLookup` (the function that
+returns the bound-method `reflect.Value` for an `IfaceCall` against a
+native receiver) is also a generic extension point. The runtime
+virtualization bridge uses it to intercept `(*runtime.Func).Name` and
+`FileLine` -- see [Runtime virtualization
+bridges](#runtime-virtualization-bridges).
+
 **`unbridgeValue`** inspects an interface argument during type assertion and
 type switch. If the runtime value is a known `ValBridgeTypes` pointer, it
 returns the `Val` field's reflect value so `x.(MyNamedInt)` still matches
@@ -528,6 +589,95 @@ reflect's bound-method dispatch shares a single `methodValueCall`
 trampoline across all methods and types -- a pointer key would collide.
 
 See [ADR-012](../decisions/ADR-012-package-patchers-arg-proxies.md).
+
+### Runtime virtualization bridges
+
+Some host APIs round-trip opaque pointers (PCs, handles) through user
+code and back again. `runtime.Callers` / `runtime.FuncForPC` is the
+canonical case: pkg/errors stores PCs in `Frame uintptr` and later
+calls `(*runtime.Func).Name()` / `FileLine()` to format them. A
+plain reflect passthrough makes those calls return host frames inside
+`vm.(*Machine).Run` rather than the interpreted call stack.
+
+The VM provides three primitives in `vm/runtime_intercept.go`; the
+bridge itself lives in `stdlib/runtime_virt.go` and registers via
+`stdlib.RegisterPackagePatcher("runtime", ...)`.
+
+**1. Active-machine slot.** Bridges run as Go functions called via
+`reflect.Call`; they need to find the live `Machine`. `Run` threads the
+current value through:
+
+```go
+prev := SetActiveMachine(m)
+defer SetActiveMachine(prev)
+```
+
+`activeMachine` is an `atomic.Pointer[Machine]`, single-machine-at-a-
+time semantics. Concurrent goroutines racing on this slot is no worse
+than under a mutex+stack alternative because the slot is a single
+pointer; per-goroutine GLS would require unsafe-G inspection or
+`runtime/pprof` labels.
+
+**2. Synthetic PC sentinels.** An mvm-virtual PC is the address of a
+freshly allocated `*runtime.Func`. Two non-obvious bits:
+
+- `runtime.Func` is a zero-sized struct; Go reuses one canonical
+  address for all zero-size allocations. `runtimeFuncSentinel` wraps
+  it with a padding byte so each `NewRuntimeFuncSentinel()` returns a
+  unique pointer.
+- `RegisterRuntimeFunc(rf, name, file, line)` stores
+  `RuntimeFuncInfo{...}` in a side `sync.Map`; `LookupRuntimeFunc(rf)`
+  returns nil for non-mvm pointers so a host PC can fall through.
+
+**3. Method intercept.** `nativeMethodLookup` (top of the
+`MethodByName` path) calls `runtimeFuncShim(rv, name)` first. On a hit
+(receiver type is `*runtime.Func`, pointer is in the side table, name
+is `"Name"` or `"FileLine"`) the shim returns a `reflect.MakeFunc`
+closure with the matching signature; the host method never runs. On a
+miss, the shim returns the zero `reflect.Value` and the regular lookup
+proceeds. Cost on the miss path is one type-pointer compare.
+
+The VM also synchronizes its execution locals into the `Machine`
+struct just before the native `rv.Call(in)`:
+
+```go
+m.mem, m.fp, m.ip = mem, fp, ip+1
+```
+
+This is a one-way push; the local copies remain authoritative. Bridges
+that introspect via `m.WalkCallStack`, `m.fp`, `m.ip`, etc. need this
+because `Run` keeps those fields stale until exit otherwise.
+
+```mermaid
+sequenceDiagram
+    participant User as Interpreted code
+    participant VM
+    participant Bridge as stdlib/runtime_virt
+    participant Walk as WalkCallStack
+    participant Side as Side table
+    User->>VM: runtime.Callers(skip, pcs)
+    VM->>Bridge: rv.Call (after sync mem/fp/ip)
+    Bridge->>Walk: m.WalkCallStack(yield)
+    Walk-->>Bridge: StackFrame{IP, Pos} per frame
+    Bridge->>Side: NewRuntimeFuncSentinel + Register
+    Bridge-->>User: pcs[i] = uintptr(sentinel) + 1
+    User->>VM: fn := runtime.FuncForPC(pc)
+    VM->>Bridge: rv.Call (mvmFuncForPC)
+    Bridge->>Side: LookupRuntimeFunc(pc-1)
+    Bridge-->>User: *runtime.Func sentinel
+    User->>VM: fn.Name() / fn.FileLine(pc)
+    VM->>VM: nativeMethodLookup -> runtimeFuncShim
+    VM-->>User: shim returns metadata from side table
+```
+
+**Limitations** (tracked, not yet addressed):
+
+- The side `sync.Map` grows unbounded -- sentinels are never collected
+  even after the captured stack has been discarded.
+- Single-machine-at-a-time semantics leaks under truly concurrent
+  goroutine execution.
+
+See [ADR-016](../decisions/ADR-016-runtime-introspection-bridge.md).
 
 ## Dependencies
 

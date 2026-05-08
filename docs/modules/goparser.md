@@ -117,6 +117,31 @@ with precedence `>= prec(op)` before pushing `op`. Unary operators flush only
 A token preceded by a colon (e.g. in composite literals) is treated as a unary
 context, so that `&` or `*` there is not misclassified as binary.
 
+### Position propagation
+
+Every token reaches `comp.emit` with `Pos` already shifted into the
+unified `scan.Sources` byte-offset space. The rule: any helper that
+produces tokens from a sub-string must call `scanAt(basePos, ...)` with
+the absolute byte offset of where that sub-string starts.
+
+- The top-level path uses `scanDecls(src)` -> `scanAt(p.PosBase, src,
+  true)`, where `p.PosBase` is set by `Sources.Add(name, content)`.
+- `scanBlock(bt, ...)` and `parseTokBlock(bt)` derive `basePos =
+  bt.Pos + bt.Beg` from a previously-absolute brace token.
+- `parseComposite(s, typ, basePos)` takes `basePos = t.Pos + t.Beg`
+  from its `BraceBlock` caller. Without this, every Call/CallImm
+  emitted from inside a composite literal would have an invalid Pos
+  pointing into the first source -- making `runtime.Callers`-style
+  stack traces (and `DumpCallStack` output) collapse to file 0 line 1
+  for any code defined inside `[]struct{...}{ ... }`.
+- `p.scan(s, false)` is shorthand for `scanAt(0, s, false)` and is
+  reserved for token streams that never reach `emit`, e.g.
+  `numItems` in `stmt.go` (counts only).
+
+`comp.emit` then writes `inst.Pos = vm.Pos(t.Pos)` directly; see
+[comp.md](comp.md#source-positions) and
+[ADR-015](../decisions/ADR-015-absolute-token-positions.md).
+
 ### Control flow encoding
 
 Instead of building an AST, control structures are lowered to

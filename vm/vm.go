@@ -399,6 +399,15 @@ func (m *Machine) Out() io.Writer { return m.out }
 // SetDebugInfo registers a function that builds DebugInfo on demand.
 func (m *Machine) SetDebugInfo(fn func() *DebugInfo) { m.debugInfoFn = fn }
 
+// DebugInfo returns the current DebugInfo, or nil if no builder was
+// registered with SetDebugInfo.
+func (m *Machine) DebugInfo() *DebugInfo {
+	if m.debugInfoFn == nil {
+		return nil
+	}
+	return m.debugInfoFn()
+}
+
 // SetDebugIO sets the I/O streams for the interactive debug mode.
 func (m *Machine) SetDebugIO(in io.Reader, out io.Writer) {
 	m.debugIn = in
@@ -437,6 +446,9 @@ func growStack(mem []Value, sp, need int) []Value {
 
 // Run runs a program.
 func (m *Machine) Run() (err error) {
+	prev := SetActiveMachine(m)
+	defer SetActiveMachine(prev)
+
 	// Append sentinel instructions so negative-IP handlers become normal opcodes.
 	sentBase := len(m.code)
 	m.baseCodeLen = sentBase
@@ -556,6 +568,11 @@ func (m *Machine) Run() (err error) {
 					coerceInterfaceArgs(in, funcType)
 					m.wrapFuncArgs(in, mem[sp-narg+1:sp+1], funcType)
 					sp -= narg + 1
+					// Sync mem/fp/ip into the Machine so native funcs that
+					// introspect the interpreter (e.g. the runtime.Callers
+					// bridge) see live state. The local fp/ip remain
+					// authoritative; this is a one-way push.
+					m.mem, m.fp, m.ip = mem, fp, ip+1
 					// For spread calls (f(s...)), unwrap Iface values inside
 					// the variadic slice and use CallSlice.
 					var out []reflect.Value
@@ -2509,6 +2526,9 @@ func nativeMethodLookup(rv reflect.Value, name string) reflect.Value {
 	if rv.Kind() == reflect.Interface {
 		rv = rv.Elem()
 	}
+	if shim := runtimeFuncShim(rv, name); shim.IsValid() {
+		return shim
+	}
 	if mv := rv.MethodByName(name); mv.IsValid() {
 		return mv
 	}
@@ -2690,6 +2710,7 @@ type runnerState struct {
 	baseCodeLen int
 	out, err    io.Writer
 	methodNames []string
+	debugInfoFn func() *DebugInfo
 }
 
 func (m *Machine) captureRunnerState() runnerState {
@@ -2700,6 +2721,7 @@ func (m *Machine) captureRunnerState() runnerState {
 		out:         m.out,
 		err:         m.err,
 		methodNames: m.MethodNames,
+		debugInfoFn: m.debugInfoFn,
 	}
 }
 
@@ -2711,6 +2733,7 @@ func (rs *runnerState) newRunner() *Machine {
 		out:         rs.out,
 		err:         rs.err,
 		MethodNames: rs.methodNames,
+		debugInfoFn: rs.debugInfoFn,
 	}
 }
 

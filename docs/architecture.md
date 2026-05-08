@@ -181,6 +181,21 @@ boundary (essential for non-struct named types where the `reflect.Type` is
 shared with the underlying type). `bridgeArgs` in `vm.Run` checks arg
 proxies first, then the bridge families, then unwraps.
 
+`BridgeFormat` (for `fmt.Formatter`) is a notable bridge: when an
+interpreted type defines `Format(fmt.State, rune)`, every fmt verb
+(`%s`, `%v`, `%q`, `%+v`, ...) routes through user code instead of
+just the display verbs that `BridgeError`/`BridgeString`/`BridgeGoString`
+cover. This makes interpreted error wrappers like `pkg/errors` render
+their custom verbs faithfully through native `fmt`.
+
+`nativeMethodLookup` is also a generic extension point: bridges that
+need to substitute the result of a method call on a native receiver
+(rather than just wrap an argument) can intercept there. The runtime
+introspection bridge does exactly this for `(*runtime.Func).Name` /
+`FileLine` -- see
+[vm.md](modules/vm.md#runtime-virtualization-bridges) and
+[ADR-016](decisions/ADR-016-runtime-introspection-bridge.md).
+
 ## Variadic functions
 
 Variadic parameters (`...T`) are parsed as `[]T` by `goparser`. At the call
@@ -220,5 +235,14 @@ interpreter registers a builder function on the VM, and it is only called
 when the first `trap()` fires. This avoids overhead for programs that never
 use `trap`.
 
+The same machinery is reused at runtime by introspection bridges:
+`Machine.WalkCallStack` exposes the live frame chain to bridges,
+`DebugInfo.FuncAt` resolves an IP to a function label, and
+`SetActiveMachine` is the goroutine-cooperative slot that lets
+bridges find the running VM across `makeCallFunc`-spawned runners. The
+planned sampling profiler (see `project_profiler.md`) is expected to
+reuse `WalkCallStack` and `DebugInfo` symbolization end-to-end.
+
 See [vm](modules/vm.md#trap-and-interactive-debug-mode) for implementation
-details.
+details and [vm](modules/vm.md#runtime-virtualization-bridges) for the
+runtime bridge.

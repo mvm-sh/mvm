@@ -36,6 +36,23 @@ func NewDebugInfo() *DebugInfo {
 	}
 }
 
+// FuncAt returns the function label whose code address is the largest
+// value in Labels that is <= ip. Returns "" when no label qualifies.
+func (d *DebugInfo) FuncAt(ip int) string {
+	if d == nil {
+		return ""
+	}
+	bestAddr := -1
+	bestName := ""
+	for addr, name := range d.Labels {
+		if addr <= ip && addr > bestAddr {
+			bestAddr = addr
+			bestName = name
+		}
+	}
+	return bestName
+}
+
 // PosToLine converts a global byte offset to a human-readable location string.
 // Returns "" if no sources are registered or pos is out of range.
 func (d *DebugInfo) PosToLine(pos Pos) string {
@@ -127,6 +144,45 @@ func DumpFrame(w io.Writer, mem []Value, code Code, fp, sp, narg, nret int, di *
 		printSlot(w, i, role, mem[i], symName, marker)
 	}
 	_, _ = fmt.Fprintln(w)
+}
+
+// StackFrame is a single entry yielded by WalkCallStack.
+type StackFrame struct {
+	IP  int // bytecode position within the frame's function
+	Pos Pos // source position from m.code[IP], 0 if out of range
+}
+
+// WalkCallStack invokes yield for each call frame from innermost (the
+// currently running function) to outermost. The first yielded frame's
+// IP is m.ip-1 (the just-executed or about-to-execute instruction);
+// each subsequent frame's IP is the call instruction in the caller
+// (retIP-1 of the inner frame). yield returns false to stop early.
+func (m *Machine) WalkCallStack(yield func(StackFrame) bool) {
+	fp := m.fp
+	if fp == 0 {
+		return
+	}
+	mem := m.mem
+	pc := m.ip - 1
+	for fp > 0 {
+		var pos Pos
+		if pc >= 0 && pc < len(m.code) {
+			pos = m.code[pc].Pos
+		}
+		if !yield(StackFrame{IP: pc, Pos: pos}) {
+			return
+		}
+		if fp-2 < 0 || fp-2 >= len(mem) {
+			return
+		}
+		retIPInfo := mem[fp-2].num
+		retIP := int(int32(retIPInfo)) //nolint:gosec
+		pc = retIP - 1
+		if fp-1 < 0 || fp-1 >= len(mem) {
+			return
+		}
+		fp = int(mem[fp-1].num &^ (1 << 63)) //nolint:gosec
+	}
 }
 
 // DumpCallStack walks the frame pointer chain and prints every frame.

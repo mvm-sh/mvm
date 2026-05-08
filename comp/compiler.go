@@ -289,7 +289,7 @@ func (c *Compiler) emit(t goparser.Token, op vm.Op, arg ...int) {
 		_, file, line, _ := runtime.Caller(1)
 		fmt.Fprintf(os.Stderr, "%s:%d: %v emit %v %v\n", path.Base(file), line, t, op, arg)
 	}
-	inst := vm.Instruction{Op: op, Pos: vm.Pos(t.Pos + c.PosBase)} //nolint:gosec
+	inst := vm.Instruction{Op: op, Pos: vm.Pos(t.Pos)} //nolint:gosec
 	if len(arg) > 0 {
 		inst.A = int32(arg[0]) //nolint:gosec
 	}
@@ -2321,8 +2321,18 @@ func (c *Compiler) BuildDebugInfo() *vm.DebugInfo {
 				continue
 			}
 			addr := int(sym.Value.Int())
-			// Prefer shorter (less-scoped) names when multiple funcs share an address.
-			if existing, ok := di.Labels[addr]; !ok || len(name) < len(existing) {
+			// Prefer qualified names (containing '.', which marks the
+			// goparser-generated `<pkgPath>.<short>` alias for imported
+			// symbols) so diagnostic output can show fully-qualified
+			// function names. Among same-class candidates, keep the
+			// shortest.
+			existing, ok := di.Labels[addr]
+			isQual := strings.Contains(name, ".")
+			existQual := strings.Contains(existing, ".")
+			better := !ok ||
+				(isQual && !existQual) ||
+				(isQual == existQual && len(name) < len(existing))
+			if better {
 				di.Labels[addr] = name
 			}
 

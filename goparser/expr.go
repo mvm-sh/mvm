@@ -273,7 +273,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				}
 				ctype = p.registerType(sym.Type.Elem(), t.Pos, &out)
 			}
-			toks, sliceLen, err := p.parseComposite(t.Block(), ctype)
+			toks, sliceLen, err := p.parseComposite(t.Block(), ctype, t.Pos+t.Beg)
 			out = append(out, toks...)
 			if err != nil {
 				return out, err
@@ -432,8 +432,8 @@ func (p *Parser) addTypeExpr(in Tokens, out *Tokens) (string, int, error) {
 	return p.registerType(typ, in[0].Pos, out), n, nil
 }
 
-func (p *Parser) parseComposite(s, typ string) (Tokens, int, error) {
-	tokens, err := p.scan(s, false)
+func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error) {
+	tokens, err := p.scanAt(basePos, s, false)
 	if err != nil {
 		return nil, 0, err
 	}

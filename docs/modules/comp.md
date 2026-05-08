@@ -54,6 +54,23 @@ slice and populates a `Data` slice (the global memory segment).
 A symbolic stack shadows the VM stack to track types at compile time,
 enabling type-specific opcode selection.
 
+#### Source positions
+
+Every emitted `vm.Instruction` carries a `Pos` field used for runtime
+diagnostics and the bridged `runtime.Callers` (see
+[vm.md](vm.md#runtime-virtualization-bridges)). The invariant:
+
+```go
+inst := vm.Instruction{Op: op, Pos: vm.Pos(t.Pos)}
+```
+
+`emit` writes `t.Pos` directly. Tokens already carry absolute byte
+offsets in the unified `scan.Sources` position space because the
+parser uses `scanAt(basePos, ...)` consistently (see
+[goparser.md](goparser.md#position-propagation)). Adding `c.PosBase`
+here would double-shift positions in any package made of more than one
+source file. See [ADR-015](../decisions/ADR-015-absolute-token-positions.md).
+
 ### Call handling
 
 The `lang.Call` token in the flat stream triggers a unified call-handling
@@ -230,6 +247,26 @@ assigns a `Data` slot to each, appending the symbol's `Value` (or a
 `NewValue` zero for uninitialized vars). Type and Value symbols are still
 allocated lazily in the `Ident` handler, since many built-in types may
 never be referenced.
+
+#### BuildDebugInfo
+
+`BuildDebugInfo()` produces the `vm.DebugInfo` struct consumed by
+`DumpFrame`/`DumpCallStack` and by the `runtime.Callers` bridge. It
+walks the symbol table once and fills:
+
+- `Sources` -- the parser's `scan.Sources` registry (multi-file).
+- `Globals[index] = name` for non-local symbols.
+- `Locals[funcName] = []LocalVar{...}` for used locals.
+- `Labels[codeAddr] = funcName` for `symbol.Func` entries.
+
+When multiple symbol entries share a code address (which happens
+because goparser emits a `<pkgPath>.<short>` alias for every imported
+exported symbol), `BuildDebugInfo` prefers a *qualified* name
+(containing `.`) over an unqualified one; among same-class candidates,
+the shortest wins. This makes diagnostic output show fully-qualified
+function names like `github.com/pkg/errors.New` rather than bare
+`New`, which is what the `runtime.FuncForPC` bridge surfaces to
+interpreted code.
 
 ### Variadic call-site packing
 
