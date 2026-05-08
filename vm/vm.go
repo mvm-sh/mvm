@@ -3030,6 +3030,16 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 			fv.Set(numReflect(iv.Typ.Rtype, iv.Val))
 			return
 		}
+		// Native interface target (e.g. `error`): bridge so the mvm-typed
+		// concrete value is assignable. AnyRtype slots accept the raw Iface
+		// struct directly via the fallback below, preserving its identity for
+		// later dispatch.
+		if fv.Type().NumMethod() > 0 {
+			if w := m.bridgeIface(iv, fv.Type()); w.IsValid() {
+				fv.Set(w)
+				return
+			}
+		}
 	}
 	fv.Set(val.Reflect())
 }
@@ -3264,7 +3274,7 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 	methodTypes, n := ifaceMethodTypes(ifc.Typ)
 	for _, mt := range methodTypes[:n] {
 		for id, method := range mt.Methods {
-			if method.Index < 0 || id >= len(m.MethodNames) {
+			if id >= len(m.MethodNames) || !method.IsResolved() {
 				continue
 			}
 			name := m.MethodNames[id]
@@ -3312,7 +3322,11 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 			continue
 		}
 		fnField := bridge.Elem().FieldByName("Fn")
-		fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
+		if bm.method.EmbedIface {
+			fnField.Set(m.makeEmbedIfaceClosure(ifc, bm.method, bm.name, fnField.Type()))
+		} else {
+			fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
+		}
 		if valField := bridge.Elem().FieldByName("Val"); valField.IsValid() {
 			if rv := ifc.Val.Reflect(); rv.IsValid() {
 				valField.Set(reflect.ValueOf(rv.Interface()))
@@ -3365,6 +3379,46 @@ func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.
 // invokes the interpreted method on the given Iface receiver.
 func (m *Machine) makeBridgeClosure(ifc Iface, method Method, fnType reflect.Type) reflect.Value {
 	return m.makeBridgeClosureImpl(ifc, method, fnType, false)
+}
+
+// makeEmbedIfaceClosure builds a bridge closure for a method promoted from
+// an embedded interface field (Method.EmbedIface=true, Index=-1). The
+// closure walks method.Path at call time to reach the embedded interface
+// value, then dispatches the named method on it via reflect.
+func (m *Machine) makeEmbedIfaceClosure(ifc Iface, method Method, name string, fnType reflect.Type) reflect.Value {
+	ptrVal := ifc.Val
+	path := method.Path
+	zeroOut := func() []reflect.Value {
+		out := make([]reflect.Value, fnType.NumOut())
+		for i := range out {
+			out[i] = reflect.Zero(fnType.Out(i))
+		}
+		return out
+	}
+	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
+		rv := reflect.Indirect(ptrVal.Reflect())
+		for _, idx := range path {
+			if rv.Kind() == reflect.Pointer {
+				if rv.IsNil() {
+					return zeroOut()
+				}
+				rv = rv.Elem()
+			}
+			rv = rv.Field(idx)
+		}
+		rv = Exportable(rv)
+		if rv.Kind() == reflect.Interface {
+			if rv.IsNil() {
+				return zeroOut()
+			}
+			rv = rv.Elem()
+		}
+		fn := rv.MethodByName(name)
+		if !fn.IsValid() {
+			return zeroOut()
+		}
+		return fn.Call(args)
+	})
 }
 
 // makeBridgeClosureImpl builds the bridge closure. When deref is true, the

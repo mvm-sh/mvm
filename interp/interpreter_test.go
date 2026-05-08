@@ -2114,6 +2114,19 @@ func TestMethod(t *testing.T) {
 			type T struct{ Frame; want string }
 			tt := T{Frame(0), "x"}
 			tt.Frame.Tag()`, res: `ok`},
+
+		// Heterogeneous []error literal mixing native errors and an mvm-defined
+		// type with embedded `error`. Regression: setFuncField fell through to
+		// fv.Set(val.Reflect()) which panicked because the mvm Iface (or the
+		// reflect.StructOf-built *struct{}) is not assignable to error. Fixed
+		// by routing through bridgeIface for native interface targets.
+		// Surfaces in pkg/errors's TestErrorEquality.
+		{n: "error_slice_mixed_native_and_mvm", src: `
+import "errors"
+type withStack struct { error }
+w := &withStack{errors.New("inner")}
+vals := []error{nil, errors.New("a"), w}
+vals[2].Error()`, res: "inner"},
 	})
 }
 
