@@ -84,6 +84,17 @@ func (b *BridgeString) Format(f fmt.State, verb rune) {
 	formatBridgeDisplay(f, verb, b.String, b.Val)
 }
 
+// BridgeFormat bridges the fmt.Formatter interface method.
+// Used when an interpreted type defines its own Format(fmt.State, rune) so
+// fmt routes every verb through user code rather than through the
+// display-bridge fallback (which only handles %s/%v via Error/String/GoString).
+type BridgeFormat struct {
+	Fn func(fmt.State, rune)
+}
+
+// Format implements fmt.Formatter.
+func (b *BridgeFormat) Format(f fmt.State, verb rune) { b.Fn(f, verb) }
+
 // BridgeMarshalJSON bridges the json.Marshaler interface method.
 type BridgeMarshalJSON struct{ Fn func() ([]byte, error) }
 
@@ -193,6 +204,7 @@ func (b *BridgeFlagValue) Set(s string) error { return b.FnSet(s) }
 
 func init() {
 	vm.Bridges["Error"] = reflect.TypeOf((*BridgeError)(nil))
+	vm.Bridges["Format"] = reflect.TypeOf((*BridgeFormat)(nil))
 	vm.Bridges["GoString"] = reflect.TypeOf((*BridgeGoString)(nil))
 	vm.Bridges["MarshalJSON"] = reflect.TypeOf((*BridgeMarshalJSON)(nil))
 	vm.Bridges["String"] = reflect.TypeOf((*BridgeString)(nil))
@@ -211,6 +223,7 @@ func init() {
 	// display methods, and fmt never calls them. JSON encoding of
 	// interpreted values is routed through stdlib/jsonx arg proxies.
 	vm.DisplayBridges["Error"] = true
+	vm.DisplayBridges["Format"] = true
 	vm.DisplayBridges["GoString"] = true
 	vm.DisplayBridges["String"] = true
 

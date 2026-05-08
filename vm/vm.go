@@ -3310,6 +3310,26 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 		}
 	}
 
+	// Prefer the Format bridge when available: a user-defined fmt.Formatter
+	// handles every verb itself, so fmt never has to fall back to display
+	// bridges or to reflect-based default printing of the raw mvm value.
+	// Skip when the method is promoted from an embedded interface — the
+	// embedded-iface closure dispatches via native reflect and cannot
+	// re-enter mvm correctly for that path.
+	for _, bm := range bridged[:count] {
+		if bm.name != "Format" || !required[bm.name] || bm.method.EmbedIface {
+			continue
+		}
+		bridgePtrType := Bridges["Format"]
+		bridge := reflect.New(bridgePtrType.Elem())
+		if nonEmpty && !bridge.Type().Implements(targetType) {
+			continue
+		}
+		fnField := bridge.Elem().FieldByName("Fn")
+		fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
+		return bridge
+	}
+
 	// Fall back to single-method bridge.
 	for _, bm := range bridged[:count] {
 		if !required[bm.name] {
