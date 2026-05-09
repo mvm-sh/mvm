@@ -179,8 +179,9 @@ func DumpFrame(w io.Writer, mem []Value, code Code, fp, sp, narg, nret int, di *
 
 // StackFrame is a single entry yielded by WalkCallStack.
 type StackFrame struct {
-	IP  int // bytecode position within the frame's function
-	Pos Pos // source position from m.code[IP], 0 if out of range
+	IP       int  // bytecode position within the frame's function
+	Pos      Pos  // source position from m.code[IP], 0 if out of range
+	TopLevel bool // synthetic frame for the top-level entry sequence (init / Eval driver)
 }
 
 // WalkCallStack invokes yield for each call frame from innermost (the
@@ -188,6 +189,11 @@ type StackFrame struct {
 // IP is m.ip-1 (the just-executed or about-to-execute instruction);
 // each subsequent frame's IP is the call instruction in the caller
 // (retIP-1 of the inner frame). yield returns false to stop early.
+//
+// After the topmost compiled-function frame, the top-level entry
+// sequence (where Eval pushes Call/Exit instructions to drive init
+// funcs and main) is also yielded as a synthetic frame so that
+// runtime.Callers can observe init-time call sites.
 func (m *Machine) WalkCallStack(yield func(StackFrame) bool) {
 	fp := m.fp
 	if fp == 0 {
@@ -213,6 +219,15 @@ func (m *Machine) WalkCallStack(yield func(StackFrame) bool) {
 			return
 		}
 		fp = int(mem[fp-1].num &^ (1 << 63)) //nolint:gosec
+	}
+	// Synthetic outermost frame for the top-level entry sequence (only
+	// when it carries a real source position; CallFunc-synthesized Call
+	// instructions have Pos==0 and represent the test harness driver, not
+	// a user-visible frame).
+	if pc >= 0 && pc < len(m.code) {
+		if pos := m.code[pc].Pos; pos != 0 {
+			yield(StackFrame{IP: pc, Pos: pos, TopLevel: true})
+		}
 	}
 }
 

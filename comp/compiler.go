@@ -77,7 +77,51 @@ func (c *Compiler) Compile(name, src string) error {
 			return err
 		}
 	}
+	c.propagateEmbeddedMethods()
 	return nil
+}
+
+// propagateEmbeddedMethods fills each struct type's Methods slice with entries
+// promoted through its embedded fields, so that interface assertions and
+// dispatch see the full method set inherited via embedding. Without this,
+// a concrete type assertion against `interface{ M() }` on a value whose M
+// comes from an embedded field would fail at runtime.
+func (c *Compiler) propagateEmbeddedMethods() {
+	seen := map[*vm.Type]bool{}
+	var visit func(t *vm.Type)
+	visit = func(t *vm.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		for _, emb := range t.Embedded {
+			visit(emb.Type)
+		}
+		for _, emb := range t.Embedded {
+			embType := emb.Type
+			if embType == nil {
+				continue
+			}
+			for id, m := range embType.Methods {
+				if !m.IsResolved() {
+					continue
+				}
+				if id < len(t.Methods) && t.Methods[id].IsResolved() {
+					continue
+				}
+				newPath := append([]int{emb.FieldIdx}, m.Path...)
+				for len(t.Methods) <= id {
+					t.Methods = append(t.Methods, vm.Method{Index: -1})
+				}
+				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface}
+			}
+		}
+	}
+	for _, sym := range c.Symbols {
+		if sym.Kind == symbol.Type && sym.Type != nil {
+			visit(sym.Type)
+		}
+	}
 }
 
 func (c *Compiler) compileDecl(decl goparser.Tokens) error {

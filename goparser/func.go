@@ -202,7 +202,11 @@ func (p *Parser) registerParamsFromSym(s *symbol.Symbol) {
 
 // anonFuncName synthesizes a name for an anonymous closure. Inside a
 // named outer function the form is "#<outer>.func<N>" with N a
-// per-outer counter; outside any function it falls back to
+// per-outer counter, matching Go's "<outer>.func<N>" stack-trace
+// convention. Inside an outer that is itself an anonymous closure
+// (p.fname starts with '#') the form drops the "func" prefix to
+// yield "#<outer>.<N>", matching Go's "<outer>.func<N>.<M>" form
+// for nested closures. Outside any function it falls back to
 // "#f<clonum>" with the package-global counter. The leading '#' is
 // the scope marker that distinguishes synthesized symbols from
 // user-named methods of form "TypeName.MethodName".
@@ -211,6 +215,10 @@ func (p *Parser) anonFuncName() string {
 	p.clonum++
 	if p.fname != "" {
 		p.funcN++
+		nestedAnon := strings.HasPrefix(p.fname, "#")
+		if nestedAnon {
+			return "#" + p.fname + "." + strconv.Itoa(p.funcN)
+		}
 		return "#" + p.fname + ".func" + strconv.Itoa(p.funcN)
 	}
 	return "#f" + strconv.Itoa(clo)

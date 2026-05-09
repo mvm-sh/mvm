@@ -52,6 +52,45 @@ func patchRuntime(_ *vm.Machine, values map[string]vm.Value) {
 		return mvmCallers(active, skip, pcs)
 	}))
 	values["FuncForPC"] = vm.FromReflect(reflect.ValueOf(mvmFuncForPC))
+	values["CallersFrames"] = vm.FromReflect(reflect.ValueOf(mvmCallersFrames))
+}
+
+// mvmFrames replaces *runtime.Frames for code that consumes PCs produced
+// by the virtualized runtime.Callers. The native runtime.CallersFrames
+// would not recognize our synthetic sentinel PCs and would yield empty
+// frames; this implementation preserves the PC and resolves names/files
+// via mvmFuncForPC.
+type mvmFrames struct {
+	pcs []uintptr
+	pos int
+}
+
+// Next returns the next runtime.Frame, mirroring (*runtime.Frames).Next.
+func (f *mvmFrames) Next() (runtime.Frame, bool) {
+	if f.pos >= len(f.pcs) {
+		return runtime.Frame{}, false
+	}
+	pc := f.pcs[f.pos]
+	f.pos++
+	frame := runtime.Frame{PC: pc}
+	if fn := mvmFuncForPC(pc); fn != nil {
+		frame.Func = fn
+		// fn.Name()/fn.FileLine() are intercepted only when invoked through
+		// reflect (vm.nativeMethodLookup). Calling them directly from Go
+		// would hit the host runtime, which doesn't know our sentinel
+		// addresses. Read the registered metadata directly instead.
+		if info := vm.LookupRuntimeFunc(fn); info != nil {
+			frame.Function = info.Name
+			frame.File = info.File
+			frame.Line = info.Line
+		}
+	}
+	return frame, f.pos < len(f.pcs)
+}
+
+func mvmCallersFrames(callers []uintptr) *mvmFrames {
+	pcs := append([]uintptr(nil), callers...)
+	return &mvmFrames{pcs: pcs}
 }
 
 // mvmCallers fills pcs with synthetic PCs for the live interpreter stack.
@@ -99,7 +138,17 @@ func internSentinel(di *vm.DebugInfo, f vm.StackFrame) *runtime.Func {
 		return v.(*runtime.Func)
 	}
 	file, line, _ := di.Sources.Resolve(int(f.Pos))
-	name := qualifyFuncName(di.FuncAt(f.IP), file)
+	var rawName string
+	if f.TopLevel {
+		// Top-level entry sequence (var initializers run before main).
+		// FuncAt's Labels fallback would pick the closest preceding label,
+		// which may misattribute the frame; force "init" so it qualifies as
+		// "<pkg>.init".
+		rawName = "init"
+	} else {
+		rawName = di.FuncAt(f.IP)
+	}
+	name := qualifyFuncName(rawName, file)
 	if file == "" {
 		file = "?"
 		line = 0
@@ -146,28 +195,35 @@ func mvmFuncForPC(pc uintptr) *runtime.Func {
 // the function's source file. file has the form "<pkgPath>/<filename>"
 // (set by goparser's source registry).
 //
-// Three input shapes are handled:
-//   - "TypeName.Method" (already contains '.', no leading '#'): treated
-//     as already qualified and returned unchanged.
-//   - "#OuterFunc.funcN" (anonymous closure with outer-function scope):
-//     '#' is stripped and the package path is prepended, so the result
-//     matches Go's "<pkg>.<outer>.funcN" stack-trace convention.
-//   - "#f0", "#init0", or any short identifier (no '.'): the package
-//     path is prepended after stripping any leading '#'.
+// Method labels are normalized to Go's stack-trace convention:
+//   - "T.M" -> "<pkg>.T.M"
+//   - "*T.M" -> "<pkg>.(*T).M"
+//
+// Anonymous closures (label starts with '#') are stripped of the '#' and
+// qualified with the package path so the result matches Go's
+// "<pkg>.<outer>.funcN" form.
 func qualifyFuncName(label, file string) string {
 	if label == "" {
 		return "?"
 	}
-	hashed := strings.HasPrefix(label, "#")
-	if hashed {
+	// Mvm marks anonymous closures with a leading '#'. Nested anons in
+	// goparser stack hashes (parser builds the name as "#" + p.fname + ...
+	// where p.fname already contains its own '#'), so strip them all.
+	for strings.HasPrefix(label, "#") {
 		label = label[1:]
 	}
-	if !hashed && strings.ContainsRune(label, '.') {
-		return label
-	}
+	// Inner '#' from concatenated fnames (e.g. "#X.#Y.func1") have no
+	// equivalent in Go's stack trace output; strip them as well.
+	label = strings.ReplaceAll(label, "#", "")
 	short := label
 	if i := strings.LastIndexByte(label, '/'); i >= 0 {
 		short = label[i+1:]
+	}
+	// Method on pointer receiver: rewrite "*T.M" as "(*T).M".
+	if strings.HasPrefix(short, "*") {
+		if dot := strings.IndexByte(short, '.'); dot > 1 {
+			short = "(" + short[:dot] + ")" + short[dot:]
+		}
 	}
 	pkgPath, _ := splitPathFile(file)
 	if pkgPath == "" {
