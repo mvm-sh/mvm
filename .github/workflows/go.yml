@@ -12,16 +12,13 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.25', '1.26']
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ matrix.go-version }}
+        go-version: '1.26'
 
     - name: Checkout std module
       uses: actions/checkout@v6
@@ -33,10 +30,9 @@ jobs:
     - name: Generate stdlib content
       env:
         MVMSTD_SRC: ${{ github.workspace }}/std-src
-      run: go generate ./stdlib/...
+      run: make generate
 
     - name: Lint
-      if: matrix.go-version == '1.26'
       uses: golangci/golangci-lint-action@v9
       with:
         version: latest
