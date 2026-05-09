@@ -799,6 +799,14 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
+		// Record the short package name so vm.Type.String() qualifies the
+		// type (e.g. "errors.Frame"); this matches what reflect-based fmt
+		// rendering would emit for the equivalent native type and is what
+		// the IfaceFallbackHook uses to label slices whose element kind
+		// alone (e.g. uintptr) would otherwise lose the user-level name.
+		if nt.PkgPath == "" {
+			nt.PkgPath = p.pkgName
+		}
 		if typ.Base != nil {
 			nt.Base = typ.Base
 		} else {

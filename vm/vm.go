@@ -372,8 +372,12 @@ type Machine struct {
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
-	funcFields          map[uintptr]Value
-	funcFieldsByFuncPtr map[uintptr]Value
+	// funcFields maps the underlying Go func pointer of a wrapped
+	// reflect.MakeFunc value back to the mvm func Value it represents. Lookup
+	// is keyed by funcValuePtr (read live from the field's bytes), so a
+	// reflect.Set that overwrites the field bytes still resolves to the right
+	// closure on the next Call.
+	funcFields map[uintptr]Value
 
 	in       io.Reader // machine standard input (nil = os.Stdin)
 	out, err io.Writer // machine standard output and error
@@ -1222,15 +1226,10 @@ func (m *Machine) Run() (err error) {
 			mem[sp] = NewValue(m.globals[int(c.A)].ref.Type().Elem(), int(c.B))
 		case Field:
 			fv := forceSettable(fieldByAB(reflect.Indirect(mem[sp].ref), int(c.A), int(c.B)))
-			switch {
-			case isNum(fv.Kind()):
+			if isNum(fv.Kind()) {
 				// Preserve addressable ref for write-through on struct field mutations.
 				mem[sp] = Value{num: numBits(fv), ref: fv}
-			case fv.Kind() == reflect.Func && fv.CanAddr():
-				// Always return addressable ref so SetS can update funcFields on reassignment.
-				// Call checks funcFields for fast mvm dispatch.
-				mem[sp] = Value{ref: fv}
-			default:
+			} else {
 				mem[sp] = Value{ref: fv}
 			}
 		case FieldSet:
@@ -2674,6 +2673,11 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 			return w
 		}
 	}
+	if IfaceFallbackHook != nil {
+		if w := IfaceFallbackHook(m, ifc, targetType); w.IsValid() {
+			return w
+		}
+	}
 	val := ifc.Val.Reflect()
 	if ifc.Typ != nil && (!val.IsValid() || (val.Kind() == reflect.Interface && val.IsNil())) {
 		return reflect.Zero(ifc.Typ.Rtype)
@@ -3000,15 +3004,15 @@ func forceSettable(fv reflect.Value) reflect.Value {
 	return fv
 }
 
+// resolveFuncField returns the original mvm Value for a Go func field
+// previously registered via setFuncField/assignSlot. The lookup is keyed
+// by the funcptr read live from the field's bytes, so a struct-Set on an
+// enclosing struct that rewrites the field bytes still resolves to the
+// closure currently living there.
 func (m *Machine) resolveFuncField(v Value) Value {
-	if v.ref.Kind() == reflect.Func && v.ref.CanAddr() {
-		if pf, ok := m.funcFields[v.ref.UnsafeAddr()]; ok {
+	if v.ref.Kind() == reflect.Func && v.ref.CanAddr() && !v.ref.IsNil() && m.funcFields != nil {
+		if pf, ok := m.funcFields[funcValuePtr(v.ref)]; ok {
 			return pf
-		}
-		if !v.ref.IsNil() && m.funcFieldsByFuncPtr != nil {
-			if pf, ok := m.funcFieldsByFuncPtr[funcValuePtr(v.ref)]; ok {
-				return pf
-			}
 		}
 	}
 	return v
@@ -3017,10 +3021,10 @@ func (m *Machine) resolveFuncField(v Value) Value {
 func (m *Machine) setGoFuncField(fv, gf reflect.Value, val Value) {
 	fv.Set(gf)
 	if ptr := funcValuePtr(fv); ptr != 0 {
-		if m.funcFieldsByFuncPtr == nil {
-			m.funcFieldsByFuncPtr = make(map[uintptr]Value)
+		if m.funcFields == nil {
+			m.funcFields = make(map[uintptr]Value)
 		}
-		m.funcFieldsByFuncPtr[ptr] = val
+		m.funcFields[ptr] = val
 	}
 }
 
@@ -3030,18 +3034,10 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 		return
 	}
 	if pf, ok := val.ref.Interface().(MvmFunc); ok && fv.CanAddr() {
-		if m.funcFields == nil {
-			m.funcFields = make(map[uintptr]Value)
-		}
-		m.funcFields[fv.UnsafeAddr()] = pf.Val
 		m.setGoFuncField(fv, pf.GF, pf.Val)
 		return
 	}
 	if fv.Kind() == reflect.Func && fv.CanAddr() {
-		if m.funcFields == nil {
-			m.funcFields = make(map[uintptr]Value)
-		}
-		m.funcFields[fv.UnsafeAddr()] = val
 		if gf := m.wrapForFunc(val, fv.Type()); gf.IsValid() {
 			m.setGoFuncField(fv, gf, val)
 		}
@@ -3087,13 +3083,9 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 		return
 	}
 	// Struct func fields can't hold mvm func values (int code addresses or Closures)
-	// via reflect.Set. Store them in a side table keyed by the field's memory address,
-	// and also set the field to a non-nil wrapper so nil-checks work correctly.
+	// via reflect.Set. Wrap into a non-nil Go func via setGoFuncField, which also
+	// records the wrapper's funcptr so resolveFuncField can recover the mvm value.
 	if dst.ref.Kind() == reflect.Func && dst.ref.CanAddr() {
-		if m.funcFields == nil {
-			m.funcFields = make(map[uintptr]Value)
-		}
-		m.funcFields[dst.ref.UnsafeAddr()] = src
 		dst.num = src.num
 		if gf := m.wrapForFunc(src, dst.ref.Type()); gf.IsValid() {
 			m.setGoFuncField(dst.ref, gf, src)

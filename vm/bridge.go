@@ -83,6 +83,14 @@ var InterfaceBridges = map[reflect.Type]reflect.Type{}
 // the WriterTo capability so io.Copy's internal type assertion succeeds).
 var CompositeBridges = map[[2]string]reflect.Type{}
 
+// IfaceFallbackHook is consulted by bridgeIface when no bridgeable method
+// matches the target interface (typically `any`). It lets a higher layer
+// (e.g. stdlib) substitute a custom wrapper that preserves mvm-level type
+// information lost at the reflect layer (defined types whose underlying
+// kind is a basic kind, e.g. `type Frame uintptr`). Returning an invalid
+// reflect.Value falls through to the default unwrap.
+var IfaceFallbackHook func(m *Machine, ifc Iface, targetType reflect.Type) reflect.Value
+
 // ProxyFactory builds a pointer-to-struct that wraps a mvm Iface and
 // re-enters mvm. Used at native-call boundaries to hand a stdlib shadow
 // package (e.g. jsonx) a proxy whose methods (MarshalJSON, UnmarshalJSON,

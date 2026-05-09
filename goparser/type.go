@@ -592,6 +592,16 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	}
 	ft := *typ
 	ft.Name = name
+	// reflect.StructField.PkgPath must be empty for exported fields and the
+	// owning package's path for unexported ones. The cloned type may carry
+	// its own PkgPath (e.g. "errors" on a defined named type); reset to the
+	// field-level value so reflect.StructOf does not reject an embedded
+	// exported field as "anonymous but has PkgPath set".
+	if IsExported(name) {
+		ft.PkgPath = ""
+	} else {
+		ft.PkgPath = p.pkgName
+	}
 	ft.Base = typ
 	if isPtr {
 		return vm.PointerTo(&ft), typ
