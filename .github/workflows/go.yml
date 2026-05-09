@@ -23,6 +23,18 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
+    - name: Checkout std module
+      uses: actions/checkout@v6
+      with:
+        repository: mvm-sh/std
+        path: std-src
+        fetch-depth: 1
+
+    - name: Generate stdlib content
+      env:
+        MVMSTD_SRC: ${{ github.workspace }}/std-src
+      run: go generate ./stdlib/...
+
     - name: Lint
       if: matrix.go-version == '1.26'
       uses: golangci/golangci-lint-action@v9
