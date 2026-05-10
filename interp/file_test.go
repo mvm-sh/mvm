@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,13 @@ func runFile(t *testing.T, p string) {
 
 	i := NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
-	i.SetIO(os.Stdin, &stdout, &stderr)
+	// When MVM_TRACE is set, tee stderr to the real stderr so trace
+	// output is visible via `go test -v` instead of vanishing into the buffer.
+	var errW io.Writer = &stderr
+	if traceLine || traceOp {
+		errW = io.MultiWriter(&stderr, os.Stderr)
+	}
+	i.SetIO(os.Stdin, &stdout, errW)
 	i.SetPkgfs("../_samples/pkg")
 
 	_, err = i.Eval(p, string(buf))

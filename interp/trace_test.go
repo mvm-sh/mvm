@@ -77,11 +77,11 @@ func TestTracingOps(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		if !strings.HasPrefix(line, "+ op ") {
+		if !strings.HasPrefix(line, "+ [ip:") {
 			t.Errorf("non op-trace line in stderr: %q", line)
 		}
 	}
-	if !strings.Contains(out, "ip:") || !strings.Contains(out, "sp:") || !strings.Contains(out, "op:[") {
+	if !strings.Contains(out, "ip:") || !strings.Contains(out, "sp:") || !strings.Contains(out, "fp:") {
 		t.Errorf("op-trace output missing expected fields:\n%s", out)
 	}
 	if !strings.Contains(out, "Push") {
@@ -96,10 +96,10 @@ func TestTracingBoth(t *testing.T) {
 	if idxLine < 0 {
 		t.Fatalf("missing line trace in combined output:\n%s", out)
 	}
-	if !strings.Contains(out, "+ op ") {
+	if !strings.Contains(out, "+ [ip:") {
 		t.Errorf("missing op trace in combined output:\n%s", out)
 	}
-	if !strings.Contains(out[idxLine:], "+ op ") {
+	if !strings.Contains(out[idxLine:], "+ [ip:") {
 		t.Errorf("expected op trace after line trace; output:\n%s", out)
 	}
 }
@@ -123,6 +123,48 @@ func main() {
 	}
 	if bodyLines < 3 {
 		t.Errorf("expected at least 3 emissions of loop body line, got %d\noutput:\n%s", bodyLines, out)
+	}
+}
+
+func TestTracingIndentsByDepth(t *testing.T) {
+	t.Parallel()
+	const src = `package main
+
+func g() {
+	_ = 1
+}
+
+func f() {
+	g()
+}
+
+func main() {
+	f()
+}
+`
+	out := runTraced(t, "indent_test.go", src, true, false)
+	var mainLine, fLine, gLine string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(line, "indent_test.go:12:") && strings.Contains(line, "f()"):
+			mainLine = line
+		case strings.Contains(line, "indent_test.go:8:") && strings.Contains(line, "g()"):
+			fLine = line
+		case strings.Contains(line, "_ = 1"):
+			gLine = line
+		}
+	}
+	if mainLine == "" || fLine == "" || gLine == "" {
+		t.Fatalf("missing one of the expected lines:\nmain=%q\nf=%q\ng=%q\nfull:\n%s", mainLine, fLine, gLine, out)
+	}
+	indentOf := func(s string) int {
+		// strip leading "+ " marker, count remaining leading spaces
+		s = strings.TrimPrefix(s, "+ ")
+		return len(s) - len(strings.TrimLeft(s, " "))
+	}
+	mi, fi, gi := indentOf(mainLine), indentOf(fLine), indentOf(gLine)
+	if mi >= fi || fi >= gi {
+		t.Errorf("expected indent main(%d) < f(%d) < g(%d)\nfull:\n%s", mi, fi, gi, out)
 	}
 }
 

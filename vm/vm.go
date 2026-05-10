@@ -454,17 +454,45 @@ func (m *Machine) setTraceFlag(bit uint8, on bool) {
 	}
 }
 
-// traceTopDepth is the operand-stack window size emitted by traceOp.
-const traceTopDepth = 3
+const (
+	traceTopDepth     = 3  // operand stack window size
+	traceIndentSpaces = 2  // number of spaces per call-stack level
+	traceIndentMax    = 32 // maximum number of levels
+)
 
-func (m *Machine) traceOp(ip, fp int, c *Instruction, mem []Value, sp int) {
-	_, _ = fmt.Fprintf(m.err, "+ op  ip:%-4d sp:%-3d fp:%-3d op:[%-20v]  top:%s\n",
-		ip, sp, fp, c, stackTop(mem, sp, traceTopDepth))
+func traceIndent(mem []Value, fp int) string {
+	d := 0
+	for fp > 0 && fp-1 < len(mem) {
+		d++
+		fp = int(mem[fp-1].num &^ (1 << 63)) //nolint:gosec
+	}
+	d-- // discard Eval driver frame
+	if d <= 0 {
+		return ""
+	}
+	if d > traceIndentMax {
+		d = traceIndentMax
+	}
+	return strings.Repeat(" ", d*traceIndentSpaces)
 }
 
-// stackTop renders the last n values of the operand stack as a bracketed
-// list, prefixed with "..." when truncated.
-func stackTop(mem []Value, sp, n int) string {
+func (m *Machine) traceOp(ip, fp int, c *Instruction, mem []Value, sp int) {
+	_, _ = fmt.Fprintf(m.err, "+ %s[ip:%-4d sp:%-3d fp:%-3d]  [%-16s]  %s\n",
+		traceIndent(mem, fp), ip, sp, fp, opString(c), stackTop(mem, sp, fp, traceTopDepth))
+}
+
+func opString(c *Instruction) string {
+	s := c.Op.String()
+	if c.A != 0 || c.B != 0 {
+		s += fmt.Sprintf(" %d", c.A)
+	}
+	if c.B != 0 {
+		s += fmt.Sprintf(" %d", c.B)
+	}
+	return s
+}
+
+func stackTop(mem []Value, sp, fp, n int) string {
 	if sp < 0 {
 		return "[]"
 	}
@@ -478,16 +506,40 @@ func stackTop(mem []Value, sp, n int) string {
 	if truncated {
 		sb.WriteString("... ")
 	}
-	appendValues(&sb, mem[start:sp+1])
+	for i := start; i <= sp; i++ {
+		if i > start {
+			sb.WriteByte(' ')
+		}
+		v := mem[i]
+		if v.ref.IsValid() {
+			fmt.Fprintf(&sb, "%d:%v", i, v.Interface())
+			continue
+		}
+		switch i {
+		case fp - 3:
+			fmt.Fprintf(&sb, "%d:deferHead=%d", i, v.num)
+		case fp - 2:
+			retIP := int(int32(v.num)) //nolint:gosec
+			nret := int((v.num >> 32) & 0xFFFF)
+			fb := int(v.num >> 48)
+			fmt.Fprintf(&sb, "%d:ret=%d,nret=%d,fb=%d", i, retIP, nret, fb)
+		case fp - 1:
+			prevFP := int(v.num &^ (1 << 63)) //nolint:gosec
+			heap := v.num>>63 != 0
+			if heap {
+				fmt.Fprintf(&sb, "%d:prevFP=%d,heap", i, prevFP)
+			} else {
+				fmt.Fprintf(&sb, "%d:prevFP=%d", i, prevFP)
+			}
+		default:
+			fmt.Fprintf(&sb, "%d:%d", i, v.num)
+		}
+	}
 	sb.WriteByte(']')
 	return sb.String()
 }
 
-// traceStep emits a line-trace entry when pos lies on a source line distinct
-// from the last one emitted. Dedups in two stages: a fast-path Pos compare
-// (collapses repeated Pos within one statement) and a slow-path (file, line)
-// compare (collapses distinct Pos that map to the same line).
-func (m *Machine) traceStep(pos Pos) {
+func (m *Machine) traceStep(pos Pos, fp int, mem []Value) {
 	if pos == 0 || pos == m.traceLastPos {
 		return
 	}
@@ -508,12 +560,9 @@ func (m *Machine) traceStep(pos Pos) {
 		return
 	}
 	m.traceLastFile, m.traceLastLine = file, line
-	_, _ = fmt.Fprintf(m.err, "+ %s:%d: %s\n", file, line, di.Sources.LineText(int(pos)))
+	_, _ = fmt.Fprintf(m.err, "+ %s%s:%d: %s\n", traceIndent(mem, fp), file, line, di.Sources.LineText(int(pos)))
 }
 
-// execConvert services the Convert opcode in place on mem[idx]. Pulled out
-// of Run's switch so this 100-line cold body doesn't compete with hot ops
-// for register allocation.
 func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 	idx := sp - int(c.B)
 	v := mem[idx]
@@ -624,9 +673,6 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 	}
 }
 
-// handleTrap services the Trap opcode: syncs loop state into m, runs the
-// interactive debugger, and reloads loop state. Pulled out of Run's switch
-// so the cold path doesn't compete with hot opcodes for register allocation.
 func (m *Machine) handleTrap(ip, fp, sp int, mem []Value) (int, int, int, []Value) {
 	m.trapOrig = ip + 1
 	mem = mem[:sp+1]
@@ -638,9 +684,6 @@ func (m *Machine) handleTrap(ip, fp, sp int, mem []Value) (int, int, int, []Valu
 	return ip, fp, sp, mem
 }
 
-// handleRecover services the Recover opcode: pushes the panic value (wrapped
-// in Iface) when called from a deferred function during unwind, otherwise
-// pushes nil. Pulled out of Run's switch for the same reason as handleTrap.
 func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int, []Value) {
 	if m.panicking && int(int32(mem[fp-2].num)) == deferRetAddr { //nolint:gosec
 		m.panicking = false
@@ -666,8 +709,6 @@ func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int,
 	return sp, mem
 }
 
-// posPrefix returns a "file:line:col: " string for the given source position,
-// or "" if debug info is unavailable.
 func (m *Machine) posPrefix(pos Pos) string {
 	if m.debugInfoFn == nil {
 		return ""
@@ -728,7 +769,7 @@ func (m *Machine) Run() (err error) {
 		c := &m.code[ip] // current instruction (pointer avoids 16-byte struct copy per iter)
 		if traceFlags != 0 {
 			if traceFlags&traceFlagLine != 0 {
-				m.traceStep(c.Pos)
+				m.traceStep(c.Pos, fp, mem)
 			}
 			if traceFlags&traceFlagOp != 0 {
 				m.traceOp(ip, fp, c, mem, sp)
