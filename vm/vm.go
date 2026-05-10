@@ -457,7 +457,7 @@ func (m *Machine) setTraceFlag(bit uint8, on bool) {
 // traceTopDepth is the operand-stack window size emitted by traceOp.
 const traceTopDepth = 3
 
-func (m *Machine) traceOp(ip, fp int, c Instruction, mem []Value, sp int) {
+func (m *Machine) traceOp(ip, fp int, c *Instruction, mem []Value, sp int) {
 	_, _ = fmt.Fprintf(m.err, "+ op  ip:%-4d sp:%-3d fp:%-3d op:[%-20v]  top:%s\n",
 		ip, sp, fp, c, stackTop(mem, sp, traceTopDepth))
 }
@@ -509,6 +509,161 @@ func (m *Machine) traceStep(pos Pos) {
 	}
 	m.traceLastFile, m.traceLastLine = file, line
 	_, _ = fmt.Fprintf(m.err, "+ %s:%d: %s\n", file, line, di.Sources.LineText(int(pos)))
+}
+
+// execConvert services the Convert opcode in place on mem[idx]. Pulled out
+// of Run's switch so this 100-line cold body doesn't compete with hot ops
+// for register allocation.
+func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
+	idx := sp - int(c.B)
+	v := mem[idx]
+	dstType := m.globals[int(c.A)].ref.Type()
+	dstKind := dstType.Kind()
+	if !v.ref.IsValid() {
+		// nil source: zero value of destination type.
+		if dstKind != reflect.Interface {
+			mem[idx] = FromReflect(reflect.Zero(dstType))
+		}
+		return
+	}
+	srcKind := v.ref.Type().Kind()
+
+	switch {
+	case isNum(srcKind) && isNum(dstKind):
+		bits := v.num
+		switch {
+		case isFloat(srcKind) && isFloat(dstKind):
+			// float32 -> float64 or float64 -> float32: re-precision.
+			if srcKind != dstKind {
+				f := math.Float64frombits(bits)
+				if dstKind == reflect.Float32 {
+					bits = math.Float64bits(float64(float32(f)))
+				}
+			}
+		case isFloat(srcKind):
+			// float -> int: truncate.
+			f := math.Float64frombits(bits)
+			bits = uint64(int64(f)) //nolint:gosec
+		case isFloat(dstKind):
+			// int -> float.
+			if srcKind >= reflect.Uint && srcKind <= reflect.Uintptr {
+				bits = math.Float64bits(float64(bits))
+			} else {
+				bits = math.Float64bits(float64(int64(bits))) //nolint:gosec
+			}
+		}
+		// Truncate to target width for sub-word types.
+		switch dstKind {
+		case reflect.Int:
+			mem[idx] = Value{num: bits, ref: zint}
+		case reflect.Int8:
+			mem[idx] = Value{num: uint64(int8(bits)), ref: zint8} //nolint:gosec
+		case reflect.Int16:
+			mem[idx] = Value{num: uint64(int16(bits)), ref: zint16} //nolint:gosec
+		case reflect.Int32:
+			mem[idx] = Value{num: uint64(int32(bits)), ref: zint32} //nolint:gosec
+		case reflect.Int64:
+			mem[idx] = Value{num: bits, ref: zint64}
+		case reflect.Uint:
+			mem[idx] = Value{num: bits, ref: zuint}
+		case reflect.Uint8:
+			mem[idx] = Value{num: uint64(uint8(bits)), ref: zuint8} //nolint:gosec
+		case reflect.Uint16:
+			mem[idx] = Value{num: uint64(uint16(bits)), ref: zuint16} //nolint:gosec
+		case reflect.Uint32:
+			mem[idx] = Value{num: uint64(uint32(bits)), ref: zuint32} //nolint:gosec
+		case reflect.Uint64:
+			mem[idx] = Value{num: bits, ref: zuint64}
+		case reflect.Float32:
+			mem[idx] = Value{num: math.Float64bits(float64(float32(math.Float64frombits(bits)))), ref: zfloat32}
+		case reflect.Float64:
+			mem[idx] = Value{num: bits, ref: zfloat64}
+		}
+
+	case isNum(srcKind) && dstKind == reflect.String:
+		// int/rune -> string (e.g. string(65) -> "A").
+		mem[idx] = Value{ref: reflect.ValueOf(string(rune(int64(v.num))))} //nolint:gosec
+
+	case srcKind == reflect.String && dstKind == reflect.Slice && dstType.Elem().Kind() == reflect.Uint8:
+		// string -> []byte.
+		mem[idx] = Value{ref: reflect.ValueOf([]byte(v.ref.String()))}
+
+	case srcKind == reflect.Slice && v.ref.Type().Elem().Kind() == reflect.Uint8 && dstKind == reflect.String:
+		// []byte -> string.
+		mem[idx] = Value{ref: reflect.ValueOf(string(v.ref.Bytes()))}
+
+	case dstKind == reflect.UnsafePointer &&
+		(srcKind == reflect.Pointer || srcKind == reflect.UnsafePointer || srcKind == reflect.Uintptr):
+		// *T, unsafe.Pointer, or uintptr -> unsafe.Pointer.
+		// reflect.Value.Convert has no convertOp for UnsafePointer, so
+		// we build the destination value manually.
+		var up unsafe.Pointer
+		switch srcKind {
+		case reflect.Pointer, reflect.UnsafePointer:
+			up = v.ref.UnsafePointer()
+		case reflect.Uintptr:
+			up = unsafe.Pointer(uintptr(v.num)) //nolint:gosec,govet
+		}
+		nv := reflect.New(dstType).Elem()
+		nv.SetPointer(up)
+		mem[idx] = Value{ref: nv}
+
+	case srcKind == reflect.UnsafePointer &&
+		(dstKind == reflect.Pointer || dstKind == reflect.Uintptr):
+		// unsafe.Pointer -> *T or uintptr.
+		up := v.ref.UnsafePointer()
+		if dstKind == reflect.Uintptr {
+			mem[idx] = Value{num: uint64(uintptr(up)), ref: reflect.Zero(dstType)} //nolint:gosec
+		} else {
+			mem[idx] = FromReflect(reflect.NewAt(dstType.Elem(), up))
+		}
+
+	default:
+		// Fallback: use reflect.
+		mem[idx] = FromReflect(v.Reflect().Convert(dstType))
+	}
+}
+
+// handleTrap services the Trap opcode: syncs loop state into m, runs the
+// interactive debugger, and reloads loop state. Pulled out of Run's switch
+// so the cold path doesn't compete with hot opcodes for register allocation.
+func (m *Machine) handleTrap(ip, fp, sp int, mem []Value) (int, int, int, []Value) {
+	m.trapOrig = ip + 1
+	mem = mem[:sp+1]
+	m.mem, m.ip, m.fp = mem, m.trapOrig, fp
+	m.enterDebug()
+	mem, ip, fp = m.mem, m.ip, m.fp
+	sp = len(mem) - 1
+	mem = mem[:cap(mem)]
+	return ip, fp, sp, mem
+}
+
+// handleRecover services the Recover opcode: pushes the panic value (wrapped
+// in Iface) when called from a deferred function during unwind, otherwise
+// pushes nil. Pulled out of Run's switch for the same reason as handleTrap.
+func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int, []Value) {
+	if m.panicking && int(int32(mem[fp-2].num)) == deferRetAddr { //nolint:gosec
+		m.panicking = false
+		pv := m.panicVal
+		if pv.IsValid() && !pv.IsIface() {
+			rt := pv.Reflect().Type()
+			typ := &Type{Name: rt.Name(), Rtype: rt}
+			pv = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: pv})}
+		}
+		if sp+1 >= len(mem) {
+			mem = growStack(mem, sp, 1)
+		}
+		sp++
+		mem[sp] = pv
+		m.panicVal = Value{}
+		return sp, mem
+	}
+	if sp+1 >= len(mem) {
+		mem = growStack(mem, sp, 1)
+	}
+	sp++
+	mem[sp] = Value{}
+	return sp, mem
 }
 
 // posPrefix returns a "file:line:col: " string for the given source position,
@@ -570,7 +725,7 @@ func (m *Machine) Run() (err error) {
 	}()
 
 	for {
-		c := m.code[ip] // current instruction
+		c := &m.code[ip] // current instruction (pointer avoids 16-byte struct copy per iter)
 		if traceFlags != 0 {
 			if traceFlags&traceFlagLine != 0 {
 				m.traceStep(c.Pos)
@@ -969,113 +1124,7 @@ func (m *Machine) Run() (err error) {
 				mem[sp] = boolVal(false)
 			}
 		case Convert:
-			idx := sp - int(c.B)
-			v := mem[idx]
-			dstType := m.globals[int(c.A)].ref.Type()
-			dstKind := dstType.Kind()
-			if !v.ref.IsValid() {
-				// nil source: zero value of destination type.
-				if dstKind != reflect.Interface {
-					mem[idx] = FromReflect(reflect.Zero(dstType))
-				}
-				break
-			}
-			srcKind := v.ref.Type().Kind()
-
-			switch {
-			case isNum(srcKind) && isNum(dstKind):
-				bits := v.num
-				switch {
-				case isFloat(srcKind) && isFloat(dstKind):
-					// float32 -> float64 or float64 -> float32: re-precision.
-					if srcKind != dstKind {
-						f := math.Float64frombits(bits)
-						if dstKind == reflect.Float32 {
-							bits = math.Float64bits(float64(float32(f)))
-						}
-					}
-				case isFloat(srcKind):
-					// float -> int: truncate.
-					f := math.Float64frombits(bits)
-					bits = uint64(int64(f)) //nolint:gosec
-				case isFloat(dstKind):
-					// int -> float.
-					if srcKind >= reflect.Uint && srcKind <= reflect.Uintptr {
-						bits = math.Float64bits(float64(bits))
-					} else {
-						bits = math.Float64bits(float64(int64(bits))) //nolint:gosec
-					}
-				}
-				// Truncate to target width for sub-word types.
-				switch dstKind {
-				case reflect.Int:
-					mem[idx] = Value{num: bits, ref: zint}
-				case reflect.Int8:
-					mem[idx] = Value{num: uint64(int8(bits)), ref: zint8} //nolint:gosec
-				case reflect.Int16:
-					mem[idx] = Value{num: uint64(int16(bits)), ref: zint16} //nolint:gosec
-				case reflect.Int32:
-					mem[idx] = Value{num: uint64(int32(bits)), ref: zint32} //nolint:gosec
-				case reflect.Int64:
-					mem[idx] = Value{num: bits, ref: zint64}
-				case reflect.Uint:
-					mem[idx] = Value{num: bits, ref: zuint}
-				case reflect.Uint8:
-					mem[idx] = Value{num: uint64(uint8(bits)), ref: zuint8} //nolint:gosec
-				case reflect.Uint16:
-					mem[idx] = Value{num: uint64(uint16(bits)), ref: zuint16} //nolint:gosec
-				case reflect.Uint32:
-					mem[idx] = Value{num: uint64(uint32(bits)), ref: zuint32} //nolint:gosec
-				case reflect.Uint64:
-					mem[idx] = Value{num: bits, ref: zuint64}
-				case reflect.Float32:
-					mem[idx] = Value{num: math.Float64bits(float64(float32(math.Float64frombits(bits)))), ref: zfloat32}
-				case reflect.Float64:
-					mem[idx] = Value{num: bits, ref: zfloat64}
-				}
-
-			case isNum(srcKind) && dstKind == reflect.String:
-				// int/rune -> string (e.g. string(65) -> "A").
-				mem[idx] = Value{ref: reflect.ValueOf(string(rune(int64(v.num))))} //nolint:gosec
-
-			case srcKind == reflect.String && dstKind == reflect.Slice && dstType.Elem().Kind() == reflect.Uint8:
-				// string -> []byte.
-				mem[idx] = Value{ref: reflect.ValueOf([]byte(v.ref.String()))}
-
-			case srcKind == reflect.Slice && v.ref.Type().Elem().Kind() == reflect.Uint8 && dstKind == reflect.String:
-				// []byte -> string.
-				mem[idx] = Value{ref: reflect.ValueOf(string(v.ref.Bytes()))}
-
-			case dstKind == reflect.UnsafePointer &&
-				(srcKind == reflect.Pointer || srcKind == reflect.UnsafePointer || srcKind == reflect.Uintptr):
-				// *T, unsafe.Pointer, or uintptr -> unsafe.Pointer.
-				// reflect.Value.Convert has no convertOp for UnsafePointer, so
-				// we build the destination value manually.
-				var up unsafe.Pointer
-				switch srcKind {
-				case reflect.Pointer, reflect.UnsafePointer:
-					up = v.ref.UnsafePointer()
-				case reflect.Uintptr:
-					up = unsafe.Pointer(uintptr(v.num)) //nolint:gosec,govet
-				}
-				nv := reflect.New(dstType).Elem()
-				nv.SetPointer(up)
-				mem[idx] = Value{ref: nv}
-
-			case srcKind == reflect.UnsafePointer &&
-				(dstKind == reflect.Pointer || dstKind == reflect.Uintptr):
-				// unsafe.Pointer -> *T or uintptr.
-				up := v.ref.UnsafePointer()
-				if dstKind == reflect.Uintptr {
-					mem[idx] = Value{num: uint64(uintptr(up)), ref: reflect.Zero(dstType)} //nolint:gosec
-				} else {
-					mem[idx] = FromReflect(reflect.NewAt(dstType.Elem(), up))
-				}
-
-			default:
-				// Fallback: use reflect.
-				mem[idx] = FromReflect(v.Reflect().Convert(dstType))
-			}
+			m.execConvert(c, mem, sp)
 
 		case IfaceWrap:
 			typ := m.globals[int(c.A)].ref.Interface().(*Type)
@@ -1618,13 +1667,7 @@ func (m *Machine) Run() (err error) {
 			mem[sp-int(c.B)] = Value{ref: reflect.ValueOf(MvmFunc{Val: fval, GF: m.wrapForFunc(fval, typ.Rtype)})}
 
 		case Trap:
-			m.trapOrig = ip + 1 // resume ip after Trap instruction
-			mem = mem[:sp+1]
-			m.mem, m.ip, m.fp = mem, m.trapOrig, fp
-			m.enterDebug()
-			mem, ip, fp = m.mem, m.ip, m.fp
-			sp = len(mem) - 1
-			mem = mem[:cap(mem)]
+			ip, fp, sp, mem = m.handleTrap(ip, fp, sp, mem)
 			continue
 
 		case Panic:
@@ -1635,28 +1678,7 @@ func (m *Machine) Run() (err error) {
 			continue
 
 		case Recover:
-			if m.panicking && int(int32(mem[fp-2].num)) == deferRetAddr { //nolint:gosec
-				m.panicking = false
-				pv := m.panicVal
-				// Wrap in Iface so type assertions on the recovered value work.
-				if pv.IsValid() && !pv.IsIface() {
-					rt := pv.Reflect().Type()
-					typ := &Type{Name: rt.Name(), Rtype: rt}
-					pv = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: pv})}
-				}
-				if sp+1 >= len(mem) {
-					mem = growStack(mem, sp, 1)
-				}
-				sp++
-				mem[sp] = pv
-				m.panicVal = Value{}
-			} else {
-				if sp+1 >= len(mem) {
-					mem = growStack(mem, sp, 1)
-				}
-				sp++
-				mem[sp] = Value{} // nil
-			}
+			sp, mem = m.handleRecover(fp, sp, mem, deferRetAddr)
 
 		case Return:
 			// Read nret and frameBase from the packed retIP slot.
@@ -2477,7 +2499,7 @@ func (m *Machine) resolveIPAndHeap(funcVal Value) int {
 	return int(funcVal.num) //nolint:gosec
 }
 
-func (m *Machine) deferPush(c Instruction, mem []Value, fp, sp int) ([]Value, int) {
+func (m *Machine) deferPush(c *Instruction, mem []Value, fp, sp int) ([]Value, int) {
 	narg := int(c.A)
 	isX := int(c.B)
 	if isX == 2 {
