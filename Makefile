@@ -7,10 +7,12 @@ lint:
 # clone via the //go:generate directive in stdlib/srcfs.go.
 # Run after a fresh clone or after updating the Go toolchain or the std module.
 generate:
-	go generate ./...
+	@mkdir -p bin
+	go build -o bin/extract ./cmd/extract
+	PATH="$(CURDIR)/bin:$$PATH" go generate ./...
 	@cd stdlib && for plat in $$(go tool dist list | tr '/' '_'); do \
 		os=$${plat%%_*}; arch=$${plat#*_}; \
-		go run ../cmd/extract -goos $$os -goarch $$arch \
+		$(CURDIR)/bin/extract -goos $$os -goarch $$arch \
 			-stdlib \
 			syscall $$(go env GOROOT)/src/syscall; \
 	done
