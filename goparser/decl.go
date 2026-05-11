@@ -892,6 +892,9 @@ func (p *Parser) parseVarLine(in Tokens) (out Tokens, err error) {
 			return out, err
 		}
 	}
+	if len(in) > 0 && len(vars) == 0 {
+		return out, p.errAt(in[0], "missing variable name in var declaration")
+	}
 	values := assign.Split(lang.Comma)
 	if len(values) == 1 {
 		if len(values[0]) == 0 {
@@ -918,6 +921,9 @@ func (p *Parser) parseVarLine(in Tokens) (out Tokens, err error) {
 			out = append(out, newToken(lang.Assign, "", 0, len(vars)))
 		}
 		return out, err
+	}
+	if len(vars) != len(values) {
+		return out, p.errAt(in[0], "assignment mismatch: %d variables but %d values", len(vars), len(values))
 	}
 	for i, v := range values {
 		if v, err = p.parseExpr(v, ""); err != nil {

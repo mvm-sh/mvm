@@ -138,6 +138,9 @@ func TestParseErrorPos(t *testing.T) {
 	run(t, []etest{
 		{n: "import_in_func", src: `func main() { import "fmt" }`, err: `test:1:15: unexpected import inside function body`},
 		{n: "var_no_expr_in_func", src: `func main() { var }`, err: `test:1:15: missing expression after var`},
+		{n: "var_no_name", src: `var = "x"`, err: `missing variable name in var declaration`},
+		{n: "var_no_name_in_func", src: `func main() { var = "x" }`, err: `missing variable name in var declaration`},
+		{n: "var_assign_mismatch", src: `var a = 1, 2`, err: `assignment mismatch: 1 variables but 2 values`},
 		// Compiler-side ErrUndefined now carries source position too.
 		{n: "undefined_method", src: `type T struct{}; var t T; t.NoSuchMethod()`, err: `test:1:28: undefined: NoSuchMethod`},
 	})
