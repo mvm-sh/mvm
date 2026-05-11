@@ -21,6 +21,9 @@ func init() {
 		"NewWriterLevel":     reflect.ValueOf(zlib.NewWriterLevel),
 		"NewWriterLevelDict": reflect.ValueOf(zlib.NewWriterLevelDict),
 		"NoCompression":      reflect.ValueOf(zlib.NoCompression),
+		"ErrChecksum":        reflect.ValueOf(&zlib.ErrChecksum),
+		"ErrDictionary":      reflect.ValueOf(&zlib.ErrDictionary),
+		"ErrHeader":          reflect.ValueOf(&zlib.ErrHeader),
 		"Resetter":           reflect.ValueOf((*zlib.Resetter)(nil)),
 		"Writer":             reflect.ValueOf((*zlib.Writer)(nil)),
 	}

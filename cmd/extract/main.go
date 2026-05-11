@@ -53,6 +53,8 @@ func mainErr() error {
 		return errors.New("usage: extract [-stdlib <import-path>] <directory>")
 	}
 
+	fmt.Fprintln(os.Stderr, "extract", args[0], *targetOS, *targetArch)
+
 	if *stdlibMode {
 		if len(args) < 2 {
 			return errors.New("usage: extract -stdlib <import-path> <directory>")

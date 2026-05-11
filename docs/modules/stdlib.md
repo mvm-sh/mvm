@@ -92,9 +92,10 @@ upstream source than by maintaining hand-written native bridges.
 These packages live in a separate Go module,
 `github.com/mvm-sh/std`, sourced from `$GOROOT/src` and patched
 locally where mvm cannot interpret upstream as-is (`iter.Pull`/`Pull2`
-needing runtime coroutines, etc.). At build time `stdlib/gen_stdzip.go`
-walks `../../std`, emits `stdlib/src.zip` in proxy layout, and that
-zip is `//go:embed`-ed by `stdlib/srcfs.go`.
+needing runtime coroutines, etc.). At generation time (`make generate`)
+`stdlib/gen_stdzip.go` walks `../../std` and emits `stdlib/src.zip` in
+proxy layout; that zip is committed to the repo and `//go:embed`-ed by
+`stdlib/srcfs.go`.
 
 At runtime [`stdmod`](stdmod.md) wraps the embedded bytes (or a
 network-fetched override) in a redirecting `fs.FS` that the parser

@@ -106,12 +106,13 @@ live clone or a real proxy fetch when running `mvm test <pkg>`.
 
 **Harder / weaker:**
 
-- **`stdlib/src.zip` is a build artifact.** It is generated from
-  `../../std` by `make generate`, and `.gitignore`d. A fresh clone
-  needs both the std repo and a `make generate` run before `go build`
-  succeeds (the `//go:embed` directive demands the file exist). Old
-  workflow ("clone and build") breaks; new workflow ("clone std
-  alongside, run make generate, build") replaces it.
+- **`stdlib/src.zip` is a committed binary blob.** It is `//go:embed`-ed
+  by `stdlib/srcfs.go`, so the file must exist for `go build` to
+  succeed; rather than make every clone (and `go install ...@latest`)
+  regenerate it, the ~30 KB zip is checked in. It is regenerated from
+  `../../std` by `make generate` and re-committed only when the std
+  module changes -- a small, deterministic blob in git history in
+  exchange for a tree that builds with no setup step.
 - **`stdmod.Version` is a hand-bumped const.** Out-of-sync with the
   embedded zip (or with the published proxy tag) leads to silent
   cache-miss-then-fetch on overrides. Process discipline applies:

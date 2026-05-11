@@ -82,14 +82,47 @@ func typeArgSubst(t *vm.Type, source string) string {
 	return typeArgName(t)
 }
 
+// sanitizeMangled maps every byte that is not legal inside a scanner
+// identifier (ASCII letters, digits, '_', and '#') to '_'. A monomorphized
+// name such as "mapping#string#*node" must stay a single token when its tokens
+// are re-scanned (e.g. the rewritten method receiver "(h *mapping#string#*node)"
+// in registerFunc); without this it would split at the '*' and the method
+// would be registered under the wrong type, so the "already instantiated"
+// guard never trips and instantiatePendingMethods loops forever.
+func sanitizeMangled(s string) string {
+	ok := func(b byte) bool {
+		return b == '_' || b == '#' ||
+			(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+	}
+	clean := true
+	for i := 0; i < len(s); i++ {
+		if !ok(s[i]) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	b := []byte(s)
+	for i := range b {
+		if !ok(b[i]) {
+			b[i] = '_'
+		}
+	}
+	return string(b)
+}
+
 // mangledName returns the mangled name for a generic instantiation.
-// E.g. mangledName("Max", [int]) -> "Max#int".
+// E.g. mangledName("Max", [int]) -> "Max#int". Type-argument names are
+// sanitized so the result is always a single identifier token (see
+// sanitizeMangled): mangledName("mapping", [string, *node]) -> "mapping#string#_node".
 func mangledName(base string, typeArgs []*vm.Type) string {
 	var sb strings.Builder
 	sb.WriteString(base)
 	for _, t := range typeArgs {
 		sb.WriteByte('#')
-		sb.WriteString(typeArgName(t))
+		sb.WriteString(sanitizeMangled(typeArgName(t)))
 	}
 	return sb.String()
 }

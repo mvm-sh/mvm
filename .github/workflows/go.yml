@@ -20,18 +20,6 @@ jobs:
       with:
         go-version: '1.26'
 
-    - name: Checkout std module
-      uses: actions/checkout@v6
-      with:
-        repository: mvm-sh/std
-        path: std-src
-        fetch-depth: 1
-
-    - name: Build embedded std zip
-      env:
-        MVMSTD_SRC: ${{ github.workspace }}/std-src
-      run: cd stdlib && go run gen_stdzip.go
-
     - name: Lint
       uses: golangci/golangci-lint-action@v9
       with:

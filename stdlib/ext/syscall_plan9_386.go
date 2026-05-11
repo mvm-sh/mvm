@@ -177,6 +177,7 @@ func init() {
 		"WaitProcess":         reflect.ValueOf(syscall.WaitProcess),
 		"Write":               reflect.ValueOf(syscall.Write),
 		"Wstat":               reflect.ValueOf(syscall.Wstat),
+		"EACCES":              reflect.ValueOf(&syscall.EACCES),
 		"EAFNOSUPPORT":        reflect.ValueOf(&syscall.EAFNOSUPPORT),
 		"EBUSY":               reflect.ValueOf(&syscall.EBUSY),
 		"EEXIST":              reflect.ValueOf(&syscall.EEXIST),
