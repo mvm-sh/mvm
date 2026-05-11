@@ -57,6 +57,19 @@ func TestMatchBuildDirective(t *testing.T) {
 		{"arch constraint mismatch", "//go:build arm64\n\npackage main\n", "linux", "amd64", "go1.24", false},
 		{"compound", "//go:build linux && amd64\n\npackage main\n", "linux", "amd64", "go1.24", true},
 		{"compound mismatch", "//go:build linux && arm64\n\npackage main\n", "linux", "amd64", "go1.24", false},
+
+		// Legacy `// +build` directives (still used by older modules, e.g.
+		// github.com/google/uuid v1.6.0's node_js.go / node_net.go).
+		{"plus js on js", "// +build js\n\npackage uuid\n", "js", "wasm", "go1.24", true},
+		{"plus js on darwin", "// +build js\n\npackage uuid\n", "darwin", "amd64", "go1.24", false},
+		{"plus !js on js", "// +build !js\n\npackage uuid\n", "js", "wasm", "go1.24", false},
+		{"plus !js on darwin", "// +build !js\n\npackage uuid\n", "darwin", "amd64", "go1.24", true},
+		{"plus space-OR", "// +build linux darwin\n\npackage main\n", "darwin", "amd64", "go1.24", true},
+		{"plus comma-AND match", "// +build linux,amd64\n\npackage main\n", "linux", "amd64", "go1.24", true},
+		{"plus comma-AND mismatch", "// +build linux,amd64\n\npackage main\n", "linux", "arm64", "go1.24", false},
+		{"plus multi-line AND", "// +build linux\n// +build amd64\n\npackage main\n", "linux", "amd64", "go1.24", true},
+		{"plus multi-line AND mismatch", "// +build linux\n// +build amd64\n\npackage main\n", "linux", "arm64", "go1.24", false},
+		{"gobuild overrides plus", "//go:build linux\n// +build darwin\n\npackage main\n", "linux", "amd64", "go1.24", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {

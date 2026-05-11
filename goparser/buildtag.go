@@ -50,6 +50,7 @@ func MatchFileName(name string, ctx *buildContext) bool {
 }
 
 func matchBuildDirective(src string, ctx *buildContext) bool {
+	var plusExpr constraint.Expr // AND-combined // +build lines
 	for src != "" {
 		var line string
 		if i := strings.IndexByte(src, '\n'); i >= 0 {
@@ -63,15 +64,30 @@ func matchBuildDirective(src string, ctx *buildContext) bool {
 			continue
 		}
 		if !strings.HasPrefix(line, "//") {
-			return true // reached non-comment line (e.g. package), no constraint found
+			break // reached non-comment line (e.g. package)
 		}
 		if constraint.IsGoBuild(line) {
+			// //go:build takes precedence over any // +build lines.
 			expr, err := constraint.Parse(line)
 			if err != nil {
 				return false
 			}
 			return expr.Eval(ctx.matchTag)
 		}
+		if constraint.IsPlusBuild(line) {
+			expr, err := constraint.Parse(line)
+			if err != nil {
+				return false
+			}
+			if plusExpr == nil {
+				plusExpr = expr
+			} else {
+				plusExpr = &constraint.AndExpr{X: plusExpr, Y: expr}
+			}
+		}
+	}
+	if plusExpr != nil {
+		return plusExpr.Eval(ctx.matchTag)
 	}
 	return true
 }
