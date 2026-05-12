@@ -170,6 +170,54 @@ func (p *Parser) parseAt(basePos int, src string) (out Tokens, err error) {
 	return p.parseStmts(in)
 }
 
+// compositeBraceAt reports whether toks[i] is a BraceBlock that is the value
+// part of a composite literal whose LiteralType is a slice, array, map or
+// struct type (e.g. the "{}" in `[]byte{}`, `map[K]V{}`, `[N]T{}`,
+// `[]pkg.T{}`, `struct{...}{}`) rather than a statement body. Such literals may
+// appear unparenthesized in the header of a for/if/switch statement (only the
+// bare TypeName form, `T{}`, requires parentheses there), so stmtEnd must not
+// mistake their brace for the statement body when scanning past clause
+// separators.
+//
+// It walks left from toks[i-1] over the tokens that could form such a literal
+// type (the element type Idents/`.`/`*`/`<-`/`chan`, the `[]`/`[N]`/`map`
+// openers, and `struct{...}`/`interface{...}`) and returns true only if the
+// leftmost token consumed is one of those openers -- i.e. the type genuinely
+// *starts* with `[`/`map`/`struct`/`interface`, distinguishing `[]byte{...}`
+// from an index expression like `flags[i]` that happens to precede a body.
+func (p *Parser) compositeBraceAt(toks Tokens, i int) bool {
+	if i <= 0 || toks[i].Tok != lang.BraceBlock {
+		return false
+	}
+	first := -1 // index of the leftmost token belonging to the literal type
+walk:
+	for j := i - 1; j >= 0; j-- {
+		switch toks[j].Tok {
+		case lang.Ident, lang.Period, lang.Mul, lang.Arrow, lang.Chan,
+			lang.BracketBlock, lang.Map, lang.Struct, lang.Interface:
+			first = j
+		case lang.BraceBlock:
+			// A `{...}` is part of the type only as the body of a `struct{...}` /
+			// `interface{...}` immediately to its left.
+			if j == 0 || (toks[j-1].Tok != lang.Struct && toks[j-1].Tok != lang.Interface) {
+				break walk
+			}
+			first = j - 1
+			j-- // also step over the struct/interface keyword
+		default:
+			break walk
+		}
+	}
+	if first < 0 {
+		return false
+	}
+	switch toks[first].Tok {
+	case lang.BracketBlock, lang.Map, lang.Struct, lang.Interface:
+		return true
+	}
+	return false
+}
+
 func (p *Parser) stmtEnd(toks Tokens) (int, error) {
 	end := toks.Index(lang.Semicolon)
 	if end == -1 {
@@ -181,7 +229,11 @@ func (p *Parser) stmtEnd(toks Tokens) (int, error) {
 		firstTok = toks[2].Tok
 	}
 	if p.TokenProps[firstTok].HasInit {
-		for toks[end-1].Tok != lang.BraceBlock {
+		// Skip clause-separator semicolons until the one that follows the
+		// statement body. A BraceBlock just before a semicolon is normally the
+		// body, except when it is a composite literal value in a header clause
+		// (e.g. `for x := []byte{}; cond; { ... }`).
+		for toks[end-1].Tok != lang.BraceBlock || p.compositeBraceAt(toks, end-1) {
 			e2 := toks[end+1:].Index(lang.Semicolon)
 			if e2 == -1 {
 				return -1, scan.ErrBlock

@@ -482,6 +482,9 @@ func TestIf(t *testing.T) {
 		{n: "#05", src: "a := 1; if a < 0 || a < 2 { a = 3 }; a", res: "3"},
 		{n: "#06", src: `func f() (int, error) { return 3, nil }; r := 0; if a, err := f(); err != nil { r = 1 } else { r = a }; r`, res: "3"},
 		{n: "#07", src: `func f() (int, error) { return 0, nil }; func g() ([]int, error) { return []int{1,2}, nil }; r := 0; if a, err := f(); err != nil { r = a } else if _, err2 := g(); err2 != nil { r = 1 } else { r = 3 }; r`, res: "3"},
+		// composite literal in the if-init clause: its `{}` must not be mistaken
+		// for the if body when scanning the statement.
+		{n: "#08", src: `r := 0; if s := []int{1, 2, 3}; len(s) == 3 { r = s[2] }; r`, res: "3"},
 	})
 }
 
@@ -538,6 +541,15 @@ f()`, res: "start"},
 		{n: "#35", src: `a := []int{1, 2, 3}; for i, v := range a { a[i] = v * 2 }; a[0] + a[1] + a[2]`, res: "12"},
 		{n: "#36", src: `m := map[string]int{"a": 1, "b": 2}; for k := range m { m[k] = 0 }; m["a"] + m["b"]`, res: "0"},
 		{n: "#37", src: `func f() string { return "a" }; m := map[string]int{f(): 1}; m["a"]`, res: "1"},
+		// composite literal in the for-init clause: its `{}` must not be mistaken
+		// for the loop body when scanning the statement.
+		{n: "#38", src: `n := 0; for s := []int{}; len(s) < 3; { s = append(s, 1); n++ }; n`, res: "3"},
+		{n: "#39", src: `func f() int { n := 0; for s := []int{}; len(s) < 3; { s = append(s, 1); n++ }; return n }; f()`, res: "3"},
+		{n: "#40", src: `n := 0; for m := map[string]int{}; len(m) < 2; { m[string(rune('a'+len(m)))] = 1; n++ }; n`, res: "2"},
+		// continue inside a 3-clause for with an empty post clause: jumps back to
+		// the condition, not to a (never-emitted) post label.
+		{n: "#41", src: `n := 0; for i := 0; i < 5; { if i == 2 { i++; continue }; n++; i++ }; n`, res: "4"},
+		{n: "#42", src: `func f() int { n := 0; for i := 0; i < 5; { if i == 2 { i++; continue }; n++; i++ }; return n }; f()`, res: "4"},
 	})
 }
 

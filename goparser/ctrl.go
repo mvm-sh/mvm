@@ -140,9 +140,10 @@ func (p *Parser) parseFor(in Tokens) (out Tokens, err error) {
 	pendingLabel := p.takePendingLabel()
 	defer p.pushBreakScope("for", pendingLabel, true)()
 	pre := in[1 : len(in)-1].Split(lang.Semicolon)
-	// condLabel is the top of the loop (where Goto jumps back to).
-	// For 3-clause for loops, continueLabel is set to the post-statement label
-	// so that continue executes the post statement before re-checking the condition.
+	// condLabel is the top of the loop (where Goto jumps back to). For a 3-clause
+	// for with a non-empty post clause, continueLabel instead points at a
+	// dedicated post label so that continue runs the post statement before
+	// re-checking the condition.
 	condLabel := p.scope + "b"
 	switch len(pre) {
 	case 1:
@@ -174,8 +175,11 @@ func (p *Parser) parseFor(in Tokens) (out Tokens, err error) {
 			return nil, err
 		}
 		out = init
-		// continue must run the post statement before looping; use a separate label.
-		p.continueLabel = p.scope + "p"
+		// The post label is only emitted when there is a post clause; with an
+		// empty one, continue falls back to condLabel.
+		if len(post) > 0 {
+			p.continueLabel = p.scope + "p"
+		}
 	default:
 		return nil, errFor
 	}
@@ -231,8 +235,10 @@ func (p *Parser) parseIf(in Tokens) (out Tokens, err error) {
 	i := 1 // skip initial 'if'
 	for i < len(in) {
 		clauseStart := i
-		// Find the body block ({...}) for this clause.
-		for i < len(in) && in[i].Tok != lang.BraceBlock {
+		// Find the body block ({...}) for this clause, skipping any BraceBlock
+		// that is the value part of a composite literal in the init/cond clause
+		// (e.g. `if s := []int{1, 2}; ...`).
+		for i < len(in) && (in[i].Tok != lang.BraceBlock || p.compositeBraceAt(in, i)) {
 			i++
 		}
 		if i >= len(in) {
