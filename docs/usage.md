@@ -1,9 +1,10 @@
 # Usage Guide
 
-This guide covers the `mvm` command line tool: its subcommands, execution
-tracing, the `trap()` debugger, remote imports, and the environment variables it
-reads. For internals see [architecture.md](architecture.md); for embedding mvm in
-a Go or C host program see [`examples/`](../examples/).
+This guide covers the `mvm` command line tool: its subcommands, the program
+forms it accepts, the REPL, execution tracing, the `trap()` debugger, remote
+imports, and the environment variables it reads. For internals see
+[architecture.md](architecture.md); for embedding mvm in a Go or C host program
+see [`examples/`](../examples/).
 
 ## Install
 
@@ -36,13 +37,116 @@ mvm run -e "fmt.Println(1+2)"       # evaluate an inline expression
 mvm run -x _samples/fib.go          # run with line tracing (see below)
 ```
 
-- **Source file.** The file is read and executed. A leading `#!` line (shebang)
-  is stripped, so a script can start with `#!/usr/bin/env mvm`.
-- **`-e <expr>`.** Evaluates a single Go expression or statement. The stdlib is
-  auto-imported in this mode, so `fmt.Println(...)` resolves without an explicit
-  `import`.
-- **No arguments.** Starts an interactive REPL.
+- **Source file.** The file is read and executed like `go run`.
+  A leading `#!` line is stripped, and the file may drop `package main` and
+  `func main` -- see [Program forms](#program-forms).
+- **`-e <expr>`.** Evaluates a string of Go: an expression, a statement, or
+  several separated by `;`.
+  The bundled stdlib is auto-imported, so `fmt.Println(...)` resolves with no
+  explicit `import` -- see [Program forms](#program-forms).
+  The value of a trailing expression is not printed; call `fmt.Println` (or the
+  builtin `print`) yourself for output.
+- **No arguments.** Starts the interactive [REPL](#repl).
 - **`-x`.** Enables execution tracing -- see [Execution tracing](#execution-tracing).
+
+## Program forms
+
+mvm runs ordinary Go, but relaxes a few requirements so short programs and
+scripts stay short.
+
+**Standard program.**
+A file with `package main`, its `import`s, and a `func main` runs exactly as
+`go run` would.
+
+**Scripts.**
+A leading `#!` line is stripped before parsing, so a file can be made
+executable:
+
+```sh
+$ cat hello
+#!/usr/bin/env mvm
+import "fmt"
+
+fmt.Println("hello, world")
+$ chmod +x hello
+$ ./hello
+hello, world
+```
+
+**`package main` is optional.**
+If the source does not start with a `package` clause, mvm parses it as if
+`package main` were present.
+An explicit `package main` is still accepted; any other package name is not
+(mvm runs a single file or a directory, not a named library).
+
+**`func main` is optional.**
+Without a `func main`, mvm runs every `func init` body and then any bare
+top-level statements, in source order -- so the script above works without
+wrapping its body in `func main`.
+
+**Auto-imported stdlib.**
+With `-e`, in the REPL, and under `mvm test`, every bundled standard-library
+package is pre-registered under its base name, so `fmt.Println(...)`,
+`strings.Split(...)`, `time.Now()` and friends resolve with no `import` line.
+Running a source *file* does not auto-import: a script must `import` the
+packages it uses (it just need not declare `package main` or `func main`).
+A handful of base names map to more than one bundled package; auto-import binds
+them as follows, and an explicit `import` always overrides:
+
+| Base name  | Auto-import binds to | Also reachable via explicit import |
+|------------|----------------------|------------------------------------|
+| `rand`     | `math/rand`          | `crypto/rand`, `math/rand/v2`      |
+| `template` | `text/template`      | `html/template`                    |
+| `scanner`  | `text/scanner`       | `go/scanner`                       |
+| `pprof`    | `runtime/pprof`      | `net/http/pprof`                   |
+
+Any other base-name collision resolves to the import path with the fewest
+segments, ties broken alphabetically.
+
+## REPL
+
+Run `mvm` with no arguments (or `mvm run`) to start an interactive
+read-eval-print loop:
+
+```
+$ mvm
+> x := 21
+:  21
+> x * 2
+:  42
+> import "strings"
+> strings.ToUpper("go")
+:  GO
+>
+```
+
+A few things worth knowing:
+
+- **It is line-oriented and unadorned.**
+  Input is read with a plain line scanner: no history, no arrow-key editing, no
+  tab completion.
+  You can still feed it a session on stdin (`mvm < session.txt`).
+- **Incomplete input continues on the next line.**
+  An unbalanced `(`, `{`, or `[`, or an unterminated string or raw string,
+  switches the prompt to `>>` and keeps reading until the construct closes; a
+  complete line is evaluated immediately.
+- **State persists across lines.**
+  Variables, functions, types, and imports declared on one line stay in scope
+  on the following lines -- the session is compiled and run incrementally, not
+  restarted per line.
+  `x := 1` is accepted at the prompt even though Go forbids `:=` at file scope.
+- **The value of the line is echoed** after `: ` -- an expression shows its
+  value; some lines (a `type` or `import` declaration) leave nothing and print
+  nothing.
+- **`package main` and `func main` are not needed** (see
+  [Program forms](#program-forms)); a stray `package` line is parsed like any
+  other line and is otherwise a no-op.
+- **Errors do not end the session.**
+  A parse or runtime error prints `Error: <message>`, discards whatever input
+  had accumulated, and returns to the `>` prompt; only end-of-input (Ctrl-D)
+  stops the REPL.
+- **Auto-import is on**, so the one-liners in [Tips](#tips) work pasted straight
+  at the prompt.
 
 ## test
 
@@ -161,19 +265,42 @@ Debug info (symbol names, source positions) is built lazily on the first
 
 ## Remote imports
 
-Both `run` and `test` accept import paths instead of local files. mvm resolves
-them through the Go module proxy and keeps the sources in memory -- nothing is
-written to disk.
-
-The `GOPROXY` environment variable is honored with the usual Go semantics:
-
-- unset or empty: use the default public proxy
-- `off` or `direct`: offline; no network fetches (mvm has no direct-VCS path)
-- a comma/pipe-separated list: the first URL entry is used as the proxy
+`run` and `test` accept a package import path where they would otherwise take a
+file or directory, and an `import` statement inside interpreted code -- a file,
+an `-e` string, or a REPL line -- may name a package that lives in another
+module.
+Either way mvm resolves the path through the Go module proxy and keeps the
+fetched sources in memory; nothing is written to disk, and there is no `go.sum`
+verification step (mvm trusts whatever the proxy returns).
 
 ```
-mvm test github.com/google/uuid       # uses proxy.golang.org by default
-GOPROXY=off mvm test ./pkg            # never touch the network
+mvm test github.com/google/uuid                              # whole package, run its tests
+mvm run -e 'import "github.com/google/uuid"; println(uuid.NewString())'   # pull a dependency on the fly
+```
+
+**Versions.**
+There is no `path@version` syntax.
+mvm always resolves a module to its `@latest` version -- the same query
+`go get <path>` makes when you give no version.
+A package import path is mapped to its module by probing path prefixes
+shortest-first against the proxy and taking the first one that resolves, so
+`github.com/google/uuid` selects the module `github.com/google/uuid`, and
+`github.com/foo/bar/sub/pkg` selects whichever of `github.com/foo/bar`,
+`github.com/foo/bar/sub`, ... the proxy serves.
+
+**`GOPROXY`.**
+The `GOPROXY` environment variable is honored with (mostly) the usual Go
+semantics:
+
+- unset or empty: use the default public proxy, `https://proxy.golang.org`
+- `off` or `direct`: offline -- no network fetches at all (mvm has no
+  direct-from-VCS path); the embedded standard library still resolves
+- a comma- or pipe-separated list: the *first* URL entry is used as the proxy;
+  unlike `go`, mvm does not fall through to later entries on a miss
+
+```
+GOPROXY=off mvm test ./pkg                  # never touch the network
+GOPROXY=https://goproxy.cn mvm run app.go   # use a mirror
 ```
 
 ## Environment variables

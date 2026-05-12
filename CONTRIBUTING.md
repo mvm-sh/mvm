@@ -7,6 +7,15 @@ contributions are needed and always welcome.
 [pull requests](https://github.com/mvm-sh/mvm/pulls) are opened at
 <https://github.com/mvm-sh/mvm>.
 
+If you are not sure something is a bug, or want to discuss a possible
+new feature before filing an issue, start a thread in
+[GitHub Discussions](https://github.com/mvm-sh/mvm/discussions).
+That is the preferred venue for mvm-related questions and for shaping a
+change before any code is written.
+
+To try the interpreter without a local checkout, the
+[mvm playground](https://mvm.sh/playground) runs it in the browser.
+
 ## Building and testing
 
 ```
@@ -103,10 +112,10 @@ fall into four groups, all refreshed by `make generate`:
    <https://github.com/mvm-sh/std> at `../std` (override with
    `MVMSTD_SRC=/path/to/clone`).
 
-So a fresh clone builds and tests as-is. Running `make generate` (only
-needed after a Go-toolchain bump or a std-module edit) additionally
-requires `stringer` installed, a working Go toolchain (for `$GOROOT`),
-and -- for the embedded zip -- a sibling `mvm-sh/std` clone.
+So a fresh clone builds and tests as-is.
+Running `make generate` (only needed after a Go-toolchain bump or a std-module edit)
+additionally requires `stringer` installed, a working Go toolchain (for `$GOROOT`),
+and for the embedded zip, a sibling `mvm-sh/std` clone.
 
 The `verify-generated` CI workflow rebuilds everything and fails on any
 diff, so commit the regenerated files in the same PR. Its weekly cron

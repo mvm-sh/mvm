@@ -167,6 +167,24 @@ func main() {
 	}
 }
 
+// TestRemoteXTextCrash is a skipped repro: importing golang.org/x/text via the
+// live proxy faults inside vm.patchRtype on the go1.26 toolchain. See the
+// memory note "patchRtype faults on go1.26". Un-skip only on a build where
+// the fix is being verified -- the fault is a fatal SIGSEGV that takes down
+// the whole test binary, and the test needs network access.
+func TestRemoteXTextCrash(t *testing.T) {
+	t.Skip("known crash: vm.patchRtype faults on go1.26 when importing golang.org/x/text/...; needs network")
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{}))
+	if _, err := i.Eval("test", `import "golang.org/x/text/language"; _ = language.English`); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+}
+
 func buildZip(t *testing.T, mod, ver string, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer

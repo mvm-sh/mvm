@@ -13,6 +13,9 @@ programs.
 > and the embedding API will still change. Pin a commit if you depend
 > on it.
 
+Want to kick the tires without installing anything?
+Try it in the browser at the [mvm playground](https://mvm.sh/playground).
+
 ## Features
 
 - Fast, portable bytecode virtual machine
@@ -97,6 +100,14 @@ mvm -e 'http.ListenAndServe(":8080", http.FileServer(http.Dir(".")))'
 make test    # tests with race detector and coverage
 make lint    # golangci-lint
 ```
+
+## Questions and discussions
+
+[GitHub Discussions](https://github.com/mvm-sh/mvm/discussions) is the
+preferred place to ask anything mvm-related: how to do something, whether
+a behavior is a bug or a misuse, or to float an idea for a new feature
+before it becomes an issue or a pull request.
+When in doubt, start a discussion.
 
 ## Contributing
 
