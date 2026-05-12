@@ -300,6 +300,65 @@ func TestRemoteMethodReceiverTypeCollision(t *testing.T) {
 	}
 }
 
+// TestRemoteVarNameCollision: two imported packages each declare a top-level
+// `var data` of a different type. Phase 2 compiles each package's var init and
+// then a function body that reads its own `data`. Before package-qualified
+// resolution of deferred declarations, the bare key "data" in the symbol table
+// was shared and its symbol mutated in place by whichever var init compiled
+// last, so inner.Sum's body would see shadow's `data` ([]int) and fail
+// "undefined: n" on `data[i].n`.
+func TestRemoteVarNameCollision(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/x/inner",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/inner\n",
+				"inner.go": `package inner
+
+type rec struct{ n int }
+
+var data = [3]rec{{n: 2}, {n: 3}, {n: 5}}
+
+func Sum() int {
+	s := 0
+	for i := range data {
+		s += data[i].n
+	}
+	return s
+}
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/x/shadow",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/shadow\n",
+				"shadow.go": `package shadow
+
+var data = []int{1, 2, 3}
+
+func Len() int { return len(data) }
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	src := `import "example.com/x/inner"; import "example.com/x/shadow"; println(inner.Sum(), shadow.Len())`
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "10 3\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestRemoteXTextCrash imports golang.org/x/text/language over the live proxy.
 // It used to fault inside vm.patchRtype (a read-only static rtype was patched
 // when the bare type names "Script"/"Region" collided between

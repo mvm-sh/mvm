@@ -30,7 +30,7 @@ type Parser struct {
 	stdlibfs        fs.FS          // fallback filesystem for embedded stdlib sources
 	remotefs        fs.FS          // last-resort filesystem (e.g. network module proxy)
 	includeTests    bool           // include _test.go files when loading package sources
-	importRemaining []Tokens       // code-gen declarations from imported source packages
+	importRemaining []DeferredDecl // code-gen declarations from imported source packages, tagged with their origin package
 
 	funcScope         string
 	framelen          map[string]int // length of function frames indexed by funcScope

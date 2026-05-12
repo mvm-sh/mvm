@@ -18,6 +18,16 @@ type Token struct {
 // Tokens represents slice of tokens.
 type Tokens []Token
 
+// DeferredDecl is a top-level declaration (func body, var initializer) whose
+// code generation is deferred to Phase 2, tagged with the import path of the
+// package it came from ("" for the main package / REPL). The tag lets Phase 2
+// resolve unqualified identifiers against the originating package's symbols,
+// which matters when a sibling import shadowed a bare name in the symbol table.
+type DeferredDecl struct {
+	PkgPath string
+	Toks    Tokens
+}
+
 func (toks Tokens) String() (s string) {
 	var sb strings.Builder
 	for _, t := range toks {

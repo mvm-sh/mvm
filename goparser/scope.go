@@ -10,6 +10,12 @@ func (p *Parser) scopedName(name string) string {
 	return strings.TrimPrefix(p.scope+"/"+name, "/")
 }
 
+// isScopedKey reports whether a symbol-table key names something inside a
+// function/block scope rather than a package's top level. Lexical scopes are
+// joined with '/' (see scopedName); the package qualifier joins with '.', so
+// the two namespaces stay distinct.
+func isScopedKey(key string) bool { return strings.ContainsRune(key, '/') }
+
 func (p *Parser) labelName(name string) string { return p.funcScope + "/" + name }
 
 func (p *Parser) takePendingLabel() string {

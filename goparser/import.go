@@ -161,41 +161,65 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	}
 
 	// Store remaining declarations (func bodies, var initializers)
-	// for code generation by the outer ParseAll / Compile.
+	// for code generation by the outer ParseAll / Compile. They are already
+	// tagged with their originating package path by ParseAll.
 	p.importRemaining = append(p.importRemaining, remaining...)
 
-	// Collect exported symbols into a Package entry and create
-	// qualified aliases (e.g. "example.com/pkg1.V") so the compiler
-	// can resolve pkg.Member accesses.
+	// Collect exported symbols into a Package entry (the package's public
+	// surface) and create package-qualified aliases for *every* top-level
+	// symbol this import added or replaced -- exported or not -- so that
+	// Phase-2 code from this package can resolve its own names even after a
+	// sibling import shadows a bare key in the symbol table (see DeferredDecl).
 	pkg := &symbol.Package{
 		Path:   pkgPath,
 		Values: map[string]vm.Value{},
 	}
-	var genericKeys []string
+	var newKeys, demoteKeys []string
 	for k, s := range p.Symbols {
-		if existing[k] == s || !IsExported(k) {
+		if existing[k] == s {
 			continue
 		}
-		if s.Kind == symbol.Generic {
-			genericKeys = append(genericKeys, k)
+		// Skip scoped keys (param placeholders, locals): only top-level names
+		// need a package-qualified alias.
+		if isScopedKey(k) {
 			continue
 		}
-		pkg.Values[k] = s.Value
+		newKeys = append(newKeys, k)
+		if s.Kind != symbol.Generic && IsExported(k) {
+			pkg.Values[k] = s.Value
+		}
+		// A package-level var's symbol is re-registered (and mutated in place,
+		// e.g. its type inferred from the initializer) when its initializer is
+		// compiled in Phase 2. If another import later declares the same bare
+		// name, that Phase-2 mutation would clobber this package's symbol -- and
+		// the package-qualified alias would then point at the clobbered object.
+		// Drop the bare key so each package's var symbol stays distinct; Phase 2
+		// resolves the name via CompilingPkg (Compiler.symAt) and `pkg.Member`
+		// accesses via the qualified alias. (Consts are kept: they're resolved
+		// in Phase 1 and may appear in type expressions, e.g. array lengths,
+		// which are looked up by bare name.)
+		if s.Kind == symbol.Var && existing[k] == nil {
+			demoteKeys = append(demoteKeys, k)
+		}
 	}
 	// Create qualified aliases after the loop to avoid mutating p.Symbols during iteration.
-	for k := range pkg.Values {
+	for _, k := range newKeys {
 		p.Symbols[pkgPath+"."+k] = p.Symbols[k]
 	}
-	for _, k := range genericKeys {
-		p.Symbols[pkgPath+"."+k] = p.Symbols[k]
+	for _, k := range demoteKeys {
+		delete(p.Symbols, k)
 	}
 	p.Packages[pkgPath] = pkg
 
 	return nil
 }
 
-// ParseAll parses code and its dependencies, and returns slices of Tokens or an error.
-func (p *Parser) ParseAll(name, src string) (out []Tokens, err error) {
+// ParseAll parses code and its dependencies, and returns the still-to-be-
+// code-generated declarations (func bodies, var initializers), each tagged
+// with its originating package path, or an error. When src == "" the source
+// is loaded from the package directory `name`, so its decls are tagged with
+// `name`; otherwise (main package / REPL) they are tagged with "".
+func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 	var decls []Tokens
 
 	if src == "" {
@@ -280,10 +304,16 @@ func (p *Parser) ParseAll(name, src string) (out []Tokens, err error) {
 		}
 	}
 
-	// Include code-gen declarations from imported source packages.
-	if len(p.importRemaining) > 0 {
-		remaining = append(p.importRemaining, remaining...)
-		p.importRemaining = nil
+	// Tag this package's own deferred decls with its import path, then prepend
+	// the (already-tagged) code-gen declarations from imported source packages.
+	pkgTag := ""
+	if src == "" {
+		pkgTag = name
+	}
+	merged := p.importRemaining
+	p.importRemaining = nil
+	for _, d := range remaining {
+		merged = append(merged, DeferredDecl{PkgPath: pkgTag, Toks: d})
 	}
 
 	// Phase 2: split var blocks, sort var declarations by dependency,
@@ -293,8 +323,7 @@ func (p *Parser) ParseAll(name, src string) (out []Tokens, err error) {
 	// Pass 1 compiles var initializers so that all var types are resolved.
 	// Pass 2 compiles func bodies and expression statements; by then every
 	// global var has a concrete type, eliminating forward-reference retries.
-	remaining = p.splitAndSortVarDecls(remaining)
-	return remaining, err
+	return p.splitAndSortVarDecls(merged), err
 }
 
 func (p *Parser) preRegisterTypes(decls []Tokens) {

@@ -40,6 +40,8 @@ type Compiler struct {
 	methodIDs map[string]int                  // global method ID by method name
 	typeIdxs  map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
 	typeSyms  map[reflect.Type]*symbol.Symbol // dedup cache for typeSym, keyed by reflect.Type
+
+	compilingPkg string // import path of the package whose deferred decl is being compiled ("" = main/REPL); see symAt
 }
 
 // NewCompiler returns a new compiler state for a given scanner.
@@ -62,10 +64,10 @@ func (c *Compiler) Compile(name, src string) error {
 		return err
 	}
 	c.allocGlobalSlots()
-	var rest []goparser.Tokens
+	var rest []goparser.DeferredDecl
 	for _, decl := range remaining {
-		if len(decl) > 0 && decl[0].Tok == lang.Var {
-			if err := c.compileDecl(decl); err != nil {
+		if len(decl.Toks) > 0 && decl.Toks[0].Tok == lang.Var {
+			if err := c.compileDeferred(decl); err != nil {
 				return err
 			}
 		} else {
@@ -73,12 +75,21 @@ func (c *Compiler) Compile(name, src string) error {
 		}
 	}
 	for _, decl := range rest {
-		if err := c.compileDecl(decl); err != nil {
+		if err := c.compileDeferred(decl); err != nil {
 			return err
 		}
 	}
 	c.propagateEmbeddedMethods()
 	return nil
+}
+
+// compileDeferred compiles one deferred declaration, recording its originating
+// package for the duration so that unqualified identifier lookups in the body
+// resolve against that package's symbols (see DeferredDecl, symAt).
+func (c *Compiler) compileDeferred(dd goparser.DeferredDecl) error {
+	c.compilingPkg = dd.PkgPath
+	defer func() { c.compilingPkg = "" }()
+	return c.compileDecl(dd.Toks)
 }
 
 // propagateEmbeddedMethods fills each struct type's Methods slice with entries
@@ -318,6 +329,21 @@ func (c *Compiler) errAt(t goparser.Token, format string, args ...any) error {
 
 func (c *Compiler) errUndef(t goparser.Token, name string) error {
 	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos)}
+}
+
+// symAt resolves a top-level name, preferring the symbol of the package whose
+// deferred declaration is currently being compiled (compilingPkg) over a bare
+// key that a sibling import may have left pointing at a different package's
+// same-named symbol. Scoped (local) names contain '/' (and the package
+// qualifier joins with '.'), so they never match the qualified probe.
+func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {
+	if c.compilingPkg != "" {
+		if s, ok := c.Symbols[c.compilingPkg+"."+name]; ok {
+			return s, true
+		}
+	}
+	s, ok := c.Symbols[name]
+	return s, ok
 }
 
 func showStack(stack []*symbol.Symbol) {
@@ -1361,7 +1387,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			c.emit(t, vm.EqualSet)
 
 		case lang.Ident:
-			s, ok := c.Symbols[t.Str]
+			s, ok := c.symAt(t.Str)
 			if !ok {
 				// It could be either an undefined symbol or a key ident in a literal composite expr.
 				s = &symbol.Symbol{Name: t.Str}

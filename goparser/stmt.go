@@ -49,23 +49,25 @@ func (p *Parser) caseClauses(body Tokens) []Tokens {
 // topologically sorts them by dependency, and returns the reordered list.
 // Funcs and other statements keep their original relative positions; only
 // var declarations are extracted, sorted, and placed back into var slots.
-func (p *Parser) splitAndSortVarDecls(decls []Tokens) []Tokens {
+// Each declaration keeps its DeferredDecl.PkgPath tag through the reorder.
+func (p *Parser) splitAndSortVarDecls(decls []DeferredDecl) []DeferredDecl {
 	// Expand var blocks and identify var slot positions.
 	type slot struct {
-		pos  int    // position in expanded list
-		decl Tokens // the var declaration
+		pos  int          // position in expanded list
+		decl DeferredDecl // the var declaration
 	}
-	var expanded []Tokens
+	var expanded []DeferredDecl
 	var varSlots []slot
 	for _, decl := range decls {
-		if len(decl) == 0 {
+		if len(decl.Toks) == 0 {
 			continue
 		}
-		switch decl[0].Tok {
+		switch decl.Toks[0].Tok {
 		case lang.Var:
-			for _, vd := range p.splitVarBlock(decl) {
-				varSlots = append(varSlots, slot{pos: len(expanded), decl: vd})
-				expanded = append(expanded, vd)
+			for _, vd := range p.splitVarBlock(decl.Toks) {
+				vdd := DeferredDecl{PkgPath: decl.PkgPath, Toks: vd}
+				varSlots = append(varSlots, slot{pos: len(expanded), decl: vdd})
+				expanded = append(expanded, vdd)
 			}
 		default:
 			expanded = append(expanded, decl)
@@ -79,7 +81,7 @@ func (p *Parser) splitAndSortVarDecls(decls []Tokens) []Tokens {
 	p.collectFuncReads(expanded)
 
 	// Extract var declarations, sort by dependency, and place back.
-	vars := make([]Tokens, len(varSlots))
+	vars := make([]DeferredDecl, len(varSlots))
 	for i, s := range varSlots {
 		vars[i] = s.decl
 	}
@@ -120,14 +122,14 @@ func (p *Parser) splitVarBlock(decl Tokens) []Tokens {
 	return result
 }
 
-func (p *Parser) sortByDeps(decls []Tokens) []Tokens {
+func (p *Parser) sortByDeps(decls []DeferredDecl) []DeferredDecl {
 	if len(decls) <= 1 {
 		return decls
 	}
 	nameSet := map[string]int{}
 	for i, decl := range decls {
-		if len(decl) >= 2 && decl[1].Tok == lang.Ident {
-			nameSet[decl[1].Str] = i
+		if len(decl.Toks) >= 2 && decl.Toks[1].Tok == lang.Ident {
+			nameSet[decl.Toks[1].Str] = i
 		}
 	}
 	if len(nameSet) == 0 {
@@ -139,7 +141,7 @@ func (p *Parser) sortByDeps(decls []Tokens) []Tokens {
 	inDeg := make([]int, n)
 	for i, decl := range decls {
 		seen := map[int]bool{}
-		rhs := decl[1:] // skip "var" keyword
+		rhs := decl.Toks[1:] // skip "var" keyword
 		if j := rhs.Index(lang.Assign); j >= 0 {
 			rhs = rhs[j+1:]
 		}
@@ -156,7 +158,7 @@ func (p *Parser) sortByDeps(decls []Tokens) []Tokens {
 			queue = append(queue, i)
 		}
 	}
-	result := make([]Tokens, 0, n)
+	result := make([]DeferredDecl, 0, n)
 	for head := 0; head < len(queue); head++ {
 		i := queue[head]
 		result = append(result, decls[i])
@@ -199,11 +201,12 @@ func (p *Parser) collectIdents(toks Tokens, nameSet map[string]int, out map[int]
 // transitive set of package-level Vars its body reads. Interface
 // dispatch and runtime-fetched func values stay opaque (see
 // _samples/init_iface.go, init_indirect_call.go).
-func (p *Parser) collectFuncReads(decls []Tokens) {
+func (p *Parser) collectFuncReads(decls []DeferredDecl) {
 	// calls is keyed only by the funcs we actually walk, not the entire
 	// symbol table; the fixed-point below iterates this small set.
 	calls := map[*symbol.Symbol]map[*symbol.Symbol]bool{}
-	for _, decl := range decls {
+	for _, dd := range decls {
+		decl := dd.Toks
 		if len(decl) < 2 || decl[0].Tok != lang.Func {
 			continue
 		}
