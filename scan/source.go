@@ -13,6 +13,23 @@ type Source struct {
 	content string // source text for line/col resolution
 }
 
+// Content returns the source text.
+func (s *Source) Content() string { return s.content }
+
+// Lines returns the number of lines in the source. An empty source has
+// zero lines; a source whose last character is '\n' is not counted as
+// having a trailing empty line.
+func (s *Source) Lines() int {
+	if s.content == "" {
+		return 0
+	}
+	n := strings.Count(s.content, "\n")
+	if !strings.HasSuffix(s.content, "\n") {
+		n++
+	}
+	return n
+}
+
 // Sources is an ordered list of Source entries.
 type Sources []Source
 
@@ -25,6 +42,18 @@ func (ss *Sources) Add(name, src string) int {
 	}
 	*ss = append(*ss, Source{Name: name, Base: base, Len: len(src), content: src})
 	return base
+}
+
+// ByName returns the source with the given name, or nil if not found.
+// When multiple sources share a name (e.g. the REPL's anonymous chunks),
+// the first registered match is returned.
+func (ss Sources) ByName(name string) *Source {
+	for i := range ss {
+		if ss[i].Name == name {
+			return &ss[i]
+		}
+	}
+	return nil
 }
 
 // find locates the source containing pos and returns it with the

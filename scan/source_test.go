@@ -120,6 +120,44 @@ func TestFormatPosMulti(t *testing.T) {
 	}
 }
 
+func TestSourceContentAndLines(t *testing.T) {
+	var ss Sources
+	ss.Add("a.go", "package main\nfunc main(){}\n")
+	ss.Add("b.go", "package b")  // no trailing newline
+	ss.Add("c.go", "")           // empty
+	ss.Add("d.go", "x\ny\nz\n")  // 3 lines, trailing newline
+	ss.Add("e.go", "single\n\n") // 2 lines (the trailing empty line is not counted)
+
+	tests := []struct {
+		name      string
+		wantLines int
+		wantText  string
+	}{
+		{"a.go", 2, "package main\nfunc main(){}\n"},
+		{"b.go", 1, "package b"},
+		{"c.go", 0, ""},
+		{"d.go", 3, "x\ny\nz\n"},
+		{"e.go", 2, "single\n\n"},
+	}
+	for _, tt := range tests {
+		s := ss.ByName(tt.name)
+		if s == nil {
+			t.Errorf("ByName(%q) = nil", tt.name)
+			continue
+		}
+		if got := s.Lines(); got != tt.wantLines {
+			t.Errorf("%s.Lines() = %d, want %d", tt.name, got, tt.wantLines)
+		}
+		if got := s.Content(); got != tt.wantText {
+			t.Errorf("%s.Content() = %q, want %q", tt.name, got, tt.wantText)
+		}
+	}
+
+	if s := ss.ByName("missing.go"); s != nil {
+		t.Errorf("ByName(missing.go) = %+v, want nil", s)
+	}
+}
+
 func TestLineCol(t *testing.T) {
 	tests := []struct {
 		src               string
