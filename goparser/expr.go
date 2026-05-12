@@ -284,7 +284,13 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 					}
 					return out, ErrUndefined{Name: name}
 				}
-				ctype = p.registerType(sym.Type.Elem(), t.Pos, &out)
+				inner := sym.Type.Elem()
+				// In a map literal, a `{...}` immediately followed by `:` is an
+				// (elided-type) key, so infer its type from the key, not the value.
+				if sym.Type.Rtype.Kind() == reflect.Map && i+1 < lin && in[i+1].Tok == lang.Colon {
+					inner = sym.Type.Key()
+				}
+				ctype = p.registerType(inner, t.Pos, &out)
 			}
 			toks, sliceLen, err := p.parseComposite(t.Block(), ctype, t.Pos+t.Beg)
 			out = append(out, toks...)

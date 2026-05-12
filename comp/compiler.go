@@ -1030,6 +1030,21 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Resolve index on the element type
 				ts = &symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: ts.Type.Rtype.Elem()}}
 			}
+			// `key: value` in a map composite literal. The key may be any kind of
+			// expression (a constant, a var, an [N]T{...} composite, ...), so this
+			// must come before the ks.Kind switch -- a composite-literal key has
+			// Kind symbol.Type, which the struct-field-key cases below would
+			// otherwise mishandle (dropping the MapSet, leaving the key and value
+			// stranded on the stack).
+			if ts.Type != nil && ts.Type.Rtype.Kind() == reflect.Map {
+				elemTyp := ts.Type.Elem()
+				if elemTyp.IsPtr() && vs.Kind == symbol.Type {
+					c.emit(t, vm.Addr)
+				}
+				c.emitMapValueWrap(t, elemTyp, vs)
+				c.emit(t, vm.MapSet)
+				break
+			}
 			switch ks.Kind {
 			case symbol.Const:
 				switch ts.Type.Rtype.Kind() {
@@ -1051,13 +1066,6 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 					c.emitIfaceWrap(t, ts.Type.Elem(), vs.Type)
 					c.emit(t, vm.IndexSet)
-				case reflect.Map:
-					elemTyp := ts.Type.Elem()
-					if elemTyp.IsPtr() && vs.Kind == symbol.Type {
-						c.emit(t, vm.Addr)
-					}
-					c.emitMapValueWrap(t, elemTyp, vs)
-					c.emit(t, vm.MapSet)
 				}
 
 			case symbol.Type, symbol.Unset, symbol.Generic, symbol.Builtin, symbol.Pkg:
@@ -1083,15 +1091,6 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.emit(t, vm.FieldSet, j...)
 
 			case symbol.LocalVar, symbol.Var:
-				if ts.Type != nil && ts.Type.Rtype.Kind() == reflect.Map {
-					elemTyp := ts.Type.Elem()
-					if elemTyp.IsPtr() && vs.Kind == symbol.Type {
-						c.emit(t, vm.Addr)
-					}
-					c.emitMapValueWrap(t, elemTyp, vs)
-					c.emit(t, vm.MapSet)
-					break
-				}
 				if ts.Type == nil || ts.Type.Rtype.Kind() != reflect.Struct {
 					break
 				}
@@ -1113,16 +1112,6 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				c.emitIfaceWrap(t, ft, vs.Type)
 				c.emit(t, vm.FieldSet, j...)
-
-			case symbol.Value:
-				if ts.Type != nil && ts.Type.Rtype.Kind() == reflect.Map {
-					elemTyp := ts.Type.Elem()
-					if elemTyp.IsPtr() && vs.Kind == symbol.Type {
-						c.emit(t, vm.Addr)
-					}
-					c.emitMapValueWrap(t, elemTyp, vs)
-					c.emit(t, vm.MapSet)
-				}
 			}
 
 		case lang.Composite:

@@ -1104,6 +1104,12 @@ func TestMap(t *testing.T) {
 		{n: "slice_val_lit", src: `m := map[string][]string{"a": []string{"x", "y"}}; m["a"][1]`, res: "y"},
 		{n: "nested_range", src: `import "sort"; m := map[string][]string{"a": []string{"1", "2"}, "b": []string{"3"}}; var r []string; for k, vs := range m { for _, v := range vs { r = append(r, k+v) } }; sort.Strings(r); r`, res: "[a1 a2 b3]"},
 		{n: "func_val_ret", src: `func f(s string) string { return "hi " + s }; m := map[string]func(string) string{"f": f}; m["f"]("x")`, res: "hi x"},
+		// composite-literal map keys: array-typed keys, explicit and elided type,
+		// and a var-init map with negative values (mirrors x/text grandfatheredMap).
+		{n: "array_key_explicit", src: `m := map[[3]byte]int{[3]byte{'a', 'b', 'c'}: 1, [3]byte{'d', 'e', 'f'}: 2}; m[[3]byte{'d', 'e', 'f'}]`, res: "2"},
+		{n: "array_key_elided", src: `m := map[[3]byte]int{{'a', 'b', 'c'}: 1, {'d', 'e', 'f'}: 2}; len(m)*10 + m[[3]byte{'a', 'b', 'c'}]`, res: "21"},
+		{n: "array_key_var_neg", src: `var m = map[[2]int]int{{1, 2}: -7, {3, 4}: 5}; m[[2]int{1, 2}]`, res: "-7"},
+		{n: "array_key_string_val", src: `m := map[[2]int]string{{1, 2}: "x", {3, 4}: "y"}; m[[2]int{3, 4}]`, res: "y"},
 	})
 }
 
