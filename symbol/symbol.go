@@ -204,26 +204,42 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 			_, nativeVal := sym.Type.Rtype.MethodByName(name)
 			_, nativePtr := reflect.PointerTo(ptype).MethodByName(name)
 			if !nativeVal && !nativePtr {
-				suffix := "." + typName
-				for k, s := range sm {
-					if s.Kind != Type || s.Type == nil || s.Type.Rtype != ptype || k == "" {
-						continue
-					}
-					if !strings.HasSuffix(k, suffix) {
-						continue
-					}
-					if m := methodLookup(sm, k, name); m != nil {
-						return m, nil
-					}
-					if m := methodLookup(sm, "*"+k, name); m != nil {
-						return m, nil
-					}
+				if m := sm.qualifiedMethodLookup(ptype, typName, name); m != nil {
+					return m, nil
 				}
 			}
 		}
 		return sm.promotedMethod(sym.Type, name, nil)
 	}
 	return nil, nil
+}
+
+// qualifiedMethodLookup finds a method registered at a pkg-qualified canonical
+// key. It searches sm for a Type Symbol whose underlying Rtype matches rt (after
+// stripping a pointer wrapper) and whose key ends in ".<typName>", then probes
+// `<key>.<method>` and `*<key>.<method>`. Path B step 2 ([[project_phase2_path_b_step2_funcs_methods]])
+// places methods at these keys for imported pkgs.
+func (sm SymMap) qualifiedMethodLookup(rt reflect.Type, typName, method string) *Symbol {
+	suffix := "." + typName
+	for k, s := range sm {
+		if k == "" || s.Kind != Type || s.Type == nil {
+			continue
+		}
+		srt := s.Type.Rtype
+		if srt != nil && srt.Kind() == reflect.Pointer {
+			srt = srt.Elem()
+		}
+		if srt != rt || !strings.HasSuffix(k, suffix) {
+			continue
+		}
+		if m := sm[k+"."+method]; m != nil {
+			return m
+		}
+		if m := sm["*"+k+"."+method]; m != nil {
+			return m
+		}
+	}
+	return nil
 }
 
 // methodLookup finds `<typName>.<method>` in sm. With Path B steps 1+2 done,
@@ -240,6 +256,11 @@ func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol,
 	if typ == nil {
 		return nil, nil
 	}
+	// Pointer types carry no Embedded info themselves; walk into the underlying
+	// struct so receivers like *anon-struct see their embedded fields' methods.
+	if typ.IsPtr() && typ.ElemType != nil {
+		typ = typ.ElemType
+	}
 	for _, emb := range typ.Embedded {
 		embType := emb.Type
 		if embType == nil {
@@ -251,6 +272,16 @@ func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol,
 		}
 		if m := sm["*"+embType.Name+"."+name]; m != nil {
 			return m, fieldPath
+		}
+		// Embedded type's method may live at a pkg-qualified key (Path B).
+		if embType.Rtype != nil && embType.Name != "" {
+			ert := embType.Rtype
+			if ert.Kind() == reflect.Pointer {
+				ert = ert.Elem()
+			}
+			if m := sm.qualifiedMethodLookup(ert, embType.Name, name); m != nil {
+				return m, fieldPath
+			}
 		}
 		if m, p := sm.promotedMethod(embType, name, fieldPath); m != nil {
 			return m, p

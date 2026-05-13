@@ -748,6 +748,126 @@ func Make() *Outer { return &Outer{hidden: hidden{X: 42}} }
 	}
 }
 
+// TestRemoteTestTargetForwardVarType covers the uuid `Nil UUID` case: a typed
+// var whose type lives in a sibling file parsed later. Also asserts the test
+// driver can find Test* by short name (aliasTargetTopLevel). See
+// [[project_uuid_test_regression]].
+func TestRemoteTestTargetForwardVarType(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/fwdvar",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/fwdvar\n",
+			// "z_user.go" (z) is parsed after "fwdvar.go" but UUID's definition is
+			// in "fwdvar.go" -- ordering matches the uuid pkg's hash.go/uuid.go.
+			"fwdvar.go": `package fwdvar
+
+type UUID [16]byte
+`,
+			"z_user.go": `package fwdvar
+
+var (
+	NameSpaceX = UUID{0xff}
+	Nil        UUID
+)
+
+type Holder struct {
+	UUID  UUID
+	Valid bool
+}
+
+func (h *Holder) Reset() {
+	h.UUID, h.Valid = Nil, false
+}
+`,
+			"z_user_test.go": `package fwdvar
+
+import "testing"
+
+func TestReset(t *testing.T) {
+	var h Holder
+	h.Valid = true
+	h.Reset()
+	if h.Valid {
+		t.Fatal("Reset should clear Valid")
+	}
+}
+`,
+		},
+	})
+
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	i.SetIncludeTests(true)
+	if _, err := i.Eval("example.com/x/fwdvar", ""); err != nil {
+		t.Fatalf("loading fwdvar: %v\nstderr: %s", err, stderr.String())
+	}
+	// Also exercise the test-driver alias path: FuncNames must find TestReset.
+	names := i.FuncNames("Test")
+	if len(names) == 0 {
+		t.Fatalf("FuncNames found no Test* funcs; expected at least TestReset")
+	}
+}
+
+// TestRemotePromotedFieldAndMethodThroughAnon mirrors cldr's shape: a `rule`
+// type with methods embedded in an anonymous wrapper (with another field, so
+// reflect.StructOf can't set Anonymous because rule has methods), exposed via
+// a promoted slice. Exercises FieldLookup's promoted-field chain and
+// promotedMethod's cross-pkg method lookup. See [[project_promoted_field_method_anon]].
+func TestRemotePromotedFieldAndMethodThroughAnon(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/cldrlike",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/cldrlike\n",
+			"cldrlike.go": `package cldrlike
+
+type rule struct {
+	Value  string
+	Before string
+}
+
+func (r *rule) Read() string { return r.Before }
+
+type wrap struct {
+	Name string
+	rule
+}
+
+type Holder struct {
+	Rules struct {
+		Items []*wrap
+	}
+}
+
+func (h Holder) Process() string {
+	var out string
+	for _, r := range h.Rules.Items {
+		out += r.Before + ":" + r.Read() + ";"
+	}
+	return out
+}
+
+func New() Holder {
+	return Holder{Rules: struct{ Items []*wrap }{Items: []*wrap{{Name: "x", rule: rule{Before: "p"}}}}}
+}
+`,
+		},
+	})
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	if _, err := i.Eval("example.com/x/cldrlike", ""); err != nil {
+		t.Fatalf("loading cldrlike: %v", err)
+	}
+}
+
 func TestRemoteXTextCrash(t *testing.T) {
 	t.Skip("vm.patchRtype crash fixed; x/text still hits other parser limits and the test needs network")
 

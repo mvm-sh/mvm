@@ -392,7 +392,18 @@ func (p *Parser) parseVarDecl(toks Tokens) (handled bool, err error) {
 					p.SymAdd(symbol.UnsetAddr, name, nilValue, symbol.Var, nil)
 				}
 				if len(ct) > 1 {
-					if t, _, _ := p.parseTypeExpr(ct[1:]); t != nil {
+					// Propagate ErrUndefined so the fixed-point loop retries
+					// once the type lands. Otherwise the Symbol's Type stays
+					// nil at the qualified key and Phase 2's parseVarLine
+					// writes a divergent entry at the bare key.
+					t, _, terr := p.parseTypeExpr(ct[1:])
+					if terr != nil {
+						var eu ErrUndefined
+						if errors.As(terr, &eu) {
+							return false, terr
+						}
+					}
+					if t != nil {
 						lastTyp = t
 					}
 				}

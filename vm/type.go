@@ -722,29 +722,60 @@ func (t *Type) FieldType(name string) *Type {
 
 // FieldLookup returns the index path and type of struct field name in a single pass.
 func (t *Type) FieldLookup(name string) ([]int, *Type) {
-	for i, f := range reflect.VisibleFields(t.Rtype) {
+	for _, f := range reflect.VisibleFields(t.Rtype) {
 		if f.Name != name {
 			continue
 		}
-		if i < len(t.Fields) {
+		// Walk t.Fields/Embedded along f.Index to recover mvm-level info (ElemType,
+		// Fields, Embedded) at the deepest field. VisibleFields' iteration index
+		// does not align with t.Fields when promoted fields are present, so we
+		// index strictly by f.Index — single-segment for top-level fields,
+		// multi-segment for fields promoted through embedded structs.
+		if ft := t.resolveFieldByPath(f.Index); ft != nil {
 			// Return a shallow copy with the type name (not the field name that
 			// Fields[i].Name holds for StructOf), so that method lookup works.
 			// Prefer the back-linked Base type's name: for defined types whose
 			// underlying is a basic kind (e.g. `type Frame uintptr`), reflect's
 			// f.Type.Name() returns the underlying name ("uintptr") and loses
 			// the user-level name needed to find methods on Frame.
-			ft := *t.Fields[i]
 			if ft.Base != nil && ft.Base.Name != "" {
 				ft.Name = ft.Base.Name
 			} else {
 				ft.Name = f.Type.Name()
 			}
 			ft.PkgPath = f.PkgPath
-			return f.Index, &ft
+			return f.Index, ft
 		}
 		return f.Index, &Type{Name: f.Type.Name(), PkgPath: f.PkgPath, Rtype: f.Type}
 	}
 	return t.embeddedFieldLookup(name)
+}
+
+// resolveFieldByPath walks t.Fields/Embedded recursively along the reflect-side
+// field index path, returning a clone of the deepest mvm-level Type so that
+// ElemType / Embedded / Fields propagate to the caller.
+func (t *Type) resolveFieldByPath(path []int) *Type {
+	if t == nil || len(path) == 0 {
+		return nil
+	}
+	head := path[0]
+	rest := path[1:]
+	var sub *Type
+	if head < len(t.Fields) {
+		sub = t.Fields[head]
+	}
+	if sub == nil {
+		return nil
+	}
+	if len(rest) == 0 {
+		clone := *sub
+		return &clone
+	}
+	next := sub
+	if next.IsPtr() && next.ElemType != nil {
+		next = next.ElemType
+	}
+	return next.resolveFieldByPath(rest)
 }
 
 func (t *Type) embeddedFieldLookup(name string) ([]int, *Type) {

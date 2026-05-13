@@ -62,6 +62,29 @@ func looksLikePkgPath(name string) bool {
 	return strings.ContainsRune(name, '/') && !strings.HasSuffix(name, ".go")
 }
 
+// aliasTargetTopLevel adds bare-key aliases for the direct-target pkg's
+// canonical "<pkg>.<Name>" entries so the test driver (compiled in a separate
+// "_testmain" context with no CompilingPkg set) can resolve Test* by short
+// identifier. Only single-segment tails are aliased (no '.', '/', '*') so
+// pkg-qualified method keys, scoped locals, and pointer-receiver entries are
+// left alone.
+func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
+	prefix := pkgPath + "."
+	for k, s := range c.Symbols {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		short := k[len(prefix):]
+		if short == "" || strings.ContainsAny(short, "./*") {
+			continue
+		}
+		if _, exists := c.Symbols[short]; exists {
+			continue
+		}
+		c.Symbols[short] = s
+	}
+}
+
 // Compile parses src and generates code and data, or returns a non-nil error.
 // Code and data are added incrementally in c.Code and C.Data.
 func (c *Compiler) Compile(name, src string) error {
@@ -78,6 +101,9 @@ func (c *Compiler) Compile(name, src string) error {
 		restore := c.WithImportingPkg(name)
 		remaining, err = c.ParseAll(name, src)
 		restore()
+		if err == nil {
+			c.aliasTargetTopLevel(name)
+		}
 	} else {
 		remaining, err = c.ParseAll(name, src)
 	}
