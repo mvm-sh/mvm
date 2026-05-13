@@ -395,7 +395,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			}
 			return nil, nil, 0, errors.New("len: unsupported constant argument type")
 		}
-		if s, _, ok := p.Symbols.Get(fname, p.scope); ok && s.Kind == symbol.Type {
+		if s, _, ok := p.symGet(fname); ok && s.Kind == symbol.Type {
 			if narg != 1 {
 				return nil, nil, 0, errors.New("type conversion requires exactly one argument")
 			}
@@ -439,7 +439,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 
 	// symType resolves a symbol to its type or returns ErrUndefined.
 	symType := func(name string) (*vm.Type, error) {
-		s, _, ok := p.Symbols.Get(name, p.scope)
+		s, _, ok := p.symGet(name)
 		if !ok || s.Type == nil || s.Type.Rtype == nil {
 			return nil, ErrUndefined{Name: name}
 		}
@@ -736,7 +736,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 	// which requires each segment to have an identifier constraint.
 	if !isAlias && len(toks) > 0 && toks[0].Tok == lang.BracketBlock {
 		if params, err := p.parseTypeParamList(toks[0].Token); err == nil {
-			p.SymSet(p.scopedName(in[0].Str), &symbol.Symbol{
+			p.SymSet(p.pkgKey(in[0].Str), &symbol.Symbol{
 				Kind: symbol.Generic,
 				Name: in[0].Str,
 				Used: true,
@@ -745,6 +745,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 					typeParams: params,
 					rawTokens:  in,
 					isFunc:     false,
+					pkgPath:    p.importingPkg,
 				},
 			})
 			return out, nil
@@ -752,8 +753,11 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 	}
 
 	// For struct and interface types, use a forward-declared placeholder to
-	// enable self-references and mutual references between types.
-	name := p.scopedName(in[0].Str)
+	// enable self-references and mutual references between types. The key is
+	// the canonical pkgKey: at top-level inside an imported pkg this is
+	// "<pkgPath>.<name>" so cross-pkg sibling decls (e.g. another pkg's
+	// `type Tag struct{...}`) don't collide on the bare key.
+	name := p.pkgKey(in[0].Str)
 	var placeholder *vm.Type
 	if !isAlias && len(toks) > 0 {
 		switch toks[0].Tok {
@@ -843,14 +847,27 @@ func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
 		if typ.Rtype.Kind() == reflect.Pointer {
 			typName = "*" + typName
 		}
-		// Resolve type symbol key, honouring scope (e.g. "f/T" vs global "T").
+		// Resolve type symbol key, honouring scope (e.g. "f/T" vs global "T") and
+		// the per-pkg qualified key (e.g. "<pkgPath>.T" for top-level types
+		// inside an imported pkg's parseSrc, set by pkgKey).
 		typKey := typName
-		if sym, sc, ok := p.Symbols.Get(typName, p.scope); ok && sym.Kind == symbol.Type {
-			if sc != "" {
+		if sym, sc, ok := p.symGet(typName); ok && sym.Kind == symbol.Type {
+			switch {
+			case sc != "":
 				typKey = sc + "/" + typName
+			case p.importingPkg != "":
+				if _, found := p.Symbols[p.importingPkg+"."+typName]; found {
+					typKey = p.importingPkg + "." + typName
+				}
+			case p.CompilingPkg != "":
+				if _, found := p.Symbols[p.CompilingPkg+"."+typName]; found {
+					typKey = p.CompilingPkg + "." + typName
+				}
 			}
 		} else if !ok {
-			// Type not yet in the symbol table; register it now.
+			// Type not yet in the symbol table; register it now at the
+			// canonical pkgKey (qualified for imported pkgs, bare for main/REPL).
+			typKey = p.pkgKey(typName)
 			p.SymAdd(symbol.UnsetAddr, typKey, vm.NewValue(typ.Rtype), symbol.Type, typ)
 		}
 		out = append(out, newIdent(v, 0))

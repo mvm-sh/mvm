@@ -411,7 +411,7 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 					// that is not in the symbol table might be a forward-declared type;
 					// return ErrUndefined so the lazy fixpoint can retry.
 					if flag == parseTypeOut {
-						if _, _, ok := p.Symbols.Get(origName, p.scope); !ok {
+						if _, _, ok := p.symGet(origName); !ok {
 							return nil, nil, false, ErrUndefined{Name: origName}
 						}
 					}
@@ -613,7 +613,7 @@ func (p *Parser) hasFirstParam(in Tokens) bool {
 	if in[0].Tok != lang.Ident {
 		return false
 	}
-	s, _, ok := p.Symbols.Get(in[0].Str, p.scope)
+	s, _, ok := p.symGet(in[0].Str)
 	if ok && s.Kind == symbol.Pkg {
 		// Only treat as a qualified type expression (pkg.Type) if followed by '.'.
 		// Otherwise, the ident is a parameter name that shadows the package

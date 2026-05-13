@@ -139,16 +139,13 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	savedPkgName := p.pkgName
 	savedIncludeTests := p.includeTests
 	savedImportingPkg := p.importingPkg
-	savedThisPkgFuncs := p.thisPkgFuncs
 	p.pkgName = ""
 	p.includeTests = false
 	p.importingPkg = pkgPath
-	p.thisPkgFuncs = map[string]bool{}
 	defer func() {
 		p.pkgName = savedPkgName
 		p.includeTests = savedIncludeTests
 		p.importingPkg = savedImportingPkg
-		p.thisPkgFuncs = savedThisPkgFuncs
 	}()
 
 	// Snapshot existing symbol pointers so we can identify bindings
@@ -181,12 +178,32 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 		Values: map[string]vm.Value{},
 	}
 	var newKeys, demoteKeys []string
+	qualifiedPrefix := pkgPath + "."
 	for k, s := range p.Symbols {
 		if existing[k] == s {
 			continue
 		}
-		// Skip scoped keys (param placeholders, locals): only top-level names
-		// need a package-qualified alias.
+		// Type writers in Path B step 1 register at the canonical pkgKey form
+		// "<pkgPath>.<name>" directly (see pkgKey, parseTypeLine,
+		// preRegisterTypes, registerType). For those entries we still publish
+		// the short-name in pkg.Values (for cross-pkg `pkg.Member` resolution
+		// that falls back to `pkg.Values`), but we skip the qualified-alias
+		// SymSet below: aliasing again would yield "<pkgPath>.<pkgPath>.<name>".
+		// Checked BEFORE isScopedKey because the qualified key contains '/'
+		// inside its pkg-path prefix.
+		if strings.HasPrefix(k, qualifiedPrefix) {
+			short := k[len(qualifiedPrefix):]
+			if isScopedKey(short) {
+				continue
+			}
+			if s.Kind != symbol.Generic && IsExported(short) {
+				pkg.Values[short] = s.Value
+			}
+			continue
+		}
+		// Skip scoped keys (param placeholders, locals) AND foreign pkg's
+		// qualified aliases ("other.pkg/path.name" registered by a transitive
+		// import); only top-level names registered by THIS pkg need aliasing.
 		if isScopedKey(k) {
 			continue
 		}
@@ -260,31 +277,12 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 		}
 	}
 
-	// Resolve `import` decls in a first pass, before preRegisterTypes runs for
-	// this pkg's own types. Otherwise a transitive sub-import (e.g. language ->
-	// internal/language) would call SymAdd at bare key `Script` for its own
-	// `type Script uint16`, clobbering the struct placeholder this pkg's
-	// preRegisterTypes had just put there. Phase 1 sig parsing further down the
-	// decl list (e.g. `func (t Tag) Script() (Script, Confidence)`) would then
-	// capture the sibling's uint16 Type in this method's Returns -- and the
-	// pointer-into-vm.Type would never get rewritten by the late re-placeholder,
-	// so `script.scriptID` later fails "undefined: scriptID". Doing imports
-	// first leaves the bare key free for our preRegisterTypes to populate last.
-	var nonImports []Tokens
-	for _, decl := range decls {
-		if len(decl) > 0 && decl[0].Tok == lang.Import {
-			if _, err := p.parseImports(decl); err != nil {
-				return out, err
-			}
-			continue
-		}
-		nonImports = append(nonImports, decl)
-	}
-	decls = nonImports
-
 	// Pre-register struct and interface type placeholders so that forward,
-	// mutual, and self-references can resolve during parsing.
-	// Placeholders are untracked: they survive the retry loop cleanup.
+	// mutual, and self-references can resolve during parsing. Placeholders
+	// land under this pkg's pkgKey ("<importingPkg>.<name>"), so a transitive
+	// sub-import (e.g. language -> internal/language) writing its OWN
+	// `type Foo uint16` at <innerPkg>.Foo doesn't collide. Placeholders are
+	// untracked: they survive the retry loop cleanup.
 	p.preRegisterTypes(decls)
 
 	// Phase 1: resolve all declarations and expand generic methods in a
@@ -381,9 +379,9 @@ func (p *Parser) preRegisterTypes(decls []Tokens) {
 					n := lt[0].Str
 					switch lt[1].Tok {
 					case lang.Struct:
-						p.registerStructPlaceholder(n, n)
+						p.registerStructPlaceholder(p.pkgKey(n), n)
 					case lang.Interface:
-						p.registerInterfacePlaceholder(n, n)
+						p.registerInterfacePlaceholder(p.pkgKey(n), n)
 					}
 				}
 			}
@@ -394,9 +392,9 @@ func (p *Parser) preRegisterTypes(decls []Tokens) {
 			n := decl[1].Str
 			switch decl[2].Tok {
 			case lang.Struct:
-				p.registerStructPlaceholder(n, n)
+				p.registerStructPlaceholder(p.pkgKey(n), n)
 			case lang.Interface:
-				p.registerInterfacePlaceholder(n, n)
+				p.registerInterfacePlaceholder(p.pkgKey(n), n)
 			}
 		}
 	}

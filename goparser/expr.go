@@ -105,7 +105,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			if isUnaryCtx(i) {
 				if i+1 < lin && in[i+1].Tok == lang.Ident {
 					// Known non-type identifier after * is a dereference.
-					if s, _, ok := p.Symbols.Get(in[i+1].Str, p.scope); ok && s.Kind != symbol.Type && s.Kind != symbol.Pkg {
+					if s, _, ok := p.symGet(in[i+1].Str); ok && s.Kind != symbol.Type && s.Kind != symbol.Pkg {
 						t.Tok = lang.Deref
 						addop(t)
 						break
@@ -151,18 +151,28 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			s, sc, ok := p.Symbols.Get(t.Str, p.scope)
 			if ok && sc != "" {
 				t.Str = sc + "/" + t.Str
-			} else if p.CompilingPkg != "" {
-				// Phase-2 deferred body: prefer this pkg's qualified Pkg-alias /
-				// type / func / var. The bare key may have been overwritten by a
-				// sibling import that uses the same short name. Rewrite the
-				// token's Str to the canonical qualified key so downstream
-				// bare-key probes (parseComposite, pkg-qual composite path, the
-				// compiler's symAt) all reach the right Symbol.
-				qk := p.CompilingPkg + "." + t.Str
-				if qs, qok := p.Symbols[qk]; qok && (!ok || qs != s) {
-					s = qs
-					ok = true
-					t.Str = qk
+			} else {
+				// Phase 1 of an imported pkg (importingPkg set) and Phase-2
+				// deferred body (CompilingPkg set) both want this pkg's
+				// qualified Symbol to win over a sibling import's bare-key
+				// shadow. Rewrite t.Str to the canonical qualified key so
+				// downstream bare-key probes (parseComposite, the BraceBlock
+				// pkg-qual composite path, the compiler's symAt) all reach
+				// the right Symbol. After Path B step 1, top-level Type
+				// symbols inside an imported pkg ONLY live at the qualified
+				// key (bare-key probe above returns ok=false); the rewrite
+				// makes the Type ident token carry that canonical key.
+				pkg := p.importingPkg
+				if pkg == "" {
+					pkg = p.CompilingPkg
+				}
+				if pkg != "" {
+					qk := pkg + "." + t.Str
+					if qs, qok := p.Symbols[qk]; qok && (!ok || qs != s) {
+						s = qs
+						ok = true
+						t.Str = qk
+					}
 				}
 			}
 			// Free variable detection: defined in an enclosing function scope.
@@ -210,7 +220,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 							return out, err
 						}
 						out = out[:len(out)-1] // remove the generic name ident
-						if err := p.emitGenericFunc(instToks, mname, t.Pos, &out); err != nil {
+						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out); err != nil {
 							return out, err
 						}
 					}
@@ -236,7 +246,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 								}
 								out = out[:len(out)-1] // remove the pkg ident
 								ops = ops[:len(ops)-1] // remove the Period operator
-								if err := p.emitGenericFunc(instToks, mname, t.Pos, &out); err != nil {
+								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out); err != nil {
 									return out, err
 								}
 							}
@@ -347,7 +357,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						if err != nil {
 							return out, err
 						}
-						if err := p.emitGenericFunc(instToks, mname, t.Pos, &out); err != nil {
+						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out); err != nil {
 							return out, err
 						}
 					} else {
@@ -382,7 +392,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 								if err != nil {
 									return out, err
 								}
-								if err := p.emitGenericFunc(instToks, mname, t.Pos, &out); err != nil {
+								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out); err != nil {
 									return out, err
 								}
 							} else {
@@ -452,29 +462,23 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 // registerType registers typ in the symbol table and appends an Ident token to out.
 // It returns the type name for use as composite type context.
 //
-// During Phase-2 deferred parsing of an imported pkg, prefer this pkg's
-// qualified key when one already exists -- otherwise the SymAdd would overwrite
-// a sibling import's same-named Type at the bare key (e.g. internal/language's
-// `Tag{...}` composite literal would re-register bare `Tag` with the uint16/
-// P2-style placeholder rtype, displacing the language pkg's `type Tag
-// compact.Tag` clone that previous Phase-1 work had left there). The Ident
-// token then references the qualified key directly so the compiler resolves
-// the right Type without a bare-key probe.
+// Named types get a package-qualified canonical key from definition time:
+// `<currentPkg>.<typ.Name>`. The current pkg is `importingPkg` (Phase 1 of an
+// imported pkg) or `CompilingPkg` (Phase 2 deferred body); never both at once.
+// Anonymous composite types (slice/map/struct{...}/etc., typ.Name == "") stay
+// at their structural typ.String() key -- they're shape-keyed and shared
+// cross-pkg by design. Without this, two distinct packages with the same dir
+// name (`language` and `internal/language`) would both produce ctype
+// `"language.<Name>"` and clobber each other at the bare key.
 func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 	ctype := typ.String()
 	key := ctype
-	// Probe this pkg's qualified key. typ.String() uses vm.Type.PkgPath which is
-	// the SHORT pkg name -- two distinct packages with the same directory name
-	// (`language` and `internal/language`) collide on ctype. Build the probe
-	// from the full CompilingPkg path + the type's short name instead.
-	if p.CompilingPkg != "" {
-		short := typ.Name
-		if short == "" {
-			short = ctype
-		}
-		qk := p.CompilingPkg + "." + short
-		if existing, ok := p.Symbols[qk]; ok && existing.Type == typ {
-			key = qk
+	if typ.Name != "" {
+		switch {
+		case p.CompilingPkg != "":
+			key = p.CompilingPkg + "." + typ.Name
+		case p.importingPkg != "":
+			key = p.importingPkg + "." + typ.Name
 		}
 	}
 	if existing, ok := p.Symbols[key]; !ok || existing.Type != typ {
@@ -556,19 +560,29 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 // emitGenericFunc registers and parses an instantiated generic function,
 // appending the function definition and identifier to out.
 // If instToks is nil (already instantiated), it appends the mangled name.
-func (p *Parser) emitGenericFunc(instToks Tokens, mname string, pos int, out *Tokens) error {
+// tmpl is the template being instantiated (its pkgPath sets the parser's
+// pkg context so unqualified references in the body -- e.g. another
+// generic helper in the same pkg -- resolve against the owning pkg's
+// canonical keys, not against whatever pkg is currently parsing).
+func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname string, pos int, out *Tokens) error {
 	if instToks == nil {
 		*out = append(*out, newIdent(mname, pos))
 		return nil
 	}
 	savedScope := p.scope
+	savedCompilingPkg := p.CompilingPkg
 	p.scope = ""
+	if tmpl != nil && tmpl.pkgPath != "" {
+		p.CompilingPkg = tmpl.pkgPath
+	}
 	if _, err := p.registerFunc(instToks); err != nil {
 		p.scope = savedScope
+		p.CompilingPkg = savedCompilingPkg
 		return err
 	}
 	fout, err := p.parseFunc(instToks)
 	p.scope = savedScope
+	p.CompilingPkg = savedCompilingPkg
 	if err != nil {
 		return err
 	}

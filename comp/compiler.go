@@ -337,7 +337,7 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 // parser-side counterpart is goparser.Parser.symGet.
 func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {
 	if c.CompilingPkg != "" {
-		if s, ok := c.Symbols[c.CompilingPkg+"."+name]; ok {
+		if s, ok := c.Symbols[goparser.QualifyName(c.CompilingPkg, name)]; ok {
 			return s, true
 		}
 	}
@@ -1287,7 +1287,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if lhs.Kind == symbol.LocalVar {
 				// Captured variable write inside closure body: use HeapSet.
 				if cf := curFunc(); cf != "" {
-					if cloSym := c.Symbols[cf]; cloSym != nil {
+					if cloSym, ok := c.symAt(cf); ok && cloSym != nil {
 						if idx := cloSym.FreeVarIndex(lhs.Name); idx >= 0 {
 							c.emit(t, vm.HeapSet, idx)
 							c.emit(t, vm.Pop, 1) // pop stale value pushed by HeapGet in Ident
@@ -1401,7 +1401,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Determine the current function's FreeVars for transitive capture.
 				var outerCloSym *symbol.Symbol
 				if cf := curFunc(); cf != "" {
-					outerCloSym = c.Symbols[cf]
+					outerCloSym, _ = c.symAt(cf)
 				}
 				for _, fvName := range s.FreeVars {
 					fvSym := c.Symbols[fvName]
@@ -1431,7 +1431,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			// Captured variable read inside a closure body: use HeapGet.
 			if cf := curFunc(); cf != "" {
-				if cloSym := c.Symbols[cf]; cloSym != nil {
+				if cloSym, ok := c.symAt(cf); ok && cloSym != nil {
 					if idx := cloSym.FreeVarIndex(t.Str); idx >= 0 {
 						c.emit(t, vm.HeapGet, idx)
 						break
@@ -1487,9 +1487,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// and breaking cross-pkg calls. Methods use the same scheme: the bare
 			// key is `Recv.Method`, the qualified is `pkg.Recv.Method`.
 			labelKey := t.Str
-			if c.CompilingPkg != "" {
-				if _, ok := c.Symbols[c.CompilingPkg+"."+t.Str]; ok {
-					labelKey = c.CompilingPkg + "." + t.Str
+			if qk := c.qualifyLabel(t.Str); qk != t.Str {
+				if _, ok := c.Symbols[qk]; ok {
+					labelKey = qk
 				}
 			}
 			if s, ok := c.Symbols[labelKey]; ok {
@@ -1506,10 +1506,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					flen = append(flen, len(stack))
 					funcStack = append(funcStack, t.Str)
 					funcStartStack = append(funcStartStack, lc)
-					// Register method in its receiver type's method table.
+					// Register method in its receiver type's method table. The
+					// type symbol may live at "<pkgPath>.<typeName>" (Path B step 1
+					// type-key migration) -- prefer the qualified key via symAt
+					// so methods land on this pkg's *vm.Type, not on a sibling's
+					// bare-key Type.
 					if parts := strings.SplitN(t.Str, ".", 2); len(parts) == 2 {
 						typeName := strings.TrimPrefix(parts[0], "*")
-						if ts, ok := c.Symbols[typeName]; ok && ts.Kind == symbol.Type {
+						if ts, ok := c.symAt(typeName); ok && ts.Kind == symbol.Type {
 							id := c.methodID(parts[1])
 							for len(ts.Type.Methods) <= id {
 								ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
@@ -1529,9 +1533,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if strings.HasSuffix(t.Str, "_end") {
 					base := strings.TrimSuffix(t.Str, "_end")
 					endKey := base
-					if c.CompilingPkg != "" {
-						if _, ok := c.Symbols[c.CompilingPkg+"."+base]; ok {
-							endKey = c.CompilingPkg + "." + base
+					if qk := c.qualifyLabel(base); qk != base {
+						if _, ok := c.Symbols[qk]; ok {
+							endKey = qk
 						}
 					}
 					if s, ok = c.Symbols[endKey]; ok && s.Kind == symbol.Func {
@@ -2394,7 +2398,10 @@ func (c *Compiler) qualifyLabel(name string) string {
 	if c.CompilingPkg == "" {
 		return name
 	}
-	return c.CompilingPkg + "." + name
+	// Mirror goparser's qualifyName / pkgKey, including the pointer-receiver
+	// "*Tag.M" -> "*<pkg>.Tag.M" rewrite that keeps the canonical method key
+	// composable as `*<pkgQualifiedType>.<method>` at call sites.
+	return goparser.QualifyName(c.CompilingPkg, name)
 }
 
 func (c *Compiler) emitJump(t goparser.Token, fixList *goparser.Tokens, op vm.Op) {

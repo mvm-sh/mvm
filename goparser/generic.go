@@ -54,6 +54,7 @@ type genericTemplate struct {
 	ptrRecv    bool               // method template with pointer receiver (meaningful for methods only)
 	methods    []*genericTemplate // methods defined on this generic type
 	instances  []genericInstance  // monomorphizations, kept so methods attached after instantiation can still be emitted
+	pkgPath    string             // full import path of the package where this template was declared; "" for main/REPL. Used during instantiation to resolve unqualified references in the body against the owning pkg's canonical keys.
 }
 
 type genericInstance struct {

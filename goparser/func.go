@@ -61,7 +61,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			if errors.As(gerr, &eu) {
 				return false, gerr
 			}
-			p.SymSet(p.scopedName(fname), &symbol.Symbol{
+			p.SymSet(p.pkgKey(fname), &symbol.Symbol{
 				Kind: symbol.Generic,
 				Name: fname,
 				Used: true,
@@ -71,6 +71,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 					typeParams: params,
 					rawTokens:  toks,
 					isFunc:     true,
+					pkgPath:    p.importingPkg,
 				},
 			})
 			return true, nil
@@ -85,7 +86,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		// Method or anonymous function. Disambiguate: if toks[2] is a known
 		// type and toks[3] is not a ParenBlock (param list), this is an anonymous
 		// func with a named return type (e.g. func(int) T {...}), not a method.
-		if s, _, ok := p.Symbols.Get(toks[2].Str, p.scope); ok && s.IsType() {
+		if s, _, ok := p.symGet(toks[2].Str); ok && s.IsType() {
 			if len(toks) < 4 || toks[3].Tok != lang.ParenBlock {
 				return false, nil
 			}
@@ -114,6 +115,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 					rawTokens:  toks,
 					isFunc:     true,
 					ptrRecv:    ptrRecv,
+					pkgPath:    tmpl.pkgPath,
 				})
 				return true, nil
 			}
@@ -145,37 +147,27 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		return false, nil // Anonymous function.
 	}
 
-	s, _, ok := p.Symbols.Get(fname, p.scope)
-	// Two cases reuse an already-registered Symbol with this name:
-	//   1. The retry-loop is re-entering this same decl from within the current
-	//      package's parseSrc -- skip, we already finished it.
-	//   2. The Symbol was registered by an earlier source file of the SAME pkg
-	//      (e.g. multi-file pkg, second file's decl resolves an earlier-deferred
-	//      type) -- skip, the type matches.
-	// A sibling import that left its own same-named Symbol at the bare key
-	// (e.g. golang.org/x/text/{language,internal/language,internal/language/compact}
-	// all declare `func Make`) is NOT a reason to skip: this pkg must get its own
-	// Symbol with the right InNames/OutNames so Phase 2 registerParamsFromSym
-	// finds them. Detect that via thisPkgFuncs (set per-pkg in importSrc).
+	// Top-level funcs/methods live at the canonical pkgKey ("<pkgPath>.<fname>"
+	// inside an imported pkg, bare in main/REPL). Each pkg gets its own
+	// canonical Symbol, so sibling-pkg same-named funcs (e.g.
+	// golang.org/x/text/{language,internal/language,internal/language/compact}
+	// all declare `func Make`) never collide on the bare key. The retry-loop
+	// reentry guard then collapses to a simple "this Symbol already has a
+	// Type" check at the canonical key. Anonymous closures (fname starts with
+	// '#') and the special `init` rewrite stay scope-relative via scopedName.
+	key := p.pkgKey(fname)
+	s, ok := p.Symbols[key]
 	if ok && s.Type != nil {
-		inThisPkg := p.thisPkgFuncs == nil || p.thisPkgFuncs[fname]
-		if inThisPkg {
-			return false, nil
-		}
-		// Sibling-import collision: forget the bare-key match and create a fresh
-		// Symbol below. The sibling's qualified alias still holds the live pointer
-		// to the old Symbol; we overwrite only the bare key.
-		ok = false
+		return false, nil
 	}
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
-		key := p.scopedName(fname)
 		p.SymSet(key, s)
 	}
 	typ, inNames, outNames, err := p.parseFuncSig(sigToks)
 	if err != nil {
 		if !ok {
-			delete(p.Symbols, p.scopedName(fname))
+			delete(p.Symbols, key)
 		}
 		return false, err
 	}
@@ -190,12 +182,9 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	// (the unscoped-symbol-table problem); see Symbol.RecvType.
 	if recvVarName != "" {
 		recvTypName, _, _ := strings.Cut(fname, ".")
-		if recvTypSym, _, ok := p.Symbols.Get(strings.TrimPrefix(recvTypName, "*"), p.scope); ok && recvTypSym.IsType() {
+		if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
 			s.RecvType = recvTypSym.Type
 		}
-	}
-	if p.thisPkgFuncs != nil && !strings.HasPrefix(fname, "#") {
-		p.thisPkgFuncs[fname] = true
 	}
 	return false, nil
 }
@@ -275,7 +264,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		if t := in[2]; t.Tok == lang.Ident {
 			// If in[2] is a known type and in[3] is not a ParenBlock (param list),
 			// this is an anonymous func with a named return type (e.g. func(T) Ret{}).
-			if s, _, ok := p.Symbols.Get(t.Str, p.scope); ok && s.IsType() {
+			if s, _, ok := p.symGet(t.Str); ok && s.IsType() {
 				if len(in) < 4 || in[3].Tok != lang.ParenBlock {
 					fname = p.anonFuncName()
 					break
@@ -311,17 +300,11 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	funcScope := p.funcScope
 	onamedOut := p.namedOut
 	p.namedOut = nil
-	s, _, ok := p.Symbols.Get(fname, p.scope)
-	// Phase-2 deferred body of a top-level pkg func: prefer the qualified key so a
-	// sibling import that later overwrote bare `fname` doesn't return its Symbol
-	// (with the wrong InNames/OutNames). The qualified alias was preserved at the
-	// end of this pkg's own importSrc. Skip for nested funcs (scope non-empty),
-	// anon closures (#-prefix), and main/REPL (CompilingPkg empty).
-	if p.scope == "" && p.CompilingPkg != "" && !strings.HasPrefix(fname, "#") {
-		if qs, qok := p.Symbols[p.CompilingPkg+"."+fname]; qok {
-			s, ok = qs, true
-		}
-	}
+	// Phase-2 deferred body of a top-level pkg func: look up via symGet which
+	// probes the canonical pkgKey ("<CompilingPkg>.<fname>") before falling
+	// back to bare. Nested funcs (scope non-empty) and anon closures (#-prefix)
+	// follow lexical-scope semantics through symGet's normal Symbols.Get walk.
+	s, _, ok := p.symGet(fname)
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
 		key := fname
@@ -345,7 +328,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		// sibling import may have shadowed the bare receiver name in p.Symbols.
 		recvBase := s.RecvType
 		if recvBase == nil {
-			if recvTypSym, _, ok := p.Symbols.Get(strings.TrimPrefix(recvTypName, "*"), p.scope); ok && recvTypSym.IsType() {
+			if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
 				recvBase = recvTypSym.Type
 			}
 		}

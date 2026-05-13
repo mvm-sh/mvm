@@ -135,12 +135,12 @@ func (sm SymMap) Get(name, scope string) (sym *Symbol, sc string, ok bool) {
 func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 	switch sym.Kind {
 	case Type:
-		if m := sm[sym.Name+"."+name]; m != nil {
+		if m := methodLookup(sm, sym.Name, name); m != nil {
 			return m, nil
 		}
 		// Pointer type: also try value-receiver methods (*T includes T's method set).
 		if strings.HasPrefix(sym.Name, "*") {
-			if m := sm[sym.Name[1:]+"."+name]; m != nil {
+			if m := methodLookup(sm, sym.Name[1:], name); m != nil {
 				return m, nil
 			}
 		}
@@ -172,7 +172,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				if firstName == "" {
 					firstName = k
 				}
-				if sm[k+"."+name] != nil || sm["*"+k+"."+name] != nil {
+				if methodLookup(sm, k, name) != nil || methodLookup(sm, "*"+k, name) != nil {
 					typName = k
 					break
 				}
@@ -181,15 +181,57 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				typName = firstName
 			}
 		}
-		if m := sm[typName+"."+name]; m != nil {
+		if m := methodLookup(sm, typName, name); m != nil {
 			return m, nil
 		}
-		if m := sm["*"+typName+"."+name]; m != nil {
+		if m := methodLookup(sm, "*"+typName, name); m != nil {
 			return m, nil
+		}
+		// Path B step 2 stores methods at pkg-qualified keys for imported pkgs
+		// ("<pkgPath>.<Tag>.<M>" or "*<pkgPath>.<Tag>.<M>"). When the short
+		// typName missed AND the rtype has no NATIVE method by this name (so
+		// it's not a stdlib bridge like time.Duration.String), search the
+		// symbol table for a user Type Symbol whose canonical key ends in
+		// ".<typName>" and matches this rtype, then probe that pkg-qualified
+		// method key. The native-method check is what keeps a user
+		// `type durationValue time.Duration` from hijacking calls intended
+		// for the stdlib's *time.Duration.String.
+		if typName != "" {
+			ptype := sym.Type.Rtype
+			if ptype.Kind() == reflect.Pointer {
+				ptype = ptype.Elem()
+			}
+			_, nativeVal := sym.Type.Rtype.MethodByName(name)
+			_, nativePtr := reflect.PointerTo(ptype).MethodByName(name)
+			if !nativeVal && !nativePtr {
+				suffix := "." + typName
+				for k, s := range sm {
+					if s.Kind != Type || s.Type == nil || s.Type.Rtype != ptype || k == "" {
+						continue
+					}
+					if !strings.HasSuffix(k, suffix) {
+						continue
+					}
+					if m := methodLookup(sm, k, name); m != nil {
+						return m, nil
+					}
+					if m := methodLookup(sm, "*"+k, name); m != nil {
+						return m, nil
+					}
+				}
+			}
 		}
 		return sm.promotedMethod(sym.Type, name, nil)
 	}
 	return nil, nil
+}
+
+// methodLookup finds `<typName>.<method>` in sm. With Path B steps 1+2 done,
+// methods live next to their receiver type: bare for main/REPL, pkg-qualified
+// for imported pkgs. Callers pass the canonical type key (the key under which
+// the receiver type is registered) and methodLookup composes `<key>.<method>`.
+func methodLookup(sm SymMap, typName, method string) *Symbol {
+	return sm[typName+"."+method]
 }
 
 // promotedMethod searches for a method promoted through embedded fields recorded in typ.Embedded.

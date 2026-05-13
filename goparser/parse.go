@@ -21,19 +21,18 @@ type Parser struct {
 
 	Symbols         symbol.SymMap
 	Packages        map[string]*symbol.Package
-	function        *symbol.Symbol  // current function
-	scope           string          // current scope
-	fname           string          // current function name
-	pkgName         string          // current package name
-	noPkg           bool            // true if package statement is not mandatory (test, repl).
-	pkgfs           fs.FS           // filesystem to read imported sources from
-	stdlibfs        fs.FS           // fallback filesystem for embedded stdlib sources
-	remotefs        fs.FS           // last-resort filesystem (e.g. network module proxy)
-	includeTests    bool            // include _test.go files when loading package sources
-	importRemaining []DeferredDecl  // code-gen declarations from imported source packages, tagged with their origin package
-	CompilingPkg    string          // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
-	importingPkg    string          // while parseSrc is running for an imported package: its import path; "" outside import. Used by registerFunc to detect sibling-pkg collisions.
-	thisPkgFuncs    map[string]bool // set of top-level func/method names registered during the current importSrc; reset per-pkg, lets registerFunc reuse its own retry-skip without skipping fresh registration for sibling-pkg same-named funcs.
+	function        *symbol.Symbol // current function
+	scope           string         // current scope
+	fname           string         // current function name
+	pkgName         string         // current package name
+	noPkg           bool           // true if package statement is not mandatory (test, repl).
+	pkgfs           fs.FS          // filesystem to read imported sources from
+	stdlibfs        fs.FS          // fallback filesystem for embedded stdlib sources
+	remotefs        fs.FS          // last-resort filesystem (e.g. network module proxy)
+	includeTests    bool           // include _test.go files when loading package sources
+	importRemaining []DeferredDecl // code-gen declarations from imported source packages, tagged with their origin package
+	CompilingPkg    string         // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
+	importingPkg    string         // while parseSrc is running for an imported package: its full import path; "" outside any import. Used by pkgKey to qualify top-level Type/Func/Method/Generic symbol keys at definition time (Path B); also probed as a fallback in symGet for Phase-1 lookups.
 
 	funcScope         string
 	framelen          map[string]int // length of function frames indexed by funcScope
@@ -85,12 +84,37 @@ func (p *Parser) symGet(name string) (*symbol.Symbol, string, bool) {
 	if ok && sc != "" {
 		return s, sc, true
 	}
+	// Phase 2 deferred parsing: CompilingPkg is set; Phase 1 of an imported pkg:
+	// importingPkg is set. Never both at once. Probe each in turn so a top-level
+	// name resolves to this pkg's canonical Symbol rather than a bare key that
+	// might be shadowed by a sibling import (Pkg/Type/Func/Var/Const all keyed
+	// at "<pkg>.<name>" for imported pkgs by their respective writers). For
+	// pointer-method names ("*Tag.M"), the canonical form has '*' at the very
+	// front of the key ("*<pkg>.Tag.M"); pkgKey writes that shape and we mirror
+	// it here.
 	if p.CompilingPkg != "" {
-		if qs, qok := p.Symbols[p.CompilingPkg+"."+name]; qok {
+		if qs, qok := p.Symbols[QualifyName(p.CompilingPkg, name)]; qok {
+			return qs, "", true
+		}
+	}
+	if p.importingPkg != "" {
+		if qs, qok := p.Symbols[QualifyName(p.importingPkg, name)]; qok {
 			return qs, "", true
 		}
 	}
 	return s, sc, ok
+}
+
+// QualifyName composes the canonical pkg-qualified symbol-table key for a
+// top-level name. For pointer-receiver method names ("*Tag.M"), the '*' moves
+// to the very front of the key ("*<pkg>.Tag.M") so the standard pointer-
+// method composition `"*"+typeKey+"."+method` still produces the same key.
+// Exported so the comp package (qualifyLabel) shares the exact composition.
+func QualifyName(pkg, name string) string {
+	if strings.HasPrefix(name, "*") {
+		return "*" + pkg + "." + name[1:]
+	}
+	return pkg + "." + name
 }
 
 // ImportPackageValues populates packages with values.

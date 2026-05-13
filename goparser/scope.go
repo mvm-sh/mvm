@@ -10,6 +10,27 @@ func (p *Parser) scopedName(name string) string {
 	return strings.TrimPrefix(p.scope+"/"+name, "/")
 }
 
+// pkgKey returns the canonical symbol-table key for a top-level name in the
+// current parser context. While parseSrc is running for an imported package
+// (importingPkg set) at top level, returns "<importingPkg>.<name>". Otherwise
+// falls back to scopedName, which yields the bare name at top level (main pkg
+// / REPL, where there's no package qualifier) or "<scope>/<name>" inside a
+// function/block. Type symbols use this so each pkg's top-level types live
+// under their own canonical key from definition time and aren't clobbered by
+// sibling imports' bare-key writes (the long-standing "bare-key fragility"
+// problem; see [project_canonical_pkg_qualified_symbols] memory). Predeclared
+// names (int, string, error, ...) stay at their bare key in the main pkg /
+// REPL path -- pkgKey is a no-op there. Generic instances (mangled names
+// containing '#', e.g. "Seq2#int#E") also stay bare: the mangling already
+// makes them globally unique and they are intentionally deduped cross-pkg
+// (see generic.go's `Symbols.Get(mname, "")` guard).
+func (p *Parser) pkgKey(name string) string {
+	if p.importingPkg != "" && p.scope == "" && !strings.ContainsRune(name, '#') {
+		return QualifyName(p.importingPkg, name)
+	}
+	return p.scopedName(name)
+}
+
 // isScopedKey reports whether a symbol-table key names something inside a
 // function/block scope rather than a package's top level. Lexical scopes are
 // joined with '/' (see scopedName); the package qualifier joins with '.', so
