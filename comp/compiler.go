@@ -1478,7 +1478,21 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return fmt.Errorf("stack depth mismatch at label %s: got %d, want %d", t.Str, len(stack), expected)
 			}
 			lc := len(c.Code)
-			if s, ok := c.Symbols[t.Str]; ok {
+			// In Phase-2 deferred bodies, label keys still use the bare func/method
+			// name (the parser doesn't qualify them). Prefer this pkg's qualified
+			// Symbol when both exist: each pkg's registerFunc now creates its own
+			// Symbol (per-pkg fix), and the bare key was overwritten by the most
+			// recently parsed sibling, so a bare lookup would update the wrong
+			// pkg's Symbol -- leaving this pkg's qualified Symbol at UnsetAddr
+			// and breaking cross-pkg calls. Methods use the same scheme: the bare
+			// key is `Recv.Method`, the qualified is `pkg.Recv.Method`.
+			labelKey := t.Str
+			if c.CompilingPkg != "" {
+				if _, ok := c.Symbols[c.CompilingPkg+"."+t.Str]; ok {
+					labelKey = c.CompilingPkg + "." + t.Str
+				}
+			}
+			if s, ok := c.Symbols[labelKey]; ok {
 				s.Value = vm.ValueOf(lc)
 				if s.Kind == symbol.Func {
 					// Label is a function entry point, update its code address in data.
@@ -1513,7 +1527,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 			} else {
 				if strings.HasSuffix(t.Str, "_end") {
-					if s, ok = c.Symbols[strings.TrimSuffix(t.Str, "_end")]; ok && s.Kind == symbol.Func {
+					base := strings.TrimSuffix(t.Str, "_end")
+					endKey := base
+					if c.CompilingPkg != "" {
+						if _, ok := c.Symbols[c.CompilingPkg+"."+base]; ok {
+							endKey = c.CompilingPkg + "." + base
+						}
+					}
+					if s, ok = c.Symbols[endKey]; ok && s.Kind == symbol.Func {
 						// Patch the Grow instruction with max expression depth for bounds-check-free GetLocal.
 						if len(growPos) > 0 {
 							gp := growPos[len(growPos)-1]
@@ -1535,7 +1556,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						funcStartStack = funcStartStack[:top]
 					}
 				}
-				c.SymSet(t.Str, &symbol.Symbol{Kind: symbol.Label, Value: vm.ValueOf(lc)})
+				// Register the label under a pkg-qualified key when compiling a
+				// deferred decl, so two pkgs that each declare `func Make` (and
+				// thus emit a `Make_end` label) don't share one bare-key Symbol
+				// and resolve each other's Goto Make_end to the wrong pc. The
+				// matching resolveLabel/qualifyLabel in this file does the same
+				// CompilingPkg-aware lookup.
+				c.SymSet(c.qualifyLabel(t.Str), &symbol.Symbol{Kind: symbol.Label, Value: vm.ValueOf(lc)})
 			}
 
 		case lang.Len:
@@ -2144,9 +2171,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		}
 	}
 
-	// Finally we fix unresolved labels for jump destinations.
+	// Finally we fix unresolved labels for jump destinations. Prefer this
+	// pkg's qualified key so a sibling deferred decl's bare-key Label doesn't
+	// resolve the jump (see qualifyLabel).
 	for _, t := range fixList {
-		s, ok := c.Symbols[t.Str]
+		s, ok := c.Symbols[c.qualifyLabel(t.Str)]
+		if !ok {
+			s, ok = c.Symbols[t.Str]
+		}
 		if !ok {
 			return fmt.Errorf("label not found: %q", t.Str)
 		}
@@ -2341,12 +2373,28 @@ func (c *Compiler) emitComparisonOp(t goparser.Token, s2 *symbol.Symbol, typ *vm
 }
 
 func (c *Compiler) resolveLabel(t goparser.Token, fixList *goparser.Tokens) int {
+	if s, ok := c.Symbols[c.qualifyLabel(t.Str)]; ok {
+		return int(s.Value.Int()) - len(c.Code)
+	}
 	if s, ok := c.Symbols[t.Str]; ok {
 		return int(s.Value.Int()) - len(c.Code)
 	}
 	t.Arg = []any{len(c.Code)}
 	*fixList = append(*fixList, t)
 	return 0
+}
+
+// qualifyLabel returns the symbol-table key under which the named Label is
+// registered while a deferred decl is being compiled. Two packages that each
+// declare `func Make` both emit a `Make_end` label; without per-pkg
+// qualification their Symbols collide on the bare key, breaking goto resolution.
+// Outside of Phase 2 (CompilingPkg empty) labels keep their bare key, matching
+// pre-fix behavior for the main pkg and the REPL.
+func (c *Compiler) qualifyLabel(name string) string {
+	if c.CompilingPkg == "" {
+		return name
+	}
+	return c.CompilingPkg + "." + name
 }
 
 func (c *Compiler) emitJump(t goparser.Token, fixList *goparser.Tokens, op vm.Op) {

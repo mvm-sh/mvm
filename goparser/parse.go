@@ -21,17 +21,19 @@ type Parser struct {
 
 	Symbols         symbol.SymMap
 	Packages        map[string]*symbol.Package
-	function        *symbol.Symbol // current function
-	scope           string         // current scope
-	fname           string         // current function name
-	pkgName         string         // current package name
-	noPkg           bool           // true if package statement is not mandatory (test, repl).
-	pkgfs           fs.FS          // filesystem to read imported sources from
-	stdlibfs        fs.FS          // fallback filesystem for embedded stdlib sources
-	remotefs        fs.FS          // last-resort filesystem (e.g. network module proxy)
-	includeTests    bool           // include _test.go files when loading package sources
-	importRemaining []DeferredDecl // code-gen declarations from imported source packages, tagged with their origin package
-	CompilingPkg    string         // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
+	function        *symbol.Symbol  // current function
+	scope           string          // current scope
+	fname           string          // current function name
+	pkgName         string          // current package name
+	noPkg           bool            // true if package statement is not mandatory (test, repl).
+	pkgfs           fs.FS           // filesystem to read imported sources from
+	stdlibfs        fs.FS           // fallback filesystem for embedded stdlib sources
+	remotefs        fs.FS           // last-resort filesystem (e.g. network module proxy)
+	includeTests    bool            // include _test.go files when loading package sources
+	importRemaining []DeferredDecl  // code-gen declarations from imported source packages, tagged with their origin package
+	CompilingPkg    string          // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
+	importingPkg    string          // while parseSrc is running for an imported package: its import path; "" outside import. Used by registerFunc to detect sibling-pkg collisions.
+	thisPkgFuncs    map[string]bool // set of top-level func/method names registered during the current importSrc; reset per-pkg, lets registerFunc reuse its own retry-skip without skipping fresh registration for sibling-pkg same-named funcs.
 
 	funcScope         string
 	framelen          map[string]int // length of function frames indexed by funcScope

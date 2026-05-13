@@ -146,8 +146,26 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	}
 
 	s, _, ok := p.Symbols.Get(fname, p.scope)
+	// Two cases reuse an already-registered Symbol with this name:
+	//   1. The retry-loop is re-entering this same decl from within the current
+	//      package's parseSrc -- skip, we already finished it.
+	//   2. The Symbol was registered by an earlier source file of the SAME pkg
+	//      (e.g. multi-file pkg, second file's decl resolves an earlier-deferred
+	//      type) -- skip, the type matches.
+	// A sibling import that left its own same-named Symbol at the bare key
+	// (e.g. golang.org/x/text/{language,internal/language,internal/language/compact}
+	// all declare `func Make`) is NOT a reason to skip: this pkg must get its own
+	// Symbol with the right InNames/OutNames so Phase 2 registerParamsFromSym
+	// finds them. Detect that via thisPkgFuncs (set per-pkg in importSrc).
 	if ok && s.Type != nil {
-		return false, nil
+		inThisPkg := p.thisPkgFuncs == nil || p.thisPkgFuncs[fname]
+		if inThisPkg {
+			return false, nil
+		}
+		// Sibling-import collision: forget the bare-key match and create a fresh
+		// Symbol below. The sibling's qualified alias still holds the live pointer
+		// to the old Symbol; we overwrite only the bare key.
+		ok = false
 	}
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
@@ -175,6 +193,9 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		if recvTypSym, _, ok := p.Symbols.Get(strings.TrimPrefix(recvTypName, "*"), p.scope); ok && recvTypSym.IsType() {
 			s.RecvType = recvTypSym.Type
 		}
+	}
+	if p.thisPkgFuncs != nil && !strings.HasPrefix(fname, "#") {
+		p.thisPkgFuncs[fname] = true
 	}
 	return false, nil
 }
@@ -291,6 +312,16 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	onamedOut := p.namedOut
 	p.namedOut = nil
 	s, _, ok := p.Symbols.Get(fname, p.scope)
+	// Phase-2 deferred body of a top-level pkg func: prefer the qualified key so a
+	// sibling import that later overwrote bare `fname` doesn't return its Symbol
+	// (with the wrong InNames/OutNames). The qualified alias was preserved at the
+	// end of this pkg's own importSrc. Skip for nested funcs (scope non-empty),
+	// anon closures (#-prefix), and main/REPL (CompilingPkg empty).
+	if p.scope == "" && p.CompilingPkg != "" && !strings.HasPrefix(fname, "#") {
+		if qs, qok := p.Symbols[p.CompilingPkg+"."+fname]; qok {
+			s, ok = qs, true
+		}
+	}
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
 		key := fname

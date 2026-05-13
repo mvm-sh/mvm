@@ -138,11 +138,17 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	// rather than leaking into transitive imports.
 	savedPkgName := p.pkgName
 	savedIncludeTests := p.includeTests
+	savedImportingPkg := p.importingPkg
+	savedThisPkgFuncs := p.thisPkgFuncs
 	p.pkgName = ""
 	p.includeTests = false
+	p.importingPkg = pkgPath
+	p.thisPkgFuncs = map[string]bool{}
 	defer func() {
 		p.pkgName = savedPkgName
 		p.includeTests = savedIncludeTests
+		p.importingPkg = savedImportingPkg
+		p.thisPkgFuncs = savedThisPkgFuncs
 	}()
 
 	// Snapshot existing symbol pointers so we can identify bindings

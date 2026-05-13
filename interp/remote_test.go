@@ -422,6 +422,63 @@ type Foo interface {
 	}
 }
 
+// TestRemoteFuncNameCollisionAcrossPkgs: two imported packages each declare a
+// top-level `func Make` with different signatures. Before the per-pkg
+// registerFunc fix, the bare-key `Make` Symbol from `lo` survived; `mid`'s
+// registerFunc short-circuited and never built its own Symbol with the right
+// InNames/OutNames. Phase-2 deferred body of mid.Make then read the wrong
+// Symbol's params, never registered the named return as a local, and any
+// reference to it resolved to whatever bare-key sibling shadowed it (in the
+// real golang.org/x/text case: `tag.<field>` resolved to the imported `tag`
+// package -- "symbol not found in package <pkg>: <field>"). Also exercises the
+// matching Phase-2 fixes: parseFunc looks up funcs via CompilingPkg, and the
+// compiler's Label/Goto/fixList paths qualify label keys (Make_end shared the
+// bare key across pkgs and resolved Goto Make_end to the wrong pc -- VM looped).
+func TestRemoteFuncNameCollisionAcrossPkgs(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/x/lo",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/lo\n",
+				"lo.go":  "package lo\n\nfunc Make(s string) int { _ = s; return 1 }\n",
+			},
+		},
+		remoteModule{
+			path:    "example.com/x/mid",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/mid\n",
+				"mid.go": `package mid
+
+import "example.com/x/lo"
+
+type Tag struct{ field string }
+
+func Make() (tag Tag) {
+	_ = lo.Make("hi")
+	tag.field = "ok"
+	return tag
+}
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	src := `import "example.com/x/mid"; t := mid.Make(); println(t.field)`
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "ok\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestRemoteXTextCrash imports golang.org/x/text/language over the live proxy.
 // It used to fault inside vm.patchRtype (a read-only static rtype was patched
 // when the bare type names "Script"/"Region" collided between
