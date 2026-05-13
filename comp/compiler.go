@@ -56,10 +56,31 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 	}
 }
 
+// looksLikePkgPath reports whether name resembles a Go import path: contains
+// a slash and isn't a `.go` file (the two name shapes Compile is called with).
+func looksLikePkgPath(name string) bool {
+	return strings.ContainsRune(name, '/') && !strings.HasSuffix(name, ".go")
+}
+
 // Compile parses src and generates code and data, or returns a non-nil error.
 // Code and data are added incrementally in c.Code and C.Data.
 func (c *Compiler) Compile(name, src string) error {
-	remaining, err := c.ParseAll(name, src)
+	// Directory-mode load with a package-path target (e.g. `mvm test
+	// golang.org/x/text/language`): mirror importSrc's importingPkg setup so
+	// the target's own top-level symbols use canonical pkg-qualified keys
+	// rather than bare keys -- otherwise lookups from the target's deferred
+	// bodies miss and surface as ErrUndefined. Scoped to ParseAll so Phase 2
+	// (compileDeferred) sees the same empty importingPkg it does for any
+	// other transitive import, with CompilingPkg driving the lookups.
+	var remaining []goparser.DeferredDecl
+	var err error
+	if src == "" && looksLikePkgPath(name) {
+		restore := c.WithImportingPkg(name)
+		remaining, err = c.ParseAll(name, src)
+		restore()
+	} else {
+		remaining, err = c.ParseAll(name, src)
+	}
 	if err != nil {
 		return err
 	}
@@ -1603,9 +1624,17 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				name := s.PkgPath + t.Str
 				var l int
 				sym, _, ok := c.Symbols.Get(name, "")
-				if ok {
+				switch {
+				case ok && sym.Index != symbol.UnsetAddr:
 					l = sym.Index
-				} else {
+				case ok:
+					// Symbol exists (e.g. a Const placeholder registered with
+					// UnsetAddr) but has no Data slot yet. Allocate one now so
+					// the emitted GetGlobal lands on a valid global index.
+					l = len(c.Data)
+					c.Data = append(c.Data, v)
+					sym.Index = l
+				default:
 					l = len(c.Data)
 					if rtype, ok := v.UnwrapType(); ok {
 						nv := vm.NewValue(rtype)
@@ -1713,24 +1742,36 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					typ = typ.Elem()
 				}
 				if typ.Kind() == reflect.Struct {
-					if f, ok := typ.FieldByName(t.Str[1:]); ok {
-						// Look up struct type in symbol table to get mvm-level Fields/Params info.
-						structType := c.findTypeSym(typ)
-						if structType == nil {
-							if isPtr {
-								structType = s.Type.Elem()
-							} else {
-								structType = s.Type
-							}
+					// Look up struct type in symbol table to get mvm-level Fields/Params info.
+					structType := c.findTypeSym(typ)
+					if structType == nil {
+						if isPtr {
+							structType = s.Type.Elem()
+						} else {
+							structType = s.Type
 						}
+					}
+					fieldName := t.Str[1:]
+					fieldPath, ft := structType.FieldLookup(fieldName)
+					if fieldPath == nil {
+						// reflect-side fallback: covers cases where the receiver's
+						// Rtype carries the layout but the mvm-level Type lacks the
+						// matching Fields slot (e.g. types accessed only through
+						// reflect.StructOf).
+						if f, ok := typ.FieldByName(fieldName); ok {
+							fieldPath = f.Index
+							ft = structType.FieldType(fieldName)
+						}
+					}
+					if fieldPath != nil {
 						push(&symbol.Symbol{
 							Kind:           symbol.Var,
 							Index:          symbol.UnsetAddr,
-							Type:           structType.FieldType(t.Str[1:]),
+							Type:           ft,
 							HasFieldOffset: true,
-							FieldOffset:    fieldPathOffset(typ, f.Index),
+							FieldOffset:    fieldPathOffset(typ, fieldPath),
 						})
-						c.emitField(t, f.Index)
+						c.emitField(t, fieldPath)
 						break
 					}
 				}

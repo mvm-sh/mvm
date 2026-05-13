@@ -628,6 +628,126 @@ type X struct{ V int }
 // hermetic regression test. This case still fails on other unimplemented
 // parser features in x/text (currently "undefined: LangID"), so it stays
 // skipped; it also needs network access. Un-skip if/when x/text parses cleanly.
+// TestRemotePkgQualifiedConstUnsetAddr exercises the pkg-qualified-const
+// lookup path: a Const placeholder pre-registered by the parser with
+// Index=UnsetAddr (-65535) was emitted as `GetGlobal -65535`, panicking
+// at runtime with "index out of range [-65535]".  This was the second-to-last
+// blocker on the x/text dual-import scenario; see comp/compiler.go:case
+// lang.Period for the on-demand Data-slot allocation that fixes it.
+func TestRemotePkgQualifiedConstUnsetAddr(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/x/inner",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/inner\n",
+				"inner.go": `package inner
+
+type AliasType int8
+
+const (
+	Deprecated AliasType = iota
+	Macro
+	Legacy
+)
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/x/outer",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/x/outer\n",
+				"outer.go": `package outer
+
+import "example.com/x/inner"
+
+func Classify(t inner.AliasType) string {
+	switch t {
+	case inner.Legacy:
+		return "legacy"
+	case inner.Macro:
+		return "macro"
+	}
+	return "other"
+}
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	src := `import (
+		"example.com/x/inner"
+		"example.com/x/outer"
+	)
+	outer.Classify(inner.Legacy)`
+	v, err := i.Eval("test", src)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := v.Interface(); got != "legacy" {
+		t.Fatalf("Classify(inner.Legacy) = %v, want %q", got, "legacy")
+	}
+}
+
+// TestRemoteTestTargetImportingPkg exercises the `mvm test <importpath>`
+// load path (i.Eval with src=="" and a pkg-path target): without the
+// importingPkg fix in comp.Compile, the target's own top-level symbols
+// land at bare keys instead of `<pkg>.<name>` and lookups from the target's
+// own deferred bodies fail with ErrUndefined. The fixture also embeds a
+// lowercase struct so we cover the matching FieldLookup fallback for
+// promoted fields through unexported embedded types (which reflect.FieldByName
+// does NOT resolve for value-embedded unexported names).
+func TestRemoteTestTargetImportingPkg(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/target",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/target\n",
+			"target.go": `package target
+
+type hidden struct {
+	X int
+}
+
+type Outer struct {
+	hidden
+}
+
+func (o *Outer) Get() int {
+	return o.X
+}
+
+func Make() *Outer { return &Outer{hidden: hidden{X: 42}} }
+`,
+		},
+	})
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	// Direct-target load (mirrors main.go testCmd's `i.Eval(target, "")`).
+	// Pre-fix this failed with `undefined: X` from Outer.Get's body because:
+	//   1. importingPkg wasn't set, so the target's `hidden` type and Outer
+	//      methods landed at bare keys.
+	//   2. reflect.FieldByName doesn't promote through value-embedded unexported
+	//      `hidden`, and the compiler had no mvm-level FieldLookup fallback.
+	// With both fixes the load succeeds.
+	i.SetIncludeTests(true)
+	if _, err := i.Eval("example.com/x/target", ""); err != nil {
+		t.Fatalf("loading target: %v", err)
+	}
+}
+
 func TestRemoteXTextCrash(t *testing.T) {
 	t.Skip("vm.patchRtype crash fixed; x/text still hits other parser limits and the test needs network")
 

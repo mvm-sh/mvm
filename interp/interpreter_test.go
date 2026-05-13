@@ -478,6 +478,12 @@ func TestFuncNamedReturn(t *testing.T) {
 		{n: "tuple_named_return", src: `func f() (n int, s string) { n, s = 42, "hello"; return n, s }; a, b := f(); a`, res: "42"},
 		// named return must be zeroed on each call (yaegi-issue-1488)
 		{n: "named_return_reinit", src: `func inc() (out int) { out++; return }; a := inc(); b := inc(); c := inc(); a + b + c`, res: "3"},
+
+		// Named-return slice/map need a typed zero so append() / m[k]=v don't
+		// panic in reflect with "Type on zero Value" (Grow alone leaves the
+		// slot as an untyped Value{}). Hit by language.ParseAcceptLanguage.
+		{n: "named_return_slice_append", src: `func f() (s []int) { s = append(s, 1); s = append(s, 2); return }; f()`, res: "[1 2]"},
+		{n: "named_return_map_assign", src: `func f() (m map[string]int) { m = map[string]int{}; m["a"] = 1; return }; f()["a"]`, res: "1"},
 	})
 }
 

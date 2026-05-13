@@ -151,6 +151,20 @@ func (p *Parser) SetIncludeTests(b bool) {
 	p.includeTests = b
 }
 
+// WithImportingPkg sets p.importingPkg to pkg and returns a function that
+// restores the previous value. Callers loading a package's source directly
+// (e.g. `mvm test <importpath>`) use this to mirror the canonical-key setup
+// that importSrc performs for transitive imports, so the target's top-level
+// Type/Func/Method/Var/Const symbols land at `<pkg>.<name>` keys rather than
+// bare keys (which would mismatch every subsequent qualified lookup in the
+// target's own deferred bodies). See pkgKey, symGet, and the Phase 2 Path B
+// memory notes.
+func (p *Parser) WithImportingPkg(pkg string) func() {
+	saved := p.importingPkg
+	p.importingPkg = pkg
+	return func() { p.importingPkg = saved }
+}
+
 // Parser errors.
 var (
 	errBody     = errors.New("missing body")

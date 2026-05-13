@@ -383,18 +383,23 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	}
 	l := max(p.framelen[p.funcScope]-1, 0)
 	out = append(out, newGrow(l, in[0].Pos))
-	// Zero-initialize named-return struct/array slots. Otherwise Grow leaves
-	// the slot as an empty Value{} with an invalid reflect.Value, and `&t` on a
-	// named return falls into Addr's `!v.ref.IsValid()` branch which synthesizes
-	// `*interface{}`, breaking later field/index access. Nilable kinds already
-	// work with the zero slot. p.namedOut is right-to-left, so j=0 -> Returns[n-1].
+	// Zero-initialize named-return slots that need a typed zero reflect.Value.
+	// Without this, Grow leaves the slot as an empty Value{} with an invalid
+	// reflect.Value, breaking:
+	//   - struct/array: `&t` falls into Addr's `!v.ref.IsValid()` branch which
+	//     synthesizes `*interface{}`, breaking later field/index access.
+	//   - slice/map: `append(t, x)` / `t[k] = v` panics in reflect because
+	//     `result.Type()` is called on a zero Value.
+	// Nilable kinds with no implicit ops on the zero (pointer, chan, iface,
+	// func) work with the empty slot, so they don't need pre-init.
+	// p.namedOut is right-to-left, so j=0 -> Returns[n-1].
 	if n := len(p.namedOut); n > 0 {
 		var initVars []string
 		var initTypes []*vm.Type
 		for j, name := range p.namedOut {
 			typ := s.Type.Returns[n-1-j]
 			switch typ.Rtype.Kind() {
-			case reflect.Struct, reflect.Array:
+			case reflect.Struct, reflect.Array, reflect.Slice, reflect.Map:
 				initVars = append(initVars, name)
 				initTypes = append(initTypes, typ)
 			}
