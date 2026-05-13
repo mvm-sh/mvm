@@ -774,3 +774,6 @@ func (t *Type) IsPtr() bool { return t.Rtype.Kind() == reflect.Pointer }
 
 // IsStruct returns true if type t is of struct kind.
 func (t *Type) IsStruct() bool { return t != nil && t.Rtype != nil && t.Rtype.Kind() == reflect.Struct }
+
+// IsSlice returns true if type t is of slice kind.
+func (t *Type) IsSlice() bool { return t != nil && t.Rtype != nil && t.Rtype.Kind() == reflect.Slice }

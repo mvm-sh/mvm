@@ -36,21 +36,23 @@ type Compiler struct {
 
 	FuncRanges []vm.FuncRange // bytecode [Start, End) range for every compiled function, in source order
 
-	strings   map[string]int                  // locations of strings in Data
-	methodIDs map[string]int                  // global method ID by method name
-	typeIdxs  map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
-	typeSyms  map[reflect.Type]*symbol.Symbol // dedup cache for typeSym, keyed by reflect.Type
+	strings    map[string]int                  // locations of strings in Data
+	methodIDs  map[string]int                  // global method ID by method name
+	typeIdxs   map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
+	typeSyms   map[reflect.Type]*symbol.Symbol // dedup cache for typeSym, keyed by reflect.Type
+	labelAtPos map[int]bool                    // code positions occupied by Labels; consulted by fuseCmpJump
 }
 
 // NewCompiler returns a new compiler state for a given scanner.
 func NewCompiler(spec *lang.Spec) *Compiler {
 	return &Compiler{
-		Parser:    goparser.NewParser(spec, true),
-		Entry:     -1,
-		strings:   map[string]int{},
-		methodIDs: map[string]int{},
-		typeIdxs:  map[*vm.Type]int{},
-		typeSyms:  map[reflect.Type]*symbol.Symbol{},
+		Parser:     goparser.NewParser(spec, true),
+		Entry:      -1,
+		strings:    map[string]int{},
+		methodIDs:  map[string]int{},
+		typeIdxs:   map[*vm.Type]int{},
+		typeSyms:   map[reflect.Type]*symbol.Symbol{},
+		labelAtPos: map[int]bool{},
 	}
 }
 
@@ -1450,6 +1452,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return fmt.Errorf("stack depth mismatch at label %s: got %d, want %d", t.Str, len(stack), expected)
 			}
 			lc := len(c.Code)
+			c.labelAtPos[lc] = true // signal fuseCmpJump to leave this position's JumpFalse standalone
 			// In Phase-2 deferred bodies, label keys still use the bare func/method name.
 			// Prefer this pkg's qualified Symbol when both exist.
 			labelKey := t.Str
@@ -2208,6 +2211,12 @@ func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,
 	cmpOp, fusedOp, getLocalCmpOp, getLocalFusedOp vm.Op, immAdj int32,
 ) bool {
 	if len(c.Code) == 0 {
+		return false
+	}
+	// A `&&`/`||` short-circuit merge label pinned at the current position
+	// would expect a standalone JumpFalse here; fusing it into the prior cmp
+	// op would route the merge jump into the if-body instead of the else arm.
+	if c.labelAtPos[len(c.Code)] {
 		return false
 	}
 	prev := &c.Code[len(c.Code)-1]

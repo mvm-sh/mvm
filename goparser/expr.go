@@ -479,16 +479,25 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 
 	noColon := len(tokens) > 0 && tokens.Index(lang.Colon) == -1
 	isStruct := false
+	isSlice := false
 	if !noColon {
-		if sym := p.Symbols[typ]; sym != nil && sym.Type.IsStruct() {
-			// For struct composite literals, the LHS of `field: value`
-			// is always a field NAME (not a value reference).
-			isStruct = true
+		if sym := p.Symbols[typ]; sym != nil {
+			switch {
+			case sym.Type.IsStruct():
+				// For struct composite literals, the LHS of `field: value`
+				// is always a field NAME (not a value reference).
+				isStruct = true
+			case sym.Type.IsSlice():
+				// Indexed-key slice literal: sliceLen must be highest index + 1
+				// per Go spec, otherwise Fnew allocates a zero-length slice.
+				isSlice = true
+			}
 		}
 	}
 
 	var result Tokens
 	var sliceLen int
+	curIdx := 0
 	for i, sub := range tokens.Split(lang.Comma) {
 		if len(sub) == 0 {
 			continue
@@ -521,6 +530,17 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 			sliceLen++
 		} else {
 			result = append(result, toks...)
+			if isSlice {
+				if ci := sub.Index(lang.Colon); ci > 0 {
+					if k, ok := p.constIntKey(sub[:ci]); ok {
+						curIdx = k
+					}
+				}
+				curIdx++
+				if curIdx > sliceLen {
+					sliceLen = curIdx
+				}
+			}
 		}
 	}
 

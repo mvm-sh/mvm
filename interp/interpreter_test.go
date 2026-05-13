@@ -223,6 +223,15 @@ func TestLogical(t *testing.T) {
 		{n: "#10", src: "a := 1+1 < 3 && 4 == 2+2; a", res: "true"},
 		{n: "#11", src: "a := 1+1 < 3 || 3 == 2+2; a", res: "true"},
 		{n: "#12", src: "func f1() bool {return true}; func f2() bool {return false}; a := f1() && f2(); a", res: "false"},
+
+		// `&&` short-circuit merge label sits at the position the if-statement's
+		// JumpFalse would occupy; fuseCmpJump must not swallow that JumpFalse,
+		// or the merge target points at the if-body instead of the false-branch.
+		// Reproduces the infinite loop hit by golang.org/x/text/internal/language
+		// init's parseExtension (`for scan.scan(); end < scan.end && len(scan.token) > 2; scan.scan()`).
+		{n: "fused_and_cmp_falsy", src: `a, b := 2, 2; c := 0; r := "x"; if a < b && c > 0 { r = "BUG" }; r`, res: "x"},
+		{n: "fused_and_cmp_truthy", src: `a, b := 1, 2; c := 5; r := "x"; if a < b && c > 0 { r = "yes" }; r`, res: "yes"},
+		{n: "fused_or_cmp_truthy", src: `a, b := 2, 2; c := 5; r := "x"; if a < b || c > 0 { r = "yes" }; r`, res: "yes"},
 	})
 }
 
@@ -705,6 +714,17 @@ func TestArray(t *testing.T) {
 
 		{n: "2d_array", src: `a := [3][2]int{{1, 2}, {3, 4}, {5, 6}}; a[1][0]`, res: "3"},
 		{n: "2d_slice", src: `a := [][]int{{1, 2}, {3, 4}}; a[1][0]`, res: "3"},
+
+		// Slice with explicit-index keys: parseComposite must size the outer
+		// to highest-index + 1, else Fnew allocates a zero-length slice and
+		// the per-element IndexSet panics (see paradigmLocales in
+		// golang.org/x/text/language/tables.go).
+		{n: "slice_indexed_keys", src: `a := [][3]uint16{0: {1, 2, 3}, 1: {4, 5, 6}, 2: {7, 8, 9}}; a[2][1]`, res: "8"},
+		{n: "slice_sparse_index", src: `a := []int{2: 7}; len(a)`, res: "3"},
+		// Mixed keyed/unkeyed slice elements: parser still needs to inject
+		// idx/Colon tokens around the unkeyed elements so the compiler emits
+		// per-element IndexSet. Tracked but not yet implemented.
+		{n: "slice_mixed_keys", src: `a := []int{2: 7, 9}; len(a)`, res: "4", skip: true},
 		{n: "slice_after_make", src: `a := []int{1, 2, 3}; b := make([]int, 2); copy(b, a); b[1]`, res: "2"},
 		{n: "multi_slice_lit", src: `a := []int{1, 2, 3}; b := []int{4, 5}; a[2] + b[1]`, res: "8"},
 		{n: "2d_named", src: `type M [3][16]int; m := M{}; m[0][1] = 7; m[0][1]`, res: "7"},

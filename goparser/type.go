@@ -62,21 +62,32 @@ func (p *Parser) resolveEllipsisArray(elemTyp *vm.Type, toks Tokens, braceIdx in
 			continue
 		}
 		if ci := item.Index(lang.Colon); ci > 0 {
-			// Keyed element: evaluate the key as a constant expression.
-			// parseExpr converts infix to postfix, which evalConstExpr requires.
-			// On failure, fall back to sequential index.
-			keyToks, err := p.parseExpr(item[:ci], "")
-			if err == nil {
-				if cval, _, _, err := p.evalConstExpr(keyToks); err == nil {
-					if k, ok := constant.Int64Val(cval); ok {
-						idx = int(k)
-					}
-				}
+			if k, ok := p.constIntKey(item[:ci]); ok {
+				idx = k
 			}
 		}
 		idx++
 	}
 	return vm.ArrayOf(idx, elemTyp), nil
+}
+
+// constIntKey evaluates `keyToks` as a constant integer expression
+// (composite-literal index key). Returns false on parse / non-int error;
+// callers should fall back to sequential indexing.
+func (p *Parser) constIntKey(keyToks Tokens) (int, bool) {
+	toks, err := p.parseExpr(keyToks, "")
+	if err != nil {
+		return 0, false
+	}
+	cval, _, _, err := p.evalConstExpr(toks)
+	if err != nil {
+		return 0, false
+	}
+	k, ok := constant.Int64Val(cval)
+	if !ok {
+		return 0, false
+	}
+	return int(k), true
 }
 
 func (p *Parser) resolvePkgType(s *symbol.Symbol, name string) (*vm.Type, error) {
