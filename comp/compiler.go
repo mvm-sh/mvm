@@ -245,7 +245,13 @@ func (c *Compiler) allocGlobalSlots() {
 		case symbol.Var:
 			s.Index = len(c.Data)
 			v := s.Value
-			if !v.IsValid() && s.Type != nil {
+			if s.Type != nil {
+				// Re-allocate via vm.NewValue at the current rtype: an earlier
+				// vm.NewValue call (e.g. addSymVar at parse time) may have used
+				// a struct-placeholder rtype whose Size has since grown via
+				// SetFields, leaving s.Value's backing memory too small to
+				// hold the finalized struct. Reads past the original size hit
+				// adjacent memory (the language.Und Tag pExt-garbage bug).
 				v = vm.NewValue(s.Type.Rtype)
 			}
 			c.Data = append(c.Data, v)

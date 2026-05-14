@@ -729,7 +729,7 @@ func (t *Type) FieldLookup(name string) ([]int, *Type) {
 		// Walk t.Fields/Embedded along f.Index to recover mvm-level info (ElemType,
 		// Fields, Embedded) at the deepest field. VisibleFields' iteration index
 		// does not align with t.Fields when promoted fields are present, so we
-		// index strictly by f.Index — single-segment for top-level fields,
+		// index strictly by f.Index -- single-segment for top-level fields,
 		// multi-segment for fields promoted through embedded structs.
 		if ft := t.resolveFieldByPath(f.Index); ft != nil {
 			// Return a shallow copy with the type name (not the field name that

@@ -967,6 +967,56 @@ func Size() uintptr {
 	}
 }
 
+// TestRemotePlaceholderRtypeGrow checks that a package-level zero-value of an
+// imported struct type is fully zero-initialized even when the struct's rtype
+// grew via SetFields after the var symbol's Value was first allocated.
+//
+// Trigger shape: an imported package has `type Tag struct{...}` (a String()
+// method makes mvm bridge the type via fmt.Stringer) and `var Und Tag`. Before
+// the fix, parseTypeVar's call to vm.NewValue(Tag.Rtype) ran while Tag's rtype
+// was still the 8-byte placeholder; later SetFields patched the rtype to 32
+// bytes but Und's slot stayed 8 bytes backed. Reads past offset 7 hit adjacent
+// heap memory, so Und.LastField was garbage. Repro of the language.Und bug
+// that mangled x/text/internal/language's TestBuilder.
+func TestRemotePlaceholderRtypeGrow(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/lang",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/lang\n",
+			"lang.go": `package lang
+
+type Tag struct {
+	A uint16
+	B uint16
+	C uint16
+	D byte
+	E uint16
+	S string
+}
+
+func (t Tag) String() string { return t.S }
+
+var Und Tag
+`,
+		},
+	})
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	src := `import "example.com/x/lang"
+println(lang.Und.A, lang.Und.B, lang.Und.C, lang.Und.D, lang.Und.E, len(lang.Und.S))`
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "0 0 0 0 0 0\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 func TestRemoteXTextCrash(t *testing.T) {
 	t.Skip("vm.patchRtype crash fixed; x/text still hits other parser limits and the test needs network")
 
