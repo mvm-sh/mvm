@@ -1,17 +1,5 @@
 package main
 
-// skip: pre-existing bug. `id, end := parseTag()` inside a closure with
-// named return `id` calls addLocalVar(id) which SymAdd-overwrites the
-// named-return Symbol with a fresh LocalVar of Type=nil. The compiler
-// then crashes in typeSym(nil) when emitting the next assignment to id.
-// Go allows := if at least one LHS is new (here `end`); existing names
-// must rebind without redeclaration. Fix candidates: in
-// goparser/assign.go's define loop, skip addLocalVar when the ident is
-// already a LocalVar in the current funcScope; or have addLocalVar
-// preserve Type when the name already resolves. Surfaced 2026-05-14
-// while exercising reflect.TypeFor[Elem]() in unicode/cldr from the
-// internal/language test load.
-
 import "fmt"
 
 type Tag struct{ a int }
@@ -31,3 +19,6 @@ func main() {
 		return id, false
 	})
 }
+
+// Output:
+// {8} false

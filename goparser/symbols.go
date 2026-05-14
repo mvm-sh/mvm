@@ -28,6 +28,21 @@ func (p *Parser) addLocalVar(name string) string {
 	return scoped
 }
 
+// addOrRebindLocalVar returns the scoped key for a `:=` LHS ident, preserving
+// an existing same-scope LocalVar (named return, param, or prior `:=`) instead
+// of overwriting it with a fresh Type=nil entry. Go's short-var-decl rebinds
+// existing names when at least one LHS ident is new in the same block.
+func (p *Parser) addOrRebindLocalVar(name string) string {
+	if name == "_" {
+		return p.addLocalVar(name)
+	}
+	scoped := p.scopedName(name)
+	if s, ok := p.Symbols[scoped]; ok && s.Kind == symbol.LocalVar {
+		return scoped
+	}
+	return p.addLocalVar(name)
+}
+
 func (p *Parser) addPkgVar(name string) string {
 	scoped := p.pkgKey(name)
 	p.SymAdd(symbol.UnsetAddr, scoped, vm.Value{}, symbol.Var, nil)

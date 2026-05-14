@@ -90,7 +90,7 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 					continue
 				}
 				if p.funcScope != "" {
-					out[lhsPositions[i]].Str = p.addLocalVar(e[0].Str)
+					out[lhsPositions[i]].Str = p.addOrRebindLocalVar(e[0].Str)
 				} else {
 					out[lhsPositions[i]].Str = p.addGlobalVar(e[0].Str)
 				}
@@ -241,7 +241,7 @@ func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, d
 			lt := lhs[i]
 			if len(lt) == 1 && lt[0].Tok == lang.Ident {
 				if p.funcScope != "" {
-					out[lhsPos].Str = p.addLocalVar(lt[0].Str)
+					out[lhsPos].Str = p.addOrRebindLocalVar(lt[0].Str)
 				} else {
 					out[lhsPos].Str = p.addGlobalVar(lt[0].Str)
 				}

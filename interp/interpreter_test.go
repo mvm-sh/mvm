@@ -484,6 +484,12 @@ func TestFuncNamedReturn(t *testing.T) {
 		// slot as an untyped Value{}). Hit by language.ParseAcceptLanguage.
 		{n: "named_return_slice_append", src: `func f() (s []int) { s = append(s, 1); s = append(s, 2); return }; f()`, res: "[1 2]"},
 		{n: "named_return_map_assign", src: `func f() (m map[string]int) { m = map[string]int{}; m["a"] = 1; return }; f()["a"]`, res: "1"},
+
+		// Go's `:=` rebinds an existing same-block LocalVar when at least one LHS
+		// ident is new. Previously addLocalVar overwrote the named-return Symbol
+		// with a Type=nil entry, crashing the compiler in typeSym.
+		{n: "named_return_redef", src: `func g() (int, bool) { return 9, true }; func f() (x int, skip bool) { x, ok := g(); _ = ok; return x, false }; a, _ := f(); a`, res: "9"},
+		{n: "short_decl_param_rebind", src: `func g() (int, bool) { return 9, true }; func f(x int) int { x, ok := g(); _ = ok; return x }; f(1)`, res: "9"},
 	})
 }
 
