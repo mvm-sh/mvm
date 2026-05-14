@@ -36,23 +36,25 @@ type Compiler struct {
 
 	FuncRanges []vm.FuncRange // bytecode [Start, End) range for every compiled function, in source order
 
-	strings    map[string]int                  // locations of strings in Data
-	methodIDs  map[string]int                  // global method ID by method name
-	typeIdxs   map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
-	typeSyms   map[reflect.Type]*symbol.Symbol // dedup cache for typeSym, keyed by reflect.Type
-	labelAtPos map[int]bool                    // code positions occupied by Labels; consulted by fuseCmpJump
+	strings     map[string]int                  // locations of strings in Data
+	methodIDs   map[string]int                  // global method ID by method name
+	methodRtype map[int]reflect.Type            // func type (no receiver) by global method ID
+	typeIdxs    map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
+	typeSyms    map[reflect.Type]*symbol.Symbol // dedup cache for typeSym, keyed by reflect.Type
+	labelAtPos  map[int]bool                    // code positions occupied by Labels; consulted by fuseCmpJump
 }
 
 // NewCompiler returns a new compiler state for a given scanner.
 func NewCompiler(spec *lang.Spec) *Compiler {
 	return &Compiler{
-		Parser:     goparser.NewParser(spec, true),
-		Entry:      -1,
-		strings:    map[string]int{},
-		methodIDs:  map[string]int{},
-		typeIdxs:   map[*vm.Type]int{},
-		typeSyms:   map[reflect.Type]*symbol.Symbol{},
-		labelAtPos: map[int]bool{},
+		Parser:      goparser.NewParser(spec, true),
+		Entry:       -1,
+		strings:     map[string]int{},
+		methodIDs:   map[string]int{},
+		methodRtype: map[int]reflect.Type{},
+		typeIdxs:    map[*vm.Type]int{},
+		typeSyms:    map[reflect.Type]*symbol.Symbol{},
+		labelAtPos:  map[int]bool{},
 	}
 }
 
@@ -277,6 +279,20 @@ func (c *Compiler) MethodNames() []string {
 	return names
 }
 
+// MethodFuncTypes returns a slice of bound-method func types (no receiver)
+// indexed by global method ID. Entries are nil when no interface declaration
+// recorded the signature (e.g. methods on native types resolved purely via
+// reflect).
+func (c *Compiler) MethodFuncTypes() []reflect.Type {
+	ft := make([]reflect.Type, len(c.methodIDs))
+	for id, rtype := range c.methodRtype {
+		if id < len(ft) {
+			ft[id] = rtype
+		}
+	}
+	return ft
+}
+
 func (c *Compiler) typeIndex(typ *vm.Type) int {
 	if i, ok := c.typeIdxs[typ]; ok {
 		return i
@@ -362,6 +378,9 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 	iface.EnsureIfaceMethods()
 	for _, im := range iface.IfaceMethods {
 		id := c.methodID(im.Name)
+		if im.Rtype != nil {
+			c.methodRtype[id] = im.Rtype
+		}
 		if id < len(typ.Methods) && typ.Methods[id].IsResolved() {
 			continue // already registered directly or through embedded interface
 		}

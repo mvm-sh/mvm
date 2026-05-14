@@ -840,6 +840,42 @@ func TestStruct(t *testing.T) {
 		{n: "typefor_field_pkgpath", src: `import "reflect"; type Tag struct { a uint64 }; reflect.TypeFor[Tag]().Field(0).PkgPath != ""`, res: "true"},
 		{n: "typefor_primitive", src: `import "reflect"; reflect.TypeFor[int]().Kind().String()`, res: "int"},
 
+		// reflect.Value.MethodByName on a vm.Iface: mvm methods are invisible to
+		// Go reflect, so nativeMethodLookup intercepts and synthesises a bound method.
+		{n: "reflect_value_methodbyname_iface", src: `
+import "reflect"
+type Namer interface { Name() string }
+type T struct{}
+func (T) Name() string { return "hello" }
+var n Namer = T{}
+rv := reflect.ValueOf(n)
+rv.MethodByName("Name").Call(nil)[0].String()`, res: "hello"},
+
+		{n: "reflect_value_methodbyname_slice_return", src: `
+import "reflect"
+type Lister interface { List() []int }
+type L struct{}
+func (L) List() []int { return []int{1,2,3} }
+var l Lister = L{}
+rv := reflect.ValueOf(l)
+out := rv.MethodByName("List").Call(nil)[0].Interface().([]int)
+len(out)`, res: "3"},
+
+		// MethodByName chain inside a closure dispatched via reflect.Value.Call:
+		// re-enters the VM through makeCallFunc, so MethodFuncTypes must reach
+		// the child runner.
+		{n: "reflect_value_methodbyname_reentrant", src: `
+import "reflect"
+type Greeter interface { Hi() string }
+type G struct{}
+func (G) Hi() string { return "hi" }
+var g Greeter = G{}
+f := func() string {
+	rv := reflect.ValueOf(g)
+	return rv.MethodByName("Hi").Call(nil)[0].String()
+}
+reflect.ValueOf(f).Call(nil)[0].String()`, res: "hi"},
+
 		// struct with embedded type that has methods and additional fields
 		// (reflect.StructOf panics if Anonymous=true on a type with methods in a multi-field struct)
 		{n: "embed_with_methods", src: `

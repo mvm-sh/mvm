@@ -139,6 +139,99 @@ func LookupRuntimeFuncByPC(pc uintptr) (*runtime.Func, *RuntimeFuncInfo) {
 	return nil, nil
 }
 
+// reflectValueRtype is the reflect.Type for reflect.Value itself.
+var reflectValueRtype = reflect.TypeOf(reflect.Value{})
+
+// Shim MakeFunc signatures, hoisted to avoid re-creating the reflect.Type on
+// every shim invocation.
+var (
+	methodByNameShimType = reflect.TypeOf(func(string) reflect.Value { return reflect.Value{} })
+	callShimType         = reflect.TypeOf(func([]reflect.Value) []reflect.Value { return nil })
+)
+
+// zeroReflectValueResult is the "method not found / invalid" return for the
+// MethodByName shim: a one-element slice holding the zero reflect.Value, which
+// matches the shim's declared return type.
+var zeroReflectValueResult = []reflect.Value{reflect.Zero(reflectValueRtype)}
+
+// reflectValueShim intercepts reflect.Value.MethodByName (and reflect.Value.Call
+// on the result) when the inner value is an mvm-interpreted type, returning a
+// synthetic bound method backed by mvm bytecode.
+// This is needed because mvm methods live in vm.Type.Methods[] and are invisible
+// to Go's native reflect type system.
+//
+// Two cases for the inner value:
+//   - vm.Iface: reflect.ValueOf received an mvm interface without unwrapping;
+//     we extract Typ and Val directly from the Iface struct.
+//   - concrete mvm type: typeByRtype maps the Rtype back to the mvm *Type.
+func reflectValueShim(rv reflect.Value, name string) reflect.Value {
+	if !rv.IsValid() || rv.Type() != reflectValueRtype {
+		return reflect.Value{}
+	}
+	innerRV, ok := rv.Interface().(reflect.Value)
+	if !ok || !innerRV.IsValid() {
+		return reflect.Value{}
+	}
+	switch name {
+	case "MethodByName":
+		m := ActiveMachine()
+		if m == nil {
+			return reflect.Value{}
+		}
+		// Build the Iface that MakeMethodCallable expects. When innerRV is
+		// already a vm.Iface (mvm interface that escaped reflect.ValueOf
+		// untouched), use it directly; otherwise wrap the concrete value
+		// under its resolved mvm *Type.
+		var ifc Iface
+		if innerRV.Type() == ifaceRtype {
+			ifc = innerRV.Interface().(Iface)
+			if ifc.Typ == nil {
+				return reflect.Value{}
+			}
+		} else {
+			t := m.typeByRtype(innerRV.Type())
+			if t == nil {
+				return reflect.Value{}
+			}
+			ifc = Iface{Typ: t, Val: FromReflect(innerRV)}
+		}
+		return reflect.MakeFunc(methodByNameShimType,
+			func(args []reflect.Value) []reflect.Value {
+				methodName := args[0].String()
+				m2 := ActiveMachine()
+				if m2 == nil {
+					return zeroReflectValueResult
+				}
+				method, found := m2.MethodByName(ifc.Typ, methodName)
+				if !found {
+					return zeroReflectValueResult
+				}
+				ft := m2.ifaceMethodFuncType(methodName)
+				if ft == nil {
+					return zeroReflectValueResult
+				}
+				closure := m2.MakeMethodCallable(ifc, method)
+				// Wrap in reflect.ValueOf so the returned value has type reflect.Value
+				// (struct), matching the declared return type of func(string) reflect.Value.
+				return []reflect.Value{reflect.ValueOf(m2.makeCallFunc(closure, ft))}
+			})
+	case "Call":
+		if innerRV.Kind() != reflect.Func {
+			return reflect.Value{}
+		}
+		return reflect.MakeFunc(callShimType,
+			func(args []reflect.Value) []reflect.Value {
+				var in []reflect.Value
+				if len(args) > 0 && args[0].IsValid() && !args[0].IsNil() {
+					in, _ = args[0].Interface().([]reflect.Value)
+				}
+				out := innerRV.Call(in)
+				return []reflect.Value{reflect.ValueOf(out)}
+			})
+	}
+	return reflect.Value{}
+}
+
 // runtimeFuncShim returns a bound-method reflect.Value that satisfies
 // (*runtime.Func).Name or (*runtime.Func).FileLine using the side-table
 // entry for rv. Returns the zero reflect.Value if rv is not a tracked

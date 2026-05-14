@@ -76,6 +76,7 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	}
 
 	i.Machine.MethodNames = i.Compiler.MethodNames()
+	i.Machine.MethodFuncTypes = i.Compiler.MethodFuncTypes()
 
 	i.TrimStack()
 	i.Push(i.Data[dataOffset:]...)

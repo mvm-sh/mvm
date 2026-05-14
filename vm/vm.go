@@ -374,12 +374,14 @@ type Machine struct {
 	// is keyed by funcValuePtr (read live from the field's bytes), so a
 	// reflect.Set that overwrites the field bytes still resolves to the right
 	// closure on the next Call.
-	funcFields map[uintptr]Value
+	funcFields   map[uintptr]Value
+	typesByRtype map[reflect.Type]*Type // lazy: nil until first typeByRtype call
 
 	in       io.Reader // machine standard input (nil = os.Stdin)
 	out, err io.Writer // machine standard output and error
 
-	MethodNames []string // names by global method ID
+	MethodNames     []string       // names by global method ID
+	MethodFuncTypes []reflect.Type // bound-method func type (no receiver) by global method ID
 
 	debugInfoFn func() *DebugInfo // builds DebugInfo on demand (breaks vm->comp cycle)
 	debugIn     io.Reader         // debug command input (nil = os.Stdin)
@@ -2706,10 +2708,44 @@ func nativeMethodLookup(rv reflect.Value, name string) reflect.Value {
 	if shim := runtimeFuncShim(rv, name); shim.IsValid() {
 		return shim
 	}
+	if shim := reflectValueShim(rv, name); shim.IsValid() {
+		return shim
+	}
 	if mv := rv.MethodByName(name); mv.IsValid() {
 		return mv
 	}
 	return reflect.Indirect(rv).MethodByName(name)
+}
+
+var typePtrRtype = reflect.TypeOf((*Type)(nil))
+
+// typeByRtype returns the mvm *Type whose Rtype equals rt, building
+// a lazy index over globals on the first call.
+func (m *Machine) typeByRtype(rt reflect.Type) *Type {
+	if m.typesByRtype == nil {
+		m.typesByRtype = map[reflect.Type]*Type{}
+		for _, g := range m.globals {
+			if g.ref.IsValid() && g.ref.Type() == typePtrRtype {
+				t := g.ref.Interface().(*Type)
+				if t != nil && t.Rtype != nil {
+					m.typesByRtype[t.Rtype] = t
+				}
+			}
+		}
+	}
+	return m.typesByRtype[rt]
+}
+
+// ifaceMethodFuncType returns the reflect.Type (without receiver) for the named
+// method by looking up in MethodFuncTypes (populated from interface declarations
+// at compile time).
+func (m *Machine) ifaceMethodFuncType(name string) reflect.Type {
+	for id, n := range m.MethodNames {
+		if n == name && id < len(m.MethodFuncTypes) {
+			return m.MethodFuncTypes[id]
+		}
+	}
+	return nil
 }
 
 // PushCode adds instructions to the machine code (with zero source positions).
@@ -2887,35 +2923,41 @@ func (m *Machine) wrapForFunc(val Value, funcType reflect.Type) reflect.Value {
 // Machines for re-entrant execution (bridge callbacks, MakeFunc adapters).
 // Snapshot once, reuse across closures to avoid drift between call sites.
 type runnerState struct {
-	globals     []Value
-	code        []Instruction
-	baseCodeLen int
-	out, err    io.Writer
-	methodNames []string
-	debugInfoFn func() *DebugInfo
+	globals         []Value
+	code            []Instruction
+	baseCodeLen     int
+	out, err        io.Writer
+	methodNames     []string
+	methodFuncTypes []reflect.Type
+	typesByRtype    map[reflect.Type]*Type
+	debugInfoFn     func() *DebugInfo
 }
 
 func (m *Machine) captureRunnerState() runnerState {
 	return runnerState{
-		globals:     m.globals,
-		code:        m.code[:m.baseCodeLen:m.baseCodeLen],
-		baseCodeLen: m.baseCodeLen,
-		out:         m.out,
-		err:         m.err,
-		methodNames: m.MethodNames,
-		debugInfoFn: m.debugInfoFn,
+		globals:         m.globals,
+		code:            m.code[:m.baseCodeLen:m.baseCodeLen],
+		baseCodeLen:     m.baseCodeLen,
+		out:             m.out,
+		err:             m.err,
+		methodNames:     m.MethodNames,
+		methodFuncTypes: m.MethodFuncTypes,
+		typesByRtype:    m.typesByRtype,
+		debugInfoFn:     m.debugInfoFn,
 	}
 }
 
 func (rs *runnerState) newRunner() *Machine {
 	return &Machine{
-		globals:     rs.globals,
-		code:        rs.code,
-		baseCodeLen: rs.baseCodeLen,
-		out:         rs.out,
-		err:         rs.err,
-		MethodNames: rs.methodNames,
-		debugInfoFn: rs.debugInfoFn,
+		globals:         rs.globals,
+		code:            rs.code,
+		baseCodeLen:     rs.baseCodeLen,
+		out:             rs.out,
+		err:             rs.err,
+		MethodNames:     rs.methodNames,
+		MethodFuncTypes: rs.methodFuncTypes,
+		typesByRtype:    rs.typesByRtype,
+		debugInfoFn:     rs.debugInfoFn,
 	}
 }
 
@@ -3068,19 +3110,21 @@ func (m *Machine) newGoroutine(fval Value, args []Value) {
 	mem[narg+3] = Value{num: 0} // prevFP = 0
 
 	child := &Machine{
-		globals:     m.globals,
-		code:        m.code[:m.baseCodeLen:m.baseCodeLen],
-		baseCodeLen: m.baseCodeLen,
-		heap:        heap,
-		ip:          nip,
-		fp:          frameBase,
-		mem:         mem,
-		in:          m.in,
-		out:         m.out,
-		err:         m.err,
-		debugIn:     m.debugIn,
-		debugOut:    m.debugOut,
-		MethodNames: m.MethodNames,
+		globals:         m.globals,
+		code:            m.code[:m.baseCodeLen:m.baseCodeLen],
+		baseCodeLen:     m.baseCodeLen,
+		heap:            heap,
+		ip:              nip,
+		fp:              frameBase,
+		mem:             mem,
+		in:              m.in,
+		out:             m.out,
+		err:             m.err,
+		debugIn:         m.debugIn,
+		debugOut:        m.debugOut,
+		MethodNames:     m.MethodNames,
+		MethodFuncTypes: m.MethodFuncTypes,
+		typesByRtype:    m.typesByRtype,
 	}
 	go func() { _ = child.Run() }()
 }
