@@ -490,6 +490,13 @@ func TestFuncNamedReturn(t *testing.T) {
 		// with a Type=nil entry, crashing the compiler in typeSym.
 		{n: "named_return_redef", src: `func g() (int, bool) { return 9, true }; func f() (x int, skip bool) { x, ok := g(); _ = ok; return x, false }; a, _ := f(); a`, res: "9"},
 		{n: "short_decl_param_rebind", src: `func g() (int, bool) { return 9, true }; func f(x int) int { x, ok := g(); _ = ok; return x }; f(1)`, res: "9"},
+
+		// Bit-ops on a never-written named-return scalar used to drop the result:
+		// the op left .ref invalid and assignSlot's reflect.Zero fallback overwrote src.num with 0.
+		{n: "named_return_or_uninit", src: `type C uint32; func f() (c C) { c |= C(313) << 20; return c }; f()`, res: "328204288"},
+		{n: "named_return_and_uninit", src: `func f() (c uint32) { c &= 0xff; return c }; f()`, res: "0"},
+		{n: "named_return_xor_uninit", src: `func f() (c uint32) { c ^= 0xff; return c }; f()`, res: "255"},
+		{n: "named_return_shl_uninit", src: `func f() (c uint32) { c <<= 4; return c }; f()`, res: "0"},
 	})
 }
 

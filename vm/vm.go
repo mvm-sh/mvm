@@ -3308,31 +3308,39 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 	}
 	if isNum(src.ref.Kind()) {
 		dst.num = src.num
-		if dst.ref.CanSet() {
-			if isNum(dst.ref.Kind()) {
-				setNumReflect(dst.ref, src.num)
-			} else {
-				dst.ref.Set(src.Reflect())
-			}
-		} else {
+		switch {
+		case !dst.ref.CanSet():
 			dst.ref = src.ref
+		case isNum(dst.ref.Kind()):
+			setNumReflect(dst.ref, src.num)
+		default:
+			dst.ref.Set(src.Reflect())
 		}
-	} else {
-		if dst.ref.CanSet() {
-			s := src.ref
-			if !s.IsValid() {
-				s = reflect.Zero(dst.ref.Type())
-			} else if dst.ref.Kind() == reflect.Interface && isNilable(s) && s.IsNil() {
-				// Avoid creating a typed nil inside an interface{} slot.
-				// A typed nil (e.g. (func())(nil)) is not equal to untyped nil,
-				// which would break `f == nil` checks for func variables stored in interface{} slots.
-				s = reflect.Zero(dst.ref.Type())
-			}
-			dst.ref.Set(s)
-		} else {
-			dst.ref = src.ref
-		}
+		return
 	}
+	// Bit ops (BitOr/BitAnd/BitXor/BitAndNot/BitShl/BitShr) leave src.ref invalid
+	// when neither operand carries a typed ref (first write to a named-return
+	// scalar slot via `cci |= X`). Transfer src.num directly so the assignment
+	// doesn't fall through to reflect.Zero(dst.ref.Type()) and clobber the result.
+	if !src.ref.IsValid() && dst.ref.CanSet() && isNum(dst.ref.Kind()) {
+		dst.num = src.num
+		setNumReflect(dst.ref, src.num)
+		return
+	}
+	if !dst.ref.CanSet() {
+		dst.ref = src.ref
+		return
+	}
+	s := src.ref
+	if !s.IsValid() {
+		s = reflect.Zero(dst.ref.Type())
+	} else if dst.ref.Kind() == reflect.Interface && isNilable(s) && s.IsNil() {
+		// Avoid creating a typed nil inside an interface{} slot.
+		// A typed nil (e.g. (func())(nil)) is not equal to untyped nil,
+		// which would break `f == nil` checks for func variables stored in interface{} slots.
+		s = reflect.Zero(dst.ref.Type())
+	}
+	dst.ref.Set(s)
 }
 
 func setNumReflect(rv reflect.Value, num uint64) {
