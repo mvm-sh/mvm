@@ -1074,6 +1074,99 @@ println(dual.F().A)`
 	}
 }
 
+// TestRemoteMethodScopedLocalCollidesAcrossPkgs reproduces the
+// x/text/language TestMarshal failure. Two packages each define a method
+// with the same bare name (e.g. `(*Tag).Do`); each method's body declares
+// a `:=` local. mvm keys local symbols by funcScope (bare function name),
+// so the second package's parse finds the first's stale LocalVar for the
+// same local-name and reuses it -- without re-incrementing framelen. The
+// function-entry Grow then under-reserves frame slots, and subsequent stack
+// pushes corrupt the just-declared local.
+//
+// Concretely in the outer method below: after `err := <pkg-call>`, the
+// next assignment to *t issues a HeapGet that pushes at err's storage,
+// overwriting err with a pointer to the Tag receiver. The caller observes
+// a non-nil "error" instead of nil.
+func TestRemoteMethodScopedLocalCollidesAcrossPkgs(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/outer/pkg",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/outer/pkg\n",
+				"pkg.go": `package pkg
+
+import inner "example.com/inner/pkg"
+
+type Tag struct {
+	A int
+	B int
+}
+
+// Mirrors language.Tag.UnmarshalText: var of imported same-name pkg's
+// type, ':=' to capture its method's return, then '*t = ...'.
+func (t *Tag) Do(text []byte) error {
+	var x inner.Tag
+	err := x.Do(text)
+	*t = Tag{A: 1, B: 2}
+	_ = x
+	return err
+}
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/inner/pkg",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/inner/pkg\n",
+				"pkg.go": `package pkg
+
+type Tag struct {
+	A int
+	B int
+}
+
+// Body must register a LocalVar named err at a higher slot index than
+// the outer package's same-named method will allocate. The extra a
+// pushes err to slot Index=2 -- without the fix the outer reuses that
+// Index but its function-entry Grow only reserved 1 slot, leaving err
+// in stack space that the next push clobbers.
+func (t *Tag) Do(text []byte) error {
+	var a int
+	err := set(t, 134)
+	a = a + 1
+	_ = a
+	return err
+}
+
+func set(t *Tag, v int) error {
+	t.A = v
+	t.B = v
+	return nil
+}
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	src := `import "example.com/outer/pkg"
+var tag pkg.Tag
+err := tag.Do([]byte("en"))
+println(err == nil)`
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "true\n"; got != want {
+		t.Errorf("stdout: got %q want %q", got, want)
+	}
+}
+
 func TestRemoteXTextCrash(t *testing.T) {
 	t.Skip("vm.patchRtype crash fixed; x/text still hits other parser limits and the test needs network")
 

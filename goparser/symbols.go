@@ -32,12 +32,18 @@ func (p *Parser) addLocalVar(name string) string {
 // an existing same-scope LocalVar (named return, param, or prior `:=`) instead
 // of overwriting it with a fresh Type=nil entry. Go's short-var-decl rebinds
 // existing names when at least one LHS ident is new in the same block.
+//
+// `Index < framelen` rejects a stale entry left by a prior parse of a
+// different package's same-named method: funcScope is the bare function
+// name, so cross-pkg method namesakes share scoped keys for their locals.
+// Valid rebinds (named return, param, prior `:=` in this parse) have
+// Index < framelen by construction.
 func (p *Parser) addOrRebindLocalVar(name string) string {
 	if name == "_" {
 		return p.addLocalVar(name)
 	}
 	scoped := p.scopedName(name)
-	if s, ok := p.Symbols[scoped]; ok && s.Kind == symbol.LocalVar {
+	if s, ok := p.Symbols[scoped]; ok && s.Kind == symbol.LocalVar && s.Index < p.framelen[p.funcScope] {
 		return scoped
 	}
 	return p.addLocalVar(name)
