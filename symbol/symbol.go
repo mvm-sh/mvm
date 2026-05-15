@@ -60,6 +60,13 @@ type Symbol struct {
 	FieldOffset    uintptr
 	Data           any              // optional extra data (e.g. generic template)
 	Reads          map[*Symbol]bool // for Func: package-level Var symbols read transitively by the body
+	// PassthroughTarget marks a func literal whose body is exactly
+	// `return TARGET(params...)` with args matching the literal's params 1:1
+	// and no other statements. Holds the qualified name path of TARGET
+	// (e.g. ["regexp", "MatchString"]). If TARGET resolves to a native func of
+	// the same Go type, the compiler emits a reference to TARGET instead of
+	// building the closure, skipping the per-call bridge.
+	PassthroughTarget []string
 }
 
 // NeedsCell reports whether this variable should be promoted to a heap cell

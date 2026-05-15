@@ -456,6 +456,58 @@ func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {
 	return s, ok
 }
 
+// resolvePassthroughTarget resolves the qualified name path recorded by the
+// parser's passthrough detection and returns the data-segment index of the
+// target if it is a native func whose Go type exactly matches the closure's.
+// Allocates a data slot for a stdlib-bridged target on first use, mirroring
+// what the lang.Period handler does for ordinary pkg.Ident references.
+func (c *Compiler) resolvePassthroughTarget(s *symbol.Symbol) (int, bool) {
+	if s.Type == nil || s.Type.Rtype == nil {
+		return 0, false
+	}
+	path := s.PassthroughTarget
+	switch len(path) {
+	case 1:
+		target, ok := c.symAt(path[0])
+		if !ok || target.Kind != symbol.Func || target.Index == symbol.UnsetAddr {
+			return 0, false
+		}
+		if target.Type == nil || target.Type.Rtype != s.Type.Rtype {
+			return 0, false
+		}
+		if !target.Value.Reflect().IsValid() || target.Value.Reflect().Kind() != reflect.Func {
+			return 0, false
+		}
+		return target.Index, true
+	case 2:
+		pkgSym, ok := c.symAt(path[0])
+		if !ok || pkgSym.Kind != symbol.Pkg {
+			return 0, false
+		}
+		pkg, ok := c.Packages[pkgSym.PkgPath]
+		if !ok {
+			return 0, false
+		}
+		v, ok := pkg.Values[path[1]]
+		if !ok {
+			return 0, false
+		}
+		if v.Kind() != reflect.Func || v.Type() != s.Type.Rtype {
+			return 0, false
+		}
+		name := pkgSym.PkgPath + "." + path[1]
+		if sym, _, ok := c.Symbols.Get(name, ""); ok && sym.Index != symbol.UnsetAddr {
+			return sym.Index, true
+		}
+		idx := len(c.Data)
+		c.Data = append(c.Data, vm.ValueOf(v.Interface()))
+		c.SymAdd(idx, name, vm.ValueOf(v.Interface()), symbol.Func,
+			&vm.Type{Name: path[1], Rtype: v.Type()})
+		return idx, true
+	}
+	return 0, false
+}
+
 func showStack(stack []*symbol.Symbol) {
 	if debug {
 		_, file, line, _ := runtime.Caller(1)
@@ -1495,6 +1547,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			push(s)
 			if s.Kind == symbol.Pkg || s.Kind == symbol.Unset || s.Kind == symbol.Builtin || s.Kind == symbol.Generic {
 				break
+			}
+			if s.Kind == symbol.Func && len(s.FreeVars) == 0 && len(s.PassthroughTarget) > 0 {
+				if idx, ok := c.resolvePassthroughTarget(s); ok {
+					c.emit(t, vm.GetGlobal, idx)
+					break
+				}
 			}
 			// Closure creation: emit code address + captured cell pointers + MkClosure.
 			if s.Kind == symbol.Func && len(s.FreeVars) > 0 {

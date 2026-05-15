@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/scan"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -244,6 +245,66 @@ func (p *Parser) anonFuncName() string {
 	return "#f" + strconv.Itoa(clo)
 }
 
+// detectPassthrough recognises a func literal whose body is exactly
+// `return TARGET(params...)` -- the args being the literal's declared
+// params in order, with no other statements, conversions, or spread.
+// Returns the qualified-name path of TARGET (e.g. ["regexp", "MatchString"])
+// or nil if the pattern doesn't match. The compiler later checks that
+// TARGET resolves to a native func of the exact same Go signature; if so,
+// the closure value is replaced by a reference to TARGET, avoiding the
+// per-call bridge overhead.
+func trimTrailingSemi(ts Tokens) Tokens {
+	for len(ts) > 0 && ts[len(ts)-1].Tok == lang.Semicolon {
+		ts = ts[:len(ts)-1]
+	}
+	return ts
+}
+
+func (p *Parser) detectPassthrough(s *symbol.Symbol, bodyTok scan.Token) []string {
+	body, err := p.scanBlock(bodyTok, false)
+	if err != nil {
+		return nil
+	}
+	body = trimTrailingSemi(body)
+	if len(body) < 3 || body[0].Tok != lang.Return {
+		return nil
+	}
+	if body[1].Tok != lang.Ident {
+		return nil
+	}
+	path := []string{body[1].Str}
+	i := 2
+	for i+1 < len(body) && body[i].Tok == lang.Period && body[i+1].Tok == lang.Ident {
+		path = append(path, body[i+1].Str)
+		i += 2
+	}
+	if i != len(body)-1 || body[i].Tok != lang.ParenBlock {
+		return nil
+	}
+	argToks, err := p.scanBlock(body[i].Token, false)
+	if err != nil {
+		return nil
+	}
+	argToks = trimTrailingSemi(argToks)
+	if len(argToks) == 0 {
+		if len(s.InNames) != 0 {
+			return nil
+		}
+		return path
+	}
+	args := argToks.Split(lang.Comma)
+	if len(args) != len(s.InNames) {
+		return nil
+	}
+	for idx, arg := range args {
+		arg = trimTrailingSemi(arg)
+		if len(arg) != 1 || arg[0].Tok != lang.Ident || arg[0].Str != s.InNames[idx] {
+			return nil
+		}
+	}
+	return path
+}
+
 func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	var fname string
 
@@ -380,6 +441,15 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		}
 		s.Kind = symbol.Func
 		s.Type = typ
+		// Recover param names so passthrough detection can match them to body args.
+		// parseTypeExpr registers params as locals but discards the name list.
+		if _, inNames, outNames, sigErr := p.parseFuncSig(in[:bi]); sigErr == nil {
+			s.InNames = inNames
+			s.OutNames = outNames
+		}
+	}
+	if path := p.detectPassthrough(s, in[bi].Token); path != nil {
+		s.PassthroughTarget = path
 	}
 	p.function = s
 
