@@ -60,13 +60,6 @@ type Symbol struct {
 	FieldOffset    uintptr
 	Data           any              // optional extra data (e.g. generic template)
 	Reads          map[*Symbol]bool // for Func: package-level Var symbols read transitively by the body
-	// PassthroughTarget marks a func literal whose body is exactly
-	// `return TARGET(params...)` with args matching the literal's params 1:1
-	// and no other statements. Holds the qualified name path of TARGET
-	// (e.g. ["regexp", "MatchString"]). If TARGET resolves to a native func of
-	// the same Go type, the compiler emits a reference to TARGET instead of
-	// building the closure, skipping the per-call bridge.
-	PassthroughTarget []string
 }
 
 // NeedsCell reports whether this variable should be promoted to a heap cell
@@ -211,7 +204,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 			_, nativeVal := sym.Type.Rtype.MethodByName(name)
 			_, nativePtr := reflect.PointerTo(ptype).MethodByName(name)
 			if !nativeVal && !nativePtr {
-				if m := sm.qualifiedMethodLookup(ptype, typName, name); m != nil {
+				if m := sm.qualifiedMethodLookup(sym.Type, typName, name); m != nil {
 					return m, nil
 				}
 			}
@@ -222,31 +215,59 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 }
 
 // qualifiedMethodLookup finds a method registered at a pkg-qualified canonical
-// key. It searches sm for a Type Symbol whose underlying Rtype matches rt (after
-// stripping a pointer wrapper) and whose key ends in ".<typName>", then probes
-// `<key>.<method>` and `*<key>.<method>`. Path B step 2 ([[project_phase2_path_b_step2_funcs_methods]])
-// places methods at these keys for imported pkgs.
-func (sm SymMap) qualifiedMethodLookup(rt reflect.Type, typName, method string) *Symbol {
+// key (Path B step 2, [[project_phase2_path_b_step2_funcs_methods]]). It searches
+// sm for a Type Symbol whose underlying Rtype matches recv's (after stripping a
+// pointer wrapper) and whose key ends in ".<typName>", then probes `<key>.<method>`
+// and `*<key>.<method>`.
+//
+// Two distinct mvm Types can share the same Rtype (e.g. `compact.Tag` and the
+// outer `language.Tag` are both `struct{P30 int}` in x/text via `type Tag compact.Tag`).
+// Rtype-only matching would pick one at random via Go's map iteration -- the root
+// cause of [[project_isroot_iface_dispatch_recursion]]. So a candidate whose
+// Symbol *vm.Type pointer equals recv wins immediately; an rtype-only match is
+// kept as fallback in case recv has no entry of its own.
+func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *Symbol {
+	if recv == nil || recv.Rtype == nil {
+		return nil
+	}
+	rt := recv.Rtype
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
 	suffix := "." + typName
-	for k, s := range sm {
-		if k == "" || s.Kind != Type || s.Type == nil {
-			continue
-		}
-		srt := s.Type.Rtype
-		if srt != nil && srt.Kind() == reflect.Pointer {
-			srt = srt.Elem()
-		}
-		if srt != rt || !strings.HasSuffix(k, suffix) {
-			continue
-		}
+	probe := func(k string) *Symbol {
 		if m := sm[k+"."+method]; m != nil {
 			return m
 		}
-		if m := sm["*"+k+"."+method]; m != nil {
+		return sm["*"+k+"."+method]
+	}
+	var fallback *Symbol
+	for k, s := range sm {
+		if k == "" || s.Kind != Type || s.Type == nil || !strings.HasSuffix(k, suffix) {
+			continue
+		}
+		srt := s.Type.Rtype
+		if srt == nil {
+			continue
+		}
+		if srt.Kind() == reflect.Pointer {
+			srt = srt.Elem()
+		}
+		if srt != rt {
+			continue
+		}
+		m := probe(k)
+		if m == nil {
+			continue
+		}
+		if s.Type == recv {
 			return m
 		}
+		if fallback == nil {
+			fallback = m
+		}
 	}
-	return nil
+	return fallback
 }
 
 // methodLookup finds `<typName>.<method>` in sm. With Path B steps 1+2 done,
@@ -281,12 +302,8 @@ func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol,
 			return m, fieldPath
 		}
 		// Embedded type's method may live at a pkg-qualified key (Path B).
-		if embType.Rtype != nil && embType.Name != "" {
-			ert := embType.Rtype
-			if ert.Kind() == reflect.Pointer {
-				ert = ert.Elem()
-			}
-			if m := sm.qualifiedMethodLookup(ert, embType.Name, name); m != nil {
+		if embType.Name != "" {
+			if m := sm.qualifiedMethodLookup(embType, embType.Name, name); m != nil {
 				return m, fieldPath
 			}
 		}
