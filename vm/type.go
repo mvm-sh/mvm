@@ -611,6 +611,23 @@ func (v Value) Equal(u Value) bool {
 	if !v.ref.IsValid() {
 		return nilEqual(u)
 	}
+	// For structs, walk fields and recurse so that interface-typed fields
+	// (stored as mvm Iface inside an `any` slot) get mvm's iface-aware
+	// comparison instead of reflect.Value.Equal's structural compare. The
+	// latter would recurse into the embedded reflect.Value of Iface.Val and
+	// compare ptr fields, which differ across instances of the same logical
+	// value.
+	if v.ref.Kind() == reflect.Struct && u.ref.Kind() == reflect.Struct && v.ref.Type() == u.ref.Type() {
+		nf := v.ref.NumField()
+		for i := 0; i < nf; i++ {
+			fv := FromReflect(Exportable(v.ref.Field(i)))
+			fu := FromReflect(Exportable(u.ref.Field(i)))
+			if !fv.Equal(fu) {
+				return false
+			}
+		}
+		return true
+	}
 	return v.ref.Equal(u.ref)
 }
 

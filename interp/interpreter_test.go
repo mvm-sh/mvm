@@ -893,6 +893,30 @@ type Buf struct {
 }
 b := &Buf{Buffer: bytes.NewBufferString("hello"), size: 5}
 b.size`, res: "5"},
+
+		// Struct equality where one field is an interface holding a struct value.
+		// Pre-fix this returned false because reflect.Value.Equal on the outer
+		// struct recursed into the embedded reflect.Value inside mvm's Iface.Val
+		// and compared its `ptr` field (different memory addresses for two
+		// independently-constructed Inner values). With Value.Equal walking
+		// struct fields itself, the interface field hits the iface-aware path
+		// and compares correctly. Mirrors x/text/language.TestEquality.
+		{n: "struct_eq_iface_field", src: `
+type fullTag interface{ Marker() }
+type Inner struct{ a uint16; b string }
+func (Inner) Marker() {}
+type Tag struct{ lang uint16; full fullTag }
+mk := func(s string) Tag { return Tag{lang: 2, full: Inner{a: 5, b: s}} }
+t1 := mk("af-Arab")
+t2 := mk("af-Arab")
+t1 == t2`, res: "true"},
+		{n: "struct_eq_iface_field_diff", src: `
+type fullTag interface{ Marker() }
+type Inner struct{ a uint16; b string }
+func (Inner) Marker() {}
+type Tag struct{ lang uint16; full fullTag }
+mk := func(s string) Tag { return Tag{lang: 2, full: Inner{a: 5, b: s}} }
+mk("af-Arab") == mk("es-419")`, res: "false"},
 	})
 }
 
