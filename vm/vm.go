@@ -1172,7 +1172,20 @@ func (m *Machine) Run() (err error) {
 		case IfaceWrap:
 			typ := m.globals[int(c.A)].ref.Interface().(*Type)
 			idx := sp - int(c.B)
-			mem[idx] = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: mem[idx]})}
+			v := mem[idx]
+			// Assigning a struct/array value to an interface copies it (Go spec).
+			// Without this clone, the wrapped Iface.Val.ref would alias the source
+			// slot's storage and later mutations to that slot would leak through
+			// the interface (e.g. compact.Make stores `tag.full = t` and a caller
+			// mutating t later would see the change inside tag.full).
+			if v.ref.IsValid() {
+				if k := v.ref.Kind(); k == reflect.Struct || k == reflect.Array {
+					nv := reflect.New(v.ref.Type()).Elem()
+					nv.Set(Exportable(v.ref))
+					v.ref = nv
+				}
+			}
+			mem[idx] = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: v})}
 
 		case IfaceCall:
 			methodID := int(c.A)
@@ -3382,6 +3395,7 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 		fv.Set(reflect.Zero(fv.Type()))
 		return
 	}
+	val.ref = Exportable(val.ref)
 	if pf, ok := val.ref.Interface().(MvmFunc); ok && fv.CanAddr() {
 		m.setGoFuncField(fv, pf.GF, pf.Val)
 		return
