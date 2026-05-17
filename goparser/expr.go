@@ -170,12 +170,11 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			// Exclude variables defined in sub-scopes of the current function (e.g. for loops).
 			isInnerScope := sc == p.funcScope || strings.HasPrefix(sc, p.funcScope+"/")
 			if ok && s != nil && s.Kind == symbol.LocalVar && sc != "" && p.fname != "" && !isInnerScope {
-				if cloSym := p.Symbols[p.fname]; cloSym != nil {
-					if cloSym.FreeVarIndex(t.Str) < 0 {
-						cloSym.FreeVars = append(cloSym.FreeVars, t.Str)
-						s.Captured = true
-					}
-				}
+				// Every enclosing closure up to the defining function must capture
+				// transitively; otherwise comp's MkClosure can't bridge the chain and
+				// emits GetLocal against the wrong frame.
+				p.propagateCapture(t.Str, sc)
+				s.Captured = true
 			}
 			if s != nil && s.Kind == symbol.Type {
 				ctype = t.Str

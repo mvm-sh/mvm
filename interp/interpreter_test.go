@@ -2203,6 +2203,39 @@ f()`, res: "606"},
 		{n: "#13", src: `func f() int { n := 0; inc := func() { n = n+1 }; get := func() int { return n }; inc(); inc(); inc(); return get() }; f()`, res: "3"},
 		// Closure captures shadowed loop variable (not the post-increment loop var).
 		{n: "#14", src: `func f() int { foos := []func() int{}; for i := 0; i < 3; i++ { i := i; foos = append(foos, func() int { return i }) }; return foos[0]() + foos[1]()*10 + foos[2]()*100 }; f()`, res: "210"},
+		// Transitive capture across multiple closure levels: innermost closure references
+		// a variable defined two levels up. Without propagating the free var through the
+		// intermediate closure, the compiler resolves the var against the wrong frame at
+		// MkClosure and the heap slot holds a non-*Value, panicking the assertion. Mirrors
+		// the structure of x/text/language TestCompliance's filepath.Walk -> ucd.Parse ->
+		// t.Run nesting that captures the Walk callback's `err` from inside t.Run's body.
+		{n: "transitive_capture_3level", src: `
+func f() int {
+	x := 100
+	outer := func(a int) int {
+		mid := func(b int) int {
+			inner := func(c int) int {
+				return x + a + b + c
+			}
+			return inner(3)
+		}
+		return mid(2)
+	}
+	return outer(1)
+}
+f()`, res: "106"},
+		// Transitive capture where intermediate closure does NOT itself reference the
+		// outer variable. Stresses propagateCapture: the intermediate's FreeVars must
+		// pick up `x` even though its body never names `x` directly.
+		{n: "transitive_capture_pass_through", src: `
+func f() int {
+	x := 7
+	makeMid := func() func() int {
+		return func() int { return x }
+	}
+	return makeMid()()
+}
+f()`, res: "7"},
 	})
 }
 

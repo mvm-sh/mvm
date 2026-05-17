@@ -53,6 +53,32 @@ func caseBodyLabel(scope string, index int) string {
 	return fmt.Sprintf("%sc%d_body", scope, index)
 }
 
+// propagateCapture appends name to FreeVars of every enclosing function scope
+// in p.funcScope, walking outward and stopping before definingScope (the
+// variable's owning function). Each function's Symbol-table key is the last
+// segment of its scope (matches anon "#..." closures keyed bare and named
+// functions/methods alike). Non-function scope segments (block/case/for-loop)
+// are skipped via the framelen check; without it a synthetic block name could
+// alias a top-level Symbol.
+func (p *Parser) propagateCapture(name, definingScope string) {
+	for cur := p.funcScope; cur != "" && cur != definingScope; {
+		j := strings.LastIndex(cur, "/")
+		if _, isFunc := p.framelen[cur]; isFunc {
+			cloKey := cur
+			if j >= 0 {
+				cloKey = cur[j+1:]
+			}
+			if cloSym, ok := p.Symbols[cloKey]; ok && cloSym != nil && cloSym.FreeVarIndex(name) < 0 {
+				cloSym.FreeVars = append(cloSym.FreeVars, name)
+			}
+		}
+		if j < 0 {
+			break
+		}
+		cur = cur[:j]
+	}
+}
+
 func (p *Parser) pushScope(name string) {
 	if p.scope != "" {
 		p.scope += "/"
