@@ -917,6 +917,32 @@ func (Inner) Marker() {}
 type Tag struct{ lang uint16; full fullTag }
 mk := func(s string) Tag { return Tag{lang: 2, full: Inner{a: 5, b: s}} }
 mk("af-Arab") == mk("es-419")`, res: "false"},
+
+		// Struct passed by value: callee field write must not leak back to caller.
+		// Triggered in x/text/language internal.FromTag where t.Maximize() mutated
+		// the receiver's caller-side storage, making "und-US" canonicalize to
+		// "en-Latn-US".
+		{n: "struct_param_field_write_no_leak", src: `
+type T struct{ A, B int }
+func f(t T) { t.A = 99 }
+t := T{A: 1, B: 2}
+f(t)
+t.A`, res: "1"},
+
+		// Same for arrays: pass-by-value, callee index writes must not leak.
+		{n: "array_param_index_write_no_leak", src: `
+func f(a [3]int) { a[0] = 99 }
+a := [3]int{1, 2, 3}
+f(a)
+a[0]`, res: "1"},
+
+		// Value-receiver methods are pass-by-value of the receiver.
+		{n: "value_recv_method_no_leak", src: `
+type T struct{ A int }
+func (t T) Set() { t.A = 99 }
+t := T{A: 1}
+t.Set()
+t.A`, res: "1"},
 	})
 }
 

@@ -949,6 +949,9 @@ func (m *Machine) Run() (err error) {
 				mem[sp+i] = Value{}
 			}
 			sp += locals
+			if narg > 0 {
+				detachByValueArgs(mem[fp-narg-3 : fp-3])
+			}
 			ip = nip
 			continue
 		case CallImm:
@@ -981,6 +984,9 @@ func (m *Machine) Run() (err error) {
 				mem[sp+i] = Value{}
 			}
 			sp += locals
+			if narg > 0 {
+				detachByValueArgs(mem[fp-narg-3 : fp-3])
+			}
 			ip = nip
 			continue
 		case Deref:
@@ -2008,14 +2014,22 @@ func (m *Machine) Run() (err error) {
 		case HeapAlloc:
 			cell := new(Value)
 			*cell = mem[sp] // initialise cell with top-of-stack value
-			// Detach addressable refs to prevent aliasing: numeric values may share
-			// the underlying memory of the source frame slot via their ref field.
+			// Detach addressable refs to prevent aliasing: a frame slot ref may
+			// be reused/overwritten after the cell is created, and value-receiver
+			// methods need their own storage so field writes don't leak to caller.
 			// Allocate a fresh reflect.Value (not reflect.Zero) so that Reflect() returns
 			// the correct captured value via cell.ref.
-			if isNum(cell.ref.Kind()) && cell.ref.CanAddr() {
-				rv := reflect.New(cell.ref.Type()).Elem()
-				setNumReflect(rv, cell.num)
-				cell.ref = rv
+			if cell.ref.CanAddr() {
+				switch k := cell.ref.Kind(); {
+				case isNum(k):
+					rv := reflect.New(cell.ref.Type()).Elem()
+					setNumReflect(rv, cell.num)
+					cell.ref = rv
+				case k == reflect.Struct || k == reflect.Array:
+					rv := reflect.New(cell.ref.Type()).Elem()
+					rv.Set(cell.ref)
+					cell.ref = rv
+				}
 			}
 			mem[sp] = ValueOf(cell) // replace value with cell pointer
 		case HeapGet:
@@ -3309,6 +3323,26 @@ func snapshotArg(v Value) Value {
 		}
 	}
 	return v
+}
+
+// detachByValueArgs copies struct/array args into fresh addressable storage so
+// callee field/index writes don't leak to the caller's slot. Go semantics pass
+// structs and arrays by value; without this, the param's ref points at the
+// caller's local storage (when CanAddr) and mutations write through.
+func detachByValueArgs(args []Value) {
+	for i := range args {
+		r := args[i].ref
+		if !r.IsValid() || !r.CanAddr() {
+			continue
+		}
+		k := r.Kind()
+		if k != reflect.Struct && k != reflect.Array {
+			continue
+		}
+		nv := reflect.New(r.Type()).Elem()
+		nv.Set(r)
+		args[i].ref = nv
+	}
 }
 
 // Top returns (but not remove)  the value on the top of machine stack.
