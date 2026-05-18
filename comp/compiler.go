@@ -1277,8 +1277,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			sliceLen := t.Arg[0].(int)
 			if sliceLen > 0 {
 				idx := int32(c.Symbols[t.Str].Index) //nolint:gosec
+				// Skip Fnews already claimed by a nested composite of the
+				// same type (B != 0 marks the patched length); without this,
+				// `[]E{x, &T{Errors: []E{y}}}` re-patches the inner []E's
+				// Fnew and leaves the outer one at length 0.
 				for i := len(c.Code) - 1; i >= 0; i-- {
-					if c.Code[i].Op == vm.Fnew && c.Code[i].A == idx {
+					if c.Code[i].Op == vm.Fnew && c.Code[i].A == idx && c.Code[i].B == 0 {
 						c.Code[i].B = int32(sliceLen) //nolint:gosec
 						break
 					}
@@ -2790,8 +2794,11 @@ func (c *Compiler) compileBuiltin(
 		push(sliceSym)    // result is same slice type
 		elemType := sliceSym.Type.Rtype.Elem()
 		elemIdx := c.typeSym(&vm.Type{Rtype: elemType}).Index
+		isSpread := len(t.Arg) > 1 && t.Arg[1].(int) != 0
 		// Wrap concrete values in Iface when appending to interface-typed slices.
-		if elemType.Kind() == reflect.Interface {
+		// Skipped in spread mode -- the lone value is the source slice, not an
+		// element, so wrapping it would box the whole slice as an Iface{Typ:[]E}.
+		if elemType.Kind() == reflect.Interface && !isSpread {
 			elemTyp := &vm.Type{Rtype: elemType}
 			for i, vs := range valSyms {
 				if vs.Type == nil || vs.Type.IsInterface() {
@@ -2809,7 +2816,7 @@ func (c *Compiler) compileBuiltin(
 			}
 		}
 		switch {
-		case len(t.Arg) > 1 && t.Arg[1].(int) != 0:
+		case isSpread:
 			c.emit(t, vm.AppendSlice, 0, elemIdx) // 0 signals spread mode
 		case nvals == 1:
 			c.emit(t, vm.Append, 1, elemIdx)

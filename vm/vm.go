@@ -2161,7 +2161,7 @@ func (m *Machine) Run() (err error) {
 			default:
 				slice := reflect.MakeSlice(sliceType, n, n)
 				for i := range n {
-					numSet(slice.Index(i), mem[sp-n+1+i])
+					m.setFuncField(slice.Index(i), mem[sp-n+1+i])
 				}
 				mem[sp-n+1] = Value{ref: slice}
 				sp -= n - 1
@@ -2631,6 +2631,17 @@ func unwrapIface(rv reflect.Value) reflect.Value {
 	return rv
 }
 
+// interfaceToInterface coerces a reflect.Value of interface kind to target,
+// which must also be an interface type. reflect.Convert(interface{}, error)
+// panics, so unwrap to the concrete element first. Returns reflect.Zero(target)
+// for nil. src.Kind() must be reflect.Interface.
+func interfaceToInterface(src reflect.Value, target reflect.Type) reflect.Value {
+	if src.IsNil() {
+		return reflect.Zero(target)
+	}
+	return src.Elem().Convert(target)
+}
+
 func isNativeFunc(rv reflect.Value) bool {
 	return unwrapIface(rv).Kind() == reflect.Func
 }
@@ -2997,10 +3008,16 @@ func (m *Machine) reflectForSend(val Value, elemType reflect.Type) reflect.Value
 		return m.bridgeIface(val.IfaceVal(), elemType)
 	}
 	rv := val.Reflect()
-	if rv.Type() != elemType {
-		rv = rv.Convert(elemType)
+	if rv.Type() == elemType {
+		return rv
 	}
-	return rv
+	// Interface locals are stored as interface{} regardless of their declared
+	// interface type; reflect.Convert(interface{}, error) panics, so unwrap
+	// through the concrete element.
+	if rv.Kind() == reflect.Interface && elemType.Kind() == reflect.Interface {
+		return interfaceToInterface(rv, elemType)
+	}
+	return rv.Convert(elemType)
 }
 
 // bridgeIface wraps an Iface value for a target interface type, trying
@@ -3320,11 +3337,7 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 		} else if outType := funcType.Out(i); rv.Type() != outType && outType.Kind() == reflect.Interface {
 			// Interface locals use interface{} internally; convert to the expected
 			// interface type (e.g. interface{} -> error) for MakeFunc callers.
-			if rv.Kind() == reflect.Interface && rv.IsNil() {
-				rv = reflect.Zero(outType)
-			} else {
-				rv = rv.Elem().Convert(outType)
-			}
+			rv = interfaceToInterface(rv, outType)
 		}
 		out[i] = rv
 	}
@@ -3582,7 +3595,14 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 			}
 		}
 	}
-	fv.Set(val.Reflect())
+	src := val.Reflect()
+	// interface{} -> methodful-interface (e.g. `var e error = nil` placed in
+	// a []error slot): reflect.Set rejects interface{} as not assignable to
+	// methodful interfaces. Unwrap the concrete element (or zero for nil).
+	if fv.Kind() == reflect.Interface && src.Kind() == reflect.Interface && src.Type() != fv.Type() {
+		src = interfaceToInterface(src, fv.Type())
+	}
+	fv.Set(src)
 }
 
 func (m *Machine) assignSlot(dst *Value, src Value) {

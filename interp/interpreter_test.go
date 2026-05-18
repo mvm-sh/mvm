@@ -1272,6 +1272,34 @@ func TestSlice(t *testing.T) {
 		{n: "#10", src: `s := "Hello"; s[1:3]`, res: `el`},
 		{n: "#11", src: src0 + `z := s[1:3]; z`, res: `[1 2]`},
 		{n: "#12", src: `s := "Hello"; z := s[1:3]; z`, res: `el`},
+
+		// Spread-append of a slice into an interface-typed slice (go-multierror
+		// append.go:39). Pre-fix, the compiler iface-wrapped the spread source
+		// itself, boxing the whole []error in Iface{Typ:[]error}.
+		{n: "spread_iface_slice", src: `import "errors"
+			errs := []error{errors.New("a"), errors.New("b")}
+			r := append([]error{}, errs...); len(r)`, res: "2"},
+
+		// MkSlice element-set must unwrap Iface for methodful-interface targets
+		// (go-multierror variadic call sites). Pre-fix, numSet's reflect.Set
+		// rejected vm.Iface -> error.
+		{n: "variadic_iface_slice", src: `type E struct{ msg string }
+			func (e *E) Error() string { return e.msg }
+			f := func(errs ...error) int { return len(errs) }
+			f(&E{msg: "x"})`, res: "1"},
+
+		// Typed-nil interface into a methodful-interface slot must zero, not
+		// fall through to reflect.Set(interface{}, error) which panics.
+		{n: "nil_iface_in_slice", src: `var e error; r := append([]error{}, e); len(r)`, res: "1"},
+
+		// Nested composite literals sharing the same slice element type:
+		// pre-fix, the outer Composite's backward scan re-patched the inner
+		// Fnew, leaving the outer slice empty and the IndexSet at i=0 panicking.
+		{n: "nested_composite_same_type", src: `import "errors"
+			type E struct{ Errors []error }
+			func (e *E) Error() string { return "x" }
+			x := []error{errors.New("one"), &E{Errors: []error{errors.New("two")}}}
+			len(x)`, res: "2"},
 	})
 }
 
