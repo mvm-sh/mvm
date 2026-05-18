@@ -740,10 +740,13 @@ func TestArray(t *testing.T) {
 		// golang.org/x/text/language/tables.go).
 		{n: "slice_indexed_keys", src: `a := [][3]uint16{0: {1, 2, 3}, 1: {4, 5, 6}, 2: {7, 8, 9}}; a[2][1]`, res: "8"},
 		{n: "slice_sparse_index", src: `a := []int{2: 7}; len(a)`, res: "3"},
-		// Mixed keyed/unkeyed slice elements: parser still needs to inject
-		// idx/Colon tokens around the unkeyed elements so the compiler emits
-		// per-element IndexSet. Tracked but not yet implemented.
-		{n: "slice_mixed_keys", src: `a := []int{2: 7, 9}; len(a)`, res: "4", skip: true},
+		// Mixed keyed/unkeyed slice elements: parseComposite synthesizes
+		// [curIdx, value, colon] tokens around unkeyed elements so the
+		// compiler emits IndexSet at the right slot.
+		{n: "slice_mixed_keys", src: `a := []int{2: 7, 9}; len(a)`, res: "4"},
+		{n: "slice_mixed_keys_value", src: `a := []int{2: 7, 9}; a[3]`, res: "9"},
+		{n: "slice_mixed_keys_leading_unkeyed", src: `a := []int{1, 2: 7, 9}; a[0]`, res: "1"},
+		{n: "slice_mixed_keys_leading_unkeyed_len", src: `a := []int{1, 2: 7, 9}; len(a)`, res: "4"},
 		{n: "slice_after_make", src: `a := []int{1, 2, 3}; b := make([]int, 2); copy(b, a); b[1]`, res: "2"},
 		{n: "multi_slice_lit", src: `a := []int{1, 2, 3}; b := []int{4, 5}; a[2] + b[1]`, res: "8"},
 		{n: "2d_named", src: `type M [3][16]int; m := M{}; m[0][1] = 7; m[0][1]`, res: "7"},

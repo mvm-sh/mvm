@@ -528,7 +528,16 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 			result = append(result, newColon(toks[0].Pos))
 			sliceLen++
 		} else {
-			result = append(result, toks...)
+			if isSlice && sub.Index(lang.Colon) == -1 {
+				// Unkeyed element in a MIXED slice literal: synthesize
+				// [curIdx, value..., colon] so the compiler emits IndexSet,
+				// matching the shape parseExpr produces for keyed elements.
+				result = append(result, newInt(curIdx, toks[0].Pos))
+				result = append(result, toks...)
+				result = append(result, newColon(toks[0].Pos))
+			} else {
+				result = append(result, toks...)
+			}
 			if isSlice {
 				if ci := sub.Index(lang.Colon); ci > 0 {
 					if k, ok := p.constIntKey(sub[:ci]); ok {
