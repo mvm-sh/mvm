@@ -3200,6 +3200,64 @@ out`
 	}
 }
 
+// TestRuntimeCallersConcurrentMachines exercises the runtime.Callers bridge
+// concurrently from independent Machines. Pre-fix, both goroutines wrote to
+// a single atomic.Pointer slot; whichever Machine Run-swapped in last won,
+// so the unlucky goroutine's runtime.Callers walked the wrong Machine's
+// stack and the returned PCs resolved to functions defined in the other
+// goroutine's interpreted source -- a silent correctness bug, not a panic.
+// Each subtest declares a uniquely-named function whose body captures
+// runtime.Callers and concatenates all frame names; the assertion confirms
+// the goroutine's own function name appears (and no other goroutine's
+// signature leaks in).
+func TestRuntimeCallersConcurrentMachines(t *testing.T) {
+	const goroutines = 8
+	for i := 0; i < goroutines; i++ {
+		name := fmt.Sprintf("g%d", i)
+		fnName := fmt.Sprintf("capture_%d", i)
+		src := `import (
+	"runtime"
+	"strings"
+)
+func ` + fnName + `() string {
+	pcs := make([]uintptr, 16)
+	n := runtime.Callers(0, pcs)
+	var names []string
+	for i := 0; i < n; i++ {
+		fn := runtime.FuncForPC(pcs[i])
+		if fn == nil { continue }
+		names = append(names, fn.Name())
+	}
+	return strings.Join(names, "|")
+}
+out := ""
+for i := 0; i < 25; i++ { out = ` + fnName + `() }
+out`
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			intp := interp.NewInterpreter(golang.GoSpec)
+			intp.ImportPackageValues(stdlib.Values)
+			r, err := intp.Eval(name, src)
+			if err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			got := fmt.Sprintf("%v", r)
+			if !strings.Contains(got, fnName) {
+				t.Fatalf("got %q, want a frame name containing %q (likely cross-Machine Callers leak)", got, fnName)
+			}
+			for j := 0; j < goroutines; j++ {
+				if j == i {
+					continue
+				}
+				other := fmt.Sprintf("capture_%d", j)
+				if strings.Contains(got, other) {
+					t.Fatalf("got %q -- contains another goroutine's frame name %q (cross-Machine Callers leak)", got, other)
+				}
+			}
+		})
+	}
+}
+
 // TestRepl exercises the re-entrant interpreter (REPL mode), where a single
 // Interp is used across multiple sequential Eval calls.
 func TestRepl(t *testing.T) {

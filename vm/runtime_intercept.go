@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"unsafe"
 )
 
@@ -34,34 +33,57 @@ type runtimeFuncEntry struct {
 
 var runtimeFuncMeta sync.Map // uintptr (sentinel addr) -> *runtimeFuncEntry
 
-// activeMachine tracks the currently running Machine so that native
-// bridges that cannot otherwise reach it (currently only stdlib's
-// runtime.Callers replacement, installed via PackagePatcher closure at
-// import time) can find one. Most bridges receive `m` explicitly via
-// the VM-side call site and should NOT touch this global.
+// activeMachine tracks the currently running Machine per goroutine so
+// that native bridges installed via PackagePatcher closure at import time
+// (currently only stdlib's runtime.Callers replacement) can find the
+// running Machine when invoked through reflect. Most other bridges
+// receive `m` explicitly via the VM-side call site and should NOT touch
+// this map.
 //
-// Single-machine-at-a-time semantics: concurrent Machines on different
-// goroutines race on this slot. The race manifests if the surviving
-// bridge readers care about the *currently running* Machine and two
-// goroutines happen to be inside Run() simultaneously. See
-// docs/architecture.md and [[project_active_machine_race]] for the
-// outstanding plan to migrate the last bridge off this global.
-var activeMachine atomic.Pointer[Machine]
+// Per-goroutine keying is what makes the lookup race-free across parallel
+// tests: each goroutine's Run() writes to its own slot, so concurrent
+// Machines on different goroutines never observe each other's state. A
+// goroutine that nests Run() calls (Machine A re-entering through a
+// native bridge that synchronously runs another mvm function on a pooled
+// runner) sees a LIFO stack of (set, defer restore) pairs and resolves
+// to the innermost active Machine, which is what bridge code wants.
+//
+// Key choice: we use the *g pointer (read from the goroutine register
+// via gid()) rather than the parsed goid because it is dramatically
+// cheaper (~1ns vs ~1us via runtime.Stack) and just as unique. The
+// pointer is stable for the goroutine's lifetime and every Run() defers
+// the matching SetActiveMachine(prev) restore, so the runtime's g
+// recycling never observes a leaked slot.
+var activeMachine sync.Map // uintptr (g pointer) -> *Machine
 
-// SetActiveMachine atomically replaces the current Machine and returns
-// the previous value. Pair with `defer SetActiveMachine(prev)` to
-// restore on return.
+// SetActiveMachine records m as the running Machine for the current
+// goroutine and returns the previous value (nil if none). Pair with
+// `defer SetActiveMachine(prev)` to restore on return. Passing m == nil
+// (the restore step at goroutine top of stack) deletes the slot so the
+// map doesn't accumulate stale entries from short-lived goroutines.
 func SetActiveMachine(m *Machine) (prev *Machine) {
-	return activeMachine.Swap(m)
+	g := gid()
+	if v, ok := activeMachine.Load(g); ok && v != nil {
+		prev = v.(*Machine)
+	}
+	if m == nil {
+		activeMachine.Delete(g)
+	} else {
+		activeMachine.Store(g, m)
+	}
+	return prev
 }
 
-// ActiveMachine returns the Machine currently set via SetActiveMachine,
-// or nil if none. Prefer reaching the Machine through an explicit
-// parameter or a closure capture; ActiveMachine is reserved for native
-// bridge closures installed at package patch time with no other route to
-// the runtime.
+// ActiveMachine returns the Machine currently set via SetActiveMachine on
+// the calling goroutine, or nil if none. Prefer reaching the Machine
+// through an explicit parameter or closure capture; ActiveMachine is
+// reserved for native bridge closures installed at package patch time
+// with no other route to the runtime.
 func ActiveMachine() *Machine {
-	return activeMachine.Load()
+	if v, ok := activeMachine.Load(gid()); ok {
+		return v.(*Machine)
+	}
+	return nil
 }
 
 // runtimeFuncPtrType is *runtime.Func, used to detect intercepted receivers.

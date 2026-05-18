@@ -16,7 +16,26 @@ import (
 // reuse the same sentinel, which bounds runtimeFuncMeta growth at the
 // number of distinct interpreted call sites rather than the number of
 // stack captures.
+//
+// M is included because distinct Machines have disjoint code spaces but
+// overlapping IP ranges; without it, the first Machine to register
+// sentinel{IP:0,...} would steal that key from every other Machine's
+// frame zero. M is the *vm.Machine pointer of the Machine that walked
+// the frame.
+//
+// Lifetime caveat: sentinelByFrame is a process-global sync.Map with no
+// deletion path. Including *Machine makes the key set grow as
+// O(distinct Machines x distinct call sites) rather than O(call sites),
+// and each entry also pins one runtimeFuncMeta entry in vm. For
+// long-lived hosts that spawn many short-lived interpreters this is a
+// slow leak (the agent-pool runners share a Machine across invocations,
+// so they don't contribute new keys per call). A proper bound would
+// move the cache onto vm.Machine and run a finalizer to drop the
+// matching runtimeFuncMeta entries; deferred because captured
+// pkg/errors-style stack traces can legitimately outlive the Machine
+// that produced them, which complicates cleanup-on-GC.
 type frameKey struct {
+	M   *vm.Machine
 	IP  int
 	Pos uint32
 }
@@ -118,7 +137,7 @@ func mvmCallers(m *vm.Machine, skip int, pcs []uintptr) int {
 		if n >= len(pcs) {
 			return false
 		}
-		rf := internSentinel(di, f)
+		rf := internSentinel(m, di, f)
 		// pkg/errors' Frame.pc() does (uintptr(f) - 1) so we add 1.
 		pcs[n] = uintptr(unsafe.Pointer(rf)) + 1
 		n++
@@ -128,12 +147,20 @@ func mvmCallers(m *vm.Machine, skip int, pcs []uintptr) int {
 }
 
 // internSentinel returns a *runtime.Func sentinel for the given frame,
-// reusing a previously allocated one when the (IP, Pos) call site has
-// been seen before. First-encounter sentinels are registered with
-// vm.RegisterRuntimeFunc. The intern cache bounds runtimeFuncMeta size
-// at O(distinct call sites) instead of O(stack captures).
-func internSentinel(di *vm.DebugInfo, f vm.StackFrame) *runtime.Func {
-	key := frameKey{IP: f.IP, Pos: uint32(f.Pos)} //nolint:gosec
+// reusing a previously allocated one when the (Machine, IP, Pos) call
+// site has been seen before. First-encounter sentinels are registered
+// with vm.RegisterRuntimeFunc. The intern cache bounds runtimeFuncMeta
+// size at O(distinct call sites across all interpreters) instead of
+// O(stack captures). Keying on the Machine pointer is what keeps two
+// interpreters running on different goroutines from stealing each
+// other's frame-zero sentinel.
+//
+// di is threaded through instead of derived from m.DebugInfo() because
+// m.DebugInfo() invokes a debugInfoFn callback that rebuilds the
+// DebugInfo on demand; mvmCallers hoists the result before the
+// WalkCallStack loop so each frame doesn't re-trigger the rebuild.
+func internSentinel(m *vm.Machine, di *vm.DebugInfo, f vm.StackFrame) *runtime.Func {
+	key := frameKey{M: m, IP: f.IP, Pos: uint32(f.Pos)} //nolint:gosec
 	if v, ok := sentinelByFrame.Load(key); ok {
 		return v.(*runtime.Func)
 	}
