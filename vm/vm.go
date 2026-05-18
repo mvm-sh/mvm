@@ -49,6 +49,7 @@ const (
 	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice; elem type at mem[$1]; $0=0 means spread mode: append(a, b...)
 	Call                   // f [a1 .. ai] -- [r1 .. rj] ; r1, ... = prog[f](a1, ...); B bit 15 = spread flag
 	CallImm                // [a1 .. ai] -- [r1 .. rj] ; $1=dataIdx of func, $2=narg<<16|nret
+	CallImmFast            // like CallImm; emitted when no callee param has reflect Kind Struct or Array so detachByValueArgs can be elided
 	Cap                    // -- x ; x = cap(mem[sp-$0])
 	Convert                // v -- v' ; v' = convert(v, type at mem[$1]); optional $2 = stack depth offset
 	CopySlice              // dst src -- n ; n = copy(dst, src)
@@ -987,6 +988,37 @@ func (m *Machine) Run() (err error) {
 			if narg > 0 {
 				detachByValueArgs(mem[fp-narg-3 : fp-3])
 			}
+			ip = nip
+			continue
+		case CallImmFast:
+			// Fast-path CallImm: emitted when no callee param has reflect Kind
+			// Struct or Array, so detachByValueArgs would be a no-op.
+			narg := int(c.B) >> 16
+			nret := int(c.B) & 0xFFFF
+			fpVal := uint64(fp) //nolint:gosec
+			if m.heap != nil {
+				m.heapFrames = append(m.heapFrames, m.heap)
+				fpVal |= heapSavedFlag
+				m.heap = nil
+			}
+			nip := int(m.globals[int(c.A)].num) //nolint:gosec
+			var locals, slack int
+			if g := m.code[nip]; g.Op == Grow {
+				locals, slack = int(g.A), int(g.B)
+				nip++
+			}
+			if sp+3+locals+slack >= len(mem) {
+				mem = growStack(mem, sp, 3+locals+slack)
+			}
+			mem[sp+1] = Value{}
+			mem[sp+2] = Value{num: packRetIP(ip+1, nret, narg+3)}
+			mem[sp+3] = Value{num: fpVal}
+			sp += 3
+			fp = sp + 1
+			for i := 1; i <= locals; i++ {
+				mem[sp+i] = Value{}
+			}
+			sp += locals
 			ip = nip
 			continue
 		case Deref:

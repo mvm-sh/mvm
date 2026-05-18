@@ -509,6 +509,23 @@ func fieldPathOffset(rt reflect.Type, path []int) uintptr {
 	return off
 }
 
+// paramNeedsDetach reports whether any parameter of fnType has reflect Kind
+// Struct or Array. Those are the only kinds where vm.detachByValueArgs does
+// real work (see its definition); for everything else the detach is a no-op
+// the compiler can elide via vm.CallImmFast.
+func paramNeedsDetach(fnType reflect.Type) bool {
+	if fnType == nil || fnType.Kind() != reflect.Func {
+		return true
+	}
+	for i, n := 0, fnType.NumIn(); i < n; i++ {
+		switch fnType.In(i).Kind() {
+		case reflect.Struct, reflect.Array:
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Compiler) emitIfaceWrap(t goparser.Token, ifaceTyp, concreteTyp *vm.Type) {
 	c.emitIfaceWrapAt(t, ifaceTyp, concreteTyp, 0)
 }
@@ -1062,7 +1079,15 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Direct call to a declared function (no closure): use CallImm
 				// to avoid loading the func value and skip type dispatch at runtime.
 				if s.Kind == symbol.Func && len(s.FreeVars) == 0 && c.removeGetGlobal(s.Index) {
-					c.emit(t, vm.CallImm, s.Index, callNarg<<16|nret)
+					// CallImmFast skips detachByValueArgs when no param is
+					// Struct/Array (the only kinds that ever need the detach;
+					// see vm.detachByValueArgs). If method calls are ever lowered
+					// to CallImm, the receiver must be included as param 0.
+					op := vm.CallImm
+					if !paramNeedsDetach(typ.Rtype) {
+						op = vm.CallImmFast
+					}
+					c.emit(t, op, s.Index, callNarg<<16|nret)
 				} else {
 					callNret := nret
 					if typ.Rtype.IsVariadic() && !spread {

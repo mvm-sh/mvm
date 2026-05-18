@@ -176,16 +176,6 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	s.RecvName = recvVarName
 	s.InNames = inNames
 	s.OutNames = outNames
-	// Cache the receiver's base *vm.Type now, while the bare receiver name still
-	// resolves to this package's type. Phase 2 (body compilation) runs after all
-	// imports, by which point a sibling import may have shadowed the bare name
-	// (the unscoped-symbol-table problem); see Symbol.RecvType.
-	if recvVarName != "" {
-		recvTypName, _, _ := strings.Cut(fname, ".")
-		if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
-			s.RecvType = recvTypSym.Type
-		}
-	}
 	return false, nil
 }
 
@@ -332,16 +322,10 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		recvScoped := p.scope + "/" + s.RecvName
 		s.FreeVars = []string{recvScoped}
 		recvTypName, _, _ := strings.Cut(fname, ".")
-		// Prefer the receiver base type resolved at signature time: by now a
-		// sibling import may have shadowed the bare receiver name in p.Symbols.
-		recvBase := s.RecvType
-		if recvBase == nil {
-			if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
-				recvBase = recvTypSym.Type
-			}
-		}
-		if recvBase != nil {
-			recvTyp := recvBase
+		// symGet's CompilingPkg-aware probe finds the method's own pkg's type
+		// even when a sibling import has shadowed the bare name.
+		if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
+			recvTyp := recvTypSym.Type
 			if strings.HasPrefix(recvTypName, "*") {
 				recvTyp = vm.PointerTo(recvTyp)
 			}
