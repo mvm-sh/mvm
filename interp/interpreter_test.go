@@ -2137,6 +2137,29 @@ for _, x := range p {
 	}
 }
 fmt.Sprint(p[0]) + "|" + fmt.Sprint(p[1]) + "|" + r`, res: "V:x|E:y|v:x;e:y;"},
+
+		// type-switch on a bridge-wrapped value (e.g. *BridgeError carrying
+		// an interpreted *Err pumped through a variadic ...error slot): the
+		// TypeBranch handler must unbridge before checking AssignableTo, or
+		// the case clause for the original concrete type silently misses.
+		// Mirrors the TypeAssert (comma-ok) fallback already in place.
+		{n: "iface_typeswitch_bridge_unwrap", src: `
+import "fmt"
+type Err struct{ X int }
+func (e *Err) Error() string { return "err" }
+func makeErr() *Err { return &Err{X: 42} }
+func collect(errs ...error) string {
+	for _, e := range errs {
+		switch v := e.(type) {
+		case *Err:
+			return fmt.Sprintf("OK %d", v.X)
+		default:
+			return fmt.Sprintf("MISS %T", v)
+		}
+	}
+	return ""
+}
+collect(makeErr())`, res: "OK 42"},
 	})
 }
 

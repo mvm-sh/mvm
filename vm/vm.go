@@ -1482,10 +1482,23 @@ func (m *Machine) Run() (err error) {
 			} else if rv := ifc.Reflect(); rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() {
 				// Native interface value (e.g. from json.Unmarshal map).
 				if dtyp != nil {
+					concrete := rv.Elem()
 					if dtyp.IsInterface() {
-						matched = rv.Elem().Type().Implements(dtyp.Rtype)
+						matched = concrete.Type().Implements(dtyp.Rtype)
 					} else {
-						matched = rv.Elem().Type().AssignableTo(dtyp.Rtype)
+						matched = concrete.Type().AssignableTo(dtyp.Rtype)
+					}
+					// Bridge wrapper (e.g. *BridgeError) holding an interpreted
+					// value: unwrap to recover the original concrete type. Mirrors
+					// the TypeAssert fallback above.
+					if !matched {
+						if orig := unbridgeValue(rv); orig.IsValid() {
+							if dtyp.IsInterface() {
+								matched = orig.Type().Implements(dtyp.Rtype)
+							} else {
+								matched = orig.Type().AssignableTo(dtyp.Rtype)
+							}
+						}
 					}
 				}
 			} else {
