@@ -184,6 +184,127 @@ type StackFrame struct {
 	TopLevel bool // synthetic frame for the top-level entry sequence (init / Eval driver)
 }
 
+// PanicError wraps a raw Go panic that escaped the VM (e.g. a reflect.Convert
+// panic from inside the interpreter loop) with mvm-level diagnostic context.
+// Frames is captured synchronously at the moment of the panic, before the
+// Go stack unwinds m.fp.
+type PanicError struct {
+	Raw    any          // original panic value
+	Pos    Pos          // source position of the panicking instruction
+	IP     int          // bytecode IP at panic time
+	Frames []StackFrame // captured before frame unwinding
+	DI     *DebugInfo   // captured DebugInfo for formatting; may be nil
+}
+
+// Error renders the verbose layout (header + snippet + mvm stack) using the
+// DebugInfo captured at panic time. Falls back to "panic: <raw>" if no
+// DebugInfo was captured.
+func (e *PanicError) Error() string {
+	di := e.DI
+	var b strings.Builder
+	fmt.Fprintf(&b, "panic: %v\n", e.Raw)
+	var funcName, loc string
+	if di != nil {
+		funcName = di.FuncAt(e.IP)
+		loc = di.PosToLine(e.Pos)
+	}
+	switch {
+	case funcName != "" && loc != "":
+		fmt.Fprintf(&b, "  at %s (%s)\n", funcName, loc)
+	case funcName != "":
+		fmt.Fprintf(&b, "  at %s\n", funcName)
+	case loc != "":
+		fmt.Fprintf(&b, "  at %s\n", loc)
+	}
+	writeSourceSnippet(&b, di, e.Pos)
+	if len(e.Frames) > 0 && di != nil {
+		b.WriteString("\nmvm stack:\n")
+		locW := 0
+		type row struct{ loc, name string }
+		rows := make([]row, 0, len(e.Frames))
+		for _, f := range e.Frames {
+			fLoc := di.PosToLine(f.Pos)
+			fName := di.FuncAt(f.IP)
+			if f.TopLevel && fName == "" {
+				fName = "<init>"
+			}
+			rows = append(rows, row{fLoc, fName})
+			if l := len(fLoc); l > locW {
+				locW = l
+			}
+		}
+		for _, r := range rows {
+			fmt.Fprintf(&b, "  %-*s  %s\n", locW, r.loc, r.name)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeSourceSnippet(b *strings.Builder, di *DebugInfo, pos Pos) {
+	if di == nil || len(di.Sources) == 0 || pos == 0 {
+		return
+	}
+	_, line, col := di.Sources.Resolve(int(pos))
+	if line == 0 {
+		return
+	}
+	text := di.Sources.LineText(int(pos))
+	if text == "" && col == 0 {
+		return
+	}
+	// Replace tabs with single spaces so the caret column aligns. col is
+	// byte-based (matches LineText byte indexing).
+	text = strings.ReplaceAll(text, "\t", " ")
+	const maxWidth = 120
+	caretCol := col
+	if len(text) > maxWidth {
+		// Window the line around caretCol if it's far to the right.
+		start := 0
+		if caretCol > maxWidth-20 {
+			start = caretCol - (maxWidth - 20)
+		}
+		end := start + maxWidth
+		if end > len(text) {
+			end = len(text)
+		}
+		if start > 0 {
+			text = "..." + text[start:end]
+			caretCol = caretCol - start + 3
+		} else {
+			text = text[:end] + "..."
+		}
+	}
+	prefix := fmt.Sprintf("  %d | ", line)
+	fmt.Fprintf(b, "\n%s%s\n", prefix, text)
+	if caretCol > 0 {
+		b.WriteString(strings.Repeat(" ", len(prefix)+caretCol-1))
+		b.WriteString("^\n")
+	}
+}
+
+func (m *Machine) capturePanic(raw any) *PanicError {
+	pe := &PanicError{Raw: raw, IP: m.ip}
+	if m.ip >= 0 && m.ip < len(m.code) {
+		pe.Pos = m.code[m.ip].Pos
+	}
+	if m.debugInfoFn != nil {
+		pe.DI = m.debugInfoFn()
+	}
+	first := true
+	m.WalkCallStack(func(f StackFrame) bool {
+		if first {
+			// WalkCallStack reports m.ip-1 for the innermost frame (the
+			// "just-executed" instruction). At panic time m.ip is the
+			// instruction that blew up mid-execution; report it directly.
+			f.IP, f.Pos = pe.IP, pe.Pos
+			first = false
+		}
+		pe.Frames = append(pe.Frames, f)
+		return true
+	})
+	return pe
+}
+
 // WalkCallStack invokes yield for each call frame from innermost (the
 // currently running function) to outermost. The first yielded frame's
 // IP is m.ip-1 (the just-executed or about-to-execute instruction);

@@ -714,6 +714,16 @@ func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int,
 	return sp, mem
 }
 
+func (m *Machine) recoverPanic(err *error) {
+	if r := recover(); r != nil {
+		if pe, ok := r.(*PanicError); ok {
+			*err = pe
+			return
+		}
+		*err = m.capturePanic(r)
+	}
+}
+
 func (m *Machine) posPrefix(pos Pos) string {
 	if m.debugInfoFn == nil {
 		return ""
@@ -744,6 +754,12 @@ func growStack(mem []Value, sp, need int) []Value {
 
 // Run runs a program.
 func (m *Machine) Run() (err error) {
+	// Outermost defer (runs last in LIFO order): catches raw Go panics that
+	// escape the VM loop (e.g. reflect.Convert) and wraps them with mvm
+	// source context. Declared before the state-restore defer below so the
+	// state-restore runs first and m.mem/m.ip/m.fp hold panic-time values
+	// when capturePanic reads them.
+	defer m.recoverPanic(&err)
 	prev := SetActiveMachine(m)
 	defer SetActiveMachine(prev)
 
@@ -2608,8 +2624,6 @@ func (m *Machine) restoreFP(fpVal uint64) int {
 	return int(fpVal) //nolint:gosec
 }
 
-// unwrapIface returns the element of an interface reflect.Value, or rv
-// unchanged if it isn't an interface or is nil.
 func unwrapIface(rv reflect.Value) reflect.Value {
 	if rv.Kind() == reflect.Interface && !rv.IsNil() {
 		return rv.Elem()
@@ -2617,8 +2631,6 @@ func unwrapIface(rv reflect.Value) reflect.Value {
 	return rv
 }
 
-// isNativeFunc reports whether rv holds a native Go function, possibly
-// wrapped in an interface.
 func isNativeFunc(rv reflect.Value) bool {
 	return unwrapIface(rv).Kind() == reflect.Func
 }
@@ -2894,8 +2906,6 @@ func (m *Machine) Push(v ...Value) (l int) {
 	return l
 }
 
-// minMax computes the min (or max if isMax) of n values on the stack.
-// It returns the updated stack pointer.
 func minMax(mem []Value, sp, n int, kind reflect.Kind, isMax bool) int {
 	best := sp - n + 1
 	switch {
