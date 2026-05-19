@@ -3705,9 +3705,16 @@ func setNumReflect(rv reflect.Value, num uint64) {
 func numSet(dst reflect.Value, src Value) {
 	if isNum(dst.Kind()) && isNum(src.ref.Kind()) {
 		setNumReflect(dst, src.num)
-	} else {
-		dst.Set(src.Reflect())
+		return
 	}
+	s := src.Reflect()
+	if !s.IsValid() {
+		// Untyped nil literal: substitute typed zero of dst so reflect.Set
+		// doesn't panic with "Set on zero Value" when assigning to nilable
+		// destinations (slice, map, pointer, chan, func, interface).
+		s = reflect.Zero(dst.Type())
+	}
+	dst.Set(s)
 }
 
 // derefArray dereferences a pointer-to-array so it can be sliced.
