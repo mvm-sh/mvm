@@ -1361,6 +1361,13 @@ func (m *Machine) Run() (err error) {
 					rv = rv.Field(idx)
 				}
 				*cell = FromReflect(rv)
+			} else if methodTyp == ifc.Typ.ElemType && !method.PtrRecv && ifc.Val.ref.Kind() == reflect.Pointer {
+				// Value-receiver method found by walking *T -> T (ResolveMethodType).
+				// The iface holds *T but the method body expects T; deref so the body's
+				// receiver storage is the value, not the pointer. PtrRecv is reliable
+				// here because the method was registered directly on the value type
+				// (comp/compiler.go where it sets PtrRecv from the receiver token).
+				*cell = FromReflect(ifc.Val.Reflect().Elem())
 			}
 			mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
 
