@@ -3879,9 +3879,16 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 	count := 0
 
 	methodTypes, n := ifaceMethodTypes(ifc.Typ)
+	isPtr := ifc.Typ.Rtype.Kind() == reflect.Pointer
 	for _, mt := range methodTypes[:n] {
 		for id, method := range mt.Methods {
 			if id >= len(m.MethodNames) || !method.IsResolved() {
+				continue
+			}
+			// Pointer-receiver methods are not part of the value type's
+			// method set: mvm registers them on T with PtrRecv=true but
+			// in Go semantics they only belong to *T's method set.
+			if method.PtrRecv && !isPtr {
 				continue
 			}
 			name := m.MethodNames[id]
@@ -4068,6 +4075,12 @@ func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.
 	for _, mt := range methodTypes[:n] {
 		for id, method := range mt.Methods {
 			if method.Index < 0 || id >= len(m.MethodNames) {
+				continue
+			}
+			// Pointer-receiver methods are not part of the value type's
+			// method set: mvm registers them on T with PtrRecv=true but
+			// in Go semantics they only belong to *T's method set.
+			if method.PtrRecv && !isPtr {
 				continue
 			}
 			fnField := elem.FieldByName("Fn" + m.MethodNames[id])
