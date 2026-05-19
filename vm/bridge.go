@@ -185,3 +185,40 @@ func lookupFuncArgProxy(fnPtr uintptr, arg int) ProxyFactory {
 func lookupMethodArgProxy(recvType reflect.Type, methodName string, arg int) ProxyFactory {
 	return methodArgProxies[methodProxyKey{recvType, methodName, arg}]
 }
+
+// NativeMethodHook fully replaces a native method call from interpreted
+// code. recv is the receiver as resolved at the call site; args are the
+// already-bridged input values. The returned slice is treated like
+// reflect.Value.Call's result. Used by stdlib intercepts (e.g.
+// testing_virt) that need to inject mvm-side context (source file:line)
+// into the native semantics without changing the testing package.
+type NativeMethodHook func(m *Machine, recv reflect.Value, args []reflect.Value) []reflect.Value
+
+var nativeMethodHooks = map[methodProxySet]NativeMethodHook{}
+
+// RegisterNativeMethodHook installs hook for the named method on
+// recvInstance's type. recvInstance may be a typed-nil pointer (only its
+// type is used). The hook fires from the interpreted->native Call path
+// instead of reflect.Value.Call(in).
+func RegisterNativeMethodHook(recvInstance any, methodName string, hook NativeMethodHook) {
+	if recvInstance == nil || methodName == "" || hook == nil {
+		return
+	}
+	t := reflect.TypeOf(recvInstance)
+	nativeMethodHooks[methodProxySet{t, methodName}] = hook
+}
+
+func hasNativeMethodHook(recvType reflect.Type, methodName string) bool {
+	if len(nativeMethodHooks) == 0 {
+		return false
+	}
+	_, ok := nativeMethodHooks[methodProxySet{recvType, methodName}]
+	return ok
+}
+
+func lookupNativeMethodHook(recvType reflect.Type, methodName string) NativeMethodHook {
+	if len(nativeMethodHooks) == 0 {
+		return nil
+	}
+	return nativeMethodHooks[methodProxySet{recvType, methodName}]
+}

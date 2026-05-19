@@ -430,6 +430,18 @@ func (m *Machine) DebugInfo() *DebugInfo {
 	return m.debugInfoFn()
 }
 
+// CallSitePos returns the source Pos of the instruction that triggered
+// the currently executing native call. The Call handler sets m.ip to
+// ip+1 before invoking the native func, so the active call site is
+// recorded at m.code[m.ip-1]. Returns 0 when the IP is out of range
+// (e.g. invoked outside Run).
+func (m *Machine) CallSitePos() Pos {
+	if m.ip <= 0 || m.ip-1 >= len(m.code) {
+		return 0
+	}
+	return m.code[m.ip-1].Pos
+}
+
 // SetDebugIO sets the I/O streams for the interactive debug mode.
 func (m *Machine) SetDebugIO(in io.Reader, out io.Writer) {
 	m.debugIn = in
@@ -866,15 +878,18 @@ func (m *Machine) Run() (err error) {
 				rv := fval.ref
 				// Method-call sentinel: IfaceCall placed a boundProxyCall on
 				// the stack because the target method has registered arg
-				// proxies. Unwrap it and thread the method identity to
-				// bridgeArgs so RegisterArgProxyMethod factories can fire.
+				// proxies or a native method hook. Unwrap it and thread the
+				// method identity to bridgeArgs (for proxies) or to the hook
+				// lookup further down.
 				var proxyRecvType reflect.Type
 				var proxyMethod string
+				var proxyRecv reflect.Value
 				if rv.IsValid() && rv.Type() == boundProxyCallRtype {
 					bpc := rv.Interface().(boundProxyCall)
 					rv = bpc.Fn
 					proxyRecvType = bpc.RecvType
 					proxyMethod = bpc.Method
+					proxyRecv = bpc.Recv
 				}
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
@@ -898,7 +913,11 @@ func (m *Machine) Run() (err error) {
 					// For spread calls (f(s...)), unwrap Iface values inside
 					// the variadic slice and use CallSlice.
 					var out []reflect.Value
-					if c.B&CallSpreadFlag != 0 {
+					hook := lookupNativeMethodHook(proxyRecvType, proxyMethod)
+					switch {
+					case hook != nil && c.B&CallSpreadFlag == 0:
+						out = hook(m, proxyRecv, in)
+					case c.B&CallSpreadFlag != 0:
 						last := in[narg-1]
 						if last.Kind() == reflect.Interface && !last.IsNil() {
 							last = last.Elem()
@@ -913,7 +932,7 @@ func (m *Machine) Run() (err error) {
 						}
 						in[narg-1] = last
 						out = rv.CallSlice(in)
-					} else {
+					default:
 						out = rv.Call(in)
 					}
 					nout := funcType.NumOut()
@@ -1259,8 +1278,10 @@ func (m *Machine) Run() (err error) {
 					namedType := m.globals[int(c.B)-1].ref.Type()
 					rv = mem[sp].Reflect().Convert(namedType).MethodByName(methodName)
 				}
-				if rv.IsValid() && recvRV.IsValid() && hasMethodArgProxies(recvRV.Type(), methodName) {
-					mem[sp] = Value{ref: reflect.ValueOf(boundProxyCall{Fn: rv, RecvType: recvRV.Type(), Method: methodName})}
+				if rv.IsValid() && recvRV.IsValid() &&
+					(hasMethodArgProxies(recvRV.Type(), methodName) ||
+						hasNativeMethodHook(recvRV.Type(), methodName)) {
+					mem[sp] = Value{ref: reflect.ValueOf(boundProxyCall{Fn: rv, RecvType: recvRV.Type(), Method: methodName, Recv: recvRV})}
 					break
 				}
 				mem[sp] = Value{ref: rv}

@@ -105,13 +105,16 @@ type MvmFunc struct {
 }
 
 // boundProxyCall is the sentinel Value that IfaceCall places on the
-// stack when a native method has registered arg proxies. The Call
-// opcode detects this struct, uses Fn as the bound method to invoke,
-// and threads RecvType+Method to bridgeArgs for per-arg proxy lookup.
+// stack when a native method has registered arg proxies or a native
+// method hook. The Call opcode detects this struct, uses Fn as the
+// bound method to invoke, threads RecvType+Method to bridgeArgs for
+// per-arg proxy lookup, and consults Recv for hooks that need the
+// receiver value.
 type boundProxyCall struct {
 	Fn       reflect.Value
 	RecvType reflect.Type
 	Method   string
+	Recv     reflect.Value
 }
 
 var boundProxyCallRtype = reflect.TypeOf(boundProxyCall{})
