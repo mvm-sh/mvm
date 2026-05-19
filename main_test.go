@@ -42,6 +42,8 @@ func TestSplitTestArgs(t *testing.T) {
 		{[]string{"-x", "./pkg", "-v"}, []string{"-x"}, "./pkg", []string{"-v"}},
 		{[]string{"-x=line", "-run", "X"}, []string{"-x=line"}, ".", []string{"-run", "X"}},
 		{[]string{"github.com/google/uuid"}, []string{}, "github.com/google/uuid", []string{}},
+		{[]string{"-stat", "-v"}, []string{"-stat"}, ".", []string{"-v"}},
+		{[]string{"-x", "-stat", "./pkg", "-run", "X"}, []string{"-x", "-stat"}, "./pkg", []string{"-run", "X"}},
 	}
 	for _, c := range cases {
 		mvm, target, testArgs := splitTestArgs(c.in)

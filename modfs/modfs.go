@@ -51,6 +51,39 @@ type FS struct {
 	mu      sync.Mutex
 	modules map[string]*module  // module path -> loaded module
 	missing map[string]struct{} // module-path candidates known to be absent
+	stats   NetStats            // proxy traffic counters; guarded by mu
+}
+
+// NetStats summarizes the network work performed by an FS instance:
+// proxy requests issued (200s and failures), bytes consumed from response
+// bodies, and total wall-clock time spent in proxyGet.
+//
+// Cache hits, Inject calls, and offline lookups do not contribute -- only
+// real HTTP requests do. Snapshot the counters with FS.NetStats.
+type NetStats struct {
+	Requests     int
+	BytesFetched int64
+	FetchTime    time.Duration
+}
+
+// NetStats returns a snapshot of the FS's proxy counters.
+func (f *FS) NetStats() NetStats {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stats
+}
+
+// countingReader wraps an io.Reader and tallies bytes consumed. Used by
+// proxyGet to count what the consumer actually reads from the response body.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // module is a loaded module with files indexed by relative path.
@@ -197,8 +230,16 @@ func (f *FS) fetchModulePath(modPath string) (*module, error) {
 
 // proxyGet fetches the given path under the proxy base URL and invokes
 // consume on the response body. It handles status checking and body close.
+//
+// Every call -- including failures -- contributes to NetStats: a request
+// is counted, bytes are tallied from a counting wrapper around the body,
+// and wall-clock time is added. Callers already hold f.mu (via locate), so
+// the counter writes are safe without separate locking.
 func (f *FS) proxyGet(path string, consume func(io.Reader) error) error {
 	url := f.proxy + "/" + path
+	start := time.Now()
+	f.stats.Requests++
+	defer func() { f.stats.FetchTime += time.Since(start) }()
 	resp, err := f.client.Get(url)
 	if err != nil {
 		return err
@@ -207,7 +248,10 @@ func (f *FS) proxyGet(path string, consume func(io.Reader) error) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("modfs: GET %s: %s", url, resp.Status)
 	}
-	return consume(resp.Body)
+	cr := &countingReader{r: resp.Body}
+	err = consume(cr)
+	f.stats.BytesFetched += cr.n
+	return err
 }
 
 func (f *FS) fetchLatest(modPath string) (string, error) {

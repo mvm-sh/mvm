@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
@@ -85,6 +86,41 @@ func (t *traceFlag) Set(s string) error {
 	}
 	t.line, t.op = line, op
 	return nil
+}
+
+// setupStats wires the -stat flag's exit-time and post-run print paths.
+// Returns a once-guarded flush closure: the caller defers it and may also
+// invoke it manually (e.g. before testing.Main's native os.Exit bypasses
+// host defers). When enabled is false the closure is a no-op.
+func setupStats(i *interp.Interp, mfs *modfs.FS, enabled bool) func() {
+	if !enabled {
+		return func() {}
+	}
+	format := func() string {
+		out := interp.FormatStats(i)
+		if mfs == nil {
+			return out
+		}
+		ns := mfs.NetStats()
+		return out + fmt.Sprintf("  network:  %d requests, %s in %v\n",
+			ns.Requests, humanBytes(ns.BytesFetched), ns.FetchTime)
+	}
+	interp.InstallStatsExitHook(i, format)
+	return sync.OnceFunc(func() { _, _ = fmt.Fprint(os.Stderr, format()) })
+}
+
+// humanBytes formats a byte count with a binary-unit suffix.
+func humanBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.2f KiB", float64(n)/1024)
+	case n < 1024*1024*1024:
+		return fmt.Sprintf("%.2f MiB", float64(n)/(1024*1024))
+	default:
+		return fmt.Sprintf("%.2f GiB", float64(n)/(1024*1024*1024))
+	}
 }
 
 // newlineTracker wraps a writer and tracks whether the last byte written was a newline.
@@ -164,6 +200,7 @@ func runCmd(arg []string) error {
 	var (
 		str   string
 		trace traceFlag
+		stat  bool
 	)
 	rflag := flag.NewFlagSet("run", flag.ContinueOnError)
 	rflag.Usage = func() {
@@ -172,6 +209,7 @@ func runCmd(arg []string) error {
 	}
 	rflag.StringVar(&str, "e", "", "string to eval")
 	rflag.Var(&trace, "x", "trace mode (bare -x = line; -x=op, -x=all, -x=line,op)")
+	rflag.BoolVar(&stat, "stat", false, "print compile/run statistics on exit")
 	if err := rflag.Parse(arg); err != nil {
 		if err == flag.ErrHelp { // -h already printed usage
 			return nil
@@ -182,7 +220,7 @@ func runCmd(arg []string) error {
 
 	i := interp.NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
-	wireFS(i)
+	mfs := wireFS(i)
 	if trace.line {
 		i.SetTracing(true)
 	}
@@ -192,6 +230,7 @@ func runCmd(arg []string) error {
 
 	out := &newlineTracker{w: os.Stdout}
 	i.SetIO(os.Stdin, out, os.Stderr)
+	flushStats := setupStats(i, mfs, stat)
 
 	var err error
 	switch {
@@ -222,10 +261,11 @@ func runCmd(arg []string) error {
 	if out.written && out.last != '\n' {
 		_, _ = fmt.Fprintln(os.Stdout)
 	}
+	flushStats()
 	return err
 }
 
-const testUsageText = `Usage: mvm test [-x] [target] [test flags]
+const testUsageText = `Usage: mvm test [-x] [-stat] [target] [test flags]
 Runs Go tests found in *_test.go files of the given target.
 Target may be a local directory (default ".") or an import path
 (e.g. "github.com/google/uuid") fetched dynamically via the Go module proxy.
@@ -235,10 +275,11 @@ Test flags use the same names as "go test": -v for verbose output,
 
 func isMvmTestFlag(a string) bool {
 	switch a {
-	case "-x", "--x", "-h", "-help", "--help":
+	case "-x", "--x", "-stat", "--stat", "-h", "-help", "--help":
 		return true
 	}
-	return strings.HasPrefix(a, "-x=") || strings.HasPrefix(a, "--x=")
+	return strings.HasPrefix(a, "-x=") || strings.HasPrefix(a, "--x=") ||
+		strings.HasPrefix(a, "-stat=") || strings.HasPrefix(a, "--stat=")
 }
 
 func splitTestArgs(arg []string) (mvmFlags []string, target string, testFlags []string) {
@@ -274,13 +315,17 @@ func rewriteTestFlags(args []string) []string {
 }
 
 func testCmd(arg []string) error {
-	var trace traceFlag
+	var (
+		trace traceFlag
+		stat  bool
+	)
 	tflag := flag.NewFlagSet("test", flag.ContinueOnError)
 	tflag.Usage = func() {
 		_, _ = fmt.Fprint(os.Stdout, testUsageText)
 		tflag.PrintDefaults()
 	}
 	tflag.Var(&trace, "x", "trace mode (bare -x = line; -x=op, -x=all, -x=line,op)")
+	tflag.BoolVar(&stat, "stat", false, "print compile/run statistics on exit")
 
 	mvmFlags, target, testFlags := splitTestArgs(arg)
 	if err := tflag.Parse(mvmFlags); err != nil {
@@ -303,6 +348,11 @@ func testCmd(arg []string) error {
 		i.SetTraceOps(true)
 	}
 	i.SetIO(os.Stdin, os.Stdout, os.Stderr)
+	// testing.Main calls runtime os.Exit; flushStats fires before each
+	// driver invocation so stats survive the bypass. defer covers paths
+	// that never reach the driver (load errors, no tests found).
+	flushStats := setupStats(i, mfs, stat)
+	defer flushStats()
 
 	// Try target as a local directory first; fall back to import-path
 	// resolution (modfs / stdlibfs / pkgfs) on miss.
@@ -311,6 +361,7 @@ func testCmd(arg []string) error {
 			if err := evalLocalDir(i, absDir, entries); err != nil {
 				return err
 			}
+			flushStats()
 			return runTestsInDir(i, absDir)
 		}
 	}
@@ -328,9 +379,11 @@ func testCmd(arg []string) error {
 		}
 		if dir != "" {
 			defer cleanup()
+			flushStats()
 			return runTestsInDir(i, dir)
 		}
 	}
+	flushStats()
 	return runTestDriver(i)
 }
 

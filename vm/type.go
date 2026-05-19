@@ -267,6 +267,10 @@ type Value struct {
 	ref reflect.Value // composite data OR reflect.Zero(t) for numeric type metadata
 }
 
+// ValueSize is the in-memory footprint of a Value on the current platform.
+// Used by stat reporters to convert slot counts to bytes.
+const ValueSize = int(unsafe.Sizeof(Value{}))
+
 // NumKindOffset maps a reflect.Kind to a 0-based offset into per-type opcode blocks.
 // Returns -1 for non-numeric kinds.
 var NumKindOffset [reflect.Float64 + 1]int

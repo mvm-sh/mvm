@@ -3505,6 +3505,11 @@ func detachByValueArgs(args []Value) {
 	}
 }
 
+// HeapSize returns the number of heap-allocated cells currently held by
+// the machine's active closure context. Typically 0 between Run() calls;
+// nonzero only mid-execution. Reported by FormatStats when nonzero.
+func (m *Machine) HeapSize() int { return len(m.heap) }
+
 // Top returns (but not remove)  the value on the top of machine stack.
 func (m *Machine) Top() (v Value) {
 	if l := len(m.mem); l > 0 {

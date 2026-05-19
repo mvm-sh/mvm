@@ -4,9 +4,11 @@ package interp
 import (
 	"fmt"
 	"os"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/mvm-sh/mvm/comp"
@@ -45,6 +47,13 @@ type Interp struct {
 	*comp.Compiler
 	*vm.Machine
 	stdlibPatched bool
+	Stats         Stats
+}
+
+// Stats accumulates timing across all Eval calls on an Interp.
+type Stats struct {
+	CompileTime time.Duration
+	RunTime     time.Duration
 }
 
 // NewInterpreter returns a new interpreter.
@@ -71,7 +80,10 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 		i.stdlibPatched = true
 	}
 
-	if err = i.Compile(name, src); err != nil {
+	tCompile := time.Now()
+	err = i.Compile(name, src)
+	i.Stats.CompileTime += time.Since(tCompile)
+	if err != nil {
 		return res, err
 	}
 
@@ -104,8 +116,66 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	if traceOp {
 		i.SetTraceOps(true)
 	}
+	tRun := time.Now()
 	err = i.Run()
+	i.Stats.RunTime += time.Since(tRun)
 	return i.Top().Reflect(), err
+}
+
+// InstallStatsExitHook overrides the bound os.Exit with a wrapper that
+// writes format() to stderr before calling the real os.Exit. Used by the
+// CLI to flush stats on the os.Exit path; native bridges like testing.Main
+// still bypass it (they call the host runtime's os.Exit directly). No-op
+// if the os package is not bound on i (e.g. stripped-down embed).
+func InstallStatsExitHook(i *Interp, format func() string) {
+	pkg, ok := i.Packages["os"]
+	if !ok {
+		return
+	}
+	pkg.Values["Exit"] = vm.FromReflect(reflect.ValueOf(func(code int) {
+		_, _ = fmt.Fprint(os.Stderr, format())
+		os.Exit(code)
+	}))
+}
+
+// FormatStats returns a multi-line summary of an Interp's accumulated work
+// for the -stat CLI flag. "packages" reports bridged stdlib (Package.Bin)
+// vs source-loaded (derived from i.Sources, since the entry-point target
+// is not added to i.Packages while transitive non-stdlib imports are).
+func FormatStats(i *Interp) string {
+	totalLines, srcFiles := 0, 0
+	srcDirs := map[string]struct{}{}
+	for _, s := range i.Sources {
+		// Skip mvm-internal generic-template shims (goparser registers them
+		// with a "/<shim>" suffix); they are scaffolding, not user source.
+		if path.Base(s.Name) == "<shim>" {
+			continue
+		}
+		totalLines += s.Lines()
+		srcFiles++
+		srcDirs[path.Dir(s.Name)] = struct{}{}
+	}
+	binPkgs := 0
+	for _, p := range i.Packages {
+		if p != nil && p.Bin {
+			binPkgs++
+		}
+	}
+	const instrSize = 16 // sizeof(vm.Instruction)
+	var b strings.Builder
+	fmt.Fprintln(&b, "mvm stats:")
+	fmt.Fprintf(&b, "  packages: %d bridged, %d source-loaded\n", binPkgs, len(srcDirs))
+	fmt.Fprintf(&b, "  sources:  %d\n", srcFiles)
+	fmt.Fprintf(&b, "  lines:    %d\n", totalLines)
+	fmt.Fprintf(&b, "  code:     %d instructions (%d bytes)\n", len(i.Code), len(i.Code)*instrSize)
+	dataLine := fmt.Sprintf("  data:     %d slots (%d bytes)", len(i.Data), len(i.Data)*vm.ValueSize)
+	if h := i.HeapSize(); h > 0 {
+		dataLine += fmt.Sprintf(", heap %d cells (%d bytes)", h, h*vm.ValueSize)
+	}
+	fmt.Fprintln(&b, dataLine)
+	fmt.Fprintf(&b, "  compile:  %v\n", i.Stats.CompileTime)
+	fmt.Fprintf(&b, "  execute:  %v\n", i.Stats.RunTime)
+	return b.String()
 }
 
 func (i *Interp) patchStdlibOverrides() {
