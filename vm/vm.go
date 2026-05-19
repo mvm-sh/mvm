@@ -1076,23 +1076,17 @@ func (m *Machine) Run() (err error) {
 			elem := ptr.ref.Elem()
 			numSet(elem, val)
 			sp -= 2
-			// Update the .num cache of any frame slot whose ref shares the
+			// Update the .num cache of any stack slot whose ref shares the
 			// same underlying address, so fused GetLocal*Imm instructions and
-			// num-first reads see the updated value. Scans the current frame
-			// including its params below fp (frameBase = distance from fp to
-			// the start of args).
+			// num-first reads see the updated value. Scan ALL frames on the
+			// stack, not just the current one: a pointer-receiver method that
+			// mutates `*v` must propagate to the caller's slot (the typical
+			// `(*X).Set` pattern on `type X int`).
 			if isNum(elem.Kind()) {
 				addr := elem.UnsafeAddr()
 				n := numBits(elem)
-				base := 0
-				if fp >= 2 {
-					base = fp - int(mem[fp-2].num>>48)
-					if base < 0 {
-						base = 0
-					}
-				}
-				for i := base; i <= sp; i++ {
-					if mem[i].ref.CanAddr() && mem[i].ref.UnsafeAddr() == addr {
+				for i := 0; i <= sp; i++ {
+					if mem[i].ref.IsValid() && mem[i].ref.CanAddr() && mem[i].ref.UnsafeAddr() == addr {
 						mem[i].num = n
 					}
 				}
