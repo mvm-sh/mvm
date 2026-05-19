@@ -369,11 +369,15 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 	isPtr := typ.Rtype.Kind() == reflect.Pointer
 	lookupTyp := typ
 	if isPtr {
-		if t := c.findTypeSym(typ.Rtype.Elem()); t != nil {
+		if typ.ElemType != nil {
+			lookupTyp = typ.ElemType
+		} else if t := c.findTypeSym(typ.Rtype.Elem()); t != nil {
 			lookupTyp = t
 		}
-	} else if t := c.findTypeSym(typ.Rtype); t != nil {
-		lookupTyp = t
+	} else if typ.Name == "" {
+		if t := c.findTypeSym(typ.Rtype); t != nil {
+			lookupTyp = t
+		}
 	}
 	iface.EnsureIfaceMethods()
 	for _, im := range iface.IfaceMethods {
