@@ -170,11 +170,11 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		}
 		pkg, ok := p.Packages[s.PkgPath]
 		if !ok {
-			return nil, nil, 0, fmt.Errorf("package not found: %s", s.PkgPath)
+			return nil, nil, 0, p.errAt(t, "package not found: %s", s.PkgPath)
 		}
 		v, ok := pkg.Values[t.Str[1:]]
 		if !ok {
-			return nil, nil, 0, fmt.Errorf("symbol not found in package %s: %s", s.PkgPath, t.Str[1:])
+			return nil, nil, 0, p.errAt(t, "symbol not found in package %s: %s", s.PkgPath, t.Str[1:])
 		}
 		cv, err := vmValueToConst(v)
 		if err != nil {

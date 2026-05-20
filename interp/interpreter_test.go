@@ -175,6 +175,9 @@ func TestParseErrorPos(t *testing.T) {
 		{n: "var_assign_mismatch", src: `var a = 1, 2`, err: `assignment mismatch: 1 variables but 2 values`},
 		// Compiler-side ErrUndefined now carries source position too.
 		{n: "undefined_method", src: `type T struct{}; var t T; t.NoSuchMethod()`, err: `test:1:28: undefined: NoSuchMethod`},
+		// A missing pkg-qualified symbol now reports file:line:col so `mvm test`
+		// can pinpoint (and drop) the offending bridged-stdlib test file.
+		{n: "pkg_symbol_not_found", src: "import \"strings\"\nstrings.NoSuchThing(\"x\")", err: `test:2:8: symbol not found in package strings: NoSuchThing`},
 	})
 }
 

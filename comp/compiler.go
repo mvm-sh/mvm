@@ -1809,11 +1809,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			case symbol.Pkg:
 				p, ok := c.Packages[s.PkgPath]
 				if !ok {
-					return fmt.Errorf("package not found: %s", s.PkgPath)
+					return c.errAt(t, "package not found: %s", s.PkgPath)
 				}
 				v, ok := p.Values[t.Str[1:]]
 				if !ok {
-					return fmt.Errorf("symbol not found in package %s: %s", s.PkgPath, t.Str[1:])
+					return c.errAt(t, "symbol not found in package %s: %s", s.PkgPath, t.Str[1:])
 				}
 				name := s.PkgPath + t.Str
 				var l int
