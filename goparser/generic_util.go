@@ -8,9 +8,6 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// checkConstraintElem reports whether arg satisfies a single constraint element.
-// For Approx with composite kinds (slice, map, array, ...), only Kind is checked
-// - tightening would require inter-param substitution.
 func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bool {
 	switch e.kind {
 	case elemAny:
@@ -35,8 +32,6 @@ func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bo
 	return false
 }
 
-// tokensSource reconstructs the original source text from tokens; used to
-// preserve package qualifiers (e.g. "netip.Prefix") that *vm.Type.Name drops.
 func tokensSource(toks Tokens) string {
 	if len(toks) == 1 {
 		return toks[0].Str
@@ -48,7 +43,6 @@ func tokensSource(toks Tokens) string {
 	return sb.String()
 }
 
-// isSimpleIdent reports whether s is a plain Go identifier (letters, digits, underscore).
 func isSimpleIdent(s string) bool {
 	for _, r := range s {
 		if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
@@ -58,9 +52,6 @@ func isSimpleIdent(s string) bool {
 	return len(s) > 0
 }
 
-// typeArgName returns the source-level name for a concrete type argument.
-// For pointer types, PointerTo stores just the element name (e.g. "int"
-// for *int), so we prepend "*" to produce the correct name.
 func typeArgName(t *vm.Type) string {
 	name := t.Name
 	if name == "" {
@@ -72,9 +63,6 @@ func typeArgName(t *vm.Type) string {
 	return name
 }
 
-// typeArgSubst returns the text used to substitute a type parameter in the
-// template body. Prefers source (preserves package qualifiers like
-// "netip.Prefix"); falls back to typeArgName when source is empty.
 func typeArgSubst(t *vm.Type, source string) string {
 	if source != "" {
 		return source
@@ -82,13 +70,6 @@ func typeArgSubst(t *vm.Type, source string) string {
 	return typeArgName(t)
 }
 
-// sanitizeMangled maps every byte that is not legal inside a scanner
-// identifier (ASCII letters, digits, '_', and '#') to '_'. A monomorphized
-// name such as "mapping#string#*node" must stay a single token when its tokens
-// are re-scanned (e.g. the rewritten method receiver "(h *mapping#string#*node)"
-// in registerFunc); without this it would split at the '*' and the method
-// would be registered under the wrong type, so the "already instantiated"
-// guard never trips and instantiatePendingMethods loops forever.
 func sanitizeMangled(s string) string {
 	ok := func(b byte) bool {
 		return b == '_' || b == '#' ||
@@ -113,10 +94,6 @@ func sanitizeMangled(s string) string {
 	return string(b)
 }
 
-// mangledName returns the mangled name for a generic instantiation.
-// E.g. mangledName("Max", [int]) -> "Max#int". Type-argument names are
-// sanitized so the result is always a single identifier token (see
-// sanitizeMangled): mangledName("mapping", [string, *node]) -> "mapping#string#_node".
 func mangledName(base string, typeArgs []*vm.Type) string {
 	var sb strings.Builder
 	sb.WriteString(base)
@@ -127,8 +104,6 @@ func mangledName(base string, typeArgs []*vm.Type) string {
 	return sb.String()
 }
 
-// recvGenericBaseName returns the base type name from a generic receiver
-// (the Ident immediately preceding the BracketBlock).
 func recvGenericBaseName(recvr Tokens) (string, bool) {
 	for i, t := range recvr {
 		if t.Tok == lang.BracketBlock && i > 0 && recvr[i-1].Tok == lang.Ident {
@@ -138,8 +113,6 @@ func recvGenericBaseName(recvr Tokens) (string, bool) {
 	return "", false
 }
 
-// hasUnboundTypeParam reports whether t mentions any type parameter in tpNames
-// that isn't yet in inferred, at any depth (pointer/slice/array/chan/map).
 func hasUnboundTypeParam(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type) bool {
 	if t == nil {
 		return false
@@ -149,6 +122,21 @@ func hasUnboundTypeParam(t *vm.Type, tpNames map[string]bool, inferred map[strin
 		return hasUnboundTypeParam(t.ElemType, tpNames, inferred)
 	case reflect.Map:
 		return hasUnboundTypeParam(t.KeyType, tpNames, inferred) || hasUnboundTypeParam(t.ElemType, tpNames, inferred)
+	case reflect.Func:
+		// Type params can be nested in a func-typed parameter, e.g.
+		// slices.Collect[E](seq iter.Seq[E]) where iter.Seq[E] is
+		// func(func(E) bool).
+		for _, pt := range t.Params {
+			if hasUnboundTypeParam(pt, tpNames, inferred) {
+				return true
+			}
+		}
+		for _, rt := range t.Returns {
+			if hasUnboundTypeParam(rt, tpNames, inferred) {
+				return true
+			}
+		}
+		return false
 	}
 	if !tpNames[t.Name] {
 		return false
@@ -157,10 +145,6 @@ func hasUnboundTypeParam(t *vm.Type, tpNames map[string]bool, inferred map[strin
 	return !ok
 }
 
-// unifyTypeParam walks pType (from a generic signature, possibly containing
-// type-param idents) and argType in parallel, binding each encountered
-// type-param ident to the corresponding sub-type of argType. Returns false
-// if the shapes don't match. First-seen binding wins (no conflict checking).
 func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type) bool {
 	if pType == nil || argType == nil {
 		return false
@@ -182,6 +166,28 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 			return false
 		}
 		return unifyTypeParam(pType.ElemType, argType.ElemType, tpNames, inferred)
+	case reflect.Func:
+		if argType.Rtype.Kind() != reflect.Func {
+			return false
+		}
+		// ParamType/ReturnType fall back to reflect when argType is a reflect-
+		// derived bridge type whose Params/Returns slices are unpopulated (e.g.
+		// the return of a native stdlib func), so nested type params still unify.
+		for i := range pType.Params {
+			at := argType.ParamType(i)
+			if at == nil {
+				break
+			}
+			unifyTypeParam(pType.Params[i], at, tpNames, inferred)
+		}
+		for i := range pType.Returns {
+			at := argType.ReturnType(i)
+			if at == nil {
+				break
+			}
+			unifyTypeParam(pType.Returns[i], at, tpNames, inferred)
+		}
+		return true
 	}
 	// Leaf: bind if this is a type-param ident; otherwise a concrete leaf
 	// with no binding to make.
@@ -193,9 +199,6 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 	return true
 }
 
-// unpackConstraint tries to extract a concrete type for paramName by matching
-// the inferred concrete type against the shape of one of c's approx/exact
-// constraint elements. Returns nil if no element pins paramName.
 func unpackConstraint(c tpConstraint, paramName string, concrete *vm.Type) *vm.Type {
 	for _, e := range c.elems {
 		if (e.kind != elemApprox && e.kind != elemExact) || e.typ == nil {
@@ -208,13 +211,6 @@ func unpackConstraint(c tpConstraint, paramName string, concrete *vm.Type) *vm.T
 	return nil
 }
 
-// extractFromShape walks `shape` in parallel with `concrete`, returning the
-// sub-type of concrete at the position where shape names paramName. E.g.
-// shape=[]E, concrete=[]int, paramName=E -> int. Handles slice, array,
-// pointer, chan (via ElemType), map (via KeyType + ElemType), and func
-// (via Params + Returns). Decomposes before matching by name so that
-// composite shapes whose outer Name happens to collide with paramName
-// (e.g. PointerTo sets Name=ElemName) don't short-circuit.
 func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
 	if shape.Rtype.Kind() == concrete.Rtype.Kind() {
 		switch shape.Rtype.Kind() {
@@ -260,7 +256,6 @@ func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
 	return nil
 }
 
-// funcReturnType returns the first return type of a function type.
 func funcReturnType(typ *vm.Type) *vm.Type {
 	if len(typ.Returns) > 0 {
 		return typ.Returns[0]

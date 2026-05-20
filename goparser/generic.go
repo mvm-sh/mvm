@@ -604,7 +604,10 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		}
 		argTyp := p.inferExprType(argExpr)
 		if argTyp == nil {
-			return nil, posErr("cannot infer type for argument %d", i)
+			// Can't type this arg (e.g. an untyped local func value); skip it
+			// and let other args bind the type params. The final pass below
+			// reports any param that stays unbound.
+			continue
 		}
 		unifyTypeParam(pType, argTyp, tpNames, inferred)
 	}

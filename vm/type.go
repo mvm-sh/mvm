@@ -250,12 +250,31 @@ func (t *Type) Out(i int) *Type {
 	return &Type{Name: o.Name(), Rtype: o}
 }
 
-// ReturnType returns the mvm-level i'th return type if known, else falls back to Out(i).
+// ReturnType returns the mvm-level i'th return type if known, else falls back
+// to reflect. Returns nil when i is out of range.
 func (t *Type) ReturnType(i int) *Type {
 	if i < len(t.Returns) {
 		return t.Returns[i]
 	}
-	return t.Out(i)
+	if t.Rtype != nil && t.Rtype.Kind() == reflect.Func && i < t.Rtype.NumOut() {
+		return t.Out(i)
+	}
+	return nil
+}
+
+// ParamType returns the mvm-level i'th parameter type if known, else falls
+// back to reflect. Returns nil when i is out of range. Symmetric with
+// ReturnType; used by generic inference to walk a func-typed parameter whose
+// reflect-derived bridge form has an empty Params slice.
+func (t *Type) ParamType(i int) *Type {
+	if i < len(t.Params) {
+		return t.Params[i]
+	}
+	if t.Rtype != nil && t.Rtype.Kind() == reflect.Func && i < t.Rtype.NumIn() {
+		in := t.Rtype.In(i)
+		return &Type{Name: in.Name(), Rtype: in}
+	}
+	return nil
 }
 
 // Value is the VM runtime value.
