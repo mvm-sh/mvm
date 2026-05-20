@@ -86,21 +86,26 @@ func (p *Parser) addGlobalVar(name string) string {
 	return p.addPkgVar(name)
 }
 
+// setLHSType assigns t to the i-th `:=` LHS local when it is a fresh, named,
+// non-blank, currently-untyped define target. Shared by the range- and
+// call-define inference paths so the (subtle) skip rules live in one place.
+func (p *Parser) setLHSType(i int, t *vm.Type, lhs []Tokens, lhsPositions []int, out Tokens) {
+	if t == nil || i >= len(lhs) || len(lhs[i]) != 1 || lhs[i][0].Tok != lang.Ident || lhs[i][0].Str == "_" {
+		return
+	}
+	sym := p.Symbols[out[lhsPositions[i]].Str]
+	if sym == nil || sym.Type != nil {
+		return
+	}
+	sym.Type = t
+}
+
 func (p *Parser) inferRangeTypes(operand Tokens, lhs []Tokens, lhsPositions []int, out Tokens) {
 	rt, _ := p.postfixType(operand)
 	if rt == nil {
 		return
 	}
-	setType := func(i int, t *vm.Type) {
-		if t == nil || i >= len(lhs) || len(lhs[i]) != 1 || lhs[i][0].Tok != lang.Ident || lhs[i][0].Str == "_" {
-			return
-		}
-		sym := p.Symbols[out[lhsPositions[i]].Str]
-		if sym == nil || sym.Type != nil {
-			return
-		}
-		sym.Type = t
-	}
+	setType := func(i int, t *vm.Type) { p.setLHSType(i, t, lhs, lhsPositions, out) }
 	switch rt.Rtype.Kind() {
 	case reflect.Slice, reflect.Array, reflect.String:
 		setType(0, p.Symbols["int"].Type)
@@ -144,6 +149,78 @@ func (p *Parser) inferDefineType(rhs Tokens, scopedName string) {
 	} else {
 		sym.Type = s.Type
 	}
+}
+
+// inferCallDefineTypes sets the static Type of freshly-defined `:=` LHS locals
+// from the return tuple of a call RHS, e.g. `bad, good := DumpTables(p)` types
+// both as []int. Without this, locals bound from a call have a nil Type and
+// later generic type inference (inferExprType) can't resolve them.
+func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []int, out Tokens) {
+	ft := p.callFuncType(rhs)
+	if ft == nil {
+		return
+	}
+	for i := 0; i < len(lhs) && i < ft.Rtype.NumOut(); i++ {
+		p.setLHSType(i, ft.ReturnType(i), lhs, lhsPositions, out)
+	}
+}
+
+// callFuncType returns the function type invoked by a postfix expression
+// ending in a Call token, or nil if the callee isn't a resolvable function
+// identifier (e.g. a type conversion, builtin, or pkg-qualified selector).
+// It mirrors postfixType's Call arg-walking to locate the callee token.
+func (p *Parser) callFuncType(in Tokens) *vm.Type {
+	l := len(in) - 1
+	if l < 0 || in[l].Tok != lang.Call {
+		return nil
+	}
+	narg := in[l].Arg[0].(int)
+	rest := in[:l]
+	for range narg {
+		_, al := p.postfixType(rest)
+		if al == 0 {
+			return nil
+		}
+		rest = rest[:len(rest)-al]
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	callee := rest[len(rest)-1]
+	switch callee.Tok {
+	case lang.Ident:
+		// Vtype derives the func type from the reflect Value for bridged/dot-
+		// imported symbols, whose Type field is nil but Value holds the func.
+		if s, _, ok := p.Symbols.Get(callee.Str, p.scope); ok {
+			if ft := symbol.Vtype(s); ft.IsFunc() {
+				return ft
+			}
+		}
+	case lang.Period:
+		// pkg-qualified call `pkg.Func(...)`: callee is the Period selector,
+		// preceded by the package identifier.
+		if len(rest) < 2 || rest[len(rest)-2].Tok != lang.Ident {
+			return nil
+		}
+		ps := p.Symbols[rest[len(rest)-2].Str]
+		if ps == nil || ps.Kind != symbol.Pkg {
+			return nil
+		}
+		member := callee.Str[1:] // strip leading "."
+		if pkg := p.Packages[ps.PkgPath]; pkg != nil {
+			if v, ok := pkg.Values[member]; ok {
+				if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
+					return &vm.Type{Rtype: rv.Type()}
+				}
+			}
+		}
+		if qs, ok := p.Symbols[ps.PkgPath+"."+member]; ok {
+			if ft := symbol.Vtype(qs); ft.IsFunc() {
+				return ft
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Parser) rollbackSymTracker() {

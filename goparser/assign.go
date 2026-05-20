@@ -95,11 +95,18 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 					out[lhsPositions[i]].Str = p.addGlobalVar(e[0].Str)
 				}
 			}
-			if p.funcScope != "" && len(lhs) == 1 {
-				p.inferDefineType(toks, out[lhsPositions[0]].Str)
-			}
-			if p.funcScope != "" && isRange {
-				p.inferRangeTypes(toks[:len(toks)-1], lhs, lhsPositions, out)
+			if p.funcScope != "" {
+				switch {
+				case isRange:
+					p.inferRangeTypes(toks[:len(toks)-1], lhs, lhsPositions, out)
+				case len(toks) > 0 && toks[len(toks)-1].Tok == lang.Call:
+					// `a, b := f()` / `a := f()`: type each LHS local from the
+					// call's return tuple so later passes (generic inference)
+					// see them. Composite/other single-value RHS falls through.
+					p.inferCallDefineTypes(toks, lhs, lhsPositions, out)
+				case len(lhs) == 1:
+					p.inferDefineType(toks, out[lhsPositions[0]].Str)
+				}
 			}
 		}
 		return out, err

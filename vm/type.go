@@ -843,3 +843,6 @@ func (t *Type) IsStruct() bool { return t != nil && t.Rtype != nil && t.Rtype.Ki
 
 // IsSlice returns true if type t is of slice kind.
 func (t *Type) IsSlice() bool { return t != nil && t.Rtype != nil && t.Rtype.Kind() == reflect.Slice }
+
+// IsFunc returns true if type t is of func kind.
+func (t *Type) IsFunc() bool { return t != nil && t.Rtype != nil && t.Rtype.Kind() == reflect.Func }
