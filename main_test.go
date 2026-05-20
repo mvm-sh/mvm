@@ -164,30 +164,49 @@ func buildMvm(t *testing.T) string {
 	return bin
 }
 
-// TestStatOrderingAfterTests asserts the stats block appears AFTER the test
-// body's stdout. Stats fire from a t.Cleanup, so they precede the package
-// PASS line but follow the test body's output; this guards that ordering.
+// writeFixture writes src as x_test.go in a fresh temp dir and returns the dir.
+func writeFixture(t *testing.T, src string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x_test.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// runMvmTest runs `bin test <args...>` and returns the exit code and combined
+// output. A failure that is not a normal non-zero exit fails the test.
+func runMvmTest(t *testing.T, bin string, args ...string) (int, string) {
+	t.Helper()
+	out, err := exec.Command(bin, append([]string{"test"}, args...)...).CombinedOutput() //nolint:gosec // bin is buildMvm's t.TempDir output
+	if err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("unexpected error: %v\n%s", err, out)
+		}
+		return ee.ExitCode(), string(out)
+	}
+	return 0, string(out)
+}
+
+// TestStatOrderingAfterTests asserts the stats block appears AFTER the package
+// PASS/FAIL line (and therefore after the test body's stdout). Stats flush once
+// testing.MainStart(...).Run() returns, so they follow everything testing
+// prints; this guards that ordering.
 func TestStatOrderingAfterTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")
 	}
 
-	fixture := t.TempDir()
-	src := `package x
+	fixture := writeFixture(t, `package x
 import "fmt"
 import "testing"
 func TestSentinel(t *testing.T) { fmt.Println("SENTINEL_OUTPUT") }
-`
-	if err := os.WriteFile(filepath.Join(fixture, "x_test.go"), []byte(src), 0o600); err != nil {
-		t.Fatal(err)
+`)
+	code, s := runMvmTest(t, buildMvm(t), "-stat", fixture)
+	if code != 0 {
+		t.Fatalf("mvm test exited %d:\n%s", code, s)
 	}
-
-	bin := buildMvm(t)
-	out, err := exec.Command(bin, "test", "-stat", fixture).CombinedOutput() //nolint:gosec // bin is a freshly-built copy of our own binary in a t.TempDir
-	if err != nil {
-		t.Fatalf("mvm test: %v\n%s", err, out)
-	}
-	s := string(out)
 	sentinel := strings.Index(s, "SENTINEL_OUTPUT")
 	stats := strings.Index(s, "mvm stats:")
 	pass := strings.Index(s, "PASS")
@@ -200,18 +219,17 @@ func TestSentinel(t *testing.T) { fmt.Println("SENTINEL_OUTPUT") }
 		t.Fatalf("no PASS line:\n%s", s)
 	case stats < sentinel:
 		t.Errorf("stats appeared BEFORE test output; want after:\n%s", s)
-	case pass < stats:
-		t.Errorf("PASS appeared BEFORE stats; the counter callback should fire before testing prints PASS:\n%s", s)
+	case stats < pass:
+		t.Errorf("stats appeared BEFORE PASS; want stats after the package PASS/FAIL line:\n%s", s)
 	}
 }
 
-// TestStatFlushAcrossFailureModes guards the t.Cleanup-based counter design:
-// stats must flush even when tests exit via t.Errorf (plain fail), t.Fatal
-// (runtime.Goexit), or t.Skip (runtime.Goexit). The Goexit paths are the
-// reason the wrapper registers t.Cleanup instead of a defer -- testing's
-// runner always processes cleanups regardless of how the test exited, while
-// native Goexit would bypass mvm's VM defer registry. Panicking tests are
-// out of scope per ADR-018 (testing re-panics and crashes the process).
+// TestStatFlushAcrossFailureModes guards that stats flush regardless of how a
+// test exits: t.Errorf (plain fail), t.Fatal (runtime.Goexit), or t.Skip
+// (runtime.Goexit). All three flow through testing.MainStart(...).Run(), which
+// returns normally so the post-run flush always fires. Panicking tests are out
+// of scope per ADR-018 (testing re-panics and crashes the process before Run
+// returns).
 func TestStatFlushAcrossFailureModes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")
@@ -236,27 +254,13 @@ func TestZ(t *testing.T) {}
 `
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			fixture := t.TempDir()
-			src := fmt.Sprintf(tmpl, c.body)
-			if err := os.WriteFile(filepath.Join(fixture, "x_test.go"), []byte(src), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command(bin, "test", "-stat", fixture) //nolint:gosec // bin is buildMvm's t.TempDir output
-			out, err := cmd.CombinedOutput()
-			s := string(out)
-			gotExit := 0
-			if err != nil {
-				if ee, ok := err.(*exec.ExitError); ok {
-					gotExit = ee.ExitCode()
-				} else {
-					t.Fatalf("unexpected error: %v\n%s", err, s)
-				}
-			}
+			fixture := writeFixture(t, fmt.Sprintf(tmpl, c.body))
+			gotExit, s := runMvmTest(t, bin, "-stat", fixture)
 			if gotExit != c.wantExit {
 				t.Errorf("exit = %d, want %d:\n%s", gotExit, c.wantExit, s)
 			}
 			if !strings.Contains(s, "mvm stats:") {
-				t.Errorf("stats block missing -- counter did not reach zero, suggesting a cleanup path was skipped:\n%s", s)
+				t.Errorf("stats block missing -- the post-run flush did not fire for this exit path:\n%s", s)
 			}
 			if !strings.Contains(s, c.wantSummary) {
 				t.Errorf("expected summary %q in output:\n%s", c.wantSummary, s)
@@ -303,21 +307,8 @@ func ExampleMix() {
 	bin := buildMvm(t)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			fixture := t.TempDir()
-			src := fmt.Sprintf(tmpl, c.output)
-			if err := os.WriteFile(filepath.Join(fixture, "x_test.go"), []byte(src), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			out, err := exec.Command(bin, "test", fixture).CombinedOutput() //nolint:gosec // bin is buildMvm's t.TempDir output
-			s := string(out)
-			gotExit := 0
-			if err != nil {
-				ee, ok := err.(*exec.ExitError)
-				if !ok {
-					t.Fatalf("unexpected error: %v\n%s", err, s)
-				}
-				gotExit = ee.ExitCode()
-			}
+			fixture := writeFixture(t, fmt.Sprintf(tmpl, c.output))
+			gotExit, s := runMvmTest(t, bin, fixture)
 			if gotExit != c.wantExit {
 				t.Errorf("exit = %d, want %d:\n%s", gotExit, c.wantExit, s)
 			}
@@ -326,6 +317,58 @@ func ExampleMix() {
 			}
 			if strings.Contains(s, "no tests to run") {
 				t.Errorf("examples-only package reported no tests to run:\n%s", s)
+			}
+		})
+	}
+}
+
+// TestBenchmarkRun guards that `mvm test -bench` discovers and runs Benchmark*
+// functions through the MainStart driver. Benchmarks run only when -bench is
+// given; a benchmarks-only package must still drive (not short-circuit on the
+// "no tests" guard), and a failing benchmark must surface as FAIL/exit 1.
+func TestBenchmarkRun(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short")
+	}
+
+	bin := buildMvm(t)
+	const benchSrc = `package x
+import "testing"
+func BenchmarkAdd(b *testing.B) {
+	x := 0
+	for i := 0; i < b.N; i++ {
+		x += i
+	}
+	_ = x
+}
+`
+	cases := []struct {
+		name     string
+		src      string
+		args     []string
+		wantExit int
+		wantSub  string
+		notSub   string
+	}{
+		{"with -bench runs", benchSrc, []string{"-bench", ".", "-benchtime", "1x"}, 0, "BenchmarkAdd", ""},
+		{"without -bench skips", benchSrc, nil, 0, "PASS", "BenchmarkAdd"},
+		{"failing bench fails", `package x
+import "testing"
+func BenchmarkBoom(b *testing.B) { b.Fatal("boom") }
+`, []string{"-bench", ".", "-benchtime", "1x"}, 1, "FAIL", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fixture := writeFixture(t, c.src)
+			gotExit, s := runMvmTest(t, bin, append([]string{fixture}, c.args...)...)
+			if gotExit != c.wantExit {
+				t.Errorf("exit = %d, want %d:\n%s", gotExit, c.wantExit, s)
+			}
+			if c.wantSub != "" && !strings.Contains(s, c.wantSub) {
+				t.Errorf("expected %q in output:\n%s", c.wantSub, s)
+			}
+			if c.notSub != "" && strings.Contains(s, c.notSub) {
+				t.Errorf("did not expect %q in output:\n%s", c.notSub, s)
 			}
 		})
 	}

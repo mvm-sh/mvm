@@ -87,10 +87,16 @@ func (t *traceFlag) Set(s string) error {
 
 // setupStats returns a once-guarded flush closure for the -stat summary,
 // or a no-op when enabled is false.
+//
+// stderr is snapshotted now, before any interpreted code runs: a test may
+// reassign the host os.Stderr (e.g. spf13/pflag's TestBytesHex sets it to
+// /dev/null and never restores it), which would otherwise swallow the summary
+// since it is flushed only after all tests complete.
 func setupStats(i *interp.Interp, mfs *modfs.FS, enabled bool) func() {
 	if !enabled {
 		return func() {}
 	}
+	stderr := os.Stderr
 	return sync.OnceFunc(func() {
 		out := interp.FormatStats(i)
 		if mfs != nil {
@@ -98,7 +104,7 @@ func setupStats(i *interp.Interp, mfs *modfs.FS, enabled bool) func() {
 			out += fmt.Sprintf("  network:  %d requests, %s in %v\n",
 				ns.Requests, humanBytes(ns.BytesFetched), ns.FetchTime)
 		}
-		_, _ = fmt.Fprint(os.Stderr, out)
+		_, _ = fmt.Fprint(stderr, out)
 	})
 }
 

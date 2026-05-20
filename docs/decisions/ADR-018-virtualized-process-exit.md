@@ -108,6 +108,13 @@ mvm's own internal `os.Exit` calls (the host-side dispatch error path) stay
 
 ## `mvm test -stat` placement: per-test `t.Cleanup` counter
 
+> **Superseded by [ADR-019](ADR-019-test-runner-mainstart-driver.md).**
+> The counter approach below was replaced by driving
+> `testing.MainStart(...).Run()` directly, which returns the exit code and lets
+> the `-stat` flush land after the package `PASS`/`FAIL` line.
+> The primary decision of this ADR (virtualized exit via `*ExitError`) still
+> stands; only this sub-section is obsolete.
+
 `testing.Main` is a host-compiled native function (bridged into the
 interpreter via `stdlib/ext/testing.go`).
 Its body is literally:

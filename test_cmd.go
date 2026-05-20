@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -24,7 +23,8 @@ Runs Go tests found in *_test.go files of the given target.
 Target may be a local directory (default ".") or an import path
 (e.g. "github.com/google/uuid") fetched dynamically via the Go module proxy.
 Test flags use the same names as "go test": -v for verbose output,
--run REGEX to select tests, -count N, -short, etc.
+-run REGEX to select tests, -bench REGEX to run benchmarks, -count N,
+-short, etc.
 `
 
 func isMvmTestFlag(a string) bool {
@@ -216,7 +216,7 @@ func failingTestFile(err error, target string) string {
 // runTestsInDir runs the test driver with cwd set to dir, restoring cwd on
 // return. Cwd matters because `go test` chdirs to the package source dir, and
 // any test using testdata-relative paths depends on that.
-func runTestsInDir(i *interp.Interp, dir string, onAllDone func()) error {
+func runTestsInDir(i *interp.Interp, dir string, flushStats func()) error {
 	prev, err := os.Getwd()
 	if err != nil {
 		return err
@@ -225,7 +225,7 @@ func runTestsInDir(i *interp.Interp, dir string, onAllDone func()) error {
 		return err
 	}
 	defer func() { _ = os.Chdir(prev) }()
-	return runTestDriver(i, onAllDone)
+	return runTestDriver(i, flushStats)
 }
 
 // materializePkgDir copies the import-path subtree of fsys into a fresh
@@ -366,62 +366,57 @@ func compileTestFilters(args []string) (run, skip *regexp.Regexp) {
 }
 
 // runTestDriver synthesizes the _testmain Eval that drives the loaded test
-// package's Test* funcs through native testing.Main. Each test is wrapped
-// via a host-side mvmtest.WrapTest that registers t.Cleanup(oneDone); when
-// the counter hits zero, onAllDone flushes -stat output before testing's
-// native os.Exit terminates the host. See ADR-018 for the design rationale.
-func runTestDriver(i *interp.Interp, onAllDone func()) error {
+// package's Test*/Benchmark*/Example* funcs through native
+// testing.MainStart(...).Run(). Run executes the suite, prints the
+// package-level PASS/FAIL line, and returns the exit code -- unlike
+// testing.Main, which ends in os.Exit and never returns -- so flushStats can
+// emit the -stat summary *after* PASS/FAIL. statDeps supplies the unexported
+// testDeps argument MainStart requires; the matcher it exposes
+// (regexp.MatchString, for -run/-bench/-skip) stays fully native, avoiding the
+// re-entrant mvm bridge that an interpreted matcher would impose on every test
+// name. Benchmarks run only when -bench is given; testing filters them by that
+// flag, so the full Benchmark* list is passed unfiltered. See ADR-019.
+func runTestDriver(i *interp.Interp, flushStats func()) error {
 	testNames := filterTopLevelTests(i.FuncNames("Test"), os.Args[1:])
+	benchNames := i.FuncNames("Benchmark")
 	examples := collectExamples(i)
-	if len(testNames)+len(examples) == 0 {
+	if len(testNames)+len(benchNames)+len(examples) == 0 {
 		fmt.Fprintln(os.Stderr, "testing: warning: no tests to run")
 		return nil
 	}
 
-	var remaining atomic.Int32
-	remaining.Store(int32(len(testNames) + len(examples))) //nolint:gosec // bounded by Test*/Example* count
-	oneDone := func() {
-		if remaining.Add(-1) == 0 {
-			onAllDone()
-		}
-	}
+	var exitCode int
 	i.ImportPackageValues(map[string]map[string]reflect.Value{
 		"mvmtest": {
-			"WrapTest": reflect.ValueOf(func(f func(*testing.T)) func(*testing.T) {
-				return func(t *testing.T) {
-					t.Cleanup(oneDone)
-					f(t)
-				}
-			}),
-			"WrapExample": reflect.ValueOf(func(f func()) func() {
-				return func() {
-					defer oneDone()
-					f()
-				}
+			"Run": reflect.ValueOf(func(tests []testing.InternalTest, benches []testing.InternalBenchmark, exs []testing.InternalExample) {
+				exitCode = testing.MainStart(statDeps{}, tests, benches, nil, exs).Run()
 			}),
 		},
 	})
 	i.AutoImportPackages()
 
 	var driver strings.Builder
-	// Pass regexp.MatchString directly rather than wrapping it in an interpreted
-	// closure: native testing.Main calls the matcher via reflect for each test
-	// (and per slash-separated sub-name) when -run/-skip is set, so wrapping it
-	// in `func(pat, name string) (bool, error) { return regexp.MatchString(...) }`
-	// makes every match a re-entrant mvm Machine spin-up that copies the host
-	// data segment. On large packages (e.g. golang.org/x/text/language) that
-	// snowballed into minutes-long hangs and gigabytes of allocations under
-	// `mvm test -run=X`. Passing the native func value avoids the bridge.
-	driver.WriteString("testing.Main(regexp.MatchString, []testing.InternalTest{")
+	driver.WriteString("mvmtest.Run([]testing.InternalTest{")
 	for _, name := range testNames {
-		fmt.Fprintf(&driver, "{Name: %q, F: mvmtest.WrapTest(%s)},", name, name)
+		fmt.Fprintf(&driver, "{Name: %q, F: %s},", name, name)
 	}
-	driver.WriteString("}, nil, []testing.InternalExample{")
+	driver.WriteString("}, []testing.InternalBenchmark{")
+	for _, name := range benchNames {
+		fmt.Fprintf(&driver, "{Name: %q, F: %s},", name, name)
+	}
+	driver.WriteString("}, []testing.InternalExample{")
 	for _, e := range examples {
-		fmt.Fprintf(&driver, "{Name: %q, F: mvmtest.WrapExample(%s), Output: %q, Unordered: %t},",
+		fmt.Fprintf(&driver, "{Name: %q, F: %s, Output: %q, Unordered: %t},",
 			e.name, e.name, e.output, e.unordered)
 	}
 	driver.WriteString("})")
 	_, err := i.Eval("_testmain", driver.String())
-	return err
+	flushStats()
+	if err != nil {
+		return err
+	}
+	if exitCode != 0 {
+		return &interp.ExitError{Code: exitCode}
+	}
+	return nil
 }
