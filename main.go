@@ -344,6 +344,10 @@ func testCmd(arg []string) error {
 	i := interp.NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
 	mfs := wireFS(i)
+	// Test-source FS feeds `mvm test <stdlib-pkg>` external _test.go files
+	// against the existing reflect bridge. Kept off the shared wireFS so
+	// `mvm run`/REPL never resolve GOROOT. nil host -> "no test sources".
+	i.SetTestSourceFS(stdlib.GorootTestFS())
 	i.AutoImportPackages()
 	if trace.line {
 		i.SetTracing(true)
@@ -386,6 +390,12 @@ func testCmd(arg []string) error {
 			defer cleanup()
 			return runTestsInDir(i, dir, flushStats)
 		}
+	}
+	// Bridged-stdlib case: external test files came from $GOROOT/src/<target>.
+	// chdir there so testdata-relative paths resolve. No copy needed since
+	// stdlib tests read but do not write their testdata subtrees.
+	if dir := stdlib.GorootSrcDir(target); dir != "" {
+		return runTestsInDir(i, dir, flushStats)
 	}
 	return runTestDriver(i, flushStats)
 }

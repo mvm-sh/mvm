@@ -35,14 +35,7 @@ func Resolve() (modPath, version string) {
 
 // IsStdlibImport reports whether path looks like a Go stdlib import.
 func IsStdlibImport(path string) bool {
-	if path == "" || path == "." {
-		return false
-	}
-	first := path
-	if i := strings.Index(path, "/"); i >= 0 {
-		first = path[:i]
-	}
-	return !strings.Contains(first, ".")
+	return stdlib.IsStdlibImport(path)
 }
 
 // FS returns an fs.FS that serves stdlib-shaped imports by rewriting them

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"reflect"
 	"strings"
 	"unicode"
@@ -43,6 +44,16 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 		}
 	}
 	if err != nil {
+		// Fallback for `mvm test <stdlib-path>` on bridge-only packages
+		// (strings, bytes, fmt, ...): no source in pkgfs/stdlibfs/remotefs,
+		// but the bridge is registered. Pull external `package X_test`
+		// files from testSrcFS ($GOROOT/src) so their Test* funcs can run
+		// against the existing reflect bindings.
+		if includeTests && p.testSrcFS != nil {
+			if pkg, ok := p.Packages[importPath]; ok && pkg.Bin {
+				return p.loadBridgedTestSources(importPath)
+			}
+		}
 		return nil, err
 	}
 	if !fi.IsDir() {
@@ -98,6 +109,150 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 		}
 	}
 	return out, nil
+}
+
+// loadBridgedTestSources serves *_test.go files for a bridge-only stdlib
+// package from testSrcFS, keeping only files whose package clause is the
+// external test package (`<last>_test`). Internal `package <last>` test
+// files are skipped: they reference unexported symbols the bridge does
+// not expose, so they cannot compile against the reflect bindings.
+//
+// Files importing paths that mvm cannot resolve (notably `internal/asan`,
+// `internal/testenv`, ...) are also skipped, with a one-line notice on
+// stderr. Without that filter a single unresolvable file would fatal the
+// whole package load via importSrc; per-file skipping lets whatever does
+// load still run.
+//
+// The returned files form a self-contained compilation unit with
+// pkgName="<last>_test"; their `import "<importPath>"` clauses resolve
+// to the existing native bridge.
+func (p *Parser) loadBridgedTestSources(importPath string) ([]PackageSource, error) {
+	fi, err := fs.Stat(p.testSrcFS, importPath)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("%s: not a package directory", importPath)
+	}
+	entries, err := fs.ReadDir(p.testSrcFS, importPath)
+	if err != nil {
+		return nil, err
+	}
+	wantPkg := path.Base(importPath) + "_test"
+	var out []PackageSource
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		if !MatchFileName(e.Name(), p.buildCtx) {
+			continue
+		}
+		buf, err := fs.ReadFile(p.testSrcFS, importPath+"/"+e.Name())
+		if err != nil {
+			return nil, err
+		}
+		src := string(buf)
+		if !matchBuildDirective(src, p.buildCtx) {
+			continue
+		}
+		if extractPackageName(src) != wantPkg {
+			continue
+		}
+		if bad := p.firstUnresolvableImport(extractImports(src)); bad != "" {
+			fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s: cannot resolve import %q\n", importPath, e.Name(), bad)
+			continue
+		}
+		out = append(out, PackageSource{Name: e.Name(), Content: src})
+	}
+	return out, nil
+}
+
+// firstUnresolvableImport returns the first path in imports that mvm
+// cannot resolve at load time: not present as a bridge in p.Packages,
+// not stat-able in stdlibfs, not stat-able in remotefs. Returns "" when
+// every import is resolvable. Used to pre-filter bridged-stdlib test
+// files (e.g. drop strings_test files importing `internal/asan`).
+func (p *Parser) firstUnresolvableImport(imports []string) string {
+	for _, ip := range imports {
+		if _, ok := p.Packages[ip]; ok {
+			continue
+		}
+		resolved := false
+		for _, fb := range []fs.FS{p.stdlibfs, p.remotefs} {
+			if fb == nil {
+				continue
+			}
+			if fi, err := fs.Stat(fb, ip); err == nil && fi.IsDir() {
+				resolved = true
+				break
+			}
+		}
+		if !resolved {
+			return ip
+		}
+	}
+	return ""
+}
+
+// extractImports textually scans src for the import paths referenced by
+// its `import "X"` and `import (...)` declarations. Sufficient for the
+// pre-resolution filter in loadBridgedTestSources; not a full Go parser
+// (does not handle imports inside cgo preambles or other oddities not
+// found in stdlib test files).
+func extractImports(src string) []string {
+	var out []string
+	for src != "" {
+		var line string
+		if i := strings.IndexByte(src, '\n'); i >= 0 {
+			line, src = src[:i], src[i+1:]
+		} else {
+			line, src = src, ""
+		}
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, "import")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		if strings.HasPrefix(rest, "(") {
+			// Grouped import: scan until the matching ')'.
+			for src != "" {
+				if i := strings.IndexByte(src, '\n'); i >= 0 {
+					line, src = src[:i], src[i+1:]
+				} else {
+					line, src = src, ""
+				}
+				trim := strings.TrimSpace(line)
+				if trim == ")" {
+					break
+				}
+				if p := importPathFromLine(trim); p != "" {
+					out = append(out, p)
+				}
+			}
+			continue
+		}
+		if p := importPathFromLine(rest); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// importPathFromLine pulls the import path string from a single import
+// spec ("path", `name "path"`, `. "path"`, `_ "path"`). Returns "" when
+// no quoted path is found.
+func importPathFromLine(line string) string {
+	q := strings.IndexByte(line, '"')
+	if q < 0 {
+		return ""
+	}
+	rest := line[q+1:]
+	e := strings.IndexByte(rest, '"')
+	if e < 0 {
+		return ""
+	}
+	return rest[:e]
 }
 
 func extractPackageName(src string) string {

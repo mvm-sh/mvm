@@ -29,6 +29,7 @@ type Parser struct {
 	pkgfs           fs.FS          // filesystem to read imported sources from
 	stdlibfs        fs.FS          // fallback filesystem for embedded stdlib sources
 	remotefs        fs.FS          // last-resort filesystem (e.g. network module proxy)
+	testSrcFS       fs.FS          // test-only fs for bridged-stdlib *_test.go sources ($GOROOT/src); never consulted by ordinary import resolution
 	includeTests    bool           // include _test.go files when loading package sources
 	importRemaining []DeferredDecl // code-gen declarations from imported source packages, tagged with their origin package
 	CompilingPkg    string         // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
@@ -159,6 +160,21 @@ func (p *Parser) SetRemoteFS(fsys fs.FS) {
 // on for `mvm test <importpath>` so test functions become callable.
 func (p *Parser) SetIncludeTests(b bool) {
 	p.includeTests = b
+}
+
+// SetTestSourceFS installs the test-source filesystem consulted by
+// LoadPackageSources only when (a) includeTests is on and (b) the target
+// import path is a bridge-only stdlib package (i.e. has a Bin entry in
+// p.Packages but no source in pkgfs/stdlibfs/remotefs). The intended
+// supplier is stdlib.GorootTestFS(), which serves $GOROOT/src so external
+// `package X_test` files run against the existing reflect bindings.
+//
+// This FS is deliberately separate from the pkgfs -> stdlibfs -> remotefs
+// chain: feeding $GOROOT/src into that chain would make ordinary
+// `import "strings"` start loading interpreted source alongside the
+// reflect bridge, double-defining every exported symbol.
+func (p *Parser) SetTestSourceFS(fsys fs.FS) {
+	p.testSrcFS = fsys
 }
 
 // WithImportingPkg sets p.importingPkg to pkg and returns a function that
