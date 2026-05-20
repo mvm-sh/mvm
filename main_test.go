@@ -264,3 +264,69 @@ func TestZ(t *testing.T) {}
 		})
 	}
 }
+
+// TestExampleRun guards that `mvm test` discovers and runs Example* functions
+// (with an // Output: directive) and that their stdout is captured correctly.
+// The example mixes fmt.Print (which mvm routes through the interpreter writer)
+// with a direct os.Stdout write (the bridged global): both must land in the
+// captured stream in program order, which only holds when the interpreter's
+// stdout follows testing's per-example os.Stdout redirection. A package with no
+// Test* funcs (examples only) must still run rather than report "no tests".
+func TestExampleRun(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short")
+	}
+
+	cases := []struct {
+		name     string
+		output   string // text after `// Output:`
+		wantExit int
+		wantSub  string
+	}{
+		{"pass", "abc", 0, "PASS"},
+		{"fail", "xyz", 1, "FAIL"},
+	}
+	const tmpl = `package x
+
+import (
+	"fmt"
+	"os"
+)
+
+func ExampleMix() {
+	fmt.Print("a")
+	os.Stdout.Write([]byte("b"))
+	fmt.Println("c")
+	// Output: %s
+}
+`
+	bin := buildMvm(t)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fixture := t.TempDir()
+			src := fmt.Sprintf(tmpl, c.output)
+			if err := os.WriteFile(filepath.Join(fixture, "x_test.go"), []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(bin, "test", fixture).CombinedOutput() //nolint:gosec // bin is buildMvm's t.TempDir output
+			s := string(out)
+			gotExit := 0
+			if err != nil {
+				ee, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatalf("unexpected error: %v\n%s", err, s)
+				}
+				gotExit = ee.ExitCode()
+			}
+			if gotExit != c.wantExit {
+				t.Errorf("exit = %d, want %d:\n%s", gotExit, c.wantExit, s)
+			}
+			if !strings.Contains(s, c.wantSub) {
+				t.Errorf("expected %q in output:\n%s", c.wantSub, s)
+			}
+			if strings.Contains(s, "no tests to run") {
+				t.Errorf("examples-only package reported no tests to run:\n%s", s)
+			}
+		})
+	}
+}
