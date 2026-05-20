@@ -610,6 +610,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		}
 		return ""
 	}
+	// freeVarIndex returns the capture index of a variable named in the current
+	// closure body, or -1 when name is not a captured (free) variable.
+	freeVarIndex := func(name string) int {
+		cf := curFunc()
+		if cf == "" {
+			return -1
+		}
+		cloSym, ok := c.symAt(cf)
+		if !ok || cloSym == nil {
+			return -1
+		}
+		return cloSym.FreeVarIndex(name)
+	}
 	// isCallable reports whether sym can be the target of a function call.
 	isCallable := func(sym *symbol.Symbol) bool {
 		if sym.Kind == symbol.Func || sym.Kind == symbol.Builtin {
@@ -1418,6 +1431,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emitIfaceWrap(t, lhss[i].Type, rhss[i].Type)
 					c.emitNumConvert(t, lhss[i].Type, rhss[i].Type, 0)
 					switch {
+					case lhss[i].Kind == symbol.LocalVar && freeVarIndex(lhss[i].Name) >= 0:
+						// Captured variable: write through the closure's heap cell.
+						c.emit(t, vm.HeapSet, freeVarIndex(lhss[i].Name))
+						slotCount++
+						namedAbove++
 					case lhss[i].Kind == symbol.LocalVar:
 						// Param slots alias the caller's Value; SetLocal would write through to the caller.
 						// Detach via vm.New, matching the single-assign branch below.
@@ -1462,14 +1480,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			if lhs.Kind == symbol.LocalVar {
 				// Captured variable write inside closure body: use HeapSet.
-				if cf := curFunc(); cf != "" {
-					if cloSym, ok := c.symAt(cf); ok && cloSym != nil {
-						if idx := cloSym.FreeVarIndex(lhs.Name); idx >= 0 {
-							c.emit(t, vm.HeapSet, idx)
-							c.emit(t, vm.Pop, 1) // pop stale value pushed by HeapGet in Ident
-							break
-						}
-					}
+				if idx := freeVarIndex(lhs.Name); idx >= 0 {
+					c.emit(t, vm.HeapSet, idx)
+					c.emit(t, vm.Pop, 1) // pop stale value pushed by HeapGet in Ident
+					break
 				}
 				// Param slots alias the caller's pushed Value, so SetLocal would write through dst.ref to the caller.
 				// New detaches the slot, but the Used optimization skips it on later compile-emitted assigns;
