@@ -8,53 +8,79 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// namedSliceArg wraps a slice whose mvm element type carries a user-level
-// name that the underlying reflect.Type alone cannot recover (e.g. `type
-// Frame uintptr` collapses to `uintptr` at the reflect layer). Implementing
-// fmt.Formatter lets the wrapper render `%#v` as `[]<pkg>.<Name>{...}` and
-// dispatch each element through the user Format method, while delegating
-// other verbs to native fmt.
-type namedSliceArg struct {
-	slice  reflect.Value
-	prefix string
-	elemFn func(any, fmt.State, rune)
+// compositeFmtArg wraps an mvm slice whose element type defines a display
+// method (String/Error/Format/GoString) so native fmt renders each element
+// through that interpreted method. Native fmt sees only the reflect element
+// type, which carries no Go-level methods for an interpreted type, so without
+// this it falls back to default formatting -- e.g. printing `{Bob 31}` for a
+// []Person instead of the Stringer's `Bob: 31`. For `%#v` it also recovers the
+// user-level slice type name that the reflect type alone loses for a defined
+// type over a basic kind (e.g. `type Frame uintptr` -> `[]uintptr`).
+type compositeFmtArg struct {
+	m        *vm.Machine
+	slice    reflect.Value
+	elemTyp  *vm.Type
+	prefix   string // "[]<pkg>.<Name>", for %#v
+	goSyntax bool   // element has Format/GoString: honor it under %#v
 }
 
-func (w *namedSliceArg) Format(s fmt.State, verb rune) {
-	if verb != 'v' || !s.Flag('#') {
-		_, _ = fmt.Fprintf(s, fmt.FormatString(s, verb), w.slice.Interface())
+func (w *compositeFmtArg) Format(s fmt.State, verb rune) {
+	n := 0
+	if w.slice.IsValid() && !w.slice.IsNil() {
+		n = w.slice.Len()
+	}
+	// %#v keeps the Go-syntax form with the user-level slice type name.
+	if verb == 'v' && s.Flag('#') {
+		switch {
+		case !w.slice.IsValid() || w.slice.IsNil():
+			_, _ = io.WriteString(s, w.prefix+"(nil)")
+		case n == 0:
+			_, _ = io.WriteString(s, w.prefix+"{}")
+		default:
+			_, _ = io.WriteString(s, w.prefix+"{")
+			for i := 0; i < n; i++ {
+				if i > 0 {
+					_, _ = io.WriteString(s, ", ")
+				}
+				// %#v honors Format/GoString but never String/Error, so only
+				// route through the display bridge when the element provides a
+				// Go-syntax method; otherwise print the raw element.
+				if w.goSyntax {
+					_, _ = fmt.Fprintf(s, "%#v", w.elem(i))
+				} else {
+					_, _ = fmt.Fprintf(s, "%#v", w.slice.Index(i).Interface())
+				}
+			}
+			_, _ = io.WriteString(s, "}")
+		}
 		return
 	}
-	switch {
-	case !w.slice.IsValid() || w.slice.IsNil():
-		_, _ = io.WriteString(s, w.prefix+"(nil)")
-	case w.slice.Len() == 0:
-		_, _ = io.WriteString(s, w.prefix+"{}")
-	default:
-		_, _ = io.WriteString(s, w.prefix+"{")
-		for i, n := 0, w.slice.Len(); i < n; i++ {
-			if i > 0 {
-				_, _ = io.WriteString(s, ", ")
-			}
-			elem := w.slice.Index(i).Interface()
-			if w.elemFn != nil {
-				w.elemFn(elem, s, 'v')
-			} else {
-				_, _ = fmt.Fprintf(s, "%#v", elem)
-			}
-		}
-		_, _ = io.WriteString(s, "}")
+	// Every other verb: hand native fmt a []any of per-element display
+	// wrappers, so it formats the slice exactly as it would a native one and
+	// each element's method drives its own rendering.
+	wrapped := make([]any, n)
+	for i := 0; i < n; i++ {
+		wrapped[i] = w.elem(i)
 	}
+	_, _ = fmt.Fprintf(s, fmt.FormatString(s, verb), wrapped)
 }
 
-func (w *namedSliceArg) String() string { return fmt.Sprintf("%v", w.slice.Interface()) }
+// elem returns the i-th element wrapped as a display bridge -- the same
+// wrapping a standalone value receives flowing into an interface{} arg.
+func (w *compositeFmtArg) elem(i int) any {
+	ev := reflect.ValueOf(w.slice.Index(i).Interface())
+	if rv := w.m.BridgeForAny(vm.Iface{Typ: w.elemTyp, Val: vm.FromReflect(ev)}); rv.IsValid() && rv.CanInterface() {
+		return rv.Interface()
+	}
+	return ev.Interface()
+}
 
 func init() { vm.IfaceFallbackHook = ifaceFallbackHook }
 
-// ifaceFallbackHook substitutes an mvm slice flowing into `any` with a
-// fmt.Formatter wrapper when the element type defines a Format method.
-// Gating on Format keeps plain slices like []int passing through as real
-// reflect slices so reflect-based callers (sort.Slice, json.Marshal, ...)
+// ifaceFallbackHook substitutes an mvm slice flowing into `any` with a fmt
+// wrapper when the element type defines a display method. Gating on a display
+// method keeps plain slices ([]int, []string, ...) passing through as real
+// reflect slices, so reflect-based callers (sort.Slice, json.Marshal, ...)
 // keep working.
 func ifaceFallbackHook(m *vm.Machine, ifc vm.Iface, targetType reflect.Type) reflect.Value {
 	if targetType.Kind() != reflect.Interface || targetType.NumMethod() != 0 || ifc.Typ == nil {
@@ -65,44 +91,31 @@ func ifaceFallbackHook(m *vm.Machine, ifc vm.Iface, targetType reflect.Type) ref
 		return reflect.Value{}
 	}
 	elemTyp := ifc.Typ.ElemType
-	if elemTyp == nil {
+	if elemTyp == nil || !hasDisplayMethod(m, elemTyp) {
 		return reflect.Value{}
 	}
-	elemFn := makeElemFormatFn(m, elemTyp)
-	if elemFn == nil {
-		return reflect.Value{}
-	}
-	return reflect.ValueOf(&namedSliceArg{
-		slice:  rv,
-		prefix: "[]" + elemTyp.String(),
-		elemFn: elemFn,
+	return reflect.ValueOf(&compositeFmtArg{
+		m:        m,
+		slice:    rv,
+		elemTyp:  elemTyp,
+		prefix:   "[]" + elemTyp.String(),
+		goSyntax: hasMethod(m, elemTyp, "Format") || hasMethod(m, elemTyp, "GoString"),
 	})
 }
 
-// formatFnType is the reflect type of an interpreted Format method body
-// after the receiver is bound (the receiver becomes the closure's first
-// heap cell): func(fmt.State, rune).
-var formatFnType = reflect.TypeOf(func(fmt.State, rune) {})
+func hasMethod(m *vm.Machine, elem *vm.Type, name string) bool {
+	_, ok := m.MethodByName(elem, name)
+	return ok
+}
 
-// makeElemFormatFn returns a per-element formatter that dispatches to the
-// element type's interpreted Format method, or nil if none is registered.
-func makeElemFormatFn(m *vm.Machine, elem *vm.Type) func(any, fmt.State, rune) {
-	if m == nil || elem == nil {
-		return nil
-	}
-	method, ok := m.MethodByName(elem, "Format")
-	if !ok {
-		return nil
-	}
-	return func(v any, s fmt.State, verb rune) {
-		ifc := vm.Iface{Typ: elem, Val: vm.FromReflect(reflect.ValueOf(v))}
-		fval := m.MakeMethodCallable(ifc, method)
-		if !fval.Reflect().IsValid() {
-			_, _ = fmt.Fprintf(s, "%v", v)
-			return
-		}
-		if _, err := m.CallFunc(fval, formatFnType, []reflect.Value{reflect.ValueOf(s), reflect.ValueOf(verb)}); err != nil {
-			_, _ = fmt.Fprintf(s, "%v", v)
+// hasDisplayMethod reports whether elem defines a method fmt dispatches on
+// (String/Error/Format/GoString) -- the same set used to pick a display bridge
+// for a standalone value.
+func hasDisplayMethod(m *vm.Machine, elem *vm.Type) bool {
+	for name := range vm.DisplayBridges {
+		if hasMethod(m, elem, name) {
+			return true
 		}
 	}
+	return false
 }

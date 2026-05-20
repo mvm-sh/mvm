@@ -6,6 +6,15 @@ import "reflect"
 // holding the original concrete value. Populated at init time by stdlib.
 var ValBridgeTypes = map[reflect.Type]bool{}
 
+// BridgeForAny wraps ifc the way a value flowing into an interface{} parameter
+// is wrapped: a display bridge (String/Error/Format/GoString) when the value's
+// type defines one, otherwise the concrete value. Exported so stdlib display
+// helpers can wrap composite elements the same way a standalone value is
+// wrapped at the native-call boundary.
+func (m *Machine) BridgeForAny(ifc Iface) reflect.Value {
+	return m.bridgeIface(ifc, AnyRtype)
+}
+
 func unbridgeValue(rv reflect.Value) reflect.Value { return UnbridgeValue(rv) }
 
 // asBridge returns the bridge struct's elem (settable) if rv is a known
