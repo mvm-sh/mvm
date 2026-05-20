@@ -82,22 +82,13 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			sigToks = toks // Body-less function (e.g. runtime-linked).
 		}
 
-	case toks[1].Tok == lang.ParenBlock && len(toks) > 2 && toks[2].Tok == lang.Ident:
-		// Method or anonymous function. Disambiguate: if toks[2] is a known
-		// type and toks[3] is not a ParenBlock (param list), this is an anonymous
-		// func with a named return type (e.g. func(int) T {...}), not a method.
-		if s, _, ok := p.symGet(toks[2].Str); ok && s.IsType() {
-			if len(toks) < 4 || toks[3].Tok != lang.ParenBlock {
-				return false, nil
-			}
-		}
-		// Method: func (recv) Name(params) rettype { ... }
+	case isMethodDecl(toks):
+		// Method: func (recv) Name(params) rettype { ... }.
 		recvr, err := p.scanBlock(toks[1].Token, false)
 		if err != nil {
 			return false, nil
 		}
 		// Generic method: receiver has type params (e.g. Box[T]).
-		// Store as a method template on the generic type.
 		if baseName, ok := recvGenericBaseName(recvr); ok {
 			gs, _, gok := p.Symbols.Get(baseName, p.scope)
 			if gok && gs.Kind == symbol.Generic {
@@ -119,11 +110,6 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 				})
 				return true, nil
 			}
-			// Base type has a bracketed receiver but isn't registered as generic
-			// yet - likely a forward reference whose own declaration is still
-			// pending (e.g. constraint referencing a not-yet-seen generic type).
-			// Defer via ErrUndefined so the retry loop processes this after the
-			// generic type declaration completes.
 			return false, ErrUndefined{Name: baseName}
 		}
 		typeName := recvTypeName(recvr)
@@ -177,6 +163,11 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	s.InNames = inNames
 	s.OutNames = outNames
 	return false, nil
+}
+
+func isMethodDecl(toks Tokens) bool {
+	return len(toks) >= 4 && toks[1].Tok == lang.ParenBlock &&
+		toks[2].Tok == lang.Ident && toks[3].Tok == lang.ParenBlock
 }
 
 func recvTypeName(recvr Tokens) string {
@@ -251,21 +242,12 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		}
 	case lang.ParenBlock:
 		// receiver, or anonymous function parameters.
-		if t := in[2]; t.Tok == lang.Ident {
-			// If in[2] is a known type and in[3] is not a ParenBlock (param list),
-			// this is an anonymous func with a named return type (e.g. func(T) Ret{}).
-			if s, _, ok := p.symGet(t.Str); ok && s.IsType() {
-				if len(in) < 4 || in[3].Tok != lang.ParenBlock {
-					fname = p.anonFuncName()
-					break
-				}
+		if in[2].Tok == lang.Ident {
+			if !isMethodDecl(in) {
+				fname = p.anonFuncName()
+				break
 			}
-			// Method: derive fname from receiver type name. If the receiver
-			// paren block has no Ident (e.g. empty `()`), this is actually an
-			// anonymous func whose return type starts with a non-Type ident,
-			// like `func() time.Time { ... }` where `time` is a Pkg, not a
-			// Type. Treat it as anonymous instead of synthesizing a bogus
-			// `<scope>.<ident>` symbol name.
+			// Method: derive fname from the receiver type name.
 			recvr, scanErr := p.scanBlock(in[1].Token, false)
 			if scanErr != nil {
 				return nil, scanErr

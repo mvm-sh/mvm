@@ -3,28 +3,26 @@ package main
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
-// BUG (surfaced from bufio_test.go TestReaderWriteTo, line ~1171): a slice
-// composite literal whose element is an INLINE func type with a qualified
-// interface param/return -- []func(io.Reader) io.Reader{...} -- builds a zero
-// (invalid) slice value, so len(rs) panics with
-// "reflect: call of reflect.Value.Len on zero Value".
-//
-// Works for comparison:
-//   - inline func type over builtins:  []func(int) int{...}
-//   - named func type:                 type F func(io.Reader) io.Reader; []F{...}
-//
-// So the defect is specific to constructing the slice when the element is an
-// inline (unnamed) func type whose signature references a qualified interface
-// type. Distinct from the parenthesized-return parse bug fixed alongside this
-// (see functype_paren_return.go).
+// A closure with a package-qualified named return type (e.g. io.Reader) used as
+// an element of a func-typed slice composite literal must be recognized as an
+// anonymous func, not mis-parsed as a method. The method-vs-anon disambiguation
+// keyed on "is the return ident a known type", so a qualified return (where the
+// leading ident is a package) fell through to method handling: func(r io.Reader)
+// io.Reader{...} was registered as method `int.io`, leaving the slice a zero
+// value (len(rs) then panicked "reflect.Value.Len on zero Value"). Now keyed on
+// whether the token after the name is a ParenBlock (a method's param list).
 
 func main() {
 	rs := []func(io.Reader) io.Reader{
 		func(r io.Reader) io.Reader { return r },
 	}
-	fmt.Println(len(rs))
+	out := rs[0](strings.NewReader("hello"))
+	b, _ := io.ReadAll(out)
+	fmt.Println(len(rs), string(b))
 }
 
-// skip: inline func-type slice element with qualified iface param yields a zero slice value
+// Output:
+// 1 hello

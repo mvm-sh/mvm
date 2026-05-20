@@ -267,7 +267,7 @@ func (p *Parser) funcSymBodyScope(decl Tokens) (*symbol.Symbol, Tokens, string) 
 	case lang.Ident:
 		name = decl[1].Str
 	case lang.ParenBlock:
-		if len(decl) < 4 || decl[2].Tok != lang.Ident {
+		if !isMethodDecl(decl) {
 			return nil, nil, ""
 		}
 		recvr, err := p.scanBlock(decl[1].Token, false)
