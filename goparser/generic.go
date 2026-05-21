@@ -274,6 +274,14 @@ func (p *Parser) resolveConstraintElems(toks Tokens, tpIdx map[string]int) ([]co
 			}
 			return out, nil
 		}
+		// A pure `comparable` constraint interface (no methods) checks the
+		// built-in comparability. With methods (e.g. `interface { comparable;
+		// error }`) the method-set interface element subsumes it; mvm's iface
+		// constraints are checked leniently, so the comparable conjunct is not
+		// separately enforced.
+		if typ.Comparable && len(typ.IfaceMethods) == 0 {
+			return []constraintElem{{kind: elemComparable}}, nil
+		}
 		return []constraintElem{{kind: elemInterface, typ: typ}}, nil
 	}
 	return []constraintElem{{kind: elemExact, typ: typ}}, nil
@@ -594,6 +602,11 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	// If the parameter type name is a type parameter, infer it from the argument.
 	params := genSym.Type.Params
 	isVariadic := genSym.Type.Rtype.IsVariadic() && len(params) > 0
+	// A spread call `f(s...)` passes the whole slice in the variadic slot, so it
+	// matches the variadic param `[]T` directly; per-element calls `f(a, b)` do
+	// not. Go forbids mixing spread with extra variadic elements, so a spread
+	// call has exactly one slice argument in that slot.
+	spread := len(argToks) > 0 && argToks[len(argToks)-1].Tok == lang.Ellipsis
 	inferred := make(map[string]*vm.Type, len(tmpl.typeParams))
 	for i, argExpr := range args {
 		if len(argExpr) == 0 {
@@ -604,10 +617,11 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		case i < len(params)-1, !isVariadic && i < len(params):
 			pType = params[i]
 		case isVariadic:
-			// Variadic slot: the argument is a single element, not the whole
-			// slice - descend into ElemType so unification sees `T`, not `[]T`.
 			pType = params[len(params)-1]
-			if pType.ElemType != nil {
+			// Without spread, the argument is a single element - descend into
+			// ElemType so unification sees `T`, not `[]T`. With spread the
+			// argument IS the whole slice, matching the variadic param `[]T`.
+			if !spread && pType.ElemType != nil {
 				pType = pType.ElemType
 			}
 		default:
@@ -620,7 +634,18 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		if !hasUnboundTypeParam(pType, tpNames, inferred) {
 			continue
 		}
-		argTyp := p.inferExprType(argExpr)
+		var argTyp *vm.Type
+		if argExpr[0].Tok == lang.Func && argExpr[len(argExpr)-1].Tok == lang.BraceBlock {
+			// Plain func-literal argument: type it from its signature alone.
+			// inferExprType would parseFunc the whole closure, instantiating any
+			// generic call in its body into a throwaway buffer - the emitted body
+			// is then lost, leaving an empty func slot that nil-derefs at runtime
+			// (e.g. slices.SortFunc(s, func(a,b T) int { return cmp.Compare(a,b) })).
+			// The closure's type is fixed by its signature, so the body is moot here.
+			argTyp, _, _, _ = p.parseFuncSig(argExpr[:len(argExpr)-1])
+		} else {
+			argTyp = p.inferExprType(argExpr)
+		}
 		if argTyp == nil {
 			// Can't type this arg (e.g. an untyped local func value); skip it
 			// and let other args bind the type params. The final pass below
@@ -787,7 +812,8 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		}
 		fnTok := rest[len(rest)-1]
 		totalLen++
-		if fnTok.Tok == lang.Ident {
+		switch fnTok.Tok {
+		case lang.Ident:
 			s, _, ok := p.Symbols.Get(fnTok.Str, p.scope)
 			if !ok {
 				return nil, 0
@@ -797,6 +823,40 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 			}
 			if s.Type != nil {
 				return funcReturnType(s.Type), totalLen
+			}
+		case lang.Period:
+			// pkg-qualified callee `pkg.Func(...)`: the package ident precedes
+			// the Period selector. Resolve the func's return type so inference
+			// can type an arg like `Or(strings.Compare(a, b))`. Generic members
+			// are intentionally NOT resolved here: typing a nested generic
+			// call's result lets inference wrongly succeed and reach bad
+			// nested-generic codegen (a known hang). Mirrors callFuncType.
+			if len(rest) < 2 || rest[len(rest)-2].Tok != lang.Ident {
+				break
+			}
+			ps := p.Symbols[rest[len(rest)-2].Str]
+			if ps == nil || ps.Kind != symbol.Pkg {
+				break
+			}
+			member := fnTok.Str[1:] // strip leading "."
+			var ft *vm.Type
+			if pkg := p.Packages[ps.PkgPath]; pkg != nil {
+				if v, ok := pkg.Values[member]; ok {
+					if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
+						ft = &vm.Type{Rtype: rv.Type()}
+					}
+				}
+			}
+			if ft == nil {
+				if qs, ok := p.Symbols[ps.PkgPath+"."+member]; ok && qs.Kind != symbol.Generic {
+					if t := symbol.Vtype(qs); t.IsFunc() {
+						ft = t
+					}
+				}
+			}
+			if ft != nil {
+				totalLen++ // account for the package ident token
+				return funcReturnType(ft), totalLen
 			}
 		}
 		return nil, totalLen

@@ -37,6 +37,7 @@ type Type struct {
 	Placeholder  bool            // true for forward-declared struct/interface placeholders until finalized (SetFields, or IfaceMethods assignment in parseTypeLine)
 	IfaceMethods []IfaceMethod   // non-nil for interface types: required method signatures
 	TypeElems    []TypeElem      // non-nil for constraint interfaces: union members (e.g. cmp.Ordered)
+	Comparable   bool            // constraint interface embeds the built-in `comparable` (e.g. `interface { comparable; error }`)
 	Methods      []Method        // concrete types: methods[methodID] = code location + receiver path
 	Embedded     []EmbeddedField // mvm types of anonymous (embedded) fields, for promoted method lookup
 	Params       []*Type         // mvm-level parameter types for func types (nil for non-func or if unknown)
@@ -643,6 +644,11 @@ func (v Value) Equal(u Value) bool {
 		return u.IfaceVal().Val.Equal(v)
 	}
 	if isNum(v.ref.Kind()) && isNum(u.ref.Kind()) {
+		// Floats are stored as Float64 bits; compare them as floats so the IEEE
+		// rules hold (NaN != NaN, +0.0 == -0.0) instead of raw bit equality.
+		if isFloat(v.ref.Kind()) || isFloat(u.ref.Kind()) {
+			return v.Float() == u.Float()
+		}
 		return v.num == u.num
 	}
 	// Untyped nil is stored as an invalid ref.

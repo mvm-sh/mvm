@@ -50,7 +50,7 @@ type Parser struct {
 	blankSeq          int                  // counter for unique blank identifier names
 	namedOut          []string             // scoped names of named return vars for current function
 	symTracker        []string             // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
-	pendingMethodDefs Tokens               // method defs from generic type instantiation, drained into output
+	pendingMethodDefs Tokens               // generic method+func instance defs, drained into output at statement end (survives inference's discarded parseExpr buffers)
 	typeOnly          bool                 // when true, addSymVar is a no-op (Phase 1 signature-only parse)
 	inForInit         bool                 // true while parsing for-init or range clause (marks LoopVar)
 	funcDepth         int                  // nesting depth of function bodies (>0 means inside a function)

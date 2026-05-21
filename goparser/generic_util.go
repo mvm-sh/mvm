@@ -2,6 +2,7 @@ package goparser
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
@@ -52,15 +53,40 @@ func isSimpleIdent(s string) bool {
 	return len(s) > 0
 }
 
+// typeArgName builds a source-level, re-parseable name for a concrete type
+// argument. Named types use their declared name (so substituting them into a
+// generic body re-resolves to the same type). Compound types are reconstructed
+// from their element/key names rather than t.Rtype.String(): an interpreted
+// struct's Rtype.String() is an opaque placeholder (e.g. "struct { PO_1 int }",
+// see vm.placeholderFieldName) that would re-parse into a fresh, structurally
+// distinct anonymous struct - breaking reflect identity in the instantiated
+// body (e.g. slices.SortFunc over a []NamedStruct).
 func typeArgName(t *vm.Type) string {
-	name := t.Name
-	if name == "" {
-		return t.Rtype.String()
+	if t.Name != "" {
+		if t.IsPtr() {
+			return "*" + t.Name
+		}
+		return t.Name
 	}
-	if t.IsPtr() {
-		return "*" + name
+	switch t.Rtype.Kind() {
+	case reflect.Pointer:
+		if t.ElemType != nil {
+			return "*" + typeArgName(t.ElemType)
+		}
+	case reflect.Slice:
+		if t.ElemType != nil {
+			return "[]" + typeArgName(t.ElemType)
+		}
+	case reflect.Array:
+		if t.ElemType != nil {
+			return "[" + strconv.Itoa(t.Rtype.Len()) + "]" + typeArgName(t.ElemType)
+		}
+	case reflect.Map:
+		if t.KeyType != nil && t.ElemType != nil {
+			return "map[" + typeArgName(t.KeyType) + "]" + typeArgName(t.ElemType)
+		}
 	}
-	return name
+	return t.Rtype.String()
 }
 
 func typeArgSubst(t *vm.Type, source string) string {

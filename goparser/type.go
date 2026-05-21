@@ -332,6 +332,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 		}
 		var methods []vm.IfaceMethod
 		var elems []vm.TypeElem
+		hasComparable := false
 		for _, lt := range toks.Split(lang.Semicolon) {
 			if len(lt) == 0 {
 				continue
@@ -343,6 +344,13 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 					return nil, 0, err
 				}
 				elems = append(elems, es...)
+				continue
+			}
+			// Built-in `comparable` as an embedded constraint element (e.g.
+			// `interface { comparable; error }`). It is not an ordinary type, so
+			// record it rather than resolving it via parseTypeExpr (which fails).
+			if len(lt) == 1 && lt[0].Tok == lang.Ident && lt[0].Str == "comparable" {
+				hasComparable = true
 				continue
 			}
 			if lt[0].Tok != lang.Ident {
@@ -373,6 +381,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			Rtype:        vm.AnyRtype,
 			IfaceMethods: methods,
 			TypeElems:    elems,
+			Comparable:   hasComparable,
 		}, 2, nil
 
 	default:

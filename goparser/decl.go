@@ -776,6 +776,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		if placeholder.Rtype.Kind() == reflect.Interface {
 			placeholder.IfaceMethods = typ.IfaceMethods
 			placeholder.TypeElems = typ.TypeElems
+			placeholder.Comparable = typ.Comparable
 			placeholder.Placeholder = false
 		} else {
 			placeholder.SetFields(typ)

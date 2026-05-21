@@ -163,6 +163,12 @@ func TestNumericWidening(t *testing.T) {
 		// float64 var vs int untyped const: int must widen to float64.
 		{n: "float64_eq_int_const", src: `var v float64 = 10.0; v == 10`, res: "true"},
 		{n: "float64_neq_int_const", src: `var v float64 = 11.0; v != 10`, res: "true"},
+
+		// Float equality must follow IEEE, not raw bit equality: NaN != NaN and
+		// +0.0 == -0.0 (cmp's TestLess/TestCompare via isNaN's `x != x`).
+		{n: "nan_not_equal_self", src: `import "math"; x := math.NaN(); x != x`, res: "true"},
+		{n: "nan_eq_self_false", src: `import "math"; x := math.NaN(); x == x`, res: "false"},
+		{n: "neg_zero_eq_pos_zero", src: `import "math"; math.Copysign(0, -1) == 0.0`, res: "true"},
 	})
 }
 
@@ -306,6 +312,12 @@ func TestFunc(t *testing.T) {
 		{n: "#24", src: `import "fmt"; x := 1; fn := func() int { return x }; fmt.Sprintf("%T", fn)`, res: "func() int"},
 		{n: "#25", src: `import "fmt"; fn := func() {}; fmt.Sprintf("%T", fn)`, res: "func()"},
 		{n: "#26", src: "func f(\n\tx int,\n\t// comment\n\ty string,\n) string { return y }; f(1, \"a\")", res: "a"},
+		// BUG: a bare `nil` literal passed to a slice (or any) parameter becomes
+		// an untyped zero reflect.Value rather than a typed-nil of the param type,
+		// so range/len on it panics ("reflect: call of reflect.Value.Type on zero
+		// Value"). A typed nil var (`var s []int; f(s)`) works. Surfaced by
+		// errors/wrap_test.go's `testAsType(t, multiErr{nil}, ...)` patterns.
+		{n: "nil_literal_slice_arg_range", skip: true, src: `func f(xs []int) int { n := 0; for range xs { n++ }; return n }; f(nil)`, res: "0"},
 	})
 }
 
@@ -471,6 +483,11 @@ func TestGenericType(t *testing.T) {
 		{n: "approx_named", src: `type Ord interface { ~int }; type MyInt int; func F[T Ord](x T) T { return x }; F[MyInt](MyInt(1))`, res: "1"},
 		// Inter-param reference in constraints (e.g. slices.Sort-style [S ~[]E, E Ord]).
 		{n: "typeparam_ref", src: `func F[T any, U T](x U) U { return x }; F[int, int](1)`, res: "1"},
+		// `comparable` as an embedded constraint-interface element (not just in
+		// direct constraint position). go1.26 errors/wrap_test.go's compError.
+		{n: "comparable_iface_elem_ok", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[int](42)`, res: "42"},
+		{n: "comparable_iface_elem_reject", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[func()](nil)`, err: "does not satisfy constraint"},
+		{n: "comparable_iface_with_method", src: `import "fmt"; type C interface { comparable; error }; func F[T C](xs []T) bool { var z T; return len(xs) > 0 && xs[0] != z }; F([]error{fmt.Errorf("x")})`, res: "true"},
 	})
 }
 
@@ -500,6 +517,25 @@ func TestGenericImplicit(t *testing.T) {
 		{n: "infer_ptr_slice", src: `func F[T any](x *[]T) int { return len(*x) }; a := []int{1, 2}; F(&a)`, res: "2"},
 		{n: "infer_map", src: `func F[K comparable, V any](m map[K]V, k K) V { return m[k] }; F(map[string]int{"a": 1}, "a")`, res: "1"},
 		{n: "infer_slice_ptr", src: `func F[T any](x []*T) T { return *x[0] }; a := 9; F([]*int{&a})`, res: "9"},
+		// Spread (f(s...)) in a variadic generic call binds T to the element
+		// type, not the whole slice (cmp.Or(vals...) in cmp's TestOr).
+		{n: "infer_variadic_spread", src: `func Or[T comparable](vals ...T) T { var z T; for _, v := range vals { if v != z { return v } }; return z }; s := []int{0, 2}; Or(s...)`, res: "2"},
+		// A pkg-qualified call used as a generic-call argument is typed via its
+		// return type (cmp.Or(strings.Compare(...)) in cmp's ExampleOr_sort).
+		{n: "infer_pkg_qualified_call_arg", src: `import "strings"; func First[T comparable](vals ...T) T { var z T; for _, v := range vals { if v != z { return v } }; return z }; First(strings.Compare("a", "b"))`, res: "-1"},
+		// A named struct passed as a compound type arg ([]O) must re-resolve to
+		// the real type, not an opaque placeholder, so reflect identity holds in
+		// the instantiated body (slices.SortFunc over []Struct in cmp).
+		{n: "infer_named_struct_compound_arg", src: `func swap2[S ~[]E, E any](s S) E { s[0], s[1] = s[1], s[0]; return s[0] }; type O struct{ N int }; swap2([]O{{1}, {2}}).N`, res: "2"},
+		// A func-literal arg whose body calls another generic must be typed from
+		// its signature only; a full body-parse during inference would discard
+		// the inner instantiation, leaving an empty func slot (cmp ExampleOr_sort).
+		{n: "infer_func_literal_inner_generic", src: `func sortish[S ~[]E, E any](s S, f func(a, b E) int) E { var z E; for _, v := range s { if f(v, z) != 0 { z = v } }; return z }; func id[T any](x T) T { return x }; sortish([]int{3, 1, 2}, func(a, b int) int { return id(a) - id(b) })`, res: "2"},
+		// A generic call used as an argument to another generic call: the inner
+		// instance's body must survive the outer call's type-inference parse
+		// (drained via pendingMethodDefs), not be emitted into a discarded buffer
+		// that leaves an empty func slot (cmp.Or(cmp.Compare(...)) in ExampleOr_sort).
+		{n: "infer_generic_call_as_arg", src: `func Or[T comparable](vals ...T) T { var z T; for _, v := range vals { if v != z { return v } }; return z }; func cmp3[T int](a, b T) int { if a < b { return -1 }; if a > b { return 1 }; return 0 }; Or(cmp3(1, 2), cmp3(3, 3))`, res: "-1"},
 	})
 }
 

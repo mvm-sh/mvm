@@ -622,7 +622,13 @@ func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname s
 	}
 	fid := fout[1]
 	fid.Tok = lang.Ident
-	*out = append(*out, fout...)
+	// Route the instance body through pendingMethodDefs (drained at statement
+	// end) rather than appending it inline. inferExprType discards its parseExpr
+	// output, so a body emitted inline there would be lost while the instance
+	// symbol stays registered - leaving an empty func slot that nil-derefs at
+	// runtime when a generic call is an argument to another generic call (e.g.
+	// cmp.Or(cmp.Compare(...))). The reference (fid) still goes inline.
+	p.pendingMethodDefs = append(p.pendingMethodDefs, fout...)
 	*out = append(*out, fid)
 	return nil
 }
