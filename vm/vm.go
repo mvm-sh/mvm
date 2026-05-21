@@ -1330,6 +1330,29 @@ func (m *Machine) Run() (err error) {
 		case IfaceCall:
 			methodID := int(c.A)
 			if !mem[sp].IsIface() {
+				// A native value whose concrete rtype maps back to an
+				// interpreted *Type carrying a compiled method (e.g. an
+				// interpreted struct round-tripped through encoding/gob into an
+				// interface) must dispatch through that type's method -- the
+				// StructOf rtype carries no native methods. Gate on the rtype
+				// having no native method for this call: defined types over a
+				// bridged stdlib struct (type ipNetValue net.IPNet) share that
+				// struct's rtype, and re-wrapping a genuine native receiver
+				// there would hijack the call back into the interpreted method
+				// and recurse forever.
+				if rv := mem[sp].Reflect(); rv.IsValid() {
+					if rv.Kind() == reflect.Interface && !rv.IsNil() {
+						rv = rv.Elem()
+					}
+					rt := rv.Type()
+					if !hasNativeMethod(rt, m.MethodNames[methodID]) {
+						if t := m.typeByRtype(rt); t != nil && t.ResolveMethodType(methodID) != nil {
+							mem[sp] = Value{ref: reflect.ValueOf(Iface{Typ: t, Val: Value{ref: rv}})}
+						}
+					}
+				}
+			}
+			if !mem[sp].IsIface() {
 				// Native interface value: use reflect to get the method.
 				methodName := m.MethodNames[methodID]
 				recvRV := mem[sp].Reflect()
@@ -2998,9 +3021,18 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 	return reflect.Indirect(rv).MethodByName(name)
 }
 
-// nilPointerPanicValue is captured from a real nil-pointer deref so its
-// dynamic type matches what native Go panics with -- interpreted recover()
-// gets the canonical runtime.Error, not a synthesized string.
+func hasNativeMethod(rt reflect.Type, name string) bool {
+	if _, ok := rt.MethodByName(name); ok {
+		return true
+	}
+	if rt.Kind() != reflect.Pointer {
+		if _, ok := reflect.PointerTo(rt).MethodByName(name); ok {
+			return true
+		}
+	}
+	return false
+}
+
 var nilPointerPanicValue = func() (out any) {
 	defer func() { out = recover() }()
 	var p *byte
