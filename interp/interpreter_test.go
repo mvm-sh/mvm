@@ -3037,6 +3037,18 @@ func TestPanic(t *testing.T) {
 			type Stringer interface { String() string }
 			var x Stringer
 			x.String()`, err: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		{n: "nil_func_call", src: `
+			// Calling a nil func value must panic, not jump to code address 0
+			// (the program-entry Jump) and re-run the program / recurse.
+			var f func()
+			f()`, err: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		{n: "nil_defer_func", src: `
+			func() { var f func(); defer f() }()`, err: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		{n: "nil_go_func", src: `
+			func() { var f func(); go f() }()`, err: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		{n: "nil_defer_during_panic", src: `
+			// Nil deferred func reached while already unwinding a panic.
+			func() { var f func(); defer f(); panic("boom") }()`, err: "panic: runtime error: invalid memory address or nil pointer dereference"},
 		{n: "panic_in_native_callback", src: `
 			// A panic raised in an mvm method that native code invokes through an
 			// interface (here io.Reader, via bytes.Buffer.ReadFrom) must be catchable

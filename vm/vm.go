@@ -808,6 +808,14 @@ const heapSavedFlag = uint64(1) << 63
 // native variadic functions.
 const CallSpreadFlag int32 = 1 << 15
 
+// nilFuncAddr is the resolved code address of a nil/unresolved func value.
+// Real functions are never placed at code index 0 -- that slot holds the
+// program-entry Jump emitted by the first Eval -- so a call target of 0 means
+// the func value was nil (or, for the *Imm variants, a corrupt global slot).
+// Calling it panics with Go's nil-func deref rather than jumping there, which
+// would re-run the program/_testmain and recurse without bound.
+const nilFuncAddr = 0
+
 // retIPInfo word layout: retIP in bits 0..31, nret in bits 32..46 (retNretMask),
 // namedRetFlag in bit 47, frameBase in bits 48..63. namedRetFlag is set by
 // MarkNamedRet for functions with captured named returns and tells Return and
@@ -1009,6 +1017,11 @@ func (m *Machine) Run() (err error) {
 				nip = int(fval.num) //nolint:gosec
 				m.heap = nil
 			}
+			if nip == nilFuncAddr {
+				m.raiseNilDeref()
+				ip = panicAddr
+				continue
+			}
 			nret := int(c.B &^ CallSpreadFlag)
 			fpVal := uint64(fp) //nolint:gosec
 			if prevHeap != nil {
@@ -1049,6 +1062,11 @@ func (m *Machine) Run() (err error) {
 				m.heap = nil
 			}
 			nip := int(m.globals[int(c.A)].num) //nolint:gosec
+			if nip == nilFuncAddr {             // defense in depth: nil/corrupt global slot
+				m.raiseNilDeref()
+				ip = panicAddr
+				continue
+			}
 			// Inline the callee's leading Grow (when present) to save one
 			// dispatch per call and combine its bounds check with our own.
 			var locals, slack int
@@ -1085,6 +1103,11 @@ func (m *Machine) Run() (err error) {
 				m.heap = nil
 			}
 			nip := int(m.globals[int(c.A)].num) //nolint:gosec
+			if nip == nilFuncAddr {             // defense in depth: nil/corrupt global slot
+				m.raiseNilDeref()
+				ip = panicAddr
+				continue
+			}
 			var locals, slack int
 			if g := m.code[nip]; g.Op == Grow {
 				locals, slack = int(g.A), int(g.B)
@@ -1759,7 +1782,10 @@ func (m *Machine) Run() (err error) {
 			}
 			sp -= narg + 1
 			m.mem = mem[:sp+1]
-			m.newGoroutine(fval, args)
+			if m.newGoroutine(fval, args) {
+				ip = panicAddr
+				continue
+			}
 			mem = m.mem[:cap(m.mem)]
 
 		case GoCallImm:
@@ -1771,7 +1797,10 @@ func (m *Machine) Run() (err error) {
 			}
 			sp -= narg
 			m.mem = mem[:sp+1]
-			m.newGoroutine(fval, args)
+			if m.newGoroutine(fval, args) {
+				ip = panicAddr
+				continue
+			}
 			mem = m.mem[:cap(m.mem)]
 
 		case MkChan:
@@ -1946,6 +1975,13 @@ func (m *Machine) Run() (err error) {
 				mem[dh].num = uint64(ip) | uint64(nret)<<32 //nolint:gosec
 				prevHeap := m.heap
 				nip := m.resolveIPAndHeap(funcVal)
+				if nip == nilFuncAddr {
+					// Nil deferred call panics; remaining defers still run. Left on
+					// the chain so the panic unwind pops it (its own nilFuncAddr guard).
+					m.raiseNilDeref()
+					ip = panicAddr
+					continue
+				}
 				// Push func+args copy and 3-slot call frame (retIP, prevFP, deferHead=0).
 				base := sp
 				if sp+1 >= len(mem) {
@@ -2853,6 +2889,12 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		(*mem)[dh].num = uint64(uint32(panicAddr)) | uint64(nret)<<32 //nolint:gosec
 		prevHeap := m.heap
 		nip := m.resolveIPAndHeap(funcVal)
+		if nip == nilFuncAddr {
+			// Nil deferred call during unwind: pop it and supersede the panic
+			// with nil-deref (Go: the nil call panics), continuing the unwind.
+			m.raiseNilDeref()
+			return popDefer()
+		}
 		base := len(*mem)
 		*mem = append(*mem, funcVal)
 		*mem = append(*mem, (*mem)[dh-narg-2:dh-2]...)
@@ -3610,7 +3652,10 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 	return out
 }
 
-func (m *Machine) newGoroutine(fval Value, args []Value) {
+// newGoroutine spawns fval on a new goroutine. It returns panicked=true if the
+// spawn raised a (synchronous) panic in the caller -- a nil func value, matching
+// Go's "go of nil func value" -- in which case the caller must jump to panicAddr.
+func (m *Machine) newGoroutine(fval Value, args []Value) (panicked bool) {
 	// Inline fast path: resolve addressable struct func fields (mirrors Call opcode).
 	if fval.ref.Kind() == reflect.Func && fval.ref.CanAddr() {
 		fval = m.resolveFuncField(fval)
@@ -3628,7 +3673,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value) {
 		coerceInterfaceArgs(in, rv.Type())
 		m.wrapFuncArgs(in, args, rv.Type())
 		go func() { rv.Call(in) }()
-		return
+		return false
 	}
 
 	// Resolve VM function address and closure heap.
@@ -3642,6 +3687,12 @@ func (m *Machine) newGoroutine(fval Value, args []Value) {
 		nip = iv
 	} else {
 		nip = int(fval.num) //nolint:gosec
+	}
+	if nip == nilFuncAddr {
+		// go of a nil func: panic synchronously, else the spawned goroutine
+		// jumps to 0 and re-runs main, spawning ever more goroutines.
+		m.raiseNilDeref()
+		return true
 	}
 
 	// Pre-build the call frame: [fval, args..., deferHead, retIP+info, prevFP].
@@ -3676,6 +3727,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value) {
 		typesByRtype:    m.typesByRtype,
 	}
 	go func() { _ = child.Run() }()
+	return false
 }
 
 // clearValue implements the clear builtin: it empties a map (deletes all
