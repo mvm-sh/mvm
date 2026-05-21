@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"unsafe" //nolint:depguard
 )
@@ -18,6 +19,17 @@ var (
 	structTypeSize uintptr
 
 	intRtype = reflect.TypeOf(0)
+
+	// patchKeepAlive pins every source rtype whose internal arrays (fields,
+	// name, gcdata) patchRtype copies BY POINTER into a placeholder. Those raw
+	// unsafe stores bypass the GC write barrier, so without an independent
+	// strong reference the collector can free a source's backing array and leave
+	// the placeholder pointing into an already-freed span -- a flaky "bad pointer
+	// in Go heap" under go1.26's green tea GC. Pinning the source keeps every
+	// object the placeholder now aliases reachable for the program's lifetime
+	// (bounded by the number of distinct interpreted struct types, like symbols).
+	patchKeepAliveMu sync.Mutex
+	patchKeepAlive   []reflect.Type
 )
 
 func init() {
@@ -61,6 +73,12 @@ func rtypeData(t reflect.Type) unsafe.Pointer {
 // resolve offset 0. Keeping dst's originals is safe: they were
 // registered when the placeholder was created by reflect.StructOf.
 func patchRtype(dst, src reflect.Type) {
+	// Pin src so the arrays its bytes reference (copied below without a write
+	// barrier) are never collected while dst aliases them. See patchKeepAlive.
+	patchKeepAliveMu.Lock()
+	patchKeepAlive = append(patchKeepAlive, src)
+	patchKeepAliveMu.Unlock()
+
 	d := rtypeData(dst)
 	s := rtypeData(src)
 	for i := uintptr(0); i < 40; i++ {
