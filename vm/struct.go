@@ -3,6 +3,7 @@ package vm
 import (
 	"reflect"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"unsafe" //nolint:depguard
 )
@@ -70,15 +71,37 @@ func patchRtype(dst, src reflect.Type) {
 	}
 }
 
-// NewStructType creates a forward-declared struct type.
-// Register it in the symbol table, then call SetFields to finalize.
-func NewStructType() *Type {
+// NewStructType creates a forward-declared struct type named name (the empty
+// string for anonymous placeholders). Register it in the symbol table, then
+// call SetFields to finalize.
+func NewStructType(name string) *Type {
 	// Each placeholder must have a unique field name to prevent reflect.StructOf
 	// from returning a cached (shared) rtype, which would cause data races when
-	// multiple struct types are patched concurrently.
+	// multiple struct types are patched concurrently. Embedding name makes the
+	// finalized type's String() identify the interpreted type in native
+	// diagnostics (gob, fmt %T, reflect panics): SetFields keeps the
+	// placeholder's name string (see patchRtype), so without name those report
+	// an opaque "struct { P<n> int }".
 	n := placeholderSeq.Add(1)
-	sf := []reflect.StructField{{Name: "P" + strconv.FormatUint(n, 10), Type: intRtype}}
+	sf := []reflect.StructField{{Name: placeholderFieldName(name, n), Type: intRtype}}
 	return &Type{Rtype: reflect.StructOf(sf), Placeholder: true}
+}
+
+// placeholderFieldName builds a unique, exported, valid Go identifier for a
+// placeholder struct's sole field. The leading "P" guarantees an exported
+// leading letter (reflect.StructOf rejects unexported fields without a
+// PkgPath) regardless of name's first rune.
+func placeholderFieldName(name string, n uint64) string {
+	var b strings.Builder
+	b.WriteByte('P')
+	for _, r := range name {
+		if r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('_')
+	b.WriteString(strconv.FormatUint(n, 10))
+	return b.String()
 }
 
 // SetFields finalizes a forward-declared struct type using src's definition.

@@ -2,13 +2,14 @@ package vm
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestNewStructTypeSetFields(t *testing.T) {
 	t.Run("self_referential", func(t *testing.T) {
 		// Simulate: type Node struct { V int; Next *Node }
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		ptrType := PointerTo(placeholder)
 
 		fields := []*Type{
@@ -47,7 +48,7 @@ func TestNewStructTypeSetFields(t *testing.T) {
 
 	t.Run("pointer_elem", func(t *testing.T) {
 		// Verify that PointerTo(placeholder).Elem() returns the finalized struct.
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		ptrRtype := reflect.PointerTo(placeholder.Rtype)
 
 		fields := []*Type{
@@ -68,7 +69,7 @@ func TestNewStructTypeSetFields(t *testing.T) {
 
 	t.Run("size_and_align", func(t *testing.T) {
 		// After SetFields, size and alignment match a direct StructOf.
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		fields := []*Type{
 			{Name: "A", Rtype: reflect.TypeOf(int64(0))},
 			{Name: "B", Rtype: reflect.TypeOf(true)},
@@ -86,7 +87,7 @@ func TestNewStructTypeSetFields(t *testing.T) {
 
 	t.Run("non_recursive", func(t *testing.T) {
 		// SetFields also works for normal (non-recursive) structs.
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		fields := []*Type{
 			{Name: "Name", Rtype: reflect.TypeOf("")},
 			{Name: "Age", Rtype: reflect.TypeOf(0)},
@@ -107,7 +108,7 @@ func TestNewStructTypeSetFields(t *testing.T) {
 	t.Run("patched_as_field_type", func(t *testing.T) {
 		// Verify a patched placeholder can be used as a field type
 		// in a subsequent reflect.StructOf without crashing (rtype.String).
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		fields := []*Type{
 			{Name: "X", Rtype: reflect.TypeOf(0)},
 			{Name: "Y", Rtype: reflect.TypeOf("")},
@@ -128,9 +129,21 @@ func TestNewStructTypeSetFields(t *testing.T) {
 		}
 	})
 
+	t.Run("name_in_string", func(t *testing.T) {
+		// SetFields keeps the placeholder's name string (patchRtype cannot
+		// safely cross-copy the Str nameOff), so embedding the type name in the
+		// placeholder field keeps the finalized type's String() identifying the
+		// interpreted type in native diagnostics (gob, fmt %T, reflect panics).
+		placeholder := NewStructType("Vector")
+		placeholder.SetFields(StructOf([]*Type{{Name: "X", Rtype: reflect.TypeOf(0)}}, nil, nil))
+		if s := placeholder.Rtype.String(); !strings.Contains(s, "Vector") {
+			t.Fatalf("finalized type string %q does not identify the type name", s)
+		}
+	})
+
 	t.Run("linked_list_reflect", func(t *testing.T) {
 		// Build a two-node linked list using reflect and verify traversal.
-		placeholder := NewStructType()
+		placeholder := NewStructType("T")
 		ptrType := PointerTo(placeholder)
 		fields := []*Type{
 			{Name: "V", Rtype: reflect.TypeOf(0)},

@@ -7,5 +7,7 @@ import (
 	_ "github.com/mvm-sh/mvm/stdlib/core"    // init all bindings
 	_ "github.com/mvm-sh/mvm/stdlib/errorsx" // init all bindings
 	_ "github.com/mvm-sh/mvm/stdlib/ext"     // init all bindings
-	_ "github.com/mvm-sh/mvm/stdlib/jsonx"   // init all bindings
+
+	_ "github.com/mvm-sh/mvm/stdlib/gobx"  // init all bindings
+	_ "github.com/mvm-sh/mvm/stdlib/jsonx" // init all bindings
 )

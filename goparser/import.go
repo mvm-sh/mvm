@@ -555,7 +555,7 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 		s.Type.Rtype.Kind() == reflect.Struct && s.Type.Placeholder {
 		return s.Type
 	}
-	ph := vm.NewStructType()
+	ph := vm.NewStructType(short)
 	ph.Name = short
 	p.SymAdd(symbol.UnsetAddr, key, vm.NewValue(ph.Rtype), symbol.Type, ph)
 	return ph
