@@ -3083,6 +3083,52 @@ func TestPanic(t *testing.T) {
 	})
 }
 
+// TestPanicDiagnostics locks in that a staged panic escaping to the host
+// carries the source position and mvm call stack (via the PanicError snapshot
+// captured at stage time), not just a bare "panic: <val>" line.
+func TestPanicDiagnostics(t *testing.T) {
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	_, err := intp.Eval("test", `
+		func g() { panic("boom") }
+		func f() { g() }
+		f()`)
+	if err == nil {
+		t.Fatal("expected a panic error, got nil")
+	}
+	got := err.Error()
+	for _, want := range []string{"panic: boom", "at g (", "test:", "mvm stack:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("panic diagnostic missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestPanicDiagnosticsCrossBoundary locks in that a panic inside an mvm
+// callback invoked by native code (here a sort.Slice comparator) produces a
+// single mvm stack spanning interp -> native -> interp: the comparator frame,
+// a native boundary row, and the interp frames that called sort.Slice.
+func TestPanicDiagnosticsCrossBoundary(t *testing.T) {
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	_, err := intp.Eval("test", `
+		import "sort"
+		func cmp(a, b int) bool { panic("cmp boom") }
+		func doSort(s []int) {
+			sort.Slice(s, func(i, j int) bool { return cmp(s[i], s[j]) })
+		}
+		doSort([]int{3, 1, 2})`)
+	if err == nil {
+		t.Fatal("expected a panic error, got nil")
+	}
+	got := err.Error()
+	for _, want := range []string{"panic: cmp boom", "at cmp (", "-- via sort.Slice [native] --", "doSort"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("cross-boundary diagnostic missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestStructFuncField(t *testing.T) {
 	run(t, []etest{
 		{n: "assign_call", src: `

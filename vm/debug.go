@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -179,25 +181,20 @@ func DumpFrame(w io.Writer, mem []Value, code Code, fp, sp, narg, nret int, di *
 
 // StackFrame is a single entry yielded by WalkCallStack.
 type StackFrame struct {
-	IP       int  // bytecode position within the frame's function
-	Pos      Pos  // source position from m.code[IP], 0 if out of range
-	TopLevel bool // synthetic frame for the top-level entry sequence (init / Eval driver)
+	IP       int    // bytecode position within the frame's function
+	Pos      Pos    // source position from m.code[IP], 0 if out of range
+	TopLevel bool   // synthetic frame for the top-level entry sequence (init / Eval driver)
+	Native   bool   // synthetic boundary row: a native call separating two interpreted segments
+	Name     string // for Native rows, the native func mvm invoked at the boundary
 }
 
-// CleanExit marks an error value as an intentional, non-crash program
-// termination signal (e.g. interp.ExitError from a virtualized os.Exit).
-// Such a value bypasses interpreted recover() -- mirroring Go, where recover()
-// cannot intercept os.Exit -- and propagates to the top-level Run, which
-// returns it to the host. Defined here so vm can recognize the signal without
-// importing the package that defines the concrete type.
+// CleanExit marks an error value as an intentional, non-crash program termination signal.
+// Such a value bypasses interpreted recover(), and propagates to the top-level Run.
 type CleanExit interface {
 	CleanExit()
 }
 
-// PanicError wraps a raw Go panic that escaped the VM (e.g. a reflect.Convert
-// panic from inside the interpreter loop) with mvm-level diagnostic context.
-// Frames is captured synchronously at the moment of the panic, before the
-// Go stack unwinds m.fp.
+// PanicError wraps a raw Go panic that escaped the VM with mvm-level diagnostic context.
 type PanicError struct {
 	Raw    any          // original panic value
 	Pos    Pos          // source position of the panicking instruction
@@ -230,20 +227,38 @@ func (e *PanicError) Error() string {
 	if len(e.Frames) > 0 && di != nil {
 		b.WriteString("\nmvm stack:\n")
 		locW := 0
-		type row struct{ loc, name string }
+		type row struct {
+			loc, name string
+			native    bool
+		}
 		rows := make([]row, 0, len(e.Frames))
 		for _, f := range e.Frames {
-			fLoc := di.PosToLine(f.Pos)
-			fName := di.FuncAt(f.IP)
-			if f.TopLevel && fName == "" {
-				fName = "<init>"
+			if f.Native {
+				name := f.Name
+				if name == "" {
+					name = "native call"
+				}
+				rows = append(rows, row{name: name, native: true})
+				continue
 			}
-			rows = append(rows, row{fLoc, fName})
+			fLoc := di.PosToLine(f.Pos)
+			// Top-level entry code (init / REPL / _testmain driver) is not inside
+			// any function; FuncAt would misattribute the appended driver IP to a
+			// nearby range, so use a fixed label instead.
+			fName := "<top-level>"
+			if !f.TopLevel {
+				fName = di.FuncAt(f.IP)
+			}
+			rows = append(rows, row{loc: fLoc, name: fName})
 			if l := len(fLoc); l > locW {
 				locW = l
 			}
 		}
 		for _, r := range rows {
+			if r.native {
+				fmt.Fprintf(&b, "  -- via %s [native] --\n", r.name)
+				continue
+			}
 			fmt.Fprintf(&b, "  %-*s  %s\n", locW, r.loc, r.name)
 		}
 	}
@@ -293,18 +308,27 @@ func writeSourceSnippet(b *strings.Builder, di *DebugInfo, pos Pos) {
 }
 
 func (m *Machine) capturePanic(raw any) *PanicError {
-	pe := &PanicError{Raw: raw, IP: m.ip}
-	if m.ip >= 0 && m.ip < len(m.code) {
-		pe.Pos = m.code[m.ip].Pos
+	return m.capturePanicAt(m.ip, m.fp, m.mem, raw)
+}
+
+// capturePanicAt builds a *PanicError snapshot for a panic at instruction ip in
+// the segment (mem, fp), independent of the machine's live ip/fp/mem.
+func (m *Machine) capturePanicAt(ip, fp int, mem []Value, raw any) *PanicError {
+	pe := &PanicError{Raw: raw, IP: ip}
+	if ip >= 0 && ip < len(m.code) {
+		pe.Pos = m.code[ip].Pos
 	}
 	if m.debugInfoFn != nil {
 		pe.DI = m.debugInfoFn()
 	}
+	if fp == 0 {
+		return pe
+	}
 	first := true
-	m.WalkCallStack(func(f StackFrame) bool {
+	m.walkSegment(mem, fp, ip, func(f StackFrame) bool {
 		if first {
-			// WalkCallStack reports m.ip-1 for the innermost frame (the
-			// "just-executed" instruction). At panic time m.ip is the
+			// walkSegment reports ip-1 for the innermost frame (the
+			// "just-executed" instruction). At panic time ip is the
 			// instruction that blew up mid-execution; report it directly.
 			f.IP, f.Pos = pe.IP, pe.Pos
 			first = false
@@ -315,23 +339,38 @@ func (m *Machine) capturePanic(raw any) *PanicError {
 	return pe
 }
 
+func (m *Machine) stitchBoundary(pe *PanicError, nativeFn reflect.Value) {
+	if pe == nil {
+		return
+	}
+	pe.Frames = append(pe.Frames, StackFrame{Native: true, Name: nativeFuncName(nativeFn)})
+	pe.Frames = append(pe.Frames, m.framesFromSegment(m.mem, m.fp, m.ip)...)
+}
+
+func nativeFuncName(rv reflect.Value) string {
+	if !rv.IsValid() || rv.Kind() != reflect.Func || rv.IsNil() {
+		return ""
+	}
+	if fn := runtime.FuncForPC(rv.Pointer()); fn != nil {
+		return fn.Name()
+	}
+	return ""
+}
+
 // WalkCallStack invokes yield for each call frame from innermost (the
 // currently running function) to outermost. The first yielded frame's
 // IP is m.ip-1 (the just-executed or about-to-execute instruction);
 // each subsequent frame's IP is the call instruction in the caller
 // (retIP-1 of the inner frame). yield returns false to stop early.
-//
-// After the topmost compiled-function frame, the top-level entry
-// sequence (where Eval pushes Call/Exit instructions to drive init
-// funcs and main) is also yielded as a synthetic frame so that
-// runtime.Callers can observe init-time call sites.
 func (m *Machine) WalkCallStack(yield func(StackFrame) bool) {
-	fp := m.fp
-	if fp == 0 {
+	if m.fp == 0 {
 		return
 	}
-	mem := m.mem
-	pc := m.ip - 1
+	m.walkSegment(m.mem, m.fp, m.ip, yield)
+}
+
+func (m *Machine) walkSegment(mem []Value, fp, ip int, yield func(StackFrame) bool) {
+	pc := ip - 1
 	for fp > 0 {
 		var pos Pos
 		if pc >= 0 && pc < len(m.code) {
@@ -360,6 +399,15 @@ func (m *Machine) WalkCallStack(yield func(StackFrame) bool) {
 			yield(StackFrame{IP: pc, Pos: pos, TopLevel: true})
 		}
 	}
+}
+
+func (m *Machine) framesFromSegment(mem []Value, fp, ip int) []StackFrame {
+	var frames []StackFrame
+	m.walkSegment(mem, fp, ip, func(f StackFrame) bool {
+		frames = append(frames, f)
+		return true
+	})
+	return frames
 }
 
 // DumpCallStack walks the frame pointer chain and prints every frame.
@@ -474,8 +522,6 @@ func formatValue(v Value) string {
 	return s
 }
 
-// enterDebug runs an interactive debug session. The Machine state (mem, ip, fp)
-// must be synced before calling. On return, ip is set to resume execution.
 func (m *Machine) enterDebug() {
 	in := m.debugIn
 	if in == nil {

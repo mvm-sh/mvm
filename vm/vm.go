@@ -369,8 +369,10 @@ type Machine struct {
 	heap       []*Value   // active closure's captured cells (nil for plain functions)
 	heapFrames [][]*Value // saved caller heaps (only for closure calls where heap != nil)
 
-	panicking bool  // true while unwinding due to panic
-	panicVal  Value // value passed to panic()
+	panicking     bool        // true while unwinding due to panic
+	panicVal      Value       // value passed to panic()
+	panicInfo     *PanicError // diagnostic snapshot (source pos + mvm stack) captured when the panic was staged, before frames unwind
+	panicReraised bool        // panicInfo was adopted from a re-entrant run via invokeNative; stageUnwind keeps it instead of recapturing the (uninformative) boundary frame
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
@@ -853,7 +855,7 @@ func (m *Machine) Run() (err error) {
 	m.baseCodeLen = sentBase
 	m.code = append(m.code, Instruction{Op: DeferRet}, Instruction{Op: PanicUnwind}, Instruction{Op: Exit})
 	deferRetAddr := sentBase
-	panicAddr := sentBase + 1
+	panicAddr := m.panicAddr()
 	deferRetBits := uint64(deferRetAddr) //nolint:gosec
 
 	mem, ip, fp := m.mem, m.ip, m.fp
@@ -988,7 +990,7 @@ func (m *Machine) Run() (err error) {
 					hook := lookupNativeMethodHook(proxyRecvType, proxyMethod)
 					out, panicked := m.invokeNative(hook, proxyRecv, rv, in, c.B&CallSpreadFlag != 0)
 					if panicked {
-						ip = panicAddr
+						ip = m.stageUnwind(ip, fp, mem)
 						continue
 					}
 					nout := funcType.NumOut()
@@ -1019,7 +1021,7 @@ func (m *Machine) Run() (err error) {
 			}
 			if nip == nilFuncAddr {
 				m.raiseNilDeref()
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			nret := int(c.B &^ CallSpreadFlag)
@@ -1064,7 +1066,7 @@ func (m *Machine) Run() (err error) {
 			nip := int(m.globals[int(c.A)].num) //nolint:gosec
 			if nip == nilFuncAddr {             // defense in depth: nil/corrupt global slot
 				m.raiseNilDeref()
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			// Inline the callee's leading Grow (when present) to save one
@@ -1105,7 +1107,7 @@ func (m *Machine) Run() (err error) {
 			nip := int(m.globals[int(c.A)].num) //nolint:gosec
 			if nip == nilFuncAddr {             // defense in depth: nil/corrupt global slot
 				m.raiseNilDeref()
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			var locals, slack int
@@ -1333,7 +1335,7 @@ func (m *Machine) Run() (err error) {
 				recvRV := mem[sp].Reflect()
 				if isNilReceiver(recvRV) {
 					m.raiseNilDeref()
-					ip = panicAddr
+					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
 				rv := nativeMethodLookup(m, recvRV, methodName)
@@ -1364,7 +1366,7 @@ func (m *Machine) Run() (err error) {
 				rv := ifc.Val.Reflect()
 				if !rv.IsValid() {
 					m.raiseNilDeref()
-					ip = panicAddr
+					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
 				mem[sp] = Value{ref: nativeMethodLookup(m, rv, m.MethodNames[methodID])}
@@ -1404,7 +1406,7 @@ func (m *Machine) Run() (err error) {
 			}
 			if outcome == outNilRcv {
 				m.raiseNilDeref()
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			if outcome == outNative {
@@ -1497,7 +1499,7 @@ func (m *Machine) Run() (err error) {
 					m.panicking = true
 					m.panicVal = Value{ref: reflect.ValueOf(m.posPrefix(c.Pos) + msg)}
 					sp--
-					ip = panicAddr
+					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
 				mem[sp] = NewValue(dstTyp.Rtype)
@@ -1544,7 +1546,7 @@ func (m *Machine) Run() (err error) {
 					m.panicking = true
 					m.panicVal = Value{ref: reflect.ValueOf(m.posPrefix(c.Pos) + msg)}
 					sp--
-					ip = panicAddr
+					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
 				mem[sp] = NewValue(dstTyp.Rtype)
@@ -1783,7 +1785,7 @@ func (m *Machine) Run() (err error) {
 			sp -= narg + 1
 			m.mem = mem[:sp+1]
 			if m.newGoroutine(fval, args) {
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			mem = m.mem[:cap(m.mem)]
@@ -1798,7 +1800,7 @@ func (m *Machine) Run() (err error) {
 			sp -= narg
 			m.mem = mem[:sp+1]
 			if m.newGoroutine(fval, args) {
-				ip = panicAddr
+				ip = m.stageUnwind(ip, fp, mem)
 				continue
 			}
 			mem = m.mem[:cap(m.mem)]
@@ -1922,7 +1924,7 @@ func (m *Machine) Run() (err error) {
 			m.panicking = true
 			m.panicVal = mem[sp]
 			sp-- // pop the panic argument
-			ip = panicAddr
+			ip = m.stageUnwind(ip, fp, mem)
 			continue
 
 		case Recover:
@@ -1979,7 +1981,7 @@ func (m *Machine) Run() (err error) {
 					// Nil deferred call panics; remaining defers still run. Left on
 					// the chain so the panic unwind pops it (its own nilFuncAddr guard).
 					m.raiseNilDeref()
-					ip = panicAddr
+					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
 				// Push func+args copy and 3-slot call frame (retIP, prevFP, deferHead=0).
@@ -2849,7 +2851,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 	if *fp == 0 {
 		// Top-level panic: no call frame to unwind.
 		m.mem, m.ip, m.fp = *mem, 0, 0
-		return true, fmt.Errorf("panic: %v", m.panicVal.Interface())
+		return true, m.escapeErr()
 	}
 	dh := int((*mem)[*fp-3].num) //nolint:gosec
 	if dh != 0 {
@@ -2892,6 +2894,10 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		if nip == nilFuncAddr {
 			// Nil deferred call during unwind: pop it and supersede the panic
 			// with nil-deref (Go: the nil call panics), continuing the unwind.
+			// Drop the snapshot describing the now-superseded panic; this
+			// nil-deref has no clean interpreted instruction to point at, so
+			// escapeErr falls back to the bare message.
+			m.panicInfo = nil
 			m.raiseNilDeref()
 			return popDefer()
 		}
@@ -2941,7 +2947,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 	if *fp == 0 {
 		// Top of stack: return panic as error.
 		m.mem, m.ip, m.fp = *mem, 0, 0
-		return true, fmt.Errorf("panic: %v", m.panicVal.Interface())
+		return true, m.escapeErr()
 	}
 	newBase := ofp - frameBase
 	clear((*mem)[newBase:])
@@ -3002,26 +3008,38 @@ var nilPointerPanicValue = func() (out any) {
 	return nil
 }()
 
-// isNilReceiver reports whether rv represents a nil interface receiver --
-// either an unset slot or an interface-typed slot whose dynamic value is nil.
-// A typed-nil pointer (rv.Kind() == Pointer && rv.IsNil()) is NOT considered
-// nil here: Go dispatches the method, the body panics if it dereferences.
 func isNilReceiver(rv reflect.Value) bool {
 	return !rv.IsValid() || (rv.Kind() == reflect.Interface && rv.IsNil())
 }
 
-// raiseNilDeref stages the canonical nil-pointer-deref runtime panic for the
-// next PanicUnwind cycle. Callers must follow with `ip = ...; continue`.
 func (m *Machine) raiseNilDeref() {
 	m.panicking = true
 	m.panicVal = Value{ref: reflect.ValueOf(nilPointerPanicValue)}
 }
 
+func (m *Machine) panicAddr() int { return m.baseCodeLen + 1 }
+
+func (m *Machine) stageUnwind(ip, fp int, mem []Value) int {
+	if m.panicReraised {
+		// invokeNative already adopted the inner run's snapshot (which has the
+		// real panic site); the boundary frame here would only point at the
+		// native call. Consume the flag and keep the inner snapshot.
+		m.panicReraised = false
+	} else {
+		m.panicInfo = m.capturePanicAt(ip, fp, mem, m.panicVal.Interface())
+	}
+	return m.panicAddr()
+}
+
+func (m *Machine) escapeErr() error {
+	if m.panicInfo != nil {
+		return m.panicInfo
+	}
+	return fmt.Errorf("panic: %v", m.panicVal.Interface())
+}
+
 var typePtrRtype = reflect.TypeOf((*Type)(nil))
 
-// typeByRtype returns the mvm *Type whose Rtype equals rt. Delegates to
-// the parent-owned typesIndex; once the underlying map is published the
-// hot path is one atomic load + one map read with no lock.
 func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 	if m.typesByRtype == nil {
 		m.typesByRtype = &typesIndex{}
@@ -3029,9 +3047,6 @@ func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 	return m.typesByRtype.lookup(m.globals, rt)
 }
 
-// ifaceMethodFuncType returns the reflect.Type (without receiver) for the named
-// method by looking up in MethodFuncTypes (populated from interface declarations
-// at compile time).
 func (m *Machine) ifaceMethodFuncType(name string) reflect.Type {
 	for id, n := range m.MethodNames {
 		if n == name && id < len(m.MethodFuncTypes) {
@@ -3454,6 +3469,13 @@ func (m *Machine) invokeNative(hook NativeMethodHook, proxyRecv, rv reflect.Valu
 		if pe, ok := r.(*PanicError); ok {
 			m.panicking = true
 			m.panicVal = FromReflect(reflect.ValueOf(pe.Raw))
+			// Stitch this parent's frames onto the inner run's snapshot across
+			// the native boundary, so the mvm stack spans interp -> native ->
+			// interp. Composes across nesting: each invokeNative level on the
+			// unwind path appends its own segment.
+			m.stitchBoundary(pe, rv)
+			m.panicInfo = pe // keep the inner run's source pos + mvm stack
+			m.panicReraised = true
 			panicked = true
 			return
 		}
@@ -3536,6 +3558,8 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 	savedFrames := m.heapFrames
 	savedPanicking := m.panicking
 	savedPanicVal := m.panicVal
+	savedPanicInfo := m.panicInfo
+	savedPanicReraised := m.panicReraised
 	savedCodeLen := len(m.code)
 
 	defer func() {
@@ -3546,6 +3570,8 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 		m.heapFrames = savedFrames
 		m.panicking = savedPanicking
 		m.panicVal = savedPanicVal
+		m.panicInfo = savedPanicInfo
+		m.panicReraised = savedPanicReraised
 		m.code = m.code[:savedCodeLen]
 	}()
 
@@ -3554,6 +3580,8 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 	m.heapFrames = nil
 	m.panicking = false
 	m.panicVal = Value{}
+	m.panicInfo = nil
+	m.panicReraised = false
 
 	// Fresh stack with func value and args.
 	m.mem = nil
@@ -3603,12 +3631,15 @@ func (m *Machine) callPooled(fval Value, funcType reflect.Type, args []reflect.V
 // reentrantRunErr maps the error from a re-entrant Run (one driven by CallFunc
 // or callPooled from a native callback) to the value the native caller should
 // re-panic. An unrecovered mvm panic leaves m.panicking set after the frame is
-// torn down; surface it as a *PanicError carrying the raw value so the caller's
-// invokeNative recover re-establishes it as an mvm panic that an interpreted
-// recover() can catch. The frame is already unwound here (m.ip == 0), so the
-// raw value is all the context worth preserving.
+// torn down; surface it as a *PanicError so the caller's invokeNative recover
+// re-establishes it as an mvm panic that an interpreted recover() can catch.
+// Prefer the diagnostic snapshot stageUnwind captured before unwinding (source
+// pos + mvm stack); fall back to a raw-only wrapper if none was captured.
 func (m *Machine) reentrantRunErr(runErr error) error {
 	if m.panicking {
+		if m.panicInfo != nil {
+			return m.panicInfo
+		}
 		return &PanicError{Raw: m.panicVal.Interface()}
 	}
 	return runErr
