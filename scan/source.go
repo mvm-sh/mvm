@@ -109,6 +109,54 @@ func (ss Sources) LineText(pos int) string {
 	return strings.TrimRight(s.content[start:end], " \t\r")
 }
 
+// Snippet renders the source line containing pos plus a caret pointing at
+// pos, as
+//
+//	\n  <line> | <text>\n  <pad>^\n
+//
+// Returns "" when pos has no resolvable source line. Shared by the runtime
+// PanicError renderer (vm) and compile-time diagnostics (interp.Eval).
+func (ss Sources) Snippet(pos int) string {
+	if len(ss) == 0 || pos == 0 {
+		return ""
+	}
+	_, line, col := ss.Resolve(pos)
+	if line == 0 {
+		return ""
+	}
+	text := ss.LineText(pos)
+	if text == "" && col == 0 {
+		return ""
+	}
+	// Replace tabs with single spaces so the caret column aligns. col is
+	// byte-based (matches LineText byte indexing).
+	text = strings.ReplaceAll(text, "\t", " ")
+	const maxWidth = 120
+	caretCol := col
+	if len(text) > maxWidth {
+		// Window the line around caretCol if it's far to the right.
+		start := 0
+		if caretCol > maxWidth-20 {
+			start = caretCol - (maxWidth - 20)
+		}
+		end := min(start+maxWidth, len(text))
+		if start > 0 {
+			text = "..." + text[start:end]
+			caretCol = caretCol - start + 3
+		} else {
+			text = text[:end] + "..."
+		}
+	}
+	prefix := fmt.Sprintf("  %d | ", line)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%s%s\n", prefix, text)
+	if caretCol > 0 {
+		b.WriteString(strings.Repeat(" ", len(prefix)+caretCol-1))
+		b.WriteString("^\n")
+	}
+	return b.String()
+}
+
 func lineCol(src string, offset int) (line, col int) {
 	offset = min(offset, len(src))
 	prefix := src[:offset]

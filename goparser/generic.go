@@ -155,11 +155,29 @@ func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type) er
 }
 
 func (p *Parser) constraintError(c tpConstraint, arg *vm.Type) error {
-	if loc := p.Sources.FormatPos(c.pos); loc != "" {
-		return fmt.Errorf("type %s does not satisfy constraint (%s)", arg.Rtype, loc)
+	return &constraintErr{
+		loc: p.Sources.FormatPos(c.pos),
+		pos: c.pos,
+		msg: fmt.Sprintf("type %s does not satisfy constraint", arg.Rtype),
 	}
-	return fmt.Errorf("type %s does not satisfy constraint", arg.Rtype)
 }
+
+// constraintErr is a positioned constraint-satisfaction failure. ErrPos lets
+// the diagnostic chokepoint (interp.Eval) render a source snippet at the
+// instantiation site.
+type constraintErr struct {
+	loc, msg string
+	pos      int
+}
+
+func (e *constraintErr) Error() string {
+	if e.loc != "" {
+		return e.loc + ": " + e.msg
+	}
+	return e.msg
+}
+
+func (e *constraintErr) ErrPos() int { return e.pos }
 
 // checkConstraint passes if any element in c.elems matches arg. typeArgs
 // carries the full set of concrete type arguments for the current

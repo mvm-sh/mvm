@@ -1,6 +1,8 @@
 package scan
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestSourcesAdd(t *testing.T) {
 	var ss Sources
@@ -117,6 +119,27 @@ func TestFormatPosMulti(t *testing.T) {
 	// Out of range returns empty.
 	if got := ss.FormatPos(-1); got != "" {
 		t.Errorf("FormatPos(-1) = %q, want empty", got)
+	}
+}
+
+func TestSnippet(t *testing.T) {
+	var ss Sources
+	ss.Add("a.go", "package main\nfunc main() {\n\tundef()\n}\n")
+	// Position of "undef" on line 3 (after the leading tab).
+	pos := len("package main\nfunc main() {\n\t")
+	got := ss.Snippet(pos)
+	// The leading tab is rendered as a single space so the caret aligns; the
+	// caret sits under the 'u' of undef (col 2 on the line).
+	want := "\n  3 |  undef()\n       ^\n"
+	if got != want {
+		t.Errorf("Snippet(%d) =\n%q\nwant\n%q", pos, got, want)
+	}
+	// Out-of-range / zero positions render nothing.
+	if s := ss.Snippet(0); s != "" {
+		t.Errorf("Snippet(0) = %q, want empty", s)
+	}
+	if s := ss.Snippet(-1); s != "" {
+		t.Errorf("Snippet(-1) = %q, want empty", s)
 	}
 }
 

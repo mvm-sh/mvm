@@ -2,6 +2,7 @@
 package interp
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -99,7 +100,7 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	err = i.Compile(name, src)
 	i.Stats.CompileTime += time.Since(tCompile)
 	if err != nil {
-		return res, err
+		return res, i.withSourceContext(err)
 	}
 
 	i.Machine.MethodNames = i.Compiler.MethodNames()
@@ -135,6 +136,22 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	err = i.Run()
 	i.Stats.RunTime += time.Since(tRun)
 	return i.Top().Reflect(), err
+}
+
+// withSourceContext enriches a compile/load error with a source snippet and
+// caret when the error (or any error it wraps) carries a source offset via
+// ErrPos. This mirrors the runtime PanicError diagnostics for compile-time
+// failures, so `mvm test`, `mvm run`, and the REPL all point at the offending
+// line. Errors without a position pass through unchanged.
+func (i *Interp) withSourceContext(err error) error {
+	var ep interface{ ErrPos() int }
+	if !errors.As(err, &ep) {
+		return err
+	}
+	if snip := i.Sources.Snippet(ep.ErrPos()); snip != "" {
+		return fmt.Errorf("%w%s", err, snip)
+	}
+	return err
 }
 
 // installExitVirtualization rebinds os.Exit and log.Fatal* so interpreted

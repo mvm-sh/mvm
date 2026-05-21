@@ -41,3 +41,22 @@ boom()`
 		}
 	}
 }
+
+// TestCompileErrorSourceContext checks that a compile/load failure carries
+// file:line:col plus a source snippet and caret (matching the runtime panic
+// diagnostics), rendered at the interp.Eval chokepoint via ErrPos.
+func TestCompileErrorSourceContext(t *testing.T) {
+	src := "func main() {\n\tundef()\n}"
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	_, err := intp.Eval("prog.go", src)
+	if err == nil {
+		t.Fatal("expected compile error, got nil")
+	}
+	out := err.Error()
+	for _, want := range []string{"prog.go:2:", "undefined: undef", "undef()", "^"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("error missing %q:\n%s", want, out)
+		}
+	}
+}

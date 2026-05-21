@@ -276,7 +276,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				pkgTok := out[len(out)-1]
 				if s := p.Symbols[pkgTok.Str]; pkgTok.Tok == lang.Ident && s != nil && s.Kind == symbol.Pkg {
 					typeName := ops[len(ops)-1].Str[1:] // Strip leading ".".
-					if typ, err := p.resolvePkgType(s, typeName); err == nil {
+					if typ, err := p.resolvePkgType(s, typeName, pkgTok); err == nil {
 						// Use the FULL-path-qualified key to avoid package name collisions.
 						ctype = s.PkgPath + "." + typeName
 						if _, ok := p.Symbols[ctype]; !ok {
@@ -292,11 +292,11 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				sym := p.Symbols[typeStr]
 				if sym == nil || sym.Type == nil {
 					// Type not yet defined: look for preceding Ident in output.
-					name := typeStr
+					name, tok := typeStr, in[i]
 					if len(out) > 0 && out[len(out)-1].Tok == lang.Ident {
-						name = out[len(out)-1].Str
+						name, tok = out[len(out)-1].Str, out[len(out)-1]
 					}
-					return out, ErrUndefined{Name: name}
+					return out, p.undef(name, tok)
 				}
 				inner := sym.Type.Elem()
 				// In a map literal, a `{...}` immediately followed by `:` is an

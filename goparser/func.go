@@ -110,7 +110,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 				})
 				return true, nil
 			}
-			return false, ErrUndefined{Name: baseName}
+			return false, p.undef(baseName, toks[1])
 		}
 		typeName := recvTypeName(recvr)
 		if typeName == "" {

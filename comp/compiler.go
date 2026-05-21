@@ -449,7 +449,7 @@ func (c *Compiler) errAt(t goparser.Token, format string, args ...any) error {
 }
 
 func (c *Compiler) errUndef(t goparser.Token, name string) error {
-	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos)}
+	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
 func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {

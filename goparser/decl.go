@@ -166,7 +166,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		pkgName := in[l-1].Str
 		s, _, ok := p.Symbols.Get(pkgName, p.scope)
 		if !ok || s.Kind != symbol.Pkg {
-			return nil, nil, 0, ErrUndefined{Name: pkgName}
+			return nil, nil, 0, p.undef(pkgName, in[l-1])
 		}
 		pkg, ok := p.Packages[s.PkgPath]
 		if !ok {
@@ -252,13 +252,13 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 	case id == lang.Ident:
 		s, _, ok := p.Symbols.Get(t.Str, p.scope)
 		if !ok {
-			return nil, nil, 0, ErrUndefined{Name: t.Str}
+			return nil, nil, 0, p.undef(t.Str, t)
 		}
 		if s.Kind != symbol.Const {
 			return nil, nil, 0, errors.New("symbol is not a constant")
 		}
 		if s.Cval == nil {
-			return nil, nil, 0, ErrUndefined{Name: t.Str}
+			return nil, nil, 0, p.undef(t.Str, t)
 		}
 		return s.Cval, s.Type, 1, err
 
@@ -277,7 +277,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			fieldName := in[l-1].Str[1:]
 			ts, _, ok := p.Symbols.Get(typeName, p.scope)
 			if !ok || ts.Type == nil || ts.Type.Rtype == nil {
-				return nil, nil, 0, ErrUndefined{Name: typeName}
+				return nil, nil, 0, p.undef(typeName, in[l-2])
 			}
 			rt := ts.Type.Rtype
 			if rt.Kind() == reflect.Pointer {
@@ -440,10 +440,10 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 	}
 	op := in[opIdx].Str[1:] // strip leading "."
 
-	symType := func(name string) (*vm.Type, error) {
+	symType := func(tok Token, name string) (*vm.Type, error) {
 		s, _, ok := p.symGet(name)
 		if !ok || s.Type == nil || s.Type.Rtype == nil {
-			return nil, ErrUndefined{Name: name}
+			return nil, p.undef(name, tok)
 		}
 		return s.Type, nil
 	}
@@ -451,7 +451,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 	if opIdx == l-3 { // composite or selector shape (5 tokens total)
 		switch in[l-1].Tok {
 		case lang.Composite:
-			t, err := symType(in[l-1].Str)
+			t, err := symType(in[l-1], in[l-1].Str)
 			if err != nil {
 				return nil, op, 0, err
 			}
@@ -460,7 +460,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 			if in[l-2].Tok != lang.Ident {
 				return nil, "", 0, nil
 			}
-			base, err := symType(in[l-2].Str)
+			base, err := symType(in[l-2], in[l-2].Str)
 			if err != nil {
 				return nil, op, 0, err
 			}
@@ -483,7 +483,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (reflect.Type, string, int, err
 	if in[l-1].Tok != lang.Ident {
 		return nil, "", 0, nil
 	}
-	t, err := symType(in[l-1].Str)
+	t, err := symType(in[l-1], in[l-1].Str)
 	if err != nil {
 		return nil, op, 0, err
 	}

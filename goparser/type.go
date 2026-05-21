@@ -39,6 +39,7 @@ var (
 type ErrUndefined struct {
 	Name string
 	Loc  string // optional "file:line:col" source position
+	Pos  int    // optional global source offset, for snippet rendering
 }
 
 func (e ErrUndefined) Error() string {
@@ -46,6 +47,16 @@ func (e ErrUndefined) Error() string {
 		return e.Loc + ": undefined: " + e.Name
 	}
 	return "undefined: " + e.Name
+}
+
+// ErrPos exposes the source offset so a diagnostic chokepoint (interp.Eval)
+// can render a source snippet. Returns 0 when no position was attached.
+func (e ErrUndefined) ErrPos() int { return e.Pos }
+
+// undef builds an ErrUndefined positioned at tok, so the message carries
+// "file:line:col" and callers can render a source snippet.
+func (p *Parser) undef(name string, tok Token) ErrUndefined {
+	return ErrUndefined{Name: name, Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
 }
 
 func (p *Parser) resolveEllipsisArray(elemTyp *vm.Type, toks Tokens, braceIdx int) (*vm.Type, error) {
@@ -90,7 +101,7 @@ func (p *Parser) constIntKey(keyToks Tokens) (int, bool) {
 	return int(k), true
 }
 
-func (p *Parser) resolvePkgType(s *symbol.Symbol, name string) (*vm.Type, error) {
+func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.Type, error) {
 	// Prefer the qualified-alias symbol registered by importSrc, which carries
 	// full mvm-level type info (Methods, ElemType, Fields, ...). Falling back
 	// to pkg.Values would synthesize a stripped Type{Name, Rtype} that loses
@@ -108,7 +119,7 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string) (*vm.Type, error)
 		if pkg.Bin {
 			return &vm.Type{Name: name, Rtype: vm.OpaqueRtype}, nil
 		}
-		return nil, ErrUndefined{Name: s.Name + "." + name}
+		return nil, p.undef(s.Name+"."+name, tok)
 	}
 	rt := v.Type()
 	if rt.Kind() == reflect.Pointer {
@@ -214,7 +225,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 	case lang.Ident:
 		s, _, ok := p.symGet(in[0].Str)
 		if !ok {
-			return nil, 0, ErrUndefined{Name: in[0].Str}
+			return nil, 0, p.undef(in[0].Str, in[0])
 		}
 		if s.Kind == symbol.Pkg && len(in) >= 3 && in[1].Tok == lang.Period {
 			// Package-qualified generic type: pkg.Type[T].
@@ -228,12 +239,12 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 					}
 					s2, _, ok := p.Symbols.Get(mname, "")
 					if !ok || s2.Type == nil {
-						return nil, 0, ErrUndefined{Name: mname}
+						return nil, 0, p.undef(mname, in[0])
 					}
 					return s2.Type, 4, nil
 				}
 			}
-			typ, err := p.resolvePkgType(s, in[2].Str)
+			typ, err := p.resolvePkgType(s, in[2].Str, in[2])
 			if err != nil {
 				return nil, 0, err
 			}
@@ -247,7 +258,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			}
 			s2, _, ok := p.Symbols.Get(mname, "")
 			if !ok || s2.Type == nil {
-				return nil, 0, ErrUndefined{Name: mname}
+				return nil, 0, p.undef(mname, in[0])
 			}
 			return s2.Type, 2, nil
 		}
@@ -438,7 +449,7 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 					// return ErrUndefined so the lazy fixpoint can retry.
 					if flag == parseTypeOut {
 						if _, _, ok := p.symGet(origName); !ok {
-							return nil, nil, false, ErrUndefined{Name: origName}
+							return nil, nil, false, p.undef(origName, list[i][0])
 						}
 					}
 					return nil, nil, false, ErrMissingType
@@ -448,7 +459,7 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 				// param name to inherit the right-side type.
 				if sawTypeOnly {
 					if _, _, ok := p.Symbols.Get(origName, p.scope); !ok {
-						return nil, nil, false, ErrUndefined{Name: origName}
+						return nil, nil, false, p.undef(origName, list[i][0])
 					}
 					// Restore the full token and treat it as a type expression below.
 					t = list[i]
@@ -710,7 +721,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			// parsing is likely a forward-declared type. Return ErrUndefined
 			// so the lazy fixpoint loop can retry after the type is defined.
 			if errors.Is(err, ErrMissingType) && len(lt) == 1 && lt[0].Tok == lang.Ident {
-				return nil, ErrUndefined{Name: lt[0].Str}
+				return nil, p.undef(lt[0].Str, lt[0])
 			}
 			return nil, err
 		}
@@ -726,11 +737,11 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			// means the containing struct's size cannot be computed yet. Return ErrUndefined
 			// so the retry loop defers this declaration until the placeholder is finalized.
 			if types[i].Rtype.Kind() == reflect.Struct && types[i].Placeholder {
-				return nil, ErrUndefined{Name: types[i].Name}
+				return nil, p.undef(types[i].Name, lt[0])
 			}
 			if name == "" {
 				// Unnamed field: likely an embedded type not yet defined.
-				return nil, ErrUndefined{Name: types[i].Rtype.String()}
+				return nil, p.undef(types[i].Rtype.String(), lt[0])
 			}
 			// Copy mvm-level type (preserving Params, IfaceMethods, etc.) and set field name.
 			ft := *types[i]

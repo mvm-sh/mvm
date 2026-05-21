@@ -266,45 +266,10 @@ func (e *PanicError) Error() string {
 }
 
 func writeSourceSnippet(b *strings.Builder, di *DebugInfo, pos Pos) {
-	if di == nil || len(di.Sources) == 0 || pos == 0 {
+	if di == nil {
 		return
 	}
-	_, line, col := di.Sources.Resolve(int(pos))
-	if line == 0 {
-		return
-	}
-	text := di.Sources.LineText(int(pos))
-	if text == "" && col == 0 {
-		return
-	}
-	// Replace tabs with single spaces so the caret column aligns. col is
-	// byte-based (matches LineText byte indexing).
-	text = strings.ReplaceAll(text, "\t", " ")
-	const maxWidth = 120
-	caretCol := col
-	if len(text) > maxWidth {
-		// Window the line around caretCol if it's far to the right.
-		start := 0
-		if caretCol > maxWidth-20 {
-			start = caretCol - (maxWidth - 20)
-		}
-		end := start + maxWidth
-		if end > len(text) {
-			end = len(text)
-		}
-		if start > 0 {
-			text = "..." + text[start:end]
-			caretCol = caretCol - start + 3
-		} else {
-			text = text[:end] + "..."
-		}
-	}
-	prefix := fmt.Sprintf("  %d | ", line)
-	fmt.Fprintf(b, "\n%s%s\n", prefix, text)
-	if caretCol > 0 {
-		b.WriteString(strings.Repeat(" ", len(prefix)+caretCol-1))
-		b.WriteString("^\n")
-	}
+	b.WriteString(di.Sources.Snippet(int(pos)))
 }
 
 func (m *Machine) capturePanic(raw any) *PanicError {
