@@ -14,6 +14,7 @@ func init() {
 		"ExpFloat64":  reflect.ValueOf(rand.ExpFloat64),
 		"Float32":     reflect.ValueOf(rand.Float32),
 		"Float64":     reflect.ValueOf(rand.Float64),
+		"Int":         reflect.ValueOf(rand.Int),
 		"Int32":       reflect.ValueOf(rand.Int32),
 		"Int32N":      reflect.ValueOf(rand.Int32N),
 		"Int64":       reflect.ValueOf(rand.Int64),
