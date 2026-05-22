@@ -170,7 +170,7 @@ func dispatch(args []string) error {
 const usageText = `Usage: mvm <command> [arguments]
 
 Commands:
-  run     run a Go source file, evaluate an expression, or start the REPL
+  run     run a Go file or remote main package, eval an expression, or start the REPL
   test    run Go tests in a package directory
   version print the mvm version, OS, and architecture
   help    show this help

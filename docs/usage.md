@@ -35,11 +35,19 @@ mvm run _samples/fib.go             # run a Go source file
 mvm _samples/fib.go                 # same; "run" is the default
 mvm run -e "fmt.Println(1+2)"       # evaluate an inline expression
 mvm run -x _samples/fib.go          # run with line tracing (see below)
+mvm github.com/mvm-sh/mvm/cmd/mvmlint .  # fetch and run a remote main package
 ```
 
 - **Source file.** The file is read and executed like `go run`.
   A leading `#!` line is stripped, and the file may drop `package main` and
   `func main` -- see [Program forms](#program-forms).
+  Arguments after the path are forwarded as the program's `os.Args`.
+- **Import path.** An argument that looks like an import path (contains `/`,
+  no `.go` suffix, no matching local file) is fetched as a package and its
+  `func main` is run -- see [Remote imports](#remote-imports).
+  Arguments after the import path are forwarded as the program's `os.Args`.
+  If the package has no `func main`, mvm runs its inits and warns that there
+  was nothing to run.
 - **`-e <expr>`.** Evaluates a string of Go: an expression, a statement, or
   several separated by `;`.
   The bundled stdlib is auto-imported, so `fmt.Println(...)` resolves with no
@@ -272,9 +280,12 @@ module.
 Either way mvm resolves the path through the Go module proxy and keeps the
 fetched sources in memory; nothing is written to disk, and there is no `go.sum`
 verification step (mvm trusts whatever the proxy returns).
+For `run`, the import path must name a `main` package; mvm runs its `func main`
+and forwards any trailing arguments as the program's `os.Args`.
 
 ```
 mvm test github.com/google/uuid                              # whole package, run its tests
+mvm github.com/mvm-sh/mvm/cmd/mvmlint .                      # fetch and run a remote main package
 mvm run -e 'import "github.com/google/uuid"; println(uuid.NewString())'   # pull a dependency on the fly
 ```
 

@@ -8,12 +8,16 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
-const runUsageText = `Usage: mvm run [options] [path] [args]
+const runUsageText = `Usage: mvm run [options] [path|import-path] [args]
+Runs a local .go file, or a remote main package given by import path
+(e.g. github.com/mvm-sh/mvm/cmd/mvmlint) fetched via the Go module proxy.
+Arguments after the path/import-path are forwarded as the program's os.Args.
 Options:
 `
 
@@ -61,6 +65,20 @@ func runCmd(arg []string) error {
 	case len(args) == 0:
 		i.AutoImportPackages()
 		return i.Repl(os.Stdin)
+	case looksLikeImportPath(args[0]):
+		// Remote/import-path main package. Empty source routes Eval through
+		// package loading (pkgfs -> stdlibfs -> remotefs); the loaded package's
+		// main() is invoked automatically by interp.Eval. Forward the trailing
+		// args as the program's os.Args (a host pointer bridge); os.Args[0] is
+		// the short program name, matching the convention `go run` uses.
+		target := args[0]
+		i.AutoImportPackages()
+		os.Args = append([]string{goparser.PackageName(target)}, args[1:]...)
+		if _, err = i.Eval(target, ""); err == nil {
+			if _, ok := i.Symbols["main"]; !ok {
+				fmt.Fprintf(os.Stderr, "mvm run: %s has no func main; nothing to run\n", target)
+			}
+		}
 	default:
 		fpath := filepath.Clean(args[0])
 		var buf []byte
@@ -76,6 +94,7 @@ func runCmd(arg []string) error {
 				src = ""
 			}
 		}
+		os.Args = append([]string{filepath.Base(fpath)}, args[1:]...)
 		_, err = i.Eval(fpath, src)
 	}
 	// Ensure output ends with a newline so the shell prompt is not overwritten.
@@ -83,6 +102,19 @@ func runCmd(arg []string) error {
 		_, _ = fmt.Fprintln(os.Stdout)
 	}
 	return err
+}
+
+// looksLikeImportPath reports whether s should be treated as a remote/package
+// import path rather than a local .go file: it contains a slash, does not end
+// in ".go", and is not the path of an existing local file. Mirrors
+// comp.looksLikePkgPath (unexported) with a local-file guard so a real path
+// always wins over a network fetch.
+func looksLikeImportPath(s string) bool {
+	if !strings.ContainsRune(s, '/') || strings.HasSuffix(s, ".go") {
+		return false
+	}
+	_, err := os.Stat(s)
+	return err != nil // existing local path -> not an import path
 }
 
 // newlineTracker wraps a writer and tracks whether the last byte written was a newline.

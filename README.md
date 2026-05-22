@@ -62,6 +62,7 @@ go run . _samples/fib.go            # run a Go source file
 go run . run _samples/fib.go        # same. "run" is the default subcommand
 go run . run -e "fmt.Println(1+2)"  # evaluate an inline expression
 go run . run -x _samples/fib.go     # run with execution tracing
+go run . github.com/mvm-sh/mvm/cmd/mvmlint .  # fetch and run a remote main package
 go run . test ./pkg                 # run TestX functions in a package directory
 go run . test ./pkg -v              # ... verbose; -run REGEX selects tests
 go run . test github.com/google/uuid  # fetch a remote module and run its tests
