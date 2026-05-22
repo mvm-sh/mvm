@@ -135,6 +135,10 @@ const (
 	Min // [v0..vn-1] -- min ; find min of $0 values; $1 = reflect.Kind for dispatch
 	Max // [v0..vn-1] -- max ; find max of $0 values; $1 = reflect.Kind for dispatch
 
+	Complex // f1 f2 -- c ; c = complex(f1, f2); $0 = reflect.Kind for dispatch
+	Real    // c -- f ; f = real(c); $0 = reflect.Kind for dispatch
+	Imag    // c -- f ; f = imag(c); $0 = reflect.Kind for dispatch
+
 	// Per-type numeric opcodes. Each block of NumTypes (12) opcodes follows the
 	// order: Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64.
 	// The compiler computes: baseOp + Op(NumKindOffset[kind]).
@@ -1911,6 +1915,68 @@ func (m *Machine) Run() (err error) {
 			}
 			_, _ = fmt.Fprintln(m.out, args...)
 			sp -= n
+
+		case Complex:
+			var (
+				cnv = func(v Value) float64 {
+					if v.CanInt() {
+						return float64(v.Int())
+					}
+					return v.Float()
+				}
+				vimag = cnv(mem[sp])
+				vreal = cnv(mem[sp-1])
+				kind  = reflect.Kind(c.A) //nolint:gosec
+				out   Value
+			)
+			switch kind {
+			case reflect.Complex64:
+				out = ValueOf(complex(
+					float32(vreal),
+					float32(vimag),
+				))
+			case reflect.Complex128:
+				out = ValueOf(complex(
+					float64(vreal),
+					float64(vimag),
+				))
+			default:
+				panic(fmt.Errorf("impossible: complex-kind: %v", out.ref.Kind()))
+			}
+			sp--
+			mem[sp] = out
+
+		case Real:
+			var (
+				ref  = mem[sp].ref
+				kind = reflect.Kind(c.A) //nolint:gosec
+				v    Value
+			)
+			switch kind {
+			case reflect.Float32:
+				v = ValueOf(float32(real(ref.Complex())))
+			case reflect.Float64:
+				v = ValueOf(float64(real(ref.Complex())))
+			default:
+				panic("impossible")
+			}
+			mem[sp] = v
+
+		case Imag:
+			var (
+				ref  = mem[sp].ref
+				kind = reflect.Kind(c.A) //nolint:gosec
+				v    Value
+			)
+			switch kind {
+			case reflect.Float32:
+				v = ValueOf(float32(imag(ref.Complex())))
+			case reflect.Float64:
+				v = ValueOf(float64(imag(ref.Complex())))
+			default:
+				panic("impossible")
+			}
+			mem[sp] = v
 
 		case Min:
 			sp = minMax(mem, sp, int(c.A), reflect.Kind(c.B), false) //nolint:gosec

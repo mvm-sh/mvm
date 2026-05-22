@@ -608,6 +608,8 @@ func constConvert(cv constant.Value, typ *vm.Type) constant.Value {
 		return constant.MakeUint64(uint64(v)) //nolint:gosec // intentional wraparound
 	case rt.Kind() == reflect.Float32 || rt.Kind() == reflect.Float64:
 		return constant.ToFloat(cv)
+	case rt.Kind() == reflect.Complex64 || rt.Kind() == reflect.Complex128:
+		return constant.ToComplex(cv)
 	case rt.Kind() == reflect.String:
 		if cv.Kind() == constant.Int {
 			v, _ := constant.Int64Val(cv)

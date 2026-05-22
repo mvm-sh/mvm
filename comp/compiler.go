@@ -730,6 +730,17 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Cval: litCval(t.Str, token.FLOAT), Type: c.Symbols["float64"].Type})
 			c.emit(t, vm.GetGlobal, di)
 
+		case lang.Imag:
+			f, err := strconv.ParseComplex(t.Str, 64)
+			if err != nil {
+				return err
+			}
+			v := vm.ValueOf(f)
+			di := len(c.Data)
+			c.Data = append(c.Data, v)
+			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Type: c.Symbols["complex128"].Type})
+			c.emit(t, vm.GetGlobal, di)
+
 		case lang.String:
 			if t.Prefix() == "'" {
 				r, _, _, err2 := strconv.UnquoteChar(t.Block(), '\'')
@@ -3333,6 +3344,81 @@ func (c *Compiler) compileBuiltin(
 			op = vm.Println
 		}
 		c.emit(t, op, narg)
+		return true, nil
+
+	case "complex":
+		switch {
+		case narg < 2:
+			return true, fmt.Errorf("invalid operation: not enough arguments for %s (expected 2, found %d)", s.Name, narg)
+		case narg > 2:
+			return true, fmt.Errorf("invalid operation: too many arguments for %s (expected 2, found %d)", s.Name, narg)
+		}
+		deref := func(sym *symbol.Symbol) (reflect.Kind, bool) {
+			if sym.IsConst() {
+				k := sym.Type.Rtype.Kind()
+				if reflect.Int <= k && k <= reflect.Float64 {
+					return reflect.Float64, true
+				}
+			}
+			if sym.Type != nil {
+				return sym.Type.Rtype.Kind(), false
+			}
+			return sym.Value.Type().Kind(), false
+		}
+		imagKind, iconst := deref(pop()) // imag part
+		realKind, rconst := deref(pop()) // real part
+		pop()                            // complex symbol
+
+		var kind reflect.Kind
+		switch {
+		case iconst:
+			kind = realKind
+		case rconst:
+			kind = imagKind
+		case imagKind == realKind:
+			kind = realKind
+		default:
+			return true, fmt.Errorf("invalid operation: mismatched types %s and %s", realKind, imagKind)
+		}
+
+		switch kind {
+		case reflect.Float32:
+			kind = reflect.Complex64
+		case reflect.Float64:
+			kind = reflect.Complex128
+		default:
+			return true, fmt.Errorf("invalid argument: type %s, expected floating-point", kind)
+		}
+
+		push(&symbol.Symbol{Type: c.Symbols[kind.String()].Type})
+		c.emit(t, vm.Complex, int(kind)) //nolint:gosec
+		return true, nil
+
+	case "real", "imag":
+		switch {
+		case narg < 1:
+			return true, fmt.Errorf("not enough arguments for %s", s.Name)
+		case narg > 1:
+			return true, fmt.Errorf("too many arguments for %s", s.Name)
+		}
+		argSym := (*stack)[len(*stack)-narg]
+		pop() // operand
+		pop() // real/imag symbol
+		op := vm.Real
+		if s.Name == "imag" {
+			op = vm.Imag
+		}
+		kind := argSym.Type.Rtype.Kind()
+		switch kind {
+		case reflect.Complex64:
+			kind = reflect.Float32
+		case reflect.Complex128:
+			kind = reflect.Float64
+		default:
+			return true, fmt.Errorf("invalid argument for %s (%s)", s.Name, kind)
+		}
+		push(&symbol.Symbol{Type: c.Symbols[kind.String()].Type})
+		c.emit(t, op, int(kind)) //nolint:gosec
 		return true, nil
 
 	case "min", "max":

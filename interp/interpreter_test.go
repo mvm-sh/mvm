@@ -3319,6 +3319,33 @@ func TestBuiltin(t *testing.T) {
 		{n: "max_int1", src: `max(42)`, res: "42"},
 		{n: "max_string", src: `max("b", "a", "c")`, res: "c"},
 		{n: "max_float", src: `max(3.0, 1.5)`, res: "3"},
+
+		// complex
+		{n: "complex64", src: `complex(float32(12),float32(34))`, res: "(12+34i)"},
+		{n: "complex64_lit_int_f32", src: `complex(12,float32(34))`, res: "(12+34i)"},
+		{n: "complex64_lit_float_f32", src: `complex(12.0,float32(34))`, res: "(12+34i)"},
+		{n: "complex128", src: `complex(float64(12),float64(34))`, res: "(12+34i)"},
+		{n: "complex128_lit_int", src: `complex(12,34)`, res: "(12+34i)"},
+		{n: "complex128_lit_int_float", src: `complex(12,34.0)`, res: "(12+34i)"},
+		{n: "complex128_lit_int_f64", src: `complex(12,float64(34))`, res: "(12+34i)"},
+		{n: "complex128_lit_float", src: `complex(12.0,34.0)`, res: "(12+34i)"},
+		{n: "complex64_real", src: `real(complex(float32(12),float32(34)))`, res: "12"},
+		{n: "complex64_imag", src: `imag(complex(float32(12),float32(34)))`, res: "34"},
+		{n: "complex128_real", src: `real(complex(float64(12),float64(34)))`, res: "12"},
+		{n: "complex128_imag", src: `imag(complex(float64(12),float64(34)))`, res: "34"},
+
+		{n: "complex128_promotion_0", src: `complex(1, 'A')`, res: "(1+65i)"},
+		{n: "complex128_promotion_1", src: `complex(1.2, 'A')`, res: "(1.2+65i)"},
+		{n: "complex128_promotion_2", src: `complex('A', 1)`, res: "(65+1i)"},
+		{n: "complex128_promotion_3", src: `complex('A', 1.2)`, res: "(65+1.2i)"},
+
+		{n: "complex_err0", src: `complex()`, err: "invalid operation: not enough arguments for complex (expected 2, found 0)"},
+		{n: "complex_err1", src: `complex(1)`, err: "invalid operation: not enough arguments for complex (expected 2, found 1)"},
+		{n: "complex_err12", src: `complex(1,2,3)`, err: "invalid operation: too many arguments for complex (expected 2, found 3)"},
+		{n: "complex128_lit_err1", src: `complex(int(12),34)`, err: "invalid argument: type int, expected floating-point"},
+		{n: "complex128_lit_err2", src: `complex(12,int(34))`, err: "invalid argument: type int, expected floating-point"},
+		{n: "complex128_lit_err3", src: `complex(float32(12),float64(34))`, err: "invalid operation: mismatched types float32 and float64"},
+		{n: "complex128_lit_err4", src: `complex(12, "34")`, err: "invalid argument: type string, expected floating-point"}, // FIXME(sbinet): compiled Go has different error string.
 	})
 }
 
