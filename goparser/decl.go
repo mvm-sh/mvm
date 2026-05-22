@@ -255,6 +255,16 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			return nil, nil, 0, p.undef(t.Str, t)
 		}
 		if s.Kind != symbol.Const {
+			// A bridged constant reached through a bare name. Recover it from its reflect value.
+			if s.PkgPath != "" && s.Value.IsValid() {
+				if cv, cerr := vmValueToConst(s.Value); cerr == nil {
+					var ctyp *vm.Type
+					if rt := s.Value.Type(); rt.PkgPath() != "" {
+						ctyp = &vm.Type{Name: rt.Name(), Rtype: rt}
+					}
+					return cv, ctyp, 1, nil
+				}
+			}
 			return nil, nil, 0, errors.New("symbol is not a constant")
 		}
 		if s.Cval == nil {
