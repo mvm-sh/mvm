@@ -4,6 +4,8 @@ package comp
 import (
 	"errors"
 	"fmt"
+	"go/constant"
+	"go/token"
 	"os"
 	"path"
 	"reflect"
@@ -907,8 +909,16 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
-			pop()         // shift amount
-			left := pop() // left operand
+			shift := pop() // shift amount
+			left := pop()  // left operand
+			// A runtime int64 shift overflows once the result exceeds 64 bits
+			// (e.g. 1<<120 in a float context, which Go evaluates as the untyped
+			// constant 2**120). Fold such shifts to a float64 constant -- the
+			// only valid non-complex context for a value that wide.
+			if folded := c.foldWideConstShl(t, left, shift); folded != nil {
+				push(folded)
+				break
+			}
 			leftTyp := shiftLeftType(left, c.Symbols["int"].Type)
 			c.emitConstConvert(t, left, leftTyp, 1)
 			push(&symbol.Symbol{Kind: symbol.Value, Type: leftTyp})
@@ -2529,6 +2539,50 @@ func (c *Compiler) retractPush(s *symbol.Symbol) (int, bool) {
 	n := int(c.Code[len(c.Code)-1].A)
 	c.Code = c.Code[:len(c.Code)-1]
 	return n, true
+}
+
+func isConstLoad(op vm.Op) bool { return op == vm.Push || op == vm.GetGlobal }
+
+// foldWideConstShl folds left<<shift when both are integer constants and the
+// result fits in neither int64 nor uint64 (so a runtime 64-bit shift would
+// overflow). Such a value is only valid in a float or complex context, so it is
+// materialized as a float64 constant: the two operand loads are retracted and
+// replaced with a single load of the precise value. Returns nil to fall back to
+// the normal runtime shift (non-constant operands, or a <=64-bit result whose
+// runtime shift produces the correct bits).
+func (c *Compiler) foldWideConstShl(t goparser.Token, left, shift *symbol.Symbol) *symbol.Symbol {
+	if left.Kind != symbol.Const || shift.Kind != symbol.Const {
+		return nil
+	}
+	var lc constant.Value
+	switch {
+	case isInt64Kind(left.Type):
+		lc = constant.MakeInt64(left.Value.Int())
+	case isUint64Kind(left.Type):
+		lc = constant.MakeUint64(left.Value.Uint())
+	default:
+		return nil
+	}
+	if len(c.Code) < 2 || !isConstLoad(c.Code[len(c.Code)-1].Op) || !isConstLoad(c.Code[len(c.Code)-2].Op) {
+		return nil
+	}
+	sa := shift.Value.Int()
+	if sa < 0 {
+		return nil
+	}
+	res := constant.Shift(lc, token.SHL, uint(sa)) //nolint:gosec // sa >= 0 checked above
+	if _, ok := constant.Int64Val(res); ok {
+		return nil
+	}
+	if _, ok := constant.Uint64Val(res); ok {
+		return nil
+	}
+	f, _ := constant.Float64Val(res)
+	c.Code = c.Code[:len(c.Code)-2] // drop the two operand loads
+	di := len(c.Data)
+	c.Data = append(c.Data, vm.ValueOf(f))
+	c.emit(t, vm.GetGlobal, di)
+	return &symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(f), Type: c.Symbols["float64"].Type}
 }
 
 func isInt64Kind(typ *vm.Type) bool {
