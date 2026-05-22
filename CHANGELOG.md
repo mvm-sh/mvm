@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Compatibility matrix.
+  `make compat` runs `mvm test` across the bridged standard library and a
+  curated set of external packages, classifies each into a tier with a
+  tests-passing ratio, and writes `compat/{compat,badge}.json` plus
+  `compat/history.jsonl`.
+  The generator (`compat/gen.go`) is plain Go run through mvm itself.
+  A weekly (and per-release) GitHub Actions workflow refreshes the data, and
+  the matrix is published at [mvm.sh/compat](https://mvm.sh/compat).
+
 ## [0.3.0] - 2026-05-22
 
 ### Added

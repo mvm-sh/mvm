@@ -46,8 +46,18 @@ cover:
 cover-html: cover
 	go tool cover -html=cover.out
 
+# Generate the compatibility-matrix data (compat/*.json) by running `mvm test`
+# for the bridged stdlib plus the packages in compat/external.txt and
+# classifying each result. The generator (compat/gen.go) is plain Go run
+# *through mvm itself* to dogfood the interpreter; set
+# COMPAT_RUNNER="go run ./compat" to fall back to the native toolchain.
+COMPAT_RUNNER ?= ./mvm run compat/gen.go
+compat:
+	go build -o mvm .
+	$(COMPAT_RUNNER) -mvm ./mvm
+
 clean:
 	rm -f mvm extract demo cover.out
 	$(MAKE) -C examples/c clean
 
-.PHONY: all clean clean_generate cover cover-html fast generate lint test
+.PHONY: all clean clean_generate compat cover cover-html fast generate lint test

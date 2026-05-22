@@ -193,6 +193,26 @@ The mvm-specific flags `-x` (execution tracing) and `-stat` (compile/execute
 statistics, printed just before the `PASS`/`FAIL` line) come *before* the
 target.
 
+## Compatibility matrix
+
+`make compat` measures how much real Go mvm runs.
+It runs `mvm test` for every bridged standard-library package and for the
+external packages listed in `compat/external.txt`, then classifies each result
+into a tier -- all tests pass, some pass, fails to load, or no runnable tests --
+along with a tests-passing ratio.
+
+The generator is [`compat/gen.go`](../compat/gen.go), an ordinary Go program run
+through mvm itself, dogfooding the interpreter.
+Set `COMPAT_RUNNER="go run ./compat"` to drive it with the native toolchain
+instead.
+It writes three files under `compat/`: `compat.json` (the full matrix),
+`history.jsonl` (one summary line per run, for the trend) and `badge.json` (a
+shields.io endpoint badge).
+
+A GitHub Actions workflow refreshes the data weekly and at every release and
+commits it back to `main`; the rendered matrix is published at
+[mvm.sh/compat](https://mvm.sh/compat).
+
 ## Execution tracing
 
 The `-x` flag (on `run` and `test`) and the `MVM_TRACE` environment variable

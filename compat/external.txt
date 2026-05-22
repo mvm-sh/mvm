@@ -1,0 +1,85 @@
+# Curated external packages for the mvm compatibility matrix.
+#
+# One Go import path per line. Lines starting with "#" and blank lines are
+# ignored. The set favors popular, mostly-pure-Go libraries with real test
+# suites and no cgo or hand-written assembly, so a result reflects mvm's Go
+# coverage rather than missing platform glue. Prune or extend freely; an
+# optional "@version" suffix pins a version (default: latest).
+
+# IDs
+github.com/google/uuid
+github.com/gofrs/uuid
+github.com/rs/xid
+github.com/oklog/ulid/v2
+github.com/segmentio/ksuid
+
+# errors
+github.com/pkg/errors
+github.com/hashicorp/go-multierror
+github.com/hashicorp/errwrap
+github.com/hashicorp/go-uuid
+
+# text and i18n
+golang.org/x/text/language
+golang.org/x/text/cases
+golang.org/x/text/runes
+golang.org/x/text/unicode/norm
+
+# compare and diff
+github.com/google/go-cmp/cmp
+github.com/pmezard/go-difflib/difflib
+github.com/agext/levenshtein
+
+# test utilities
+github.com/stretchr/testify/assert
+github.com/davecgh/go-spew/spew
+github.com/kr/pretty
+
+# JSON
+github.com/tidwall/gjson
+github.com/tidwall/sjson
+github.com/tidwall/match
+github.com/tidwall/pretty
+github.com/buger/jsonparser
+github.com/valyala/fastjson
+
+# numbers
+github.com/shopspring/decimal
+github.com/montanaflynn/stats
+github.com/dustin/go-humanize
+
+# collections and functional
+github.com/samber/lo
+github.com/google/btree
+github.com/gobwas/glob
+github.com/bmatcuk/doublestar/v4
+github.com/google/shlex
+
+# config and casting
+github.com/spf13/cast
+github.com/spf13/pflag
+github.com/mitchellh/mapstructure
+github.com/mitchellh/go-homedir
+
+# semver
+github.com/Masterminds/semver/v3
+github.com/blang/semver/v4
+github.com/hashicorp/go-version
+
+# hashing
+github.com/cespare/xxhash/v2
+github.com/spaolacci/murmur3
+github.com/twmb/murmur3
+
+# logging and color
+github.com/sirupsen/logrus
+github.com/fatih/color
+github.com/rs/zerolog
+
+# validation
+github.com/asaskevich/govalidator
+
+# markdown and html
+github.com/russross/blackfriday/v2
+github.com/yuin/goldmark
+github.com/microcosm-cc/bluemonday
