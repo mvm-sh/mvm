@@ -1,3 +1,5 @@
+all: lint fast
+
 # Static linting of Go source files. See .golangci.yaml for options.
 lint:
 	golangci-lint run
@@ -30,6 +32,12 @@ clean_generate:
 test:
 	go test -race ./interp
 
+# Like `test` but `-short` skips the heavy x/text network integration test
+# (~4s under race). The default `all` target uses this for a quick inner loop;
+# run `make test` to also exercise the remote-import path.
+fast:
+	go test -short -race ./interp
+
 # Measure cross-package coverage (no race; see the note on `test`).
 cover:
 	go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./interp
@@ -42,4 +50,4 @@ clean:
 	rm -f mvm extract demo cover.out
 	$(MAKE) -C examples/c clean
 
-.PHONY: clean clean_generate generate test cover cover-html lint
+.PHONY: all clean clean_generate cover cover-html fast generate lint test
