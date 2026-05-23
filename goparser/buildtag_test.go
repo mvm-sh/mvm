@@ -22,6 +22,18 @@ func TestMatchFileName(t *testing.T) {
 		{"foo_bar_linux.go", "linux", "amd64", true}, // multiple segments
 		{"foo_bar_linux.go", "darwin", "amd64", false},
 		{"foo_other.go", "linux", "amd64", true}, // unknown tag
+
+		// _test.go marker must be stripped before reading the GOOS/GOARCH suffix,
+		// otherwise "test" shadows the constraint and the file is never filtered.
+		{"arith_s390x_test.go", "linux", "amd64", false}, // s390x test on amd64
+		{"arith_s390x_test.go", "linux", "arm64", false}, // s390x test on arm64
+		{"arith_s390x_test.go", "linux", "s390x", true},  // s390x test on s390x
+		{"foo_linux_test.go", "linux", "amd64", true},    // GOOS test, matching
+		{"foo_linux_test.go", "darwin", "amd64", false},  // GOOS test, mismatch
+		{"foo_linux_amd64_test.go", "linux", "amd64", true},
+		{"foo_linux_amd64_test.go", "linux", "arm64", false},
+		{"export_test.go", "linux", "amd64", true}, // plain test file, no constraint
+		{"foo_test.go", "linux", "amd64", true},    // plain test file, no constraint
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+"_"+tt.goos+"_"+tt.goarch, func(t *testing.T) {

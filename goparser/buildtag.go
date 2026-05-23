@@ -35,6 +35,12 @@ func MatchFileName(name string, ctx *buildContext) bool {
 		return true // no underscore, no constraint
 	}
 	tags := strings.Split(name[i+1:], "_")
+	// Mirror go/build goodOSArchFile: a trailing "test" element is the _test.go
+	// marker, not a constraint, so drop it before reading the GOOS/GOARCH suffix
+	// (e.g. arith_s390x_test.go is s390x-only, like arith_s390x.go).
+	if n := len(tags); n > 0 && tags[n-1] == "test" {
+		tags = tags[:n-1]
+	}
 
 	n := len(tags)
 	if n >= 2 && knownOS[tags[n-2]] && knownArch[tags[n-1]] {
