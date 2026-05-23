@@ -466,10 +466,16 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 					}
 					continue
 				}
-				// Propagate I/O and filesystem errors (e.g. missing packages).
-				// Skip everything else (parser limitations, unimplemented syntax).
+				// Propagate I/O and filesystem errors (e.g. missing packages)
+				// and constant-overflow errors (a hard compile error, not a
+				// parser limitation). Skip everything else (parser limitations,
+				// unimplemented syntax).
 				var pathErr *fs.PathError
 				if errors.As(parseErr, &pathErr) {
+					return out, parseErr
+				}
+				var overflowErr ErrConstOverflow
+				if errors.As(parseErr, &overflowErr) {
 					return out, parseErr
 				}
 				p.rollbackSymTracker()

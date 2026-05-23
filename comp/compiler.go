@@ -454,6 +454,12 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
+// errOverflow reports a constant that cannot be represented in typ, matching the
+// goparser-side error (gc "constant X overflows T") so both carry a source snippet.
+func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *vm.Type) error {
+	return goparser.ErrConstOverflow{Value: cv.String(), Type: typ.Rtype.String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
+}
+
 func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {
 	if c.CompilingPkg != "" {
 		if s, ok := c.Symbols[goparser.QualifyName(c.CompilingPkg, name)]; ok {
@@ -573,6 +579,7 @@ func (c *Compiler) emitTypeOrGlobal(t goparser.Token, sym *symbol.Symbol, index 
 func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	fixList := goparser.Tokens{}  // list of tokens to fix after all necessary information is gathered
 	stack := []*symbol.Symbol{}   // for symbolic evaluation and type checking
+	codeStarts := []int{}         // parallel to stack: c.Code index where each operand's load began, for const-fold retraction
 	flen := []int{}               // stack length according to function scopes
 	funcStack := []string{}       // names of functions currently being compiled
 	funcStartStack := []int{}     // entry code address per function on funcStack, used to record FuncRange on exit
@@ -583,16 +590,69 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	hasDefer := []bool{}          // whether current function scope uses defer
 	retCellSlots := [][]int{}     // per function scope: slot indices of cell-promoted named returns
 
-	push := func(s *symbol.Symbol) {
+	// pushAt appends a compile-stack entry recording the c.Code index where its
+	// load sequence began (used by the const folder to retract operand loads).
+	pushAt := func(s *symbol.Symbol, start int) {
 		stack = append(stack, s)
+		codeStarts = append(codeStarts, start)
 		if len(maxExprDepth) > 0 {
 			if d := len(stack) - flen[len(flen)-1]; d > maxExprDepth[len(maxExprDepth)-1] {
 				maxExprDepth[len(maxExprDepth)-1] = d
 			}
 		}
 	}
+	// push records the current code position as the entry's load start. Callers
+	// that emit a load do so right after push, so len(c.Code) is the load's start.
+	push := func(s *symbol.Symbol) { pushAt(s, len(c.Code)) }
 	top := func() *symbol.Symbol { return stack[len(stack)-1] }
-	pop := func() *symbol.Symbol { l := len(stack) - 1; s := stack[l]; stack = stack[:l]; return s }
+	pop := func() *symbol.Symbol {
+		l := len(stack) - 1
+		s := stack[l]
+		stack = stack[:l]
+		codeStarts = codeStarts[:l]
+		return s
+	}
+	// truncStack trims both the symbol stack and its parallel codeStarts to n.
+	truncStack := func(n int) { stack = stack[:n]; codeStarts = codeStarts[:n] }
+	// foldBinaryConst folds `left <t.Tok> right` into a single constant load when
+	// both operands are constants, retracting their loads (from leftStart) and
+	// pushing the result. Operands must already be popped; on a non-fold it leaves
+	// the stack untouched so the caller's runtime path proceeds. Returns whether
+	// it folded.
+	foldBinaryConst := func(t goparser.Token, left, right *symbol.Symbol, leftStart int) (bool, error) {
+		cv, rtyp, ok := c.foldConstBinary(t.Tok, left, right)
+		if !ok {
+			return false, nil
+		}
+		c.Code = c.Code[:leftStart]
+		sym, err := c.emitFoldedConst(t, cv, rtyp)
+		if err != nil {
+			return true, err
+		}
+		pushAt(sym, leftStart)
+		return true, nil
+	}
+	// foldUnaryConst folds a unary op on the stack-top constant in place (peeking,
+	// then popping only on success). Returns whether it folded.
+	foldUnaryConst := func(t goparser.Token, op lang.Token) (bool, error) {
+		s := top()
+		if s.Kind != symbol.Const || s.Cval == nil {
+			return false, nil
+		}
+		if op == lang.Not && s.Cval.Kind() != constant.Bool {
+			return false, nil
+		}
+		start := codeStarts[len(stack)-1]
+		pop()
+		cv, _, _ := goparser.FoldUnary(op, s.Cval, s.Type)
+		c.Code = c.Code[:start]
+		sym, err := c.emitFoldedConst(t, cv, s.Type)
+		if err != nil {
+			return true, err
+		}
+		pushAt(sym, start)
+		return true, nil
+	}
 	// checkTopN returns ErrUndefined if any of the top n stack entries is an unresolved
 	// identifier (Unset with a non-empty Name). Anonymous Unset entries (Name=="") are
 	// legitimate intermediate values (e.g. field-access results) and are not checked.
@@ -651,15 +711,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				n64 = int64(u64) //nolint:gosec
 			}
 			n := int(n64)
-			push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(n), Type: c.Symbols["int"].Type})
-			if n >= -1<<31 && n < 1<<31 {
-				c.emit(t, vm.Push, n)
-			} else {
-				// Large constant: store in data segment and load via Get.
-				di := len(c.Data)
-				c.Data = append(c.Data, vm.ValueOf(n))
-				c.emit(t, vm.GetGlobal, di)
-			}
+			intTyp := c.Symbols["int"].Type
+			push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(n), Cval: litCval(t.Str, token.INT), Type: intTyp})
+			c.emitConstLoad(t, vm.ValueOf(n), intTyp)
 
 		case lang.Float:
 			f, err := strconv.ParseFloat(t.Str, 64)
@@ -669,7 +723,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			v := vm.ValueOf(f)
 			di := len(c.Data)
 			c.Data = append(c.Data, v)
-			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Type: c.Symbols["float64"].Type})
+			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Cval: litCval(t.Str, token.FLOAT), Type: c.Symbols["float64"].Type})
 			c.emit(t, vm.GetGlobal, di)
 
 		case lang.String:
@@ -678,7 +732,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if err2 != nil {
 					return err2
 				}
-				push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(r), Type: c.Symbols["rune"].Type})
+				push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(r), Cval: litCval(t.Str, token.CHAR), Type: c.Symbols["rune"].Type})
 				c.emit(t, vm.Push, int(r))
 				break
 			}
@@ -686,14 +740,20 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err2 != nil {
 				return err2
 			}
-			push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(s), Type: c.Symbols["string"].Type})
+			push(&symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(s), Cval: constant.MakeString(s), Type: c.Symbols["string"].Type})
 			c.emit(t, vm.GetGlobal, c.stringIndex(s))
 
 		case lang.Add, lang.Mul, lang.Sub, lang.Quo, lang.Rem:
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
+			leftStart := codeStarts[len(stack)-2]
 			right, left := pop(), pop()
+			if h, err := foldBinaryConst(t, left, right, leftStart); err != nil {
+				return err
+			} else if h {
+				break
+			}
 			typ := arithmeticOpType(right, left)
 			c.emitConstConvert(t, right, typ, 0)
 			c.emitConstConvert(t, left, typ, 1)
@@ -715,12 +775,22 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 1); err != nil {
 				return err
 			}
+			if h, err := foldUnaryConst(t, lang.Minus); err != nil {
+				return err
+			} else if h {
+				break
+			}
 			typ := symbol.Vtype(top())
 			c.emit(t, numericOp(vm.NegInt, typ))
 
 		case lang.Not:
 			if err := checkTopN(t, 1); err != nil {
 				return err
+			}
+			if h, err := foldUnaryConst(t, lang.Not); err != nil {
+				return err
+			} else if h {
+				break
 			}
 			c.emit(t, vm.Not)
 
@@ -839,7 +909,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
+			leftStart := codeStarts[len(stack)-2]
 			s2, s1 := pop(), pop()
+			if h, err := foldBinaryConst(t, s1, s2, leftStart); err != nil {
+				return err
+			} else if h {
+				break
+			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
 			c.emitNumConvert(t, typ, s1.Type, 1)
@@ -865,7 +941,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
+			leftStart := codeStarts[len(stack)-2]
 			s2, s1 := pop(), pop()
+			if h, err := foldBinaryConst(t, s1, s2, leftStart); err != nil {
+				return err
+			} else if h {
+				break
+			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
 			c.emitNumConvert(t, typ, s1.Type, 1)
@@ -873,71 +955,64 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			c.emit(t, vm.Equal)
 			c.emit(t, vm.Not)
 
-		case lang.And:
+		case lang.And, lang.Or, lang.Xor, lang.AndNot:
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
-			typ := arithmeticOpType(pop(), pop())
+			leftStart := codeStarts[len(stack)-2]
+			right, left := pop(), pop()
+			if h, err := foldBinaryConst(t, left, right, leftStart); err != nil {
+				return err
+			} else if h {
+				break
+			}
+			typ := arithmeticOpType(right, left)
 			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
-			c.emit(t, vm.BitAnd)
+			switch t.Tok {
+			case lang.And:
+				c.emit(t, vm.BitAnd)
+			case lang.Or:
+				c.emit(t, vm.BitOr)
+			case lang.Xor:
+				c.emit(t, vm.BitXor)
+			case lang.AndNot:
+				c.emit(t, vm.BitAndNot)
+			}
 
-		case lang.Or:
+		case lang.Shl, lang.Shr:
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
-			typ := arithmeticOpType(pop(), pop())
-			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
-			c.emit(t, vm.BitOr)
-
-		case lang.Xor:
-			if err := checkTopN(t, 2); err != nil {
-				return err
-			}
-			typ := arithmeticOpType(pop(), pop())
-			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
-			c.emit(t, vm.BitXor)
-
-		case lang.AndNot:
-			if err := checkTopN(t, 2); err != nil {
-				return err
-			}
-			typ := arithmeticOpType(pop(), pop())
-			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
-			c.emit(t, vm.BitAndNot)
-
-		case lang.Shl:
-			if err := checkTopN(t, 2); err != nil {
-				return err
-			}
+			leftStart := codeStarts[len(stack)-2]
 			shift := pop() // shift amount
 			left := pop()  // left operand
-			// A runtime int64 shift overflows once the result exceeds 64 bits
-			// (e.g. 1<<120 in a float context, which Go evaluates as the untyped
-			// constant 2**120). Fold such shifts to a float64 constant -- the
-			// only valid non-complex context for a value that wide.
-			if folded := c.foldWideConstShl(t, left, shift); folded != nil {
-				push(folded)
+			// A shift of two constants is itself a constant. Folding it gives the
+			// exact arbitrary-precision value, and emitFoldedConst widens a result
+			// past int64 to uint64 (e.g. 1<<63) or float64 (e.g. 1<<120) -- the
+			// only valid non-complex contexts -- which a runtime int64 shift would
+			// silently overflow.
+			if h, err := foldBinaryConst(t, left, shift, leftStart); err != nil {
+				return err
+			} else if h {
 				break
 			}
 			leftTyp := shiftLeftType(left, c.Symbols["int"].Type)
 			c.emitConstConvert(t, left, leftTyp, 1)
-			push(&symbol.Symbol{Kind: symbol.Value, Type: leftTyp})
-			c.emit(t, vm.BitShl)
-
-		case lang.Shr:
-			if err := checkTopN(t, 2); err != nil {
-				return err
+			push(&symbol.Symbol{Kind: constKind(left, shift), Type: leftTyp})
+			if t.Tok == lang.Shl {
+				c.emit(t, vm.BitShl)
+			} else {
+				c.emit(t, vm.BitShr)
 			}
-			pop()         // shift amount
-			left := pop() // left operand
-			leftTyp := shiftLeftType(left, c.Symbols["int"].Type)
-			c.emitConstConvert(t, left, leftTyp, 1)
-			push(&symbol.Symbol{Kind: symbol.Value, Type: leftTyp})
-			c.emit(t, vm.BitShr)
 
 		case lang.BitComp:
 			if err := checkTopN(t, 1); err != nil {
 				return err
+			}
+			if h, err := foldUnaryConst(t, lang.BitComp); err != nil {
+				return err
+			} else if h {
+				break
 			}
 			c.emit(t, vm.BitComp)
 
@@ -999,8 +1074,34 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if !s.NoFnew {
 					c.removeFnew(s.Index)
 				}
+				argStart := codeStarts[len(stack)-1]
 				arg := pop() // argument (top of stack)
 				pop()        // type symbol
+				// Converting a constant to a type it cannot represent is a compile
+				// error (Go spec), e.g. int8(200). int/rune results are not range-
+				// checked by emitFoldedConst (they widen instead), so catch those
+				// here; sized types are caught by the fold below.
+				if arg.Kind == symbol.Const && arg.Cval != nil && !isOverflowCheckedType(s.Type) && goparser.OverflowsType(arg.Cval, s.Type) {
+					return c.errOverflow(t, arg.Cval, s.Type)
+				}
+				// Converting a numeric constant to a numeric type is itself a
+				// constant (Go spec): fold it so e.g. `int32(7) * int32(6)`
+				// collapses to a single load. Retract the argument's load (and any
+				// Nop left by removeFnew above) and emit the converted constant,
+				// marking it Const so an enclosing constant expression folds further.
+				if arg.Kind == symbol.Const && arg.Cval != nil && isNumericConvType(s.Type) &&
+					(arg.Cval.Kind() == constant.Int || arg.Cval.Kind() == constant.Float) {
+					for argStart > 0 && c.Code[argStart-1].Op == vm.Nop {
+						argStart--
+					}
+					c.Code = c.Code[:argStart]
+					sym, err := c.emitFoldedConst(t, arg.Cval, s.Type)
+					if err != nil {
+						return err
+					}
+					pushAt(sym, argStart)
+					break
+				}
 				push(&symbol.Symbol{Kind: symbol.Value, Type: s.Type})
 				if s.Type.IsInterface() {
 					c.emitIfaceWrap(t, s.Type, arg.Type)
@@ -1365,10 +1466,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			l := len(stack)
 			rhs := stack[l-n:]
-			stack = stack[:l-n]
+			truncStack(l - n)
 			l = len(stack)
 			lhs := stack[l-n:]
-			stack = stack[:l-n]
+			truncStack(l - n)
 			showStack(stack)
 			// Local define: initialize local slots and assign via Set.
 			if n > 0 && lhs[0].Kind == symbol.LocalVar {
@@ -1428,9 +1529,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// All RHS were pushed before any assignment, so swaps like a,b=b,a work correctly.
 				l := len(stack)
 				rhss := stack[l-n:]
-				stack = stack[:l-n]
+				truncStack(l - n)
 				lhss := stack[len(stack)-n:]
-				stack = stack[:len(stack)-n]
+				truncStack(len(stack) - n)
 				// Process from top of stack (rhs[n-1]) down to rhs[0].
 				// Blank idents (Kind=Unset) have no slot on the VM stack; just discard their rhs.
 				slotCount, namedAbove := 0, 0
@@ -1568,13 +1669,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return c.errAt(t, "not a map or array: %s", s.Name)
 			}
 			c.emit(t, vm.Pop, 1)
-			stack = stack[:len(stack)-3]
+			truncStack(len(stack) - 3)
 
 		case lang.Equal:
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
+			leftStart := codeStarts[len(stack)-2]
 			s2, s1 := pop(), pop()
+			if h, err := foldBinaryConst(t, s1, s2, leftStart); err != nil {
+				return err
+			} else if h {
+				break
+			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
 			c.emitNumConvert(t, typ, s1.Type, 1)
@@ -1597,6 +1704,21 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			push(s)
 			if s.Kind == symbol.Pkg || s.Kind == symbol.Unset || s.Kind == symbol.Builtin || s.Kind == symbol.Generic {
 				break
+			}
+			// A dot-imported bridged constant (bare name, e.g. Pi from
+			// `import . "math"`) is bound as a plain Value; wrap the stack entry
+			// as a Const carrying its package's high-precision Cval so a fully
+			// constant expression folds at full precision. The value still loads
+			// via the normal path below (and is retracted if the expr folds).
+			if s.Kind == symbol.Value && s.PkgPath != "" {
+				if pkg, ok := c.Packages[s.PkgPath]; ok {
+					if cv, isC := pkg.Cvals[s.Name]; isC && cv != nil {
+						cs := *s
+						cs.Kind = symbol.Const
+						cs.Cval = cv
+						stack[len(stack)-1] = &cs
+					}
+				}
 			}
 			// Closure creation: emit code address + captured cell pointers + MkClosure.
 			if s.Kind == symbol.Func && len(s.FreeVars) > 0 {
@@ -1652,6 +1774,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.GetLocal, s.Index)
 				}
 			} else {
+				// Inline an integer constant as an immediate Push so the
+				// immediate-fusion fast paths (e.g. `j <= N`) fire. The pushed
+				// symbol still carries its Cval, so a fully-constant expression
+				// folds regardless of this load form.
+				if s.Kind == symbol.Const && c.emitConstImm(t, s) {
+					break
+				}
 				if s.Index == symbol.UnsetAddr {
 					// Type or value symbol discovered during Phase 2 code generation.
 					s.Index = len(c.Data)
@@ -1740,7 +1869,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						}
 						// Exit function: restore caller stack and function name tracking.
 						l := popflen()
-						stack = stack[:l]
+						truncStack(l)
 						top := len(funcStack) - 1
 						c.FuncRanges = append(c.FuncRanges, vm.FuncRange{
 							Start: funcStartStack[top],
@@ -1853,7 +1982,15 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 					sym = c.Symbols[name]
 				}
-				push(sym)
+				// A bridged high-precision constant (e.g. math.Pi): push a Const
+				// carrying its exact Cval so a fully-constant expression folds at
+				// full precision. The bridged value load is emitted as before and
+				// retracted if the expression folds.
+				if cv, isConst := p.Cvals[t.Str[1:]]; isConst && cv != nil {
+					push(&symbol.Symbol{Kind: symbol.Const, Value: sym.Value, Cval: cv, Type: sym.Type})
+				} else {
+					push(sym)
+				}
 				c.emitTypeOrGlobal(t, sym, l)
 			case symbol.Unset:
 				return c.errAt(t, "invalid symbol: %s", s.Name)
@@ -2321,7 +2458,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.emit(t, vm.Pop, numOut)
 			}
 			if len(stack) >= numOut {
-				stack = stack[:len(stack)-numOut]
+				truncStack(len(stack) - numOut)
 			}
 			c.emit(t, vm.Return)
 
@@ -2330,11 +2467,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if t.Arg[0].(bool) { // 3-index slice a[low:high:max]
 				coll = stack[len(stack)-4]
 				c.emit(t, vm.Slice3)
-				stack = stack[:len(stack)-4]
+				truncStack(len(stack) - 4)
 			} else {
 				coll = stack[len(stack)-3]
 				c.emit(t, vm.Slice)
-				stack = stack[:len(stack)-3]
+				truncStack(len(stack) - 3)
 			}
 			// Slicing a slice/string yields the same named type; only an
 			// array or *array operand produces a fresh []T result. Use Vtype
@@ -2462,8 +2599,7 @@ func (c *Compiler) emitNumConvert(t goparser.Token, lhsType, rhsType *vm.Type, d
 	if lhsType == nil || rhsType == nil || lhsType.Rtype == rhsType.Rtype {
 		return
 	}
-	lk, rk := lhsType.Rtype.Kind(), rhsType.Rtype.Kind()
-	if lk >= reflect.Int && lk <= reflect.Float64 && rk >= reflect.Int && rk <= reflect.Float64 {
+	if isNumericConvType(lhsType) && isNumericConvType(rhsType) {
 		c.emit(t, vm.Convert, c.typeSym(lhsType).Index, depth)
 	}
 }
@@ -2541,48 +2677,139 @@ func (c *Compiler) retractPush(s *symbol.Symbol) (int, bool) {
 	return n, true
 }
 
-func isConstLoad(op vm.Op) bool { return op == vm.Push || op == vm.GetGlobal }
+// litCval returns the arbitrary-precision constant for a literal token string,
+// or nil if it is not a valid constant literal (so the operand simply will not
+// fold). tok is the go/token kind (INT, FLOAT, CHAR, STRING).
+func litCval(s string, tok token.Token) constant.Value {
+	cv := constant.MakeFromLiteral(s, tok, 0)
+	if cv.Kind() == constant.Unknown {
+		return nil
+	}
+	return cv
+}
 
-// foldWideConstShl folds left<<shift when both are integer constants and the
-// result fits in neither int64 nor uint64 (so a runtime 64-bit shift would
-// overflow). Such a value is only valid in a float or complex context, so it is
-// materialized as a float64 constant: the two operand loads are retracted and
-// replaced with a single load of the precise value. Returns nil to fall back to
-// the normal runtime shift (non-constant operands, or a <=64-bit result whose
-// runtime shift produces the correct bits).
-func (c *Compiler) foldWideConstShl(t goparser.Token, left, shift *symbol.Symbol) *symbol.Symbol {
-	if left.Kind != symbol.Const || shift.Kind != symbol.Const {
-		return nil
+// foldConstBinary folds `left op right` into a single constant when both
+// operands are constants carrying a go/constant.Value. It returns ok=false when
+// either operand has no Cval or when go/constant declines the operation (an
+// invalid shift count, or division/remainder by zero), so the caller falls back
+// to emitting the runtime op. The result type follows Go's rules: bool for
+// comparisons, the left operand's type for shifts, and the wider operand type
+// (float over int) for arithmetic and bitwise ops.
+func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (constant.Value, *vm.Type, bool) {
+	if left.Kind != symbol.Const || right.Kind != symbol.Const || left.Cval == nil || right.Cval == nil {
+		return nil, nil, false
 	}
-	var lc constant.Value
+	cv, _, ok := goparser.FoldBinary(op, left.Cval, left.Type, right.Cval, right.Type)
+	if !ok {
+		return nil, nil, false
+	}
+	var typ *vm.Type
 	switch {
-	case isInt64Kind(left.Type):
-		lc = constant.MakeInt64(left.Value.Int())
-	case isUint64Kind(left.Type):
-		lc = constant.MakeUint64(left.Value.Uint())
+	case op.IsBoolOp():
+		typ = booleanOpType(left, right)
+	case op == lang.Shl || op == lang.Shr:
+		typ = shiftLeftType(left, c.Symbols["int"].Type)
 	default:
-		return nil
+		typ = arithmeticOpType(right, left)
 	}
-	if len(c.Code) < 2 || !isConstLoad(c.Code[len(c.Code)-1].Op) || !isConstLoad(c.Code[len(c.Code)-2].Op) {
-		return nil
+	return cv, typ, true
+}
+
+// emitFoldedConst materializes a folded constant of type typ into a single load
+// instruction and returns the resulting Const symbol (the caller pushes it). An
+// untyped integer result that no longer fits int64 is widened to uint64, and
+// beyond uint64 to float64 (the only valid non-complex context for a value that
+// wide), mirroring Go's untyped-constant rules and the former wide-shift fold.
+func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.Type) (*symbol.Symbol, error) {
+	if typ == nil {
+		typ = goparser.DefaultConstType(cv, c.Symbols)
 	}
-	sa := shift.Value.Int()
-	if sa < 0 {
-		return nil
+	// A folded result whose type is an explicitly-sized integer (never the type
+	// of an untyped default) but whose value doesn't fit is a compile error, the
+	// same as gc -- e.g. int8(100)+int8(100). The widening below is reserved for
+	// untyped int/rune results (1<<63 etc.), so it is not reached for these.
+	if isOverflowCheckedType(typ) && goparser.OverflowsType(cv, typ) {
+		return nil, c.errOverflow(t, cv, typ)
 	}
-	res := constant.Shift(lc, token.SHL, uint(sa)) //nolint:gosec // sa >= 0 checked above
-	if _, ok := constant.Int64Val(res); ok {
-		return nil
+	// Widen an untyped integer result that overflows its (default int) type to
+	// uint64, then float64 -- but only for an integer target. An explicit float
+	// target (e.g. float64(1<<63)) must convert via ConstConvert below, not widen.
+	if cv.Kind() == constant.Int && isIntegerKind(typ) && !isUint64Kind(typ) {
+		if _, ok := constant.Int64Val(cv); !ok {
+			if u, ok := constant.Uint64Val(cv); ok {
+				typ = c.Symbols["uint64"].Type
+				val := vm.ValueOf(u)
+				c.emitConstLoad(t, val, typ)
+				return &symbol.Symbol{Kind: symbol.Const, Value: val, Cval: cv, Type: typ}, nil
+			}
+			f, _ := constant.Float64Val(cv)
+			cv = constant.MakeFloat64(f)
+			typ = c.Symbols["float64"].Type
+		}
 	}
-	if _, ok := constant.Uint64Val(res); ok {
-		return nil
+	cv = goparser.ConstConvert(cv, typ)
+	val := vm.ValueOf(goparser.TypedConstValue(cv, typ))
+	c.emitConstLoad(t, val, typ)
+	return &symbol.Symbol{Kind: symbol.Const, Value: val, Cval: cv, Type: typ}, nil
+}
+
+// isOverflowCheckedType reports whether typ is an integer type that is never the
+// default type of an untyped constant (so a folded value of this type must come
+// from an explicitly-typed operand and can be range-checked). int (untyped int
+// default) and int32 (untyped rune default) are intentionally excluded so untyped
+// arithmetic like 1<<63 keeps widening instead of erroring.
+func isOverflowCheckedType(typ *vm.Type) bool {
+	if typ == nil {
+		return false
 	}
-	f, _ := constant.Float64Val(res)
-	c.Code = c.Code[:len(c.Code)-2] // drop the two operand loads
+	switch typ.Rtype.Kind() {
+	case reflect.Int8, reflect.Int16, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return true
+	}
+	return false
+}
+
+// emitConstLoad emits a single instruction loading val (of type typ): an
+// immediate Push for a signed integer that fits int32, otherwise a GetGlobal of
+// a fresh data slot (floats, strings, wide and unsigned ints).
+func (c *Compiler) emitConstLoad(t goparser.Token, val vm.Value, typ *vm.Type) {
+	if typ != nil {
+		if k := typ.Rtype.Kind(); k >= reflect.Int && k <= reflect.Int64 {
+			if v := val.Int(); v >= -1<<31 && v < 1<<31 {
+				c.emit(t, vm.Push, int(v))
+				return
+			}
+		}
+	}
 	di := len(c.Data)
-	c.Data = append(c.Data, vm.ValueOf(f))
+	c.Data = append(c.Data, val)
 	c.emit(t, vm.GetGlobal, di)
-	return &symbol.Symbol{Kind: symbol.Const, Value: vm.ValueOf(f), Type: c.Symbols["float64"].Type}
+}
+
+// emitConstImm emits a constant identifier as an immediate Push when it is a
+// signed integer fitting int32, returning true. This lets a named const (e.g.
+// `const N = ...` in `j <= N`) feed the immediate-fusion fast paths instead of
+// loading via GetGlobal. Floats, strings, unsigned and wide ints keep the
+// GetGlobal path (the caller falls through). The const still carries its Cval on
+// the compile stack, so a fully-constant expression folds regardless.
+func (c *Compiler) emitConstImm(t goparser.Token, s *symbol.Symbol) bool {
+	if !s.Value.IsValid() {
+		return false
+	}
+	// An untyped const carries Type==nil but a concrete Value; use the value's
+	// kind in that case.
+	k := s.Value.Kind()
+	if s.Type != nil {
+		k = s.Type.Rtype.Kind()
+	}
+	if k >= reflect.Int && k <= reflect.Int64 && s.Value.CanInt() {
+		if v := s.Value.Int(); v >= -1<<31 && v < 1<<31 {
+			c.emit(t, vm.Push, int(v))
+			return true
+		}
+	}
+	return false
 }
 
 func isInt64Kind(typ *vm.Type) bool {
@@ -2599,6 +2826,25 @@ func isUint64Kind(typ *vm.Type) bool {
 	}
 	k := typ.Rtype.Kind()
 	return k == reflect.Uint || k == reflect.Uint64
+}
+
+// isNumericConvType reports whether typ is a non-complex numeric type (including
+// named types like time.Duration), so a constant conversion to it can be folded.
+func isNumericConvType(typ *vm.Type) bool {
+	if typ == nil {
+		return false
+	}
+	k := typ.Rtype.Kind()
+	return k >= reflect.Int && k <= reflect.Float64
+}
+
+// isIntegerKind reports whether typ is a signed or unsigned integer type.
+func isIntegerKind(typ *vm.Type) bool {
+	if typ == nil {
+		return false
+	}
+	k := typ.Rtype.Kind()
+	return k >= reflect.Int && k <= reflect.Uintptr
 }
 
 func numericOp(base vm.Op, typ *vm.Type) vm.Op {

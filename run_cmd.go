@@ -45,6 +45,7 @@ func runCmd(arg []string) error {
 
 	i := interp.NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
 	mfs := wireFS(i)
 	if trace.line {
 		i.SetTracing(true)

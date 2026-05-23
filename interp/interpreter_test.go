@@ -653,6 +653,16 @@ f()`, res: "start"},
 		{n: "range_int_two_vars", src: `for k, v := range 5 { _ = k; _ = v }`, err: "range over integer permits only one iteration variable"},
 		{n: "range_chan_two_vars", src: `ch := make(chan int); close(ch); for k, v := range ch { _ = k; _ = v }`, err: "range over channel permits only one iteration variable"},
 		{n: "range_invalid_subject", src: `var x struct{}; for k := range x { _ = k }`, err: "cannot range over"},
+		// A zero constant divisor must not be folded (go/constant would panic the
+		// compiler); it is left to the runtime, which reports a clean error.
+		{n: "const_div_zero", src: `10 / 0`, err: "divide by zero"},
+		{n: "const_rem_zero", src: `10 % 0`, err: "divide by zero"},
+		// Constant overflow of a typed value is a compile error, as in gc.
+		{n: "const_conv_overflow", src: `int8(200)`, err: "constant 200 overflows int8"},
+		{n: "const_add_overflow", src: `int8(100) + int8(100)`, err: "overflows int8"},
+		{n: "const_uint_overflow", src: `uint8(256)`, err: "overflows uint8"},
+		{n: "const_neg_into_unsigned", src: `uint8(-1)`, err: "overflows uint8"},
+		{n: "const_shift_overflow", src: `int64(1) << 70`, err: "overflows int64"},
 	})
 }
 

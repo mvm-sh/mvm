@@ -171,6 +171,7 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 		vals[pkg] = merged
 	}
 	i.ImportPackageValues(vals)
+	i.ImportPackageConsts(stdlib.ConstValues)
 	mfs := wireFS(i)
 	// Test-source FS feeds `mvm test <stdlib-pkg>` external _test.go files
 	// against the existing reflect bridge. Kept off the shared wireFS so

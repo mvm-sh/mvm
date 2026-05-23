@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	"go/token"
 	"reflect"
+	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/symbol"
@@ -113,6 +114,13 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 			if errors.As(err, &eu) {
 				return out, err
 			}
+			// Constant overflow (e.g. `const y = int8(200)`) is a hard error:
+			// propagate it rather than registering a stub, so the precise
+			// message reaches the user instead of a later "undefined".
+			var oe ErrConstOverflow
+			if errors.As(err, &oe) {
+				return out, err
+			}
 			// For other failures (e.g. referencing a symbol in a stub
 			// binary package), register the const name so it is
 			// discoverable by tools like extract.
@@ -135,6 +143,9 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 		var typ *vm.Type
 		if i < len(types) {
 			typ = types[i]
+			if OverflowsType(cval, typ) {
+				return out, p.overflowErr(cval, typ, v[len(v)-1])
+			}
 			cval = constConvert(cval, typ)
 		} else if ctyp != nil {
 			typ = ctyp
@@ -192,49 +203,19 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			return nil, nil, 0, err
 		}
 		length = 1 + l1 + l2
-		tok := gotok[id]
-		if id.IsBoolOp() {
-			return constant.MakeBool(constant.Compare(op1, tok, op2)), nil, length, err
+		cv, ctyp, ok := FoldBinary(id, op1, typ1, op2, typ2)
+		if !ok {
+			return nil, nil, 0, p.errAt(t, "invalid constant operation: %s", id)
 		}
-		if id == lang.Shl || id == lang.Shr {
-			s, ok := constant.Uint64Val(op2)
-			if !ok {
-				return nil, nil, 0, errors.New("invalid shift parameter")
-			}
-			cv := constant.Shift(op1, tok, uint(s))
-			// go/constant uses arithmetic right-shift, which sign-extends negative
-			// values produced by unary ^ on unsigned constants. Reinterpret as unsigned.
-			if id == lang.Shr && typ1 != nil && isUnsignedKind(typ1.Rtype.Kind()) {
-				v, _ := constant.Int64Val(cv)
-				cv = constant.MakeUint64(uint64(v)) //nolint:gosec // reinterpret signed bits as unsigned
-			}
-			return cv, typ1, length, err
-		}
-		resTyp := typ1
-		if resTyp == nil {
-			resTyp = typ2
-		}
-		if tok == token.QUO && op1.Kind() == constant.Int && op2.Kind() == constant.Int {
-			tok = token.QUO_ASSIGN // Force int result, see https://pkg.go.dev/go/constant#BinaryOp
-		}
-		return constant.BinaryOp(op1, tok, op2), resTyp, length, err
+		return cv, ctyp, length, err
 
 	case id.IsUnaryOp():
 		op1, typ1, l1, err := p.evalConstExpr(in[:l])
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		cv := constant.UnaryOp(gotok[id], op1, 0)
-		// go/constant has no unsigned integer kind: ^ on 0 gives -1 (arbitrary
-		// precision), not the width-limited complement Go requires for typed
-		// unsigned constants. Recompute using the correct bit width.
-		if id == lang.BitComp && typ1 != nil && isUnsignedKind(typ1.Rtype.Kind()) {
-			v, _ := constant.Uint64Val(op1)
-			bits := typ1.Rtype.Size() * 8
-			mask := ^uint64(0) >> (64 - bits)
-			cv = constant.MakeUint64(^v & mask)
-		}
-		return cv, typ1, 1 + l1, err
+		cv, ctyp, _ := FoldUnary(id, op1, typ1)
+		return cv, ctyp, 1 + l1, err
 
 	case id.IsLiteral():
 		tok := gotok[id]
@@ -402,6 +383,9 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			if narg != 1 {
 				return nil, nil, 0, errors.New("type conversion requires exactly one argument")
 			}
+			if OverflowsType(args[0], s.Type) {
+				return nil, nil, 0, p.overflowErr(args[0], s.Type, in[l])
+			}
 			return constConvert(args[0], s.Type), s.Type, totalLen, nil
 		}
 		return nil, nil, 0, fmt.Errorf("unsupported constant call: %s", fname)
@@ -413,6 +397,67 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 
 func isUnsignedKind(k reflect.Kind) bool {
 	return k >= reflect.Uint && k <= reflect.Uintptr
+}
+
+// ErrConstOverflow reports a constant that cannot be represented in its type --
+// the gc "constant X overflows T" compile error. It is a hard parse error so
+// ParseAll does not skip past it (which would otherwise mask it as a later
+// "undefined" error). ErrPos lets the diagnostic chokepoint render a snippet.
+type ErrConstOverflow struct {
+	Value string
+	Type  string
+	Loc   string
+	Pos   int
+}
+
+func (e ErrConstOverflow) Error() string {
+	msg := "constant " + e.Value + " overflows " + e.Type
+	if e.Loc != "" {
+		return e.Loc + ": " + msg
+	}
+	return msg
+}
+
+// ErrPos exposes the source offset so the diagnostic chokepoint can render a snippet.
+func (e ErrConstOverflow) ErrPos() int { return e.Pos }
+
+func (p *Parser) overflowErr(cv constant.Value, typ *vm.Type, tok Token) ErrConstOverflow {
+	return ErrConstOverflow{Value: cv.String(), Type: typ.Rtype.String(), Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
+}
+
+// OverflowsType reports whether the integer constant cv cannot be represented in
+// the integer type typ -- the Go representability rule the gc compiler enforces
+// as a compile error (e.g. `int8(200)` or `const x uint8 = 256`). It is meant to
+// be called only at explicit-type points (conversions, typed const declarations);
+// untyped constant arithmetic must NOT use it (1<<63 etc. are valid untyped).
+// Non-integer constants and non-integer types return false (truncation and float
+// range are handled elsewhere / left unconstrained).
+func OverflowsType(cv constant.Value, typ *vm.Type) bool {
+	if cv == nil || typ == nil {
+		return false
+	}
+	k := typ.Rtype.Kind()
+	signed := k >= reflect.Int && k <= reflect.Int64
+	unsigned := isUnsignedKind(k)
+	if !signed && !unsigned {
+		return false
+	}
+	i := constant.ToInt(cv)
+	if i.Kind() != constant.Int {
+		return false // not an integer constant; truncation is a separate concern
+	}
+	bits := uint(typ.Rtype.Size()) * 8 //nolint:gosec // type sizes are small
+	if unsigned {
+		if constant.Sign(i) < 0 {
+			return true
+		}
+		hiBound := constant.BinaryOp(constant.Shift(constant.MakeInt64(1), token.SHL, bits), token.SUB, constant.MakeInt64(1))
+		return constant.Compare(i, token.GTR, hiBound)
+	}
+	hi := constant.Shift(constant.MakeInt64(1), token.SHL, bits-1)     // 2^(bits-1)
+	hiBound := constant.BinaryOp(hi, token.SUB, constant.MakeInt64(1)) // 2^(bits-1)-1
+	loBound := constant.UnaryOp(token.SUB, hi, 0)                      // -2^(bits-1)
+	return constant.Compare(i, token.LSS, loBound) || constant.Compare(i, token.GTR, hiBound)
 }
 
 // unsafeSizeArg recognizes postfix forms of unsafe.Sizeof / unsafe.Alignof
@@ -507,6 +552,13 @@ func constValue(c constant.Value) any {
 }
 
 func defaultConstType(c constant.Value, p *Parser) *vm.Type {
+	return DefaultConstType(c, p.Symbols)
+}
+
+// DefaultConstType returns the default type of an untyped constant (Go spec
+// "Constants"): int, float64, string or bool, resolved through the given symbol
+// table. Shared by the const-decl evaluator and the compiler's expression folder.
+func DefaultConstType(c constant.Value, syms symbol.SymMap) *vm.Type {
 	if c == nil {
 		return nil
 	}
@@ -523,7 +575,7 @@ func defaultConstType(c constant.Value, p *Parser) *vm.Type {
 	default:
 		return nil
 	}
-	if s, ok := p.Symbols[name]; ok {
+	if s, ok := syms[name]; ok {
 		return s.Type
 	}
 	return nil
@@ -628,6 +680,118 @@ var gotok = map[lang.Token]token.Token{
 	lang.Minus:        token.SUB,
 	lang.BitComp:      token.XOR,
 	lang.Not:          token.NOT,
+}
+
+// FoldBinary folds a binary constant operation following Go's untyped-constant
+// rules, delegating to go/constant. xtyp/ytyp are the operand types (nil for
+// untyped) and drive the unsigned right-shift reinterpretation and the result
+// type. ok is false when the operation is not a valid constant operation
+// (invalid shift count, or integer/float division or remainder by zero); the
+// caller then falls back to a runtime op (compiler) or reports an error
+// (const-decl evaluator). Shared so both paths fold identically.
+func FoldBinary(op lang.Token, x constant.Value, xtyp *vm.Type, y constant.Value, ytyp *vm.Type) (constant.Value, *vm.Type, bool) {
+	// && and || have no gotok entry (the compiler lowers them to jumps); decline
+	// so go/constant is never asked to compare with token.ILLEGAL.
+	if op.IsLogicalOp() {
+		return nil, nil, false
+	}
+	tok := gotok[op]
+	if op.IsBoolOp() {
+		return constant.MakeBool(constant.Compare(x, tok, y)), nil, true
+	}
+	if op == lang.Shl || op == lang.Shr {
+		// constant.Shift requires an integer left operand and a representable
+		// non-negative count; otherwise decline so the caller emits a runtime op.
+		if k := x.Kind(); k != constant.Int && k != constant.Unknown {
+			return nil, nil, false
+		}
+		s, ok := constant.Uint64Val(y)
+		if !ok {
+			return nil, nil, false
+		}
+		cv := constant.Shift(x, tok, uint(s))
+		// go/constant uses arithmetic right-shift, which sign-extends negative
+		// values produced by unary ^ on unsigned constants. Reinterpret as unsigned.
+		if op == lang.Shr && xtyp != nil && isUnsignedKind(xtyp.Rtype.Kind()) {
+			v, _ := constant.Int64Val(cv)
+			cv = constant.MakeUint64(uint64(v)) //nolint:gosec // reinterpret signed bits as unsigned
+		}
+		return cv, xtyp, true
+	}
+	// Division or remainder by a zero constant is not a constant operation:
+	// go/constant.BinaryOp would panic. Decline so the caller emits a runtime
+	// op (which panics with Go's runtime error) or reports a compile error.
+	if op == lang.Quo || op == lang.Rem {
+		if k := y.Kind(); (k == constant.Int || k == constant.Float) && constant.Sign(y) == 0 {
+			return nil, nil, false
+		}
+	}
+	resTyp := xtyp
+	if resTyp == nil {
+		resTyp = ytyp
+	}
+	if tok == token.QUO && x.Kind() == constant.Int && y.Kind() == constant.Int {
+		tok = token.QUO_ASSIGN // Force int result, see https://pkg.go.dev/go/constant#BinaryOp
+	}
+	return constant.BinaryOp(x, tok, y), resTyp, true
+}
+
+// FoldUnary folds a unary constant operation (+, -, !, ^) via go/constant.
+// xtyp drives the width-limited complement for typed unsigned constants. ok is
+// currently always true; it is returned for symmetry with FoldBinary.
+func FoldUnary(op lang.Token, x constant.Value, xtyp *vm.Type) (constant.Value, *vm.Type, bool) {
+	cv := constant.UnaryOp(gotok[op], x, 0)
+	// go/constant has no unsigned integer kind: ^ on 0 gives -1 (arbitrary
+	// precision), not the width-limited complement Go requires for typed
+	// unsigned constants. Recompute using the correct bit width.
+	if op == lang.BitComp && xtyp != nil && isUnsignedKind(xtyp.Rtype.Kind()) {
+		v, _ := constant.Uint64Val(x)
+		bits := xtyp.Rtype.Size() * 8
+		mask := ^uint64(0) >> (64 - bits)
+		cv = constant.MakeUint64(^v & mask)
+	}
+	return cv, xtyp, true
+}
+
+// ConstConvert converts a constant to the representation of typ (Go's typed
+// constant conversion rules). Exported for the compiler's expression folder.
+func ConstConvert(cv constant.Value, typ *vm.Type) constant.Value { return constConvert(cv, typ) }
+
+// TypedConstValue materializes a constant into a Go value of typ (or its default
+// kind when typ is nil). Exported for the compiler's expression folder.
+func TypedConstValue(cv constant.Value, typ *vm.Type) any { return typedConstValue(cv, typ) }
+
+// ConstFromExact reconstructs a constant from the exact textual form produced by
+// go/constant.Value.ExactString(): a decimal integer, a float literal, or a
+// "num/den" rational. It is the inverse used to recover high-precision bridged
+// constants (see stdlib.ConstValues). Returns nil if s is not parseable.
+func ConstFromExact(s string) constant.Value {
+	neg := false
+	if strings.HasPrefix(s, "-") {
+		neg, s = true, s[1:]
+	}
+	var cv constant.Value
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		num := constant.MakeFromLiteral(s[:i], token.INT, 0)
+		den := constant.MakeFromLiteral(s[i+1:], token.INT, 0)
+		if num.Kind() == constant.Unknown || den.Kind() == constant.Unknown {
+			return nil
+		}
+		cv = constant.BinaryOp(num, token.QUO, den)
+	} else {
+		tok := token.INT
+		if strings.ContainsAny(s, ".eEpP") {
+			tok = token.FLOAT
+		}
+		cv = constant.MakeFromLiteral(s, tok, 0)
+	}
+	if cv.Kind() == constant.Unknown {
+		return nil
+	}
+	if neg {
+		cv = constant.UnaryOp(token.SUB, cv, 0)
+	}
+	return cv
 }
 
 func (p *Parser) parseImports(in Tokens) (out Tokens, err error) {

@@ -4,6 +4,7 @@ package goparser
 import (
 	"errors"
 	"fmt"
+	"go/constant"
 	"io/fs"
 	"os"
 	"reflect"
@@ -117,6 +118,27 @@ func QualifyName(pkg, name string) string {
 		return "*" + pkg + "." + name[1:]
 	}
 	return pkg + "." + name
+}
+
+// ImportPackageConsts attaches high-precision constant values (from
+// stdlib.ConstValues) to already-imported packages, so the compiler can fold
+// constant expressions involving bridged floats (e.g. math.Pi) at full
+// precision. Call it after ImportPackageValues.
+func (p *Parser) ImportPackageConsts(m map[string]map[string]string) {
+	for pkg, consts := range m {
+		bp, ok := p.Packages[pkg]
+		if !ok {
+			continue
+		}
+		if bp.Cvals == nil {
+			bp.Cvals = make(map[string]constant.Value, len(consts))
+		}
+		for name, exact := range consts {
+			if cv := ConstFromExact(exact); cv != nil {
+				bp.Cvals[name] = cv
+			}
+		}
+	}
 }
 
 // ImportPackageValues populates packages with values.

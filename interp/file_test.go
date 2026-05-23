@@ -47,6 +47,7 @@ func runFile(t *testing.T, p string) {
 
 	i := NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
 	// When MVM_TRACE is set, tee stderr to the real stderr so trace
 	// output is visible via `go test -v` instead of vanishing into the buffer.
 	var errW io.Writer = &stderr

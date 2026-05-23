@@ -1,6 +1,7 @@
 package symbol
 
 import (
+	"go/constant"
 	"reflect"
 
 	"github.com/mvm-sh/mvm/vm"
@@ -11,6 +12,11 @@ type Package struct {
 	Path   string
 	Bin    bool
 	Values map[string]vm.Value
+	// Cvals holds the arbitrary-precision constant value of bridged constants
+	// (currently floats, whose reflect.Value form loses precision). It lets the
+	// compiler fold e.g. 100000*math.Pi at full precision. nil when the package
+	// has no high-precision constants.
+	Cvals map[string]constant.Value
 }
 
 // BinPkg returns a binary package from a map of reflect values.

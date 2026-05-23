@@ -91,10 +91,10 @@ func bindingFilename(importPath, goos, goarch string) string {
 // by kind, plus a map from const name to an explicit Go type wrapper needed
 // to avoid `reflect.ValueOf(untyped int constant) overflows int` errors when
 // the constant value cannot fit in the default Go type (e.g. uint64 > MaxInt64).
-func extract(dir string) (map[symbol.Kind][]string, map[string]string, error) {
+func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[string]string, error) {
 	imports, err := extractImports(dir, *targetOS, *targetArch)
 	if err != nil {
-		return nil, nil, fmt.Errorf("scanning imports of %s: %w", dir, err)
+		return nil, nil, nil, fmt.Errorf("scanning imports of %s: %w", dir, err)
 	}
 
 	p := goparser.NewParser(golang.GoSpec, false)
@@ -122,6 +122,11 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, error) {
 		symbol.Func:  {},
 	}
 	typedConsts := map[string]string{}
+	// constExacts records the exact arbitrary-precision form of floating-point
+	// constants, whose reflect.ValueOf bridge rounds to float64 and loses the
+	// extra digits Go keeps (e.g. math.Pi). Integer constants are exact through
+	// reflect already and need no entry. See stdlib.ConstValues.
+	constExacts := map[string]string{}
 
 	for name, sym := range p.Symbols {
 		if strings.ContainsAny(name, "/.#") {
@@ -140,10 +145,13 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, error) {
 			if w := constWrapFor(sym); w != "" {
 				typedConsts[name] = w
 			}
+			if sym.Cval != nil && sym.Cval.Kind() == constant.Float {
+				constExacts[name] = sym.Cval.ExactString()
+			}
 		}
 	}
 
-	return groups, typedConsts, nil
+	return groups, typedConsts, constExacts, nil
 }
 
 // constWrapFor returns the Go type name to wrap a const value with when
@@ -165,7 +173,7 @@ func constWrapFor(sym *symbol.Symbol) string {
 }
 
 func run(out io.Writer, dir string) error {
-	groups, _, err := extract(dir)
+	groups, _, _, err := extract(dir)
 	if err != nil {
 		return err
 	}
@@ -181,7 +189,7 @@ func run(out io.Writer, dir string) error {
 }
 
 func runGen(outDir, dir, importPath string) error {
-	groups, typedConsts, err := extract(dir)
+	groups, typedConsts, constExacts, err := extract(dir)
 	if err != nil {
 		return err
 	}
@@ -209,7 +217,7 @@ func runGen(outDir, dir, importPath string) error {
 	if baseTag == "" && *targetOS != "" && *targetArch != "" {
 		baseTag = fmt.Sprintf("%s && %s", *targetOS, *targetArch)
 	}
-	if err := writeBinding(filepath.Join(outDir, baseName), importPath, baseTag, false, baseValues, baseVars, baseTypes, typedConsts); err != nil {
+	if err := writeBinding(filepath.Join(outDir, baseName), importPath, baseTag, false, baseValues, baseVars, baseTypes, typedConsts, constExacts); err != nil {
 		return err
 	}
 
@@ -219,7 +227,9 @@ func runGen(outDir, dir, importPath string) error {
 			continue
 		}
 		suppName := supplementFilename(importPath, tag, *targetOS, *targetArch)
-		if err := writeBinding(filepath.Join(outDir, suppName), importPath, tag, true, tv, tvars, ttypes, typedConsts); err != nil {
+		// Float constants are platform-independent and never tagged, so the
+		// high-precision registry is emitted only in the base file.
+		if err := writeBinding(filepath.Join(outDir, suppName), importPath, tag, true, tv, tvars, ttypes, typedConsts, nil); err != nil {
 			return err
 		}
 	}
@@ -230,7 +240,7 @@ func runGen(outDir, dir, importPath string) error {
 // mutates the existing stdlib.Values entry rather than overwriting it; this
 // allows multiple files (one base + per-tag supplements) to register symbols
 // for the same import path.
-func writeBinding(path, importPath, buildTag string, supplement bool, values, vars, types []string, typedConsts map[string]string) error {
+func writeBinding(path, importPath, buildTag string, supplement bool, values, vars, types []string, typedConsts, constExacts map[string]string) error {
 	alias := goparser.PackageName(importPath)
 
 	var buf bytes.Buffer
@@ -284,6 +294,18 @@ func writeBinding(path, importPath, buildTag string, supplement bool, values, va
 			}
 			for _, name := range types {
 				w("\t\t%q: reflect.ValueOf((*%s.%s)(nil)),\n", name, alias, name)
+			}
+			w("\t}\n")
+		}
+		if len(constExacts) > 0 {
+			names := make([]string, 0, len(constExacts))
+			for name := range constExacts {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			w("\tstdlib.ConstValues[%q] = map[string]string{\n", importPath)
+			for _, name := range names {
+				w("\t\t%q: %q,\n", name, constExacts[name])
 			}
 			w("\t}\n")
 		}
