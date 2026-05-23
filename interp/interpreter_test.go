@@ -967,6 +967,24 @@ func TestStruct(t *testing.T) {
 		// %T from reflect.TypeOf before any Formatter, so it cannot be intercepted.
 		{n: "errors_pct_T_identity", skip: true, src: `import "fmt"; type E struct{ s string }; func (e E) Error() string { return e.s }; var err error = E{"x"}; fmt.Sprintf("%T", err)`, res: "main.E"},
 
+		{n: "errors_multierror_is", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrPermission)`, res: "true"},
+		{n: "errors_multierror_is_miss", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrNotExist)`, res: "false"},
+		{n: "errors_multierror_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), &fs.PathError{Op: "open", Path: "/x", Err: fs.ErrPermission}}; var pe *fs.PathError; errors.As(err, &pe) && pe.Path == "/x"`, res: "true"},
+		// SKIP (separate gap, exposed by the multierror bridge): errors.AsType is the
+		// interpreted generic shim; an interpreted named-slice error (M []error) reaching
+		// the shim as `error` loses its method set (reduced to raw []error), so the shim's
+		// interpreted type-switch can't see Unwrap and panics. Native Is/As (above) work.
+		{n: "errors_multierror_astype", skip: true, src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{&fs.PathError{Op: "open", Path: "/x", Err: fs.ErrPermission}}; _, ok := errors.AsType[*fs.PathError](err); ok`, res: "true"},
+		{n: "errors_multierror_self", src: `import "errors"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x")}; errors.Is(err, err)`, res: "false"},
+		{n: "errors_multierror_custom_is", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) Is(t error) bool { return t == fs.ErrExist }; var err error = M{fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrExist) && errors.Is(err, fs.ErrPermission)`, res: "true"},
+		{n: "errors_multierror_custom_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "c", Path: "/p"}; return true }; var err error = M{errors.New("x")}; var pe *fs.PathError; errors.As(err, &pe) && pe.Path == "/p"`, res: "true"},
+		{n: "errors_multierror_custom_is_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) Is(t error) bool { return t == fs.ErrExist }; func (m M) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "c", Path: "/p"}; return true }; var err error = M{errors.New("x")}; var pe *fs.PathError; errors.Is(err, fs.ErrExist) && errors.As(err, &pe) && pe.Path == "/p"`, res: "true"},
+		// SKIP (deeper gap): a multierror promoted from an EMBEDDED field panics
+		// "reflect: ... value obtained from unexported field" (the promoted-method
+		// closure returns a []error derived from the unexported embedded field).
+		// Embedded single-error Unwrap() error works; only the []error-return case fails.
+		{n: "errors_multierror_embedded", skip: true, src: `import "errors"; import "fmt"; import "io/fs"; type base []error; func (b base) Error() string { return "b" }; func (b base) Unwrap() []error { return []error(b) }; type wrap struct{ base }; var err error = wrap{base{fmt.Errorf("w: %w", fs.ErrPermission)}}; errors.Is(err, fs.ErrPermission)`, res: "true"},
+
 		// reflect.Value.MethodByName on a vm.Iface: mvm methods are invisible to
 		// Go reflect, so nativeMethodLookup intercepts and synthesises a bound method.
 		{n: "reflect_value_methodbyname_iface", src: `

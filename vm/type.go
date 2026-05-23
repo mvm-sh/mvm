@@ -13,10 +13,11 @@ import (
 
 // Method records a method's code location and receiver path for interface dispatch.
 type Method struct {
-	Index      int   // data index of code address (-1 if unset or EmbedIface)
-	Path       []int // field index path to embedded receiver (nil = direct, []int{} = deref only)
-	EmbedIface bool  // Path leads to an embedded interface field; dispatch through it
-	PtrRecv    bool  // true if the method has a pointer receiver (e.g. *T)
+	Index      int          // data index of code address (-1 if unset or EmbedIface)
+	Path       []int        // field index path to embedded receiver (nil = direct, []int{} = deref only)
+	EmbedIface bool         // Path leads to an embedded interface field; dispatch through it
+	PtrRecv    bool         // true if the method has a pointer receiver (e.g. *T)
+	Rtype      reflect.Type // bound method signature (no receiver); nil if unknown. Per-type, so it disambiguates same-named methods (e.g. Unwrap() error vs Unwrap() []error) that share a global method ID.
 }
 
 // IsResolved reports whether this method slot has been populated with
@@ -56,7 +57,7 @@ type Type struct {
 type IfaceMethod struct {
 	Name  string
 	ID    int          // global method ID; -1 = not yet assigned
-	Rtype reflect.Type // method signature (with receiver as 1st param); nil if unknown
+	Rtype reflect.Type // method signature (no receiver, as declared in the interface body); nil if unknown
 }
 
 // TypeElem describes one member of a constraint interface's type-element union,

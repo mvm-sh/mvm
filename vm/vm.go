@@ -371,8 +371,8 @@ type Machine struct {
 
 	panicking     bool        // true while unwinding due to panic
 	panicVal      Value       // value passed to panic()
-	panicInfo     *PanicError // diagnostic snapshot (source pos + mvm stack) captured when the panic was staged, before frames unwind
-	panicReraised bool        // panicInfo was adopted from a re-entrant run via invokeNative; stageUnwind keeps it instead of recapturing the (uninformative) boundary frame
+	panicInfo     *PanicError // diagnostic snapshot (source pos + mvm stack) captured at panic before unwind
+	panicReraised bool        // panicInfo was adopted from a re-entrant run via invokeNative
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
@@ -386,9 +386,7 @@ type Machine struct {
 	MethodFuncTypes []reflect.Type // bound-method func type (no receiver) by global method ID
 
 	// runnerPool holds reusable runner Machines for native->mvm callbacks.
-	// Shared across all runnerStates rooted in this Machine so a high
-	// bridge-construction count doesn't multiply retained memory. sync.Pool
-	// is safe for concurrent Get/Put across goroutines.
+	// Safe for concurrent Get/Put across goroutines.
 	runnerPool sync.Pool
 
 	debugInfoFn func() *DebugInfo // builds DebugInfo on demand (breaks vm->comp cycle)
@@ -403,8 +401,7 @@ type Machine struct {
 	traceDI       *DebugInfo // lazy cache for traceStep; invalidated by SetDebugInfo
 }
 
-// traceFlag* are bits stored in Machine.traceFlags. Combined into a single
-// byte so the hot-loop check is one load + compare against zero.
+// traceFlag* are bits stored in Machine.traceFlags.
 const (
 	traceFlagLine uint8 = 1 << iota // emit one line per distinct source line
 	traceFlagOp                     // emit one line per executed bytecode instruction
@@ -436,10 +433,7 @@ func (m *Machine) DebugInfo() *DebugInfo {
 }
 
 // CallSitePos returns the source Pos of the instruction that triggered
-// the currently executing native call. The Call handler sets m.ip to
-// ip+1 before invoking the native func, so the active call site is
-// recorded at m.code[m.ip-1]. Returns 0 when the IP is out of range
-// (e.g. invoked outside Run).
+// the currently executing native call.  Returns 0 when the IP is out of range.
 func (m *Machine) CallSitePos() Pos {
 	if m.ip <= 0 || m.ip-1 >= len(m.code) {
 		return 0
@@ -453,16 +447,14 @@ func (m *Machine) SetDebugIO(in io.Reader, out io.Writer) {
 	m.debugOut = out
 }
 
-// SetTracing enables or disables `set -x`-style line tracing. Run hoists
-// traceFlags into a register-resident local, so toggles take effect at the
-// next Run() entry, not mid-run.
+// SetTracing enables or disables `set -x`-style line tracing.
+// Toggles take effect at the next Run().
 func (m *Machine) SetTracing(on bool) { m.setTraceFlag(traceFlagLine, on) }
 
 // Tracing reports whether line tracing is enabled.
 func (m *Machine) Tracing() bool { return m.traceFlags&traceFlagLine != 0 }
 
-// SetTraceOps enables or disables bytecode-level tracing. See SetTracing for
-// the toggle-takes-effect-next-Run caveat.
+// SetTraceOps enables or disables bytecode-level tracing.
 func (m *Machine) SetTraceOps(on bool) { m.setTraceFlag(traceFlagOp, on) }
 
 // TraceOps reports whether bytecode-level tracing is enabled.
@@ -713,9 +705,6 @@ func (m *Machine) handleTrap(ip, fp, sp int, mem []Value) (int, int, int, []Valu
 	return ip, fp, sp, mem
 }
 
-// derefCell returns the value a slot holds, dereferencing a heap cell (a
-// *Value, produced by HeapAlloc for captured locals/named returns); non-cell
-// values pass through unchanged.
 func derefCell(v Value) Value {
 	if v.ref.IsValid() && v.ref.Kind() == reflect.Pointer {
 		if pv, ok := v.ref.Interface().(*Value); ok {
@@ -3278,8 +3267,7 @@ func (m *Machine) ifaceProvidedMethods(ifc Iface) map[string]bool {
 // targetType and the interpreted value provides every one of those methods.
 // This preserves richer capabilities (e.g. crypto.MessageSigner) when the
 // native parameter only requires a sub-interface (crypto.Signer). Returns
-// nil for empty-interface targets (handled by the display-bridge path) or
-// when no fully-implemented bridge exists.
+// nil for empty-interface targets or when no fully-implemented bridge exists.
 func (m *Machine) bestInterfaceBridge(ifc Iface, targetType reflect.Type) reflect.Type {
 	if targetType.Kind() != reflect.Interface || targetType.NumMethod() == 0 {
 		return nil
@@ -3793,9 +3781,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value) (panicked bool) {
 	return false
 }
 
-// clearValue implements the clear builtin: it empties a map (deletes all
-// entries) or zeroes every element of a slice. A nil map or slice is a
-// no-op, matching Go.
+// clearValue implements the clear builtin.
 func clearValue(rv reflect.Value) {
 	if rv = unwrapIface(rv); rv.IsValid() {
 		rv.Clear()
@@ -3839,9 +3825,7 @@ func snapshotArg(v Value) Value {
 }
 
 // detachByValueArgs copies struct/array args into fresh addressable storage so
-// callee field/index writes don't leak to the caller's slot. Go semantics pass
-// structs and arrays by value; without this, the param's ref points at the
-// caller's local storage (when CanAddr) and mutations write through.
+// callee field/index writes don't leak to the caller's slot.
 func detachByValueArgs(args []Value) {
 	for i := range args {
 		r := args[i].ref
@@ -3892,8 +3876,6 @@ func Vstring(lv []Value) string {
 	return sb.String()
 }
 
-// appendValues writes lv as space-separated value renderings into sb, with
-// no surrounding brackets. Invalid Values are rendered as <num>.
 func appendValues(sb *strings.Builder, lv []Value) {
 	for i, v := range lv {
 		if i > 0 {
@@ -3919,10 +3901,7 @@ func forceSettable(fv reflect.Value) reflect.Value {
 }
 
 // resolveFuncField returns the original mvm Value for a Go func field
-// previously registered via setFuncField/assignSlot. The lookup is keyed
-// by the funcptr read live from the field's bytes, so a struct-Set on an
-// enclosing struct that rewrites the field bytes still resolves to the
-// closure currently living there.
+// previously registered via setFuncField/assignSlot.
 func (m *Machine) resolveFuncField(v Value) Value {
 	if v.ref.Kind() == reflect.Func && v.ref.CanAddr() && !v.ref.IsNil() && m.funcFields != nil {
 		if pf, ok := m.funcFields.get(funcValuePtr(v.ref)); ok {
@@ -4025,10 +4004,7 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 		}
 		return
 	}
-	// Bit ops (BitOr/BitAnd/BitXor/BitAndNot/BitShl/BitShr) leave src.ref invalid
-	// when neither operand carries a typed ref (first write to a named-return
-	// scalar slot via `cci |= X`). Transfer src.num directly so the assignment
-	// doesn't fall through to reflect.Zero(dst.ref.Type()) and clobber the result.
+	// Bit ops leave src.ref invalid when neither operand carries a typed ref.
 	if !src.ref.IsValid() && dst.ref.CanSet() && isNum(dst.ref.Kind()) {
 		dst.num = src.num
 		setNumReflect(dst.ref, src.num)
@@ -4043,8 +4019,6 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 		s = reflect.Zero(dst.ref.Type())
 	} else if dst.ref.Kind() == reflect.Interface && isNilable(s) && s.IsNil() {
 		// Avoid creating a typed nil inside an interface{} slot.
-		// A typed nil (e.g. (func())(nil)) is not equal to untyped nil,
-		// which would break `f == nil` checks for func variables stored in interface{} slots.
 		s = reflect.Zero(dst.ref.Type())
 	}
 	dst.ref.Set(s)
@@ -4098,12 +4072,6 @@ func numReflect(t reflect.Type, src Value) reflect.Value {
 // bridgeArgs scans native-call arguments for Iface values and replaces them
 // with wrapper instances that implement Go interfaces via registered bridges.
 // Non-bridged Iface values are unwrapped to their concrete value.
-//
-// fnPtr (non-zero) is the code pointer of the native function, used to
-// look up per-argument proxies registered via RegisterArgProxy. recvType
-// and methodName (non-nil and non-empty) identify a method call and are
-// used to look up proxies registered via RegisterArgProxyMethod. Proxies
-// take precedence over the standard bridgeIface dispatch when matched.
 func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fnPtr uintptr, recvType reflect.Type, methodName string) {
 	for i, rv := range in {
 		if !rv.IsValid() || rv.Type() != ifaceRtype {
@@ -4150,8 +4118,7 @@ func paramTypeFor(funcType reflect.Type, i int) reflect.Type {
 }
 
 // coerceInterfaceArgs unwraps interface-typed arguments whose type does not match
-// the function's expected parameter type. This handles native interface values
-// (e.g. context.Context) stored in generic interface{} variable slots.
+// the function's expected parameter type.
 func coerceInterfaceArgs(in []reflect.Value, funcType reflect.Type) {
 	for i, rv := range in {
 		paramType := paramTypeFor(funcType, i)
@@ -4217,12 +4184,22 @@ func ifaceMethodTypes(typ *Type) (types [6]*Type, n int) {
 	return
 }
 
+// errorSliceRtype is []error, used to detect the multi-error
+// Unwrap() []error signature so it bridges distinctly from the
+// single-error Unwrap() error.
+var errorSliceRtype = reflect.TypeOf([]error(nil))
+
+// bridgeMethodName maps an interpreted method to the bridge-registry key
+// used for selection.
+func bridgeMethodName(name string, method Method) string {
+	if name == "Unwrap" && method.Rtype != nil &&
+		method.Rtype.NumOut() == 1 && method.Rtype.Out(0) == errorSliceRtype {
+		return "UnwrapMulti"
+	}
+	return name
+}
+
 // wrapIface creates a bridge value that implements a Go interface.
-// It first tries composite bridges (e.g. Reader+WriterTo) to preserve
-// additional interface capabilities beyond the target, then falls back
-// to a single-method bridge. When targetType is interface{}/any, only
-// DisplayBridges are used. Methods are checked on both the type and its
-// element type (methods are registered on base type T, not *T).
 func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 	if ifc.Typ == nil {
 		return reflect.Value{}
@@ -4258,7 +4235,7 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 			if method.PtrRecv && !isPtr {
 				continue
 			}
-			name := m.MethodNames[id]
+			name := bridgeMethodName(m.MethodNames[id], method)
 			if _, ok := Bridges[name]; !ok {
 				continue
 			}
@@ -4311,9 +4288,7 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 	// Single-method fallback. Prefer "primary" bridges (Error, String,
 	// GoString) over Format because BridgeError/String/GoString now also
 	// dispatch user Format via FnFormat (populated by populateBridgeAux),
-	// AND they satisfy native type assertions like fmt.Errorf's `%w` ->
-	// error. Returning *BridgeFormat for a value that also implements
-	// error would lose the error capability and break Unwrap chains.
+	// AND they satisfy native type assertions.
 	for _, primary := range primaryBridgeOrder {
 		if w := m.tryBridge(ifc, bridged[:count], required, targetType, nonEmpty, primary); w.IsValid() {
 			return w
@@ -4330,10 +4305,7 @@ func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
 }
 
 // primaryBridgeOrder lists method names whose single-method bridge type
-// also satisfies higher-level Go interfaces (error, fmt.Stringer,
-// fmt.GoStringer). These are preferred over a Format-only bridge so a
-// value with both Error and Format keeps its error capability when
-// passed through interface{}.
+// also satisfies higher-level Go interfaces.
 var primaryBridgeOrder = [...]string{"Error", "String", "GoString"}
 
 // tryBridge attempts to build a single-method bridge for the named
@@ -4365,14 +4337,12 @@ func (m *Machine) tryBridge(ifc Iface, bridged []bridgedMethod, required map[str
 }
 
 // populateBridgeAux fills optional bridge fields after the primary
-// method closure is set. Val carries the underlying interpreted value
-// (used by unbridgeValue and the bridge Is method). Ifc preserves the
+// method closure is set. Ifc preserves the
 // full Iface so UnbridgeIface can restore it at native->mvm return
 // boundaries. FnFormat routes fmt verbs to the interpreted type's
 // own Format method when present, so user-defined fmt.Formatter
 // bodies are invoked instead of the display fallback. skipName avoids
-// overwriting the field already set by the caller (e.g. the primary
-// method's Fn).
+// overwriting the field already set by the caller.
 func (m *Machine) populateBridgeAux(elem reflect.Value, ifc Iface, bridged []bridgedMethod, skipName string) {
 	if valField := elem.FieldByName("Val"); valField.IsValid() {
 		if rv := ifc.Val.Reflect(); rv.IsValid() {
@@ -4407,8 +4377,6 @@ type bridgedMethod struct {
 	method Method
 }
 
-// subsetOfBridged reports whether every name in want appears in have.
-// Used by wrapIface to gate a MultiCompositeBridge candidate.
 func subsetOfBridged(want []string, have []bridgedMethod) bool {
 	for _, name := range want {
 		found := false
@@ -4425,9 +4393,6 @@ func subsetOfBridged(want []string, have []bridgedMethod) bool {
 	return true
 }
 
-// wrapIfaceMulti creates a bridge that implements a multi-method interface
-// (e.g. heap.Interface). The bridge struct has fields named Fn<MethodName>
-// for each method. All matching methods on the interpreted type are wired up.
 func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.Value {
 	if ifc.Typ == nil {
 		return reflect.Value{}
@@ -4450,7 +4415,7 @@ func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.
 			if method.PtrRecv && !isPtr {
 				continue
 			}
-			fnField := elem.FieldByName("Fn" + m.MethodNames[id])
+			fnField := elem.FieldByName("Fn" + bridgeMethodName(m.MethodNames[id], method))
 			if !fnField.IsValid() {
 				continue
 			}
@@ -4470,16 +4435,10 @@ func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.
 	return bridge
 }
 
-// makeBridgeClosure returns a reflect.Value of a function that, when called,
-// invokes the interpreted method on the given Iface receiver.
 func (m *Machine) makeBridgeClosure(ifc Iface, method Method, fnType reflect.Type) reflect.Value {
 	return m.makeBridgeClosureImpl(ifc, method, fnType, false)
 }
 
-// makeEmbedIfaceClosure builds a bridge closure for a method promoted from
-// an embedded interface field (Method.EmbedIface=true, Index=-1). The
-// closure walks method.Path at call time to reach the embedded interface
-// value, then dispatches the named method on it via reflect.
 func (m *Machine) makeEmbedIfaceClosure(ifc Iface, method Method, name string, fnType reflect.Type) reflect.Value {
 	ptrVal := ifc.Val
 	path := method.Path
@@ -4516,11 +4475,6 @@ func (m *Machine) makeEmbedIfaceClosure(ifc Iface, method Method, name string, f
 	})
 }
 
-// makeBridgeClosureImpl builds the bridge closure. When deref is true, the
-// receiver pointer is dereferenced at each call, which is required for
-// value-receiver methods invoked on a pointer (e.g. (IntHeap).Len called
-// on *IntHeap). The dereference must happen at call time so mutations from
-// pointer-receiver methods (Push/Pop) are visible.
 func (m *Machine) makeBridgeClosureImpl(ifc Iface, method Method, fnType reflect.Type, deref bool) reflect.Value {
 	cell, fval := m.makeMethodCell(ifc, method)
 	if !deref {
@@ -4541,10 +4495,6 @@ func (m *Machine) makeBridgeClosureImpl(ifc Iface, method Method, fnType reflect
 	})
 }
 
-// makeMethodCell builds the receiver cell and mvm func Value for a
-// method invocation on ifc. Reused by makeBridgeClosureImpl and by the
-// public MakeMethodCallable entry point used by mvm-native stdlib
-// replacements (e.g. stdlib/jsonx).
 func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {
 	codeAddr := int(m.globals[method.Index].num) //nolint:gosec
 	cell := new(Value)
@@ -4572,11 +4522,7 @@ func (m *Machine) MakeMethodCallable(ifc Iface, method Method) Value {
 
 // MethodByName returns the first resolved method named `name` reachable
 // from t. For pointer types, methods declared on the element type are
-// also searched (mvm registers methods on the base type T, not *T).
-// Struct-field *Type shallow copies preserve a Base back-pointer to the
-// source type so methods registered after the copy was taken (typical
-// when a struct is defined before its methods) remain reachable.
-// Returns (Method, true) on hit.
+// also searched. Returns (Method, true) on hit.
 func (m *Machine) MethodByName(t *Type, name string) (Method, bool) {
 	// ifaceMethodTypes already walks the Base chain.
 	types, n := ifaceMethodTypes(t)

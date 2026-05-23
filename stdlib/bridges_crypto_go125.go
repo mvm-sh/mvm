@@ -27,24 +27,15 @@ func (b *BridgeSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpt
 	return b.FnSign(rand, digest, opts)
 }
 
-// BridgeMessageSigner bridges crypto.MessageSigner (Public, Sign,
-// SignMessage). Registered as a richer bridge than BridgeSigner so a value
-// that implements SignMessage keeps that capability when passed to a
+// BridgeMessageSigner bridges crypto.MessageSigner, which is crypto.Signer
+// plus SignMessage. It embeds BridgeSigner (Public/Sign + Val/Ifc) and adds
+// only SignMessage, mirroring how BridgeHeapInterface embeds
+// BridgeSortInterface. Registered as a richer bridge than BridgeSigner so a
+// value that implements SignMessage keeps that capability when passed to a
 // crypto.Signer parameter; crypto.SignMessage upgrades via signer.(MessageSigner).
 type BridgeMessageSigner struct {
-	FnPublic      func() crypto.PublicKey
-	FnSign        func(io.Reader, []byte, crypto.SignerOpts) ([]byte, error)
+	BridgeSigner
 	FnSignMessage func(io.Reader, []byte, crypto.SignerOpts) ([]byte, error)
-	Val           any
-	Ifc           vm.Iface
-}
-
-// Public implements crypto.Signer.
-func (b *BridgeMessageSigner) Public() crypto.PublicKey { return b.FnPublic() }
-
-// Sign implements crypto.Signer.
-func (b *BridgeMessageSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return b.FnSign(rand, digest, opts)
 }
 
 // SignMessage implements crypto.MessageSigner.

@@ -220,7 +220,7 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				for len(t.Methods) <= id {
 					t.Methods = append(t.Methods, vm.Method{Index: -1})
 				}
-				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface}
+				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype}
 			}
 		}
 	}
@@ -428,7 +428,11 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 		for len(typ.Methods) <= id {
 			typ.Methods = append(typ.Methods, vm.Method{Index: -1})
 		}
-		typ.Methods[id] = vm.Method{Index: m.Index, Path: mpath}
+		var mrtype reflect.Type
+		if m.Type != nil && m.Type.Rtype != nil && m.Type.Rtype.Kind() == reflect.Func {
+			mrtype = m.Type.Rtype
+		}
+		typ.Methods[id] = vm.Method{Index: m.Index, Path: mpath, Rtype: mrtype}
 	}
 }
 
@@ -1837,7 +1841,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							for len(ts.Type.Methods) <= id {
 								ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
 							}
-							ts.Type.Methods[id] = vm.Method{Index: s.Index, PtrRecv: strings.HasPrefix(parts[0], "*")}
+							var mrtype reflect.Type
+							if s.Type != nil && s.Type.Rtype != nil && s.Type.Rtype.Kind() == reflect.Func {
+								mrtype = s.Type.Rtype
+							}
+							ts.Type.Methods[id] = vm.Method{Index: s.Index, PtrRecv: strings.HasPrefix(parts[0], "*"), Rtype: mrtype}
 						}
 					}
 				} else {
