@@ -18,11 +18,8 @@ func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bo
 		return arg.Rtype.Comparable()
 	case elemExact:
 		return e.typ == nil || arg.Rtype == e.typ.Rtype
-	case elemInterface:
-		// Mvm-parsed interfaces have Rtype=any so Implements is trivially
-		// true - acceptable because their type-element form is already flattened
-		// into sibling elems at resolution time.
-		return e.typ == nil || arg.Rtype.Implements(e.typ.Rtype)
+	// elemInterface is handled by checkConstraint (it needs the parser's symbol
+	// table to see interpreted method sets), so it never reaches here.
 	case elemApprox:
 		return e.typ != nil && arg.Rtype.Kind() == e.typ.Rtype.Kind()
 	case elemTypeParamRef:

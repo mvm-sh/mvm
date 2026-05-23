@@ -184,11 +184,96 @@ func (e *constraintErr) ErrPos() int { return e.pos }
 // instantiation so that a TypeParamRef element can resolve to its target.
 func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type) error {
 	for _, e := range c.elems {
+		// Interface elements (e.g. the `error` in `[E error]`) need a
+		// method-set check that sees interpreted methods, which live in
+		// vm-level Methods rather than on the reflect Rtype. checkConstraintElem
+		// can only reflect, so handle the interface case here where the parser's
+		// symbol table is reachable.
+		if e.kind == elemInterface {
+			if e.typ == nil || p.argImplementsIface(arg, e.typ) {
+				return nil
+			}
+			continue
+		}
 		if checkConstraintElem(e, arg, typeArgs) {
 			return nil
 		}
 	}
 	return p.constraintError(c, arg)
+}
+
+// argImplementsIface reports whether type argument arg satisfies the interface
+// constraint iface. Native concrete types are decided by reflect; interpreted
+// types (whose methods are invisible to reflect.Implements) are checked by
+// method name against the parser's registered method symbols.
+func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
+	if arg == nil || arg.Rtype == nil {
+		return true
+	}
+	// Native concrete type vs native interface: reflect can decide.
+	if iface.Rtype != nil && iface.Rtype.NumMethod() > 0 && arg.Rtype.Implements(iface.Rtype) {
+		return true
+	}
+	iface.EnsureIfaceMethods()
+	if len(iface.IfaceMethods) == 0 {
+		return true // empty interface (any), or method set unknown: be lenient.
+	}
+	// Each required method must be present either as a native method on arg's
+	// reflect type (e.g. *fs.PathError.Error) or as a registered interpreted
+	// method symbol (e.g. "*E.Error"). A user-defined (interpreted) interface
+	// type argument has neither -- its method set lives in IfaceMethods -- and
+	// is rejected here: instantiating a cross-package generic with a local
+	// interpreted interface type arg is a separate, larger gap (see
+	// [[project_generic_iface_constraint]]). Native interface args (e.g.
+	// `error`) still pass via their reflect method set.
+	recvNames := argRecvTypeNames(arg)
+	for _, im := range iface.IfaceMethods {
+		if hasNativeMethod(arg.Rtype, im.Name) {
+			continue
+		}
+		if p.hasMethodSym(recvNames, im.Name) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// hasNativeMethod reports whether reflect type rt has a method named name in
+// its method set.
+func hasNativeMethod(rt reflect.Type, name string) bool {
+	if rt == nil {
+		return false
+	}
+	_, ok := rt.MethodByName(name)
+	return ok
+}
+
+// argRecvTypeNames returns the receiver type names whose method symbols make up
+// arg's method set. A pointer argument also includes the value-receiver methods
+// of its base type (matching Go's method-set rules).
+func argRecvTypeNames(arg *vm.Type) []string {
+	name := typeArgName(arg)
+	if name == "" {
+		return nil
+	}
+	names := []string{name}
+	if strings.HasPrefix(name, "*") {
+		names = append(names, name[1:])
+	}
+	return names
+}
+
+// hasMethodSym reports whether any of recvNames has a registered method named
+// method (key shape "<recvType>.<method>", e.g. "*E.Error"), resolved through
+// symGet so pkg-qualified and pointer-method keys both match.
+func (p *Parser) hasMethodSym(recvNames []string, method string) bool {
+	for _, rn := range recvNames {
+		if s, _, ok := p.symGet(rn + "." + method); ok && s.Kind == symbol.Func {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveConstraint turns raw constraint tokens into a resolved constraint.

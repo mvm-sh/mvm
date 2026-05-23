@@ -488,6 +488,20 @@ func TestGenericType(t *testing.T) {
 		{n: "comparable_iface_elem_ok", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[int](42)`, res: "42"},
 		{n: "comparable_iface_elem_reject", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[func()](nil)`, err: "does not satisfy constraint"},
 		{n: "comparable_iface_with_method", src: `import "fmt"; type C interface { comparable; error }; func F[T C](xs []T) bool { var z T; return len(xs) > 0 && xs[0] != z }; F([]error{fmt.Errorf("x")})`, res: "true"},
+		// Interface constraint (e.g. [T error]) satisfied by an interpreted
+		// concrete type: its methods live in vm-level Methods, invisible to
+		// reflect.Implements, so the constraint check walks method symbols by
+		// name (incl. a pointer arg's value-receiver methods). Underpins the
+		// errors.AsType shim. See [[project_generic_iface_constraint]].
+		{n: "iface_constraint_interp_ptr", src: `type E struct{ s string }; func (e *E) Error() string { return e.s }; func F[T error](x T) T { return x }; F[*E](&E{"x"}).Error()`, res: "x"},
+		{n: "iface_constraint_interp_value", src: `type E struct{ s string }; func (e E) Error() string { return e.s }; func F[T error](x T) T { return x }; F[E](E{"y"}).Error()`, res: "y"},
+		{n: "iface_constraint_interp_reject", src: `type E struct{ n int }; func F[T error](x T) T { return x }; F[*E](&E{})`, err: "does not satisfy constraint"},
+		// Gap: a user-defined (interpreted) interface type argument to an
+		// interface constraint is rejected -- its method set lives in
+		// IfaceMethods, and instantiating a cross-pkg generic with a local
+		// interpreted interface type arg is unsupported (errors/wrap_test.go's
+		// AsType[timeout]). Native interface args (error) still pass.
+		{n: "iface_constraint_interp_iface_arg", skip: true, src: `type I interface { Foo() string }; func F[T I](x T) string { return x.Foo() }; type T struct{}; func (T) Foo() string { return "ok" }; var v I = T{}; F[I](v)`, res: "ok"},
 	})
 }
 
@@ -924,6 +938,15 @@ func TestStruct(t *testing.T) {
 		{n: "typefor_numfield", src: `import "reflect"; type Tag struct { a uint64; b uint16 }; reflect.TypeFor[Tag]().NumField()`, res: "2"},
 		{n: "typefor_field_pkgpath", src: `import "reflect"; type Tag struct { a uint64 }; reflect.TypeFor[Tag]().Field(0).PkgPath != ""`, res: "true"},
 		{n: "typefor_primitive", src: `import "reflect"; reflect.TypeFor[int]().Kind().String()`, res: "int"},
+
+		// errors.AsType[E error] is a Go 1.26 generic native that cannot be bound
+		// via reflect.ValueOf; goparser.RegisterGenericShim installs an
+		// interpreted equivalent (stdlib/errors_shim.go) instantiated through the
+		// normal generic pipeline. See [[project_mvm_test_errors]].
+		{n: "astype_match", src: `import "errors"; type E struct{ s string }; func (e *E) Error() string { return e.s }; var err error = &E{"boom"}; _, ok := errors.AsType[*E](err); ok`, res: "true"},
+		{n: "astype_value", src: `import "errors"; type E struct{ s string }; func (e *E) Error() string { return e.s }; var err error = &E{"boom"}; v, _ := errors.AsType[*E](err); v.s`, res: "boom"},
+		{n: "astype_nomatch", src: `import "errors"; type E struct{ s string }; func (e *E) Error() string { return e.s }; type F struct{ n int }; func (f *F) Error() string { return "f" }; var err error = &E{"boom"}; _, ok := errors.AsType[*F](err); ok`, res: "false"},
+		{n: "astype_unwrap_chain", src: `import "errors"; import "fmt"; type E struct{ s string }; func (e *E) Error() string { return e.s }; base := &E{"inner"}; w := fmt.Errorf("ctx: %w", base); v, ok := errors.AsType[*E](w); ok && v.s == "inner"`, res: "true"},
 
 		// reflect.Value.MethodByName on a vm.Iface: mvm methods are invisible to
 		// Go reflect, so nativeMethodLookup intercepts and synthesises a bound method.
