@@ -75,6 +75,12 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 		if !includeTests && strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
+		// Honor the test-skip set (mvm test's drop-failing-test-file retry) for
+		// source-loaded packages too, not just bridged $GOROOT tests -- so a test
+		// file with an interpretation gap can be dropped and the rest still run.
+		if p.testSkipFiles[e.Name()] {
+			continue
+		}
 		if !MatchFileName(e.Name(), p.buildCtx) {
 			continue
 		}

@@ -171,7 +171,6 @@ package stdlib
 //go:generate go run ../cmd/extract -stdlib testing/cryptotest $GOROOT/src/testing/cryptotest
 //go:generate go run ../cmd/extract -stdlib testing/fstest $GOROOT/src/testing/fstest
 //go:generate go run ../cmd/extract -stdlib testing/iotest $GOROOT/src/testing/iotest
-//go:generate go run ../cmd/extract -stdlib testing/quick $GOROOT/src/testing/quick
 //go:generate go run ../cmd/extract -stdlib testing/slogtest $GOROOT/src/testing/slogtest
 //go:generate go run ../cmd/extract -stdlib testing/synctest $GOROOT/src/testing/synctest
 //go:generate go run ../cmd/extract -stdlib text/scanner $GOROOT/src/text/scanner

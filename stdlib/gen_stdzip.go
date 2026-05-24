@@ -97,10 +97,12 @@ func main() {
 }
 
 // collect walks srcDir and returns the file paths to include in the
-// proxy zip: go.mod and LICENSE at the root, plus every non-test .go
-// file under the per-package subdirectories. Test files (*_test.go,
-// including example_test.go) are stripped because the embedded zip is
-// the offline floor for `import` resolution, not for `mvm test`.
+// proxy zip: go.mod and LICENSE at the root, plus every .go file
+// (including *_test.go) under the per-package subdirectories, mirroring
+// what a Go module proxy serves. Test files are kept so `mvm test <pkg>`
+// runs a mirror-interpreted package's own suite; `import` resolution
+// filters _test.go itself (LoadPackageSources, includeTests=false), so
+// shipping them does not affect normal imports.
 func collect(srcDir string) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(srcDir, func(p string, d fs.DirEntry, err error) error {
@@ -134,7 +136,7 @@ func collect(srcDir string) ([]string, error) {
 			return nil
 		}
 		base := filepath.Base(p)
-		if filepath.Ext(base) == ".go" && !strings.HasSuffix(base, "_test.go") {
+		if filepath.Ext(base) == ".go" {
 			paths = append(paths, p)
 		}
 		return nil

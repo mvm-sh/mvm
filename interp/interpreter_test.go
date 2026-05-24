@@ -2804,6 +2804,15 @@ func TestMethod(t *testing.T) {
 		{n: "mexpr_val", src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; T.Add(T{3}, 4)`, res: "7"},
 		// Method expression: pointer receiver.
 		{n: "mexpr_ptr", src: `type T struct{n int}; func(t *T) Get() int { return t.n }; (*T).Get(&T{n: 5})`, res: "5"},
+		// SKIP (bug): a method expression STORED as a value and then called with extra
+		// args has the wrong arity. Direct calls (mexpr_val/mexpr_ptr above) work, and the
+		// receiver-only stored form works, but `f := T.Add; f(recv, a)` panics
+		// ("index out of range [-1]" for interpreted types; "reflect: Call with too many
+		// input arguments" for native types like (*big.Int).Or). This is the next blocker
+		// for `mvm test math/big` TestAliasing, which passes (*big.Int).Or to a helper
+		// that calls f(v, x, y). See [[project_native_method_expression_arity]].
+		{n: "mexpr_val_stored", skip: true, src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; func f() int { g := T.Add; return g(T{3}, 4) }; f()`, res: "7"},
+		{n: "mexpr_ptr_stored", skip: true, src: `type T struct{n int}; func(t *T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
 
 		// Method call on composite literal.
 		{n: "comp_lit", src: `type T struct{n int}; func(t T) N() int { return t.n }; T{5}.N()`, res: "5"},

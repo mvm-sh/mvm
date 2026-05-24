@@ -105,14 +105,15 @@ func testCmd(arg []string) error {
 		}
 	}
 
-	// Import-path target. For bridged-stdlib packages (present in
-	// stdlib.Values, served from $GOROOT by loadBridgedTestSources), retry on
-	// compile error: drop the offending external test file and reload so the
-	// rest of the package still runs. This matters for files that reference
-	// export_test.go-only symbols, which can't exist on a native bridge.
-	// Each retry needs a fresh interpreter because Eval mutates compiler/VM
-	// state. Non-bridged targets get a single attempt.
-	_, bridged := stdlib.Values[target]
+	// Import-path target (bridged stdlib, mirror-interpreted stdlib, or remote
+	// module). Retry on a test-file compile error: drop the offending _test.go
+	// and reload so the rest of the package still runs -- mirroring how a real
+	// module's broken test file shouldn't sink the whole suite. This matters for
+	// bridged packages whose external tests reference export_test.go-only symbols
+	// (absent on a native bridge) AND for mirror-interpreted packages whose tests
+	// hit an interpretation gap (e.g. generics). Each retry needs a fresh
+	// interpreter because Eval mutates compiler/VM state. A non-test-file error
+	// (failingTestFile == "") still fails hard.
 	skip := map[string]bool{}
 	for {
 		i, mfs := newTestInterp(trace)
@@ -120,12 +121,10 @@ func testCmd(arg []string) error {
 		i.SetIncludeTests(true)
 		i.SetTestSkipFiles(skip)
 		if _, err := i.Eval(target, ""); err != nil {
-			if bridged {
-				if f := failingTestFile(err, target); f != "" && !skip[f] {
-					skip[f] = true
-					fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, f, err)
-					continue
-				}
+			if f := failingTestFile(err, target); f != "" && !skip[f] {
+				skip[f] = true
+				fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, f, err)
+				continue
 			}
 			flushStats()
 			return fmt.Errorf("loading %q: %w", target, err)
