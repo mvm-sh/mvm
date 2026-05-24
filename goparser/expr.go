@@ -206,7 +206,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 							return out, err
 						}
 						typeArgSources := p.typeArgSourcesFor(typeArgs)
-						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources)
+						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
 						if err != nil {
 							return out, err
 						}
@@ -232,7 +232,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 									return out, err
 								}
 								typeArgSources := p.typeArgSourcesFor(typeArgs)
-								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources)
+								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
 								if err != nil {
 									return out, err
 								}
@@ -340,7 +340,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						if err != nil {
 							return out, err
 						}
-						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources)
+						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
 						if err != nil {
 							return out, err
 						}
@@ -375,7 +375,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 								if err != nil {
 									return out, err
 								}
-								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources)
+								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
 								if err != nil {
 									return out, err
 								}

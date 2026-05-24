@@ -2804,13 +2804,19 @@ func TestMethod(t *testing.T) {
 		{n: "mexpr_val", src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; T.Add(T{3}, 4)`, res: "7"},
 		// Method expression: pointer receiver.
 		{n: "mexpr_ptr", src: `type T struct{n int}; func(t *T) Get() int { return t.n }; (*T).Get(&T{n: 5})`, res: "5"},
-		// SKIP (bug): a method expression STORED as a value and then called with extra
-		// args has the wrong arity. Direct calls (mexpr_val/mexpr_ptr above) work, and the
-		// receiver-only stored form works, but `f := T.Add; f(recv, a)` panics
-		// ("index out of range [-1]" for interpreted types; "reflect: Call with too many
-		// input arguments" for native types like (*big.Int).Or). This is the next blocker
-		// for `mvm test math/big` TestAliasing, which passes (*big.Int).Or to a helper
-		// that calls f(v, x, y). See [[project_native_method_expression_arity]].
+		// Native method expression as a stored/passed VALUE: `(*big.Int).Add` is
+		// lowered to its reflect Method.Func (Go's method-expression func value,
+		// receiver first), so it works stored and passed to a helper that calls it.
+		// This is the math/big TestAliasing shape (it passes (*big.Int).Or to
+		// checkAliasingTwoArgs, which calls f(v, x, y)). See [[project_native_method_expression_arity]].
+		{n: "mexpr_native_stored", src: `import "math/big"; func f() string { g := (*big.Int).Add; return g(big.NewInt(1), big.NewInt(2), big.NewInt(3)).String() }; f()`, res: "5"},
+		{n: "mexpr_native_passed", src: `import "math/big"; func apply(f func(*big.Int, *big.Int, *big.Int) *big.Int, x, y, z *big.Int) *big.Int { return f(x, y, z) }; func run() string { return apply((*big.Int).Add, big.NewInt(1), big.NewInt(2), big.NewInt(3)).String() }; run()`, res: "5"},
+		// Native method expression called DIRECTLY also works (Kind:Value -> value-call path).
+		{n: "mexpr_native_direct", src: `import "math/big"; func f() string { return (*big.Int).Add(big.NewInt(1), big.NewInt(2), big.NewInt(3)).String() }; f()`, res: "5"},
+		// SKIP (still broken): an INTERPRETED method expression stored/passed with
+		// extra args has the wrong arity ("index out of range [-1]") -- the method body
+		// reads its receiver from Heap[0], so the value form needs a receiver-binding
+		// adapter (no reflect Method.Func exists for interpreted types).
 		{n: "mexpr_val_stored", skip: true, src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; func f() int { g := T.Add; return g(T{3}, 4) }; f()`, res: "7"},
 		{n: "mexpr_ptr_stored", skip: true, src: `type T struct{n int}; func(t *T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
 

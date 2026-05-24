@@ -77,7 +77,7 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 			continue
 		}
 		if seg[0].Tok != lang.Ident {
-			return nil, ErrSyntax
+			return nil, p.wrapAt(seg[0], ErrSyntax, "type parameter must start with a name, got %s", seg[0].Describe())
 		}
 		if len(seg) == 1 {
 			// Bare ident shares the constraint with the next segment.
@@ -87,17 +87,17 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 		}
 		// Disambiguate from array size expressions like [N + 1].
 		if seg[1].Tok != lang.Ident && seg[1].Tok != lang.Interface && seg[1].Tok != lang.Tilde {
-			return nil, ErrSyntax
+			return nil, p.wrapAt(seg[1], ErrSyntax, "expected a type constraint, got %s", seg[1].Describe())
 		}
 		raws = append(raws, rawPar{name: seg[0].Str, ctoks: seg[1:]})
 	}
 	if len(raws) == 0 {
-		return nil, ErrSyntax
+		return nil, p.wrapAt(Token{Token: bt}, ErrSyntax, "empty type parameter list")
 	}
 	// The last param must have an explicit constraint. A bare ident like [d]
 	// is not a valid type parameter list (it's an array size expression).
 	if raws[len(raws)-1].ctoks == nil {
-		return nil, ErrSyntax
+		return nil, p.wrapAt(Token{Token: bt}, ErrSyntax, "type parameter list must end with a constraint")
 	}
 	// Propagate constraints backwards for shared-constraint syntax: [K, V any].
 	for i := len(raws) - 2; i >= 0; i-- {
@@ -443,9 +443,9 @@ func (p *Parser) substituteTokens(raw Tokens, sub map[string]string) Tokens {
 // typeArgSources, when non-nil, provides source-level text for each type
 // argument (e.g. "netip.Prefix") so package qualifiers are preserved in the
 // substituted body. If nil, the short Name from *vm.Type is used.
-func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, typeArgSources []string) (Tokens, string, error) {
+func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, typeArgSources []string, pos Token) (Tokens, string, error) {
 	if len(typeArgs) != len(tmpl.typeParams) {
-		return nil, "", ErrSyntax
+		return nil, "", p.wrapAt(pos, ErrSyntax, "generic %s expects %d type argument(s), got %d", tmpl.name, len(tmpl.typeParams), len(typeArgs))
 	}
 
 	mname := mangledName(tmpl.name, typeArgs)
@@ -518,7 +518,7 @@ func (p *Parser) ensureTypeInstantiated(tmpl *genericTemplate, bt scan.Token) (s
 	if err != nil {
 		return "", err
 	}
-	instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources)
+	instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, Token{Token: bt})
 	if err != nil {
 		return "", err
 	}

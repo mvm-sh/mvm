@@ -2089,6 +2089,29 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if s.Type == nil {
 					return c.errUndef(t, s.Name)
 				}
+				// Native method expression: T.Method / (*T).Method where T is a
+				// (bridged) type whose methods live on its reflect rtype, not in
+				// mvm's symbol table (so MethodByName above returned nil). reflect's
+				// Method.Func IS Go's method-expression func value (receiver as the
+				// first parameter); emit it as a native func global. Works for direct
+				// calls and as a stored/passed value via Call's native-func path.
+				if s.Kind == symbol.Type && !s.Composite {
+					mname := t.Str[1:]
+					if mfunc, ok := s.Type.Rtype.MethodByName(mname); ok {
+						if !s.NoFnew {
+							c.removeFnew(s.Index)
+						}
+						idx := len(c.Data)
+						c.Data = append(c.Data, vm.FromReflect(mfunc.Func))
+						// Kind:Value (not Func): the value is a native reflect func held in
+						// a DATA slot, so it must be invoked via the value-call path (load +
+						// dynamic Call). Kind:Func would trigger CallImm(Index), which treats
+						// Index as a code address -> wrong for a data-slot func value.
+						push(&symbol.Symbol{Kind: symbol.Value, Name: mname, Index: idx, Type: &vm.Type{Name: mname, Rtype: mfunc.Func.Type()}, Value: vm.FromReflect(mfunc.Func)})
+						c.emit(t, vm.GetGlobal, idx)
+						break
+					}
+				}
 				typ := s.Type.Rtype
 				isPtr := typ.Kind() == reflect.Pointer
 				if isPtr {
