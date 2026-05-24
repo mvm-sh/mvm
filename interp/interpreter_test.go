@@ -1169,13 +1169,12 @@ func (t *T) Inc() int { t.n++; return t.n }
 type Inc interface{ Inc() int }
 func f() int { var x interface{} = &T{5}; if v, ok := x.(Inc); ok { return v.Inc() }; return -1 }
 f()`, res: "6"},
-		// SKIP (separate follow-on gap): the testing/quick pattern derives the type via
-		// reflect.TypeOf(closure).In(0). For an interpreted closure that rtype is a
-		// distinct, UNregistered synthetic rtype, so typeByRtype misses it and the
-		// interface assertion fails -- unless the canonical rtype was already
-		// materialized (e.g. a prior reflect.TypeOf(G{})). Needs closure reflect-type
-		// construction to reuse the registered *Type.Rtype for parameters.
-		{n: "reflect_closure_in0_iface_assert", skip: true, src: `
+		// The testing/quick pattern derives the arg type via reflect.TypeOf(closure).In(0).
+		// That type (G) is reachable only through the closure's func signature -- the
+		// func *Type is in globals (WrapFunc typeIndexes it) but G itself was never
+		// separately typeIndexed -- so typeByRtype must recurse into Params/Returns to
+		// find it. (Previously failed unless a G value was materialized elsewhere.)
+		{n: "reflect_closure_in0_iface_assert", src: `
 import "reflect"
 type G struct{}
 func (g G) Generate() int { return 42 }
@@ -1183,6 +1182,45 @@ type Generator interface{ Generate() int }
 func check(f interface{}) int { if g, ok := reflect.Zero(reflect.TypeOf(f).In(0)).Interface().(Generator); ok { return g.Generate() }; return -1 }
 func run() int { fn := func(g G) bool { return true }; return check(fn) }
 run()`, res: "42"},
+		// Same via a function RETURN type (recursion must cover Returns too).
+		{n: "reflect_closure_out0_iface_assert", src: `
+import "reflect"
+type G struct{}
+func (g G) Generate() int { return 7 }
+type Generator interface{ Generate() int }
+func check(f interface{}) int { if g, ok := reflect.Zero(reflect.TypeOf(f).Out(0)).Interface().(Generator); ok { return g.Generate() }; return -1 }
+func run() int { fn := func() G { return G{} }; return check(fn) }
+run()`, res: "7"},
+		// reflect.TypeAssert[T] (Go 1.26) generic shim: delegates to the .(T) opcode,
+		// so it recovers interpreted types like the assertion forms above. Covers the
+		// interface-target, concrete-target, the testing/quick f.In(0) pattern, and the
+		// no-match case. (Native testing/quick still uses compiled reflect.TypeAssert;
+		// this shim only serves interpreted callers.)
+		{n: "reflect_typeassert_iface", src: `
+import "reflect"
+type G struct{}
+func (g G) Generate() int { return 42 }
+type Generator interface{ Generate() int }
+func f() int { g, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(G{}))); if ok { return g.Generate() }; return -1 }
+f()`, res: "42"},
+		{n: "reflect_typeassert_closure_in0", src: `
+import "reflect"
+type G struct{}
+func (g G) Generate() int { return 42 }
+type Generator interface{ Generate() int }
+func check(f interface{}) int { g, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(f).In(0))); if ok { return g.Generate() }; return -1 }
+func run() int { fn := func(g G) bool { return true }; return check(fn) }
+run()`, res: "42"},
+		{n: "reflect_typeassert_concrete", src: `
+import "reflect"
+func f() int { n, ok := reflect.TypeAssert[int](reflect.ValueOf(7)); if ok { return n }; return -1 }
+f()`, res: "7"},
+		{n: "reflect_typeassert_nomatch", src: `
+import "reflect"
+type G struct{}
+type Generator interface{ Generate() int }
+func f() bool { _, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(G{}))); return ok }
+f()`, res: "false"},
 
 		// struct with embedded type that has methods and additional fields
 		// (reflect.StructOf panics if Anonymous=true on a type with methods in a multi-field struct)
