@@ -1645,6 +1645,12 @@ func TestType(t *testing.T) {
 		{n: "#00", src: "type t int; var a t = 1; a", res: "1"},
 		{n: "#01", src: "type t = int; var a t = 1; a", res: "1"},
 		{n: "#02", src: src0 + `var s S = "xx"; s`, res: "xx"},
+		{n: "group_forward_ref", src: `
+type (
+	One struct { Two Two }
+	Two string
+)
+var o One = One{Two: "hi"}; string(o.Two)`, res: "hi"},
 		{n: "named_arith", src: "type t int; var a, b t = 3, 4; a + b", res: "7"},
 		{n: "named_conv", src: "type t int; t(42)", res: "42"},
 		{n: "named_method", src: "type t int; func (v t) Double() int { return int(v) * 2 }; var a t = 5; a.Double()", res: "10"},

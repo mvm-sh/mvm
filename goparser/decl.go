@@ -50,23 +50,34 @@ func (p *Parser) parseConst(in Tokens) (out Tokens, err error) {
 		iotaIdx++
 	}
 
-	// Retry until no undefined const remains, or no progress is made.
+	// Retry until no undefined const remains, or no progress is made, so a const
+	// may reference a sibling declared later in the same block.
+	return parseDeferring(pending, func(cl constLine) (Tokens, error) {
+		p.Symbols["iota"].Cval = constant.Make(cl.iota)
+		return p.parseConstLine(cl.toks)
+	})
+}
+
+// parseDeferring runs parse over each item, deferring any that fail with
+// ErrUndefined and retrying until none remain or no progress is made, so a
+// declaration may reference a sibling declared later.
+func parseDeferring[T any](items []T, parse func(T) (Tokens, error)) (out Tokens, err error) {
+	pending := items
 	for len(pending) > 0 {
-		var retry []constLine
+		var retry []T
 		var firstErr error
-		for _, cl := range pending {
-			p.Symbols["iota"].Cval = constant.Make(cl.iota)
-			ot, err := p.parseConstLine(cl.toks)
-			if err != nil {
+		for _, it := range pending {
+			ot, perr := parse(it)
+			if perr != nil {
 				var eu ErrUndefined
-				if errors.As(err, &eu) {
-					retry = append(retry, cl)
+				if errors.As(perr, &eu) {
+					retry = append(retry, it)
 					if firstErr == nil {
-						firstErr = err
+						firstErr = perr
 					}
 					continue
 				}
-				return out, err
+				return out, perr
 			}
 			out = append(out, ot...)
 		}
@@ -890,14 +901,15 @@ func (p *Parser) parseType(in Tokens) (out Tokens, err error) {
 	if in, err = p.scanBlock(in[1].Token, false); err != nil {
 		return out, err
 	}
+	var lines []Tokens
 	for _, lt := range in.Split(lang.Semicolon) {
-		ot, err := p.parseTypeLine(lt)
-		if err != nil {
-			return out, err
+		if len(lt) > 0 {
+			lines = append(lines, lt)
 		}
-		out = append(out, ot...)
 	}
-	return out, err
+	// Retry until no undefined type remains, or no progress is made, so a type
+	// may reference a sibling declared later in the same group (issue #18).
+	return parseDeferring(lines, p.parseTypeLine)
 }
 
 func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
