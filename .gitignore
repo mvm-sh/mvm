@@ -2,8 +2,9 @@
 *.test
 *.prof
 *.a
-demo
-extract
-mvm
+/demo
+/extract
+/mvm
+/bin/
 tags
 examples/c/libmvm.h

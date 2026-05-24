@@ -251,16 +251,41 @@ func TestRunValuesRelativePath(t *testing.T) {
 
 // TestPackageNameFromDir covers the dirOverride alias resolution: a trailing
 // comment on the package clause must be stripped, and a //go:build ignore
-// generator file declaring `package main` must not hijack the name.
+// generator file declaring `package main` must not hijack the name. Fixtures
+// are built in a temp dir rather than committed under testdata so they need not
+// be tracked (and to sidestep the repo's broad `extract` .gitignore pattern,
+// which silently ignores untracked files anywhere under cmd/extract).
 func TestPackageNameFromDir(t *testing.T) {
-	tests := []struct{ dir, want string }{
-		{filepath.Join("testdata", "bodyless"), "bodyless"},
-		{filepath.Join("testdata", "pkgcomment"), "foo"},      // package foo // comment
-		{filepath.Join("testdata", "buildignore"), "realpkg"}, // //go:build ignore main skipped
+	root := t.TempDir()
+	mkpkg := func(name string, files map[string]string) string {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		for fn, src := range files {
+			if err := os.WriteFile(filepath.Join(dir, fn), []byte(src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	comment := mkpkg("pkgcomment", map[string]string{
+		"pkgcomment.go": "package foo // trailing comment\n\nfunc Bar() {}\n",
+	})
+	// aaa_gen.go sorts before zoo.go; build constraints must exclude it.
+	ignore := mkpkg("buildignore", map[string]string{
+		"aaa_gen.go": "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+		"zoo.go":     "package realpkg\n\nfunc Z() {}\n",
+	})
+
+	tests := []struct{ name, dir, want string }{
+		{"plain", filepath.Join("testdata", "bodyless"), "bodyless"},
+		{"trailing comment", comment, "foo"},
+		{"build-ignored main", ignore, "realpkg"},
 	}
 	for _, tt := range tests {
 		if got := packageNameFromDir(tt.dir); got != tt.want {
-			t.Errorf("packageNameFromDir(%q) = %q, want %q", tt.dir, got, tt.want)
+			t.Errorf("%s: packageNameFromDir(%q) = %q, want %q", tt.name, tt.dir, got, tt.want)
 		}
 	}
 }
