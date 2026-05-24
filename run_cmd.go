@@ -81,6 +81,29 @@ func runCmd(arg []string) error {
 			}
 		}
 	default:
+		// Count the leading run of .go file arguments (go run semantics: every
+		// named .go file forms the main package; the first non-.go arg starts the
+		// program's os.Args).
+		nfiles := 0
+		for nfiles < len(args) && strings.HasSuffix(args[nfiles], ".go") {
+			nfiles++
+		}
+		if nfiles > 1 {
+			// Compile all named files as one unit so they see each other's
+			// top-level symbols regardless of file or declaration order.
+			sources := make([]goparser.PackageSource, 0, nfiles)
+			for _, a := range args[:nfiles] {
+				fpath := filepath.Clean(a)
+				buf, rerr := os.ReadFile(fpath)
+				if rerr != nil {
+					return rerr
+				}
+				sources = append(sources, goparser.PackageSource{Name: fpath, Content: string(buf)})
+			}
+			os.Args = append([]string{filepath.Base(filepath.Clean(args[0]))}, args[nfiles:]...)
+			_, err = i.EvalFiles(sources)
+			break
+		}
 		fpath := filepath.Clean(args[0])
 		var buf []byte
 		buf, err = os.ReadFile(fpath)

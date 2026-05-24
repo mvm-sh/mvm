@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/mvm-sh/mvm/comp"
+	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/stdlib"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
@@ -81,7 +82,20 @@ func NewInterpreter(s *lang.Spec) *Interp {
 
 // Eval evaluates code string and return the last produced value if any, or an error.
 // name labels the source for error positions (a file path or any identifier).
-func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
+func (i *Interp) Eval(name, src string) (reflect.Value, error) {
+	return i.evalCompiled(func() error { return i.Compile(name, src) })
+}
+
+// EvalFiles compiles several local source files as one main-package unit and
+// runs the result. Backs `mvm run f1.go f2.go ...`: top-level symbols declared
+// in any file are visible to the others regardless of file or declaration order.
+func (i *Interp) EvalFiles(sources []goparser.PackageSource) (reflect.Value, error) {
+	return i.evalCompiled(func() error { return i.CompileFiles(sources) })
+}
+
+// evalCompiled compiles via the supplied closure, then sets up and runs the VM,
+// returning the last produced value. Shared by Eval and EvalFiles.
+func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err error) {
 	codeOffset := len(i.Code)
 	dataOffset := 0
 	if codeOffset > 0 {
@@ -97,7 +111,7 @@ func (i *Interp) Eval(name, src string) (res reflect.Value, err error) {
 	}
 
 	tCompile := time.Now()
-	err = i.Compile(name, src)
+	err = compile()
 	i.Stats.CompileTime += time.Since(tCompile)
 	if err != nil {
 		return res, i.withSourceContext(err)

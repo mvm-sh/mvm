@@ -322,6 +322,35 @@ func ExampleMix() {
 	}
 }
 
+// TestRunMultiFile guards `mvm run f1.go f2.go ...`: the named files are compiled
+// as one main package, so a top-level symbol declared in one file resolves from
+// another regardless of the order the files are listed (issue #19).
+func TestRunMultiFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short")
+	}
+	bin := buildMvm(t)
+	dir := t.TempDir()
+	aGo := filepath.Join(dir, "a.go")
+	bGo := filepath.Join(dir, "b.go")
+	if err := os.WriteFile(aGo, []byte("package main\nimport \"fmt\"\nfunc main() { fmt.Println(Global) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bGo, []byte("package main\nvar Global = \"abc\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Both orderings must resolve the cross-file reference and print "abc".
+	for _, order := range [][]string{{aGo, bGo}, {bGo, aGo}} {
+		out, err := exec.Command(bin, append([]string{"run"}, order...)...).CombinedOutput() //nolint:gosec // bin from t.TempDir
+		if err != nil {
+			t.Fatalf("run %v: %v\n%s", order, err, out)
+		}
+		if strings.TrimSpace(string(out)) != "abc" {
+			t.Errorf("run %v: got %q, want \"abc\"", order, strings.TrimSpace(string(out)))
+		}
+	}
+}
+
 // TestBenchmarkRun guards that `mvm test -bench` discovers and runs Benchmark*
 // functions through the MainStart driver. Benchmarks run only when -bench is
 // given; a benchmarks-only package must still drive (not short-circuit on the

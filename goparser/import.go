@@ -440,6 +440,39 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 		}
 	}
 
+	// Source packages tag their deferred decls with the import path; the main
+	// package / REPL (src != "") uses bare keys.
+	pkgTag := ""
+	if src == "" {
+		pkgTag = name
+	}
+	return p.resolveDecls(decls, pkgTag)
+}
+
+// ParseAllFiles parses a set of in-memory source files as a SINGLE compile unit
+// (one package) and returns the still-to-be-code-generated declarations. Used by
+// `mvm run f1.go f2.go ...`, where several local files form the main package and
+// must see each other's top-level symbols regardless of file or declaration
+// order. Each source's Name labels its origin for diagnostics. Decls are tagged
+// for the main package (bare keys), matching a single-file main Eval.
+func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err error) {
+	var decls []Tokens
+	for _, s := range sources {
+		p.PosBase = p.Sources.Add(s.Name, s.Content)
+		d, derr := p.scanDecls(s.Content)
+		if derr != nil {
+			return out, derr
+		}
+		decls = append(decls, d...)
+	}
+	return p.resolveDecls(decls, "")
+}
+
+// resolveDecls runs Phase 1 (declaration resolution + generic-method expansion
+// fixpoint) over decls and returns the deferred code-gen declarations, each
+// tagged with pkgTag. Shared by ParseAll and ParseAllFiles so a multi-file unit
+// resolves cross-file references exactly as a single-source one does.
+func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl, err error) {
 	// Pre-register struct and interface type placeholders so that forward,
 	// mutual, and self-references can resolve during parsing. Placeholders
 	// land under this pkg's pkgKey ("<importingPkg>.<name>"), so a transitive
@@ -510,12 +543,8 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 		}
 	}
 
-	// Tag this package's own deferred decls with its import path, then prepend
-	// the (already-tagged) code-gen declarations from imported source packages.
-	pkgTag := ""
-	if src == "" {
-		pkgTag = name
-	}
+	// Tag this package's own deferred decls with pkgTag, then prepend the
+	// (already-tagged) code-gen declarations from imported source packages.
 	merged := p.importRemaining
 	p.importRemaining = nil
 	for _, d := range remaining {

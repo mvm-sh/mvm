@@ -97,7 +97,6 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 	return nil
 }
 
-// concreteMatchesIface reports whether concrete's signature matches ifaceSig.
 func concreteMatchesIface(concrete *vm.Type, ifaceSig reflect.Type) bool {
 	if ifaceSig == nil || concrete == nil || concrete.Rtype == nil || concrete.Rtype.Kind() != reflect.Func {
 		return false
@@ -119,12 +118,6 @@ func concreteMatchesIface(concrete *vm.Type, ifaceSig reflect.Type) bool {
 	return true
 }
 
-// aliasTargetTopLevel adds bare-key aliases for the direct-target pkg's
-// canonical "<pkg>.<Name>" entries so the test driver (compiled in a separate
-// "_testmain" context with no CompilingPkg set) can resolve Test* by short
-// identifier. Only single-segment tails are aliased (no '.', '/', '*') so
-// pkg-qualified method keys, scoped locals, and pointer-receiver entries are
-// left alone.
 func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 	prefix := pkgPath + "."
 	for k, s := range c.Symbols {
@@ -167,6 +160,26 @@ func (c *Compiler) Compile(name, src string) error {
 	if err != nil {
 		return err
 	}
+	return c.finishCompile(remaining)
+}
+
+// CompileFiles compiles several in-memory source files as a single main-package
+// unit (Phase 1 across all files, then Phase 2 code-gen), so top-level symbols
+// declared in one file are visible to the others regardless of file or
+// declaration order. Backs `mvm run f1.go f2.go ...`.
+func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
+	remaining, err := c.ParseAllFiles(sources)
+	if err != nil {
+		return err
+	}
+	return c.finishCompile(remaining)
+}
+
+// finishCompile runs Phase 2 over the deferred declarations: allocate global
+// slots, compile var initializers first (so all var types resolve) then func
+// bodies and expression statements, then propagate embedded methods. Shared by
+// Compile and CompileFiles.
+func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	c.allocGlobalSlots()
 	var rest []goparser.DeferredDecl
 	for _, decl := range remaining {
