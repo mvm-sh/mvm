@@ -473,6 +473,14 @@ func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err
 // tagged with pkgTag. Shared by ParseAll and ParseAllFiles so a multi-file unit
 // resolves cross-file references exactly as a single-source one does.
 func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl, err error) {
+	// Each compilation unit (package, or `mvm run` file set) gets its own
+	// redeclaration scope: a second top-level func/method of the same name within
+	// it is an error. Save/restore so a nested import compile (importSrc ->
+	// ParseAll -> resolveDecls during this unit's Phase 1) does not clobber it.
+	savedBatch := p.batchFuncDecls
+	p.batchFuncDecls = map[string]bool{}
+	defer func() { p.batchFuncDecls = savedBatch }()
+
 	// Pre-register struct and interface type placeholders so that forward,
 	// mutual, and self-references can resolve during parsing. Placeholders
 	// land under this pkg's pkgKey ("<importingPkg>.<name>"), so a transitive
@@ -505,16 +513,20 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 					}
 					continue
 				}
-				// Propagate I/O and filesystem errors (e.g. missing packages)
-				// and constant-overflow errors (a hard compile error, not a
-				// parser limitation). Skip everything else (parser limitations,
-				// unimplemented syntax).
+				// Propagate I/O and filesystem errors (e.g. missing packages),
+				// constant-overflow, and redeclaration errors (hard compile
+				// errors, not parser limitations). Skip everything else (parser
+				// limitations, unimplemented syntax).
 				var pathErr *fs.PathError
 				if errors.As(parseErr, &pathErr) {
 					return out, parseErr
 				}
 				var overflowErr ErrConstOverflow
 				if errors.As(parseErr, &overflowErr) {
+					return out, parseErr
+				}
+				var redeclErr ErrRedeclared
+				if errors.As(parseErr, &redeclErr) {
 					return out, parseErr
 				}
 				p.rollbackSymTracker()

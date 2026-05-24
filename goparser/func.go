@@ -154,6 +154,18 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	key := p.pkgKey(fname)
 	s, ok := p.Symbols[key]
 	if ok && s.Type != nil {
+		// A second declaration of this name within the same compilation unit is
+		// a redeclaration (gc: "X redeclared in this block"). Erroring here stops
+		// Phase 2 from emitting a duplicate function label, whose colliding jump
+		// target hangs the VM. A symbol carried over from a prior Eval (REPL) is
+		// not in this batch, so it falls through to the existing skip.
+		if p.batchFuncDecls[key] {
+			nameTok := toks[1]
+			if nameTok.Tok == lang.ParenBlock { // method: name follows the receiver
+				nameTok = toks[2]
+			}
+			return false, ErrRedeclared{Name: fname, Loc: p.Sources.FormatPos(nameTok.Pos), Pos: nameTok.Pos}
+		}
 		return false, nil
 	}
 	if !ok {
@@ -172,8 +184,33 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	s.RecvName = recvVarName
 	s.InNames = inNames
 	s.OutNames = outNames
+	if p.batchFuncDecls != nil {
+		p.batchFuncDecls[key] = true
+	}
 	return false, nil
 }
+
+// ErrRedeclared reports a second top-level declaration of a name within one
+// compilation unit (the gc "X redeclared in this block" error). It is a hard
+// error, not a parser limitation, so resolveDecls propagates it rather than
+// skipping the decl (which would let Phase 2 emit a duplicate function label and
+// hang the VM). ErrPos lets the diagnostic chokepoint render a snippet.
+type ErrRedeclared struct {
+	Name string
+	Loc  string
+	Pos  int
+}
+
+func (e ErrRedeclared) Error() string {
+	msg := e.Name + " redeclared in this block"
+	if e.Loc != "" {
+		return e.Loc + ": " + msg
+	}
+	return msg
+}
+
+// ErrPos exposes the source offset so the diagnostic chokepoint can render a snippet.
+func (e ErrRedeclared) ErrPos() int { return e.Pos }
 
 func isMethodDecl(toks Tokens) bool {
 	return len(toks) >= 4 && toks[1].Tok == lang.ParenBlock &&
