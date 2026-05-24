@@ -110,8 +110,13 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[strin
 		}
 	}
 
-	p.SetPkgfs(filepath.Dir(dir))
-	if _, err := p.ParseAll(filepath.Base(dir), ""); err != nil {
+	// Resolve to an absolute path before splitting into (parent dir, package base name).
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("resolving %s: %w", dir, err)
+	}
+	p.SetPkgfs(filepath.Dir(abs))
+	if _, err := p.ParseAll(filepath.Base(abs), ""); err != nil {
 		fmt.Fprintf(os.Stderr, "parsing %s warning: %v\n", dir, err)
 	}
 

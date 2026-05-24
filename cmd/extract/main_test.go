@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mvm-sh/mvm/symbol"
 )
 
 func TestScanImports(t *testing.T) {
@@ -116,6 +118,26 @@ func TestRun(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestExtractFromInsideDir is a regression for #15.
+func TestExtractFromInsideDir(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "bodyless"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	groups, _, _, err := extract(".")
+	if err != nil {
+		t.Fatalf("extract(%q): %v", ".", err)
+	}
+	if !slices.Contains(groups[symbol.Type], "Duration") {
+		t.Errorf("missing type Duration; got types %v", groups[symbol.Type])
+	}
+	if !slices.Contains(groups[symbol.Func], "Sleep") {
+		t.Errorf("missing func Sleep; got funcs %v", groups[symbol.Func])
 	}
 }
 
