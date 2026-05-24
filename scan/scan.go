@@ -399,6 +399,8 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 			}
 		case r == '_':
 			// digit separator, ok
+		case r == 'i':
+			return src[:i+1], lang.Imag
 		default:
 			return src[:i], tok
 		}
