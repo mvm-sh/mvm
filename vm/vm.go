@@ -3482,22 +3482,47 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 		// nil) for such rtypes rather than guess. SameAs clones (same type, e.g.
 		// struct-field shallow copies) are not ambiguous.
 		ambiguous := map[reflect.Type]bool{}
+		visited := map[*Type]bool{}
+		// register indexes v by its rtype (with the ambiguity rule) and recurses
+		// into its component types. The recursion makes types reachable only
+		// through a func signature resolvable -- e.g. a struct used solely as a
+		// closure parameter: its func *Type is in globals (WrapFunc typeIndexes it)
+		// but the param type itself was never separately typeIndexed. Recurse only
+		// into Params/Returns/ElemType/KeyType, NOT Fields/Base, whose clones can
+		// carry a field/base name distinct from the type name and falsely trip the
+		// SameAs ambiguity check.
+		var register func(v *Type)
+		register = func(v *Type) {
+			if v == nil || visited[v] {
+				return
+			}
+			visited[v] = true
+			if v.Rtype != nil && !ambiguous[v.Rtype] {
+				if prev, ok := t.m[v.Rtype]; ok {
+					if prev != v && !prev.SameAs(v) {
+						delete(t.m, v.Rtype)
+						ambiguous[v.Rtype] = true
+					}
+				} else {
+					t.m[v.Rtype] = v
+				}
+			}
+			for _, p := range v.Params {
+				register(p)
+			}
+			for _, r := range v.Returns {
+				register(r)
+			}
+			register(v.ElemType)
+			register(v.KeyType)
+		}
 		for _, g := range globals {
 			if !g.ref.IsValid() || g.ref.Type() != typePtrRtype {
 				continue
 			}
-			v, _ := g.ref.Interface().(*Type)
-			if v == nil || v.Rtype == nil || ambiguous[v.Rtype] {
-				continue
+			if v, _ := g.ref.Interface().(*Type); v != nil {
+				register(v)
 			}
-			if prev, ok := t.m[v.Rtype]; ok {
-				if prev != v && !prev.SameAs(v) {
-					delete(t.m, v.Rtype)
-					ambiguous[v.Rtype] = true
-				}
-				continue
-			}
-			t.m[v.Rtype] = v
 		}
 	})
 	return t.m[rt]
