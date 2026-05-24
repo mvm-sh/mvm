@@ -342,6 +342,9 @@ func (sm SymMap) Init() {
 	sm["true"] = &Symbol{Name: "true", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(true), Type: vm.TypeOf(true), Cval: constant.MakeBool(true)}
 	sm["false"] = &Symbol{Name: "false", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(false), Type: vm.TypeOf(false), Cval: constant.MakeBool(false)}
 
+	sm["complex"] = &Symbol{Name: "complex", Kind: Builtin, Index: UnsetAddr}
+	sm["real"] = &Symbol{Name: "real", Kind: Builtin, Index: UnsetAddr}
+	sm["imag"] = &Symbol{Name: "imag", Kind: Builtin, Index: UnsetAddr}
 	sm["print"] = &Symbol{Name: "print", Kind: Builtin, Index: UnsetAddr}
 	sm["println"] = &Symbol{Name: "println", Kind: Builtin, Index: UnsetAddr}
 	sm["panic"] = &Symbol{Name: "panic", Kind: Builtin, Index: UnsetAddr}
