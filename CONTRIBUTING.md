@@ -128,12 +128,18 @@ releases.
   enforced by golangci-lint. Run `make lint` after every change.
 - Keep source files ASCII-only unless a non-ASCII character is truly
   unavoidable.
-- In Markdown sources (`*.md` -- docs, ADRs, this file), start each
-  sentence on its own line (wrapping long ones as needed).
+- Keep comments concise, or omit them.
+  The code should be self-explanatory and the design lives in `docs/`.
+  Non-exported funcs usually need no doc comment; reserve inline comments
+  for non-obvious *why* (a subtle invariant, a workaround, a footgun).
+- In Markdown sources (`*.md` -- docs, ADRs, this file) and in code
+  comments (block, doc, and multi-line `//` runs), start each sentence
+  on its own line (wrapping long ones as needed).
+  A single-sentence comment stays one line.
   It keeps diffs sentence-scoped and lets you edit a sentence without
   reflowing its neighbours.
-  Older docs still use fixed-column wrapping; convert a file to this
-  style when you are substantially editing it, not as a standalone
+  Older docs and comments still use fixed-column wrapping; convert one to
+  this style when you are substantially editing it, not as a standalone
   reformat.
 - Generated files (see above) are produced by `make generate` -- don't
   edit them by hand.
