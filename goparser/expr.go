@@ -210,13 +210,12 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						if err != nil {
 							return out, err
 						}
-						typeArgSources := p.typeArgSourcesFor(typeArgs)
-						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
+						instToks, mname, err := p.instantiate(tmpl, typeArgs, t)
 						if err != nil {
 							return out, err
 						}
 						out = out[:len(out)-1] // remove the generic name ident
-						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs, typeArgSources); err != nil {
+						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs); err != nil {
 							return out, err
 						}
 					}
@@ -236,14 +235,13 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 								if err != nil {
 									return out, err
 								}
-								typeArgSources := p.typeArgSourcesFor(typeArgs)
-								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
+								instToks, mname, err := p.instantiate(tmpl, typeArgs, t)
 								if err != nil {
 									return out, err
 								}
 								out = out[:len(out)-1] // remove the pkg ident
 								ops = ops[:len(ops)-1] // remove the Period operator
-								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs, typeArgSources); err != nil {
+								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs); err != nil {
 									return out, err
 								}
 							}
@@ -341,21 +339,23 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 					tmpl := gs.Data.(*genericTemplate)
 					out = out[:len(out)-1] // remove the generic name ident
 					if tmpl.isFunc {
-						typeArgs, typeArgSources, err := p.resolveTypeArgs(t.Token)
+						typeArgs, err := p.resolveTypeArgs(t.Token)
 						if err != nil {
 							return out, err
 						}
 						if len(typeArgs) < len(tmpl.typeParams) && i+1 < lin && in[i+1].Tok == lang.ParenBlock {
-							typeArgs, typeArgSources, err = p.inferPartialTypeArgs(tmpl, gs, typeArgs, typeArgSources, in[i+1].Token)
+							// Partial explicit list: infer the trailing params from
+							// the call args, seeding the explicit prefix.
+							typeArgs, err = p.inferTypeArgs(tmpl, gs, in[i+1].Token, typeArgs)
 							if err != nil {
 								return out, err
 							}
 						}
-						instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
+						instToks, mname, err := p.instantiate(tmpl, typeArgs, t)
 						if err != nil {
 							return out, err
 						}
-						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs, typeArgSources); err != nil {
+						if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs); err != nil {
 							return out, err
 						}
 					} else {
@@ -382,21 +382,23 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 							out = out[:len(out)-1] // remove the pkg ident
 							ops = ops[:len(ops)-1] // remove the Period operator
 							if tmpl.isFunc {
-								typeArgs, typeArgSources, err := p.resolveTypeArgs(t.Token)
+								typeArgs, err := p.resolveTypeArgs(t.Token)
 								if err != nil {
 									return out, err
 								}
 								if len(typeArgs) < len(tmpl.typeParams) && i+1 < lin && in[i+1].Tok == lang.ParenBlock {
-									typeArgs, typeArgSources, err = p.inferPartialTypeArgs(tmpl, gs, typeArgs, typeArgSources, in[i+1].Token)
+									// Partial explicit list: infer the trailing params
+									// from the call args, seeding the explicit prefix.
+									typeArgs, err = p.inferTypeArgs(tmpl, gs, in[i+1].Token, typeArgs)
 									if err != nil {
 										return out, err
 									}
 								}
-								instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, t)
+								instToks, mname, err := p.instantiate(tmpl, typeArgs, t)
 								if err != nil {
 									return out, err
 								}
-								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs, typeArgSources); err != nil {
+								if err := p.emitGenericFunc(tmpl, instToks, mname, t.Pos, &out, typeArgs); err != nil {
 									return out, err
 								}
 							} else {
@@ -576,7 +578,7 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 	return result, sliceLen, nil
 }
 
-func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname string, pos int, out *Tokens, typeArgs []*vm.Type, typeArgSources []string) error {
+func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname string, pos int, out *Tokens, typeArgs []*vm.Type) error {
 	if instToks == nil {
 		*out = append(*out, newIdent(mname, pos))
 		return nil
@@ -587,59 +589,21 @@ func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname s
 	if tmpl != nil && tmpl.pkgPath != "" {
 		p.CompilingPkg = tmpl.pkgPath
 	}
-	// The instantiated body holds the source-form text of each type
-	// argument (e.g. "Elem" for `reflect.TypeFor[Elem]()` called from
-	// unicode/cldr). With CompilingPkg now pointing at the template's
-	// owning pkg, those bare idents do not resolve under symGet's
-	// fallback (e.g. "reflect.Elem" is not registered), so the body
-	// parser would mis-emit `*T` as Deref instead of building a pointer
-	// type. Install a temporary Type entry at the bare substituted name
-	// for each non-builtin arg, then remove it after parseFunc so the
-	// rest of the parser's symbol table is unchanged.
-	var tempKeys []string
+	// The instantiated body keeps the type-param names; bindTypeParams maps each
+	// to its concrete type arg (by identity, not name) for the registerFunc +
+	// parseFunc re-parse, restored on return by the deferred closure.
 	if tmpl != nil {
-		for i := range tmpl.typeParams {
-			if i >= len(typeArgs) {
-				break
-			}
-			var src string
-			if i < len(typeArgSources) {
-				src = typeArgSources[i]
-			}
-			name := typeArgSubst(typeArgs[i], src)
-			if !isSimpleIdent(name) {
-				continue // compound forms (e.g. "*T", "[]X") re-scan via substituteTokens.
-			}
-			if _, _, ok := p.symGet(name); ok {
-				continue // already resolvable (e.g. a builtin or aliased target-pkg type).
-			}
-			// Temporary bare placeholder so the instantiated body's bare
-			// type-arg idents resolve; symGet-guarded above (only names not
-			// already present) and deleted after parseFunc on both the success
-			// and error paths, so it cannot clobber a real symbol.
-			p.SymSet(name, &symbol.Symbol{ // mvm:symkey-ok
-				Kind:  symbol.Type,
-				Name:  name,
-				Index: symbol.UnsetAddr,
-				Type:  typeArgs[i],
-				Value: vm.NewValue(typeArgs[i].Rtype),
-				Used:  true,
-			})
-			tempKeys = append(tempKeys, name)
-		}
+		restore := p.bindTypeParams(tmpl.typeParams, typeArgs)
+		defer restore()
 	}
+	p.instDepth++
+	defer func() { p.instDepth-- }()
 	if _, err := p.registerFunc(instToks); err != nil {
-		for _, k := range tempKeys {
-			delete(p.Symbols, k)
-		}
 		p.scope = savedScope
 		p.CompilingPkg = savedCompilingPkg
 		return err
 	}
 	fout, err := p.parseFunc(instToks)
-	for _, k := range tempKeys {
-		delete(p.Symbols, k)
-	}
 	p.scope = savedScope
 	p.CompilingPkg = savedCompilingPkg
 	if err != nil {

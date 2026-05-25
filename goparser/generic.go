@@ -58,8 +58,7 @@ type genericTemplate struct {
 }
 
 type genericInstance struct {
-	typeArgs       []*vm.Type
-	typeArgSources []string
+	typeArgs []*vm.Type
 }
 
 func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
@@ -394,76 +393,99 @@ func (p *Parser) resolveConstraintElems(toks Tokens, tpIdx map[string]int) ([]co
 
 // resolveTypeArgs parses the contents of a bracket block as concrete type arguments.
 // E.g. "[int, string]" -> []*vm.Type{intType, stringType}.
-// The second return value carries the source-level text of each segment
-// (e.g. "netip.Prefix"), preserving package qualifiers lost in *vm.Type.Name.
-func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, []string, error) {
+func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, error) {
 	toks, err := p.scanBlock(bt, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var types []*vm.Type
-	var sources []string
 	for _, seg := range toks.Split(lang.Comma) {
 		if len(seg) == 0 {
 			continue
 		}
 		typ, _, err := p.parseTypeExpr(seg)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		types = append(types, typ)
-		sources = append(sources, tokensSource(seg))
 	}
-	return types, sources, nil
+	return types, nil
 }
 
-// substituteTokens rewrites tokens by replacing type parameter identifiers
-// with concrete type names and substituting inside block strings.
-// Struct body BraceBlocks get field-name-aware substitution to avoid
-// renaming field names that shadow type parameters.
-func (p *Parser) substituteTokens(raw Tokens, sub map[string]string) Tokens {
-	out := make(Tokens, 0, len(raw))
-	for i, t := range raw {
-		t2 := t // shallow copy
-
-		if t.Tok == lang.Ident {
-			if repl, ok := sub[t.Str]; ok {
-				// Compound types (e.g. "*int", "[]byte", "map[K]V")
-				// must be re-scanned into proper tokens.
-				if !isSimpleIdent(repl) {
-					expanded, err := p.Scan(repl, false)
-					if err == nil && len(expanded) > 0 {
-						for _, et := range expanded {
-							et.Pos = t.Pos
-							out = append(out, Token{Token: et})
-						}
-						continue
-					}
-				}
-				t2.Str = repl
-			}
+// bindTypeParams installs a transient Type symbol mapping each type-parameter
+// name to its concrete type argument, returning a restore func the caller defers.
+// The instantiated body keeps the type-param names (it is re-scanned from block
+// text), so every type-position reference resolves to the concrete type and
+// carries its identity to the compiler.
+//
+// A type param shadows a package-level type of the same name (Go scoping: it is
+// local to the generic body). symGet, under CompilingPkg/importingPkg, prefers a
+// canonical "<pkg>.<name>" type over a bare binding, so the binding is installed
+// at the bare name AND at those qualified keys; otherwise an instance of e.g.
+// slices' MinFunc[S ~[]E] would resolve S to a test's `type S struct` instead of
+// the concrete slice. Save/restore nests safely under recursive instantiation: an
+// inner restore re-exposes the outer instance's binding.
+func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() {
+	type saved struct {
+		key string
+		sym *symbol.Symbol
+		had bool
+	}
+	var prev []saved
+	set := func(key string, sym *symbol.Symbol) {
+		old, had := p.Symbols[key]
+		prev = append(prev, saved{key, old, had})
+		p.Symbols[key] = sym // mvm:symkey-ok: transient type-param binding, restored by the returned func
+	}
+	for i, tp := range params {
+		if i >= len(typeArgs) {
+			break
 		}
-
-		if t.Tok.IsBlock() {
-			if t.Tok == lang.BraceBlock && i > 0 && raw[i-1].Tok == lang.Struct {
-				t2.Str = p.substituteStructBody(t.Str, sub)
+		ta := typeArgs[i]
+		if ta == nil || ta.Rtype == nil {
+			continue // unresolved type arg: leave the name to resolve (or error) normally rather than panic in NewValue
+		}
+		sym := &symbol.Symbol{
+			Kind:  symbol.Type,
+			Name:  tp.name,
+			Index: symbol.UnsetAddr,
+			Type:  ta,
+			Value: vm.NewValue(ta.Rtype),
+			Used:  true,
+		}
+		set(tp.name, sym)
+		if p.CompilingPkg != "" {
+			set(QualifyName(p.CompilingPkg, tp.name), sym)
+		}
+		if p.importingPkg != "" {
+			set(QualifyName(p.importingPkg, tp.name), sym)
+		}
+	}
+	return func() {
+		for i := len(prev) - 1; i >= 0; i-- {
+			if s := prev[i]; s.had {
+				p.Symbols[s.key] = s.sym // mvm:symkey-ok: restoring the saved symbol
 			} else {
-				t2.Str = p.substituteBlock(t.Str, sub)
+				delete(p.Symbols, s.key)
 			}
 		}
-
-		out = append(out, t2)
 	}
-	return out
 }
 
-// instantiate creates a concrete (monomorphized) version of a generic template
-// by substituting type parameter names with concrete type names in the token stream.
-// It returns the rewritten tokens and the mangled name.
-// typeArgSources, when non-nil, provides source-level text for each type
-// argument (e.g. "netip.Prefix") so package qualifiers are preserved in the
-// substituted body. If nil, the short Name from *vm.Type is used.
-func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, typeArgSources []string, pos Token) (Tokens, string, error) {
+// maxInstDepth bounds the nesting depth of in-progress instantiations. Same-type
+// recursion terminates via the mname dedup below (the instance symbol is
+// registered before its body is parsed); only unbounded type growth - e.g.
+// func F[T any]() { F[[]T]() } - produces an endless chain of distinct mangled
+// names, which this depth bound turns into an error instead of a hang. Go rejects
+// the same program as an "instantiation cycle".
+const maxInstDepth = 100
+
+// instantiate produces a concrete (monomorphized) version of a generic template:
+// it copies the template tokens, renames the declaration to its mangled name, and
+// strips the type-parameter bracket. The body keeps the type-param names, which
+// resolve to the concrete type args by identity via bindTypeParams during the
+// re-parse.
+func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Token) (Tokens, string, error) {
 	// A partial list (fewer args than params) reaches here only when the
 	// caller couldn't infer the rest; a too-long list is always an error.
 	if len(typeArgs) != len(tmpl.typeParams) {
@@ -475,21 +497,21 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, typeArg
 		return nil, mname, nil // Already instantiated.
 	}
 
+	if p.instDepth >= maxInstDepth {
+		// Report the template name, not mname: an unbounded-growth cycle makes
+		// mname a multi-hundred-char mangling of the ever-growing type arg.
+		return nil, "", p.wrapAt(pos, ErrSyntax, "instantiation cycle: %s", tmpl.name)
+	}
+
 	if err := p.checkConstraints(tmpl, typeArgs); err != nil {
 		return nil, "", err
 	}
 
-	// Build substitution map: type param name -> concrete type name string.
-	sub := make(map[string]string, len(tmpl.typeParams))
-	for i, tp := range tmpl.typeParams {
-		var src string
-		if i < len(typeArgSources) {
-			src = typeArgSources[i]
-		}
-		sub[tp.name] = typeArgSubst(typeArgs[i], src)
-	}
-
-	out := p.substituteTokens(tmpl.rawTokens, sub)
+	// Keep the type-param names in the body; they resolve to the concrete type
+	// args via the transient bindTypeParams binding active during the re-parse
+	// (so identity travels, not name). Copy so the decl rename below does not
+	// mutate the template's tokens.
+	out := append(Tokens(nil), tmpl.rawTokens...)
 
 	// Rename the declaration and remove the type parameter bracket block.
 	// Token index offset: func tokens have a leading `func` keyword.
@@ -514,11 +536,13 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, typeArg
 // and, if it produced fresh tokens, registers and parses the method,
 // pushing the resulting tokens into p.pendingMethodDefs. Returns true if
 // a new method was emitted. The caller must have cleared p.scope.
-func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArgs []*vm.Type, typeArgSources []string) (bool, error) {
-	methToks, err := p.instantiateMethod(tmpl, methTmpl, typeArgs, typeArgSources)
+func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArgs []*vm.Type) (bool, error) {
+	methToks, err := p.instantiateMethod(tmpl, methTmpl, typeArgs)
 	if err != nil || methToks == nil {
 		return false, err
 	}
+	restore := p.bindTypeParams(tmpl.typeParams, typeArgs)
+	defer restore()
 	if _, err := p.registerFunc(methToks); err != nil {
 		return false, err
 	}
@@ -536,28 +560,29 @@ func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArg
 // to the template after this call are picked up later by
 // finalizeGenericMethods.
 func (p *Parser) ensureTypeInstantiated(tmpl *genericTemplate, bt scan.Token) (string, error) {
-	typeArgs, typeArgSources, err := p.resolveTypeArgs(bt)
+	typeArgs, err := p.resolveTypeArgs(bt)
 	if err != nil {
 		return "", err
 	}
-	instToks, mname, err := p.instantiate(tmpl, typeArgs, typeArgSources, Token{Token: bt})
+	instToks, mname, err := p.instantiate(tmpl, typeArgs, Token{Token: bt})
 	if err != nil {
 		return "", err
 	}
 	if instToks != nil {
 		savedScope := p.scope
 		p.scope = ""
+		restore := p.bindTypeParams(tmpl.typeParams, typeArgs)
+		defer restore()
+		p.instDepth++
+		defer func() { p.instDepth-- }()
 		_, err = p.parseTypeLine(instToks)
 		if err != nil {
 			p.scope = savedScope
 			return "", err
 		}
-		tmpl.instances = append(tmpl.instances, genericInstance{
-			typeArgs:       typeArgs,
-			typeArgSources: typeArgSources,
-		})
+		tmpl.instances = append(tmpl.instances, genericInstance{typeArgs: typeArgs})
 		for _, methTmpl := range tmpl.methods {
-			if _, err := p.emitInstantiatedMethod(tmpl, methTmpl, typeArgs, typeArgSources); err != nil {
+			if _, err := p.emitInstantiatedMethod(tmpl, methTmpl, typeArgs); err != nil {
 				p.scope = savedScope
 				return "", err
 			}
@@ -585,7 +610,7 @@ func (p *Parser) instantiatePendingMethods() (progress bool, err error) {
 		}
 		for _, inst := range tmpl.instances {
 			for _, methTmpl := range tmpl.methods {
-				emitted, err := p.emitInstantiatedMethod(tmpl, methTmpl, inst.typeArgs, inst.typeArgSources)
+				emitted, err := p.emitInstantiatedMethod(tmpl, methTmpl, inst.typeArgs)
 				if err != nil {
 					return progress, err
 				}
@@ -602,7 +627,7 @@ func (p *Parser) instantiatePendingMethods() (progress bool, err error) {
 // by substituting type parameter names with concrete types in the token stream.
 // The receiver block is rewritten from e.g. (b Box[T]) to (b Box#int).
 // Returns nil if the method is already instantiated.
-func (p *Parser) instantiateMethod(typeTmpl, methTmpl *genericTemplate, typeArgs []*vm.Type, typeArgSources []string) (Tokens, error) {
+func (p *Parser) instantiateMethod(typeTmpl, methTmpl *genericTemplate, typeArgs []*vm.Type) (Tokens, error) {
 	mTypeName := mangledName(typeTmpl.name, typeArgs)
 	methFullName := mTypeName + "." + methTmpl.name
 	// Pointer-receiver methods are stored by registerFunc under "*T.method";
@@ -616,16 +641,10 @@ func (p *Parser) instantiateMethod(typeTmpl, methTmpl *genericTemplate, typeArgs
 		return nil, nil
 	}
 
-	sub := make(map[string]string, len(typeTmpl.typeParams))
-	for i, tp := range typeTmpl.typeParams {
-		var src string
-		if i < len(typeArgSources) {
-			src = typeArgSources[i]
-		}
-		sub[tp.name] = typeArgSubst(typeArgs[i], src)
-	}
-
-	out := p.substituteTokens(methTmpl.rawTokens, sub)
+	// Keep the type-param names in the body; they resolve via bindTypeParams
+	// during the re-parse. Copy so the receiver rewrite below does not mutate
+	// the template's tokens.
+	out := append(Tokens(nil), methTmpl.rawTokens...)
 
 	// Collapse TypeName[Args] into the mangled name in the receiver ParenBlock
 	// (the first ParenBlock, at index 1 after the func keyword).
@@ -809,19 +828,6 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		typeArgs[i] = t
 	}
 	return typeArgs, nil
-}
-
-// inferPartialTypeArgs completes a partial explicit type-argument list
-// (Name[prefix](args)) by inferring the trailing params from the call args,
-// keeping the explicit prefix's sources so package qualifiers survive.
-func (p *Parser) inferPartialTypeArgs(tmpl *genericTemplate, gs *symbol.Symbol, prefix []*vm.Type, prefixSrcs []string, callArgs scan.Token) ([]*vm.Type, []string, error) {
-	full, err := p.inferTypeArgs(tmpl, gs, callArgs, prefix)
-	if err != nil {
-		return nil, nil, err
-	}
-	srcs := p.typeArgSourcesFor(full)
-	copy(srcs, prefixSrcs)
-	return full, srcs, nil
 }
 
 // inferExprType determines the type of an infix token expression by first
@@ -1068,135 +1074,4 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		return nil, 1
 	}
 	return nil, 0
-}
-
-// substituteStructBody substitutes type parameters in a struct body BraceBlock,
-// preserving field names that shadow type parameters.
-// In Go, struct fields follow the pattern: FieldName Type or EmbeddedType.
-// Only type-position identifiers should be substituted.
-func (p *Parser) substituteStructBody(blockStr string, sub map[string]string) string {
-	outerToks, err := p.Scan(blockStr, false)
-	if err != nil || len(outerToks) != 1 || outerToks[0].Tok != lang.BraceBlock {
-		return blockStr
-	}
-	brace := outerToks[0]
-	inner := brace.Block()
-
-	// Process each field declaration (separated by ; or \n).
-	// Only start building the replacement string when a change is found.
-	var sb strings.Builder
-	prev := 0 // tracks position in inner where sb is caught up to
-	start := 0
-	for i := 0; i <= len(inner); i++ {
-		if i < len(inner) && inner[i] != ';' && inner[i] != '\n' {
-			continue
-		}
-		field := inner[start:i]
-		newField := p.substituteStructField(field, sub)
-		if newField != field {
-			sb.WriteString(inner[prev:start])
-			sb.WriteString(newField)
-			prev = i
-		}
-		start = i + 1
-	}
-	if prev == 0 {
-		return blockStr
-	}
-	sb.WriteString(inner[prev:])
-	return blockStr[:brace.Beg] + sb.String() + blockStr[len(blockStr)-brace.End:]
-}
-
-// substituteStructField substitutes type params in a single struct field
-// declaration, protecting field-name idents from substitution.
-// E.g. "K K" with sub {K:string} -> "K string" (first K is field name, kept).
-func (p *Parser) substituteStructField(field string, sub map[string]string) string {
-	fieldToks, err := p.Scan(field, false)
-	if err != nil || len(fieldToks) == 0 {
-		return field
-	}
-
-	// Count consecutive leading idents. In "K K", nIdent=2 -> first is field name.
-	// In "*T" or "[]T", nIdent=0 -> embedded type, no field names.
-	// In "K", nIdent=1 -> embedded type.
-	nIdent := 0
-	for _, ft := range fieldToks {
-		if ft.Tok != lang.Ident {
-			break
-		}
-		nIdent++
-	}
-
-	// If 2+ leading idents, the first N-1 are field names -> protect them.
-	protectCount := 0
-	if nIdent >= 2 {
-		protectCount = nIdent - 1
-	}
-
-	var sb strings.Builder
-	prev := 0
-	identIdx := 0
-	for _, ft := range fieldToks {
-		switch {
-		case ft.Tok == lang.Ident:
-			if identIdx >= protectCount {
-				if repl, ok := sub[ft.Str]; ok {
-					sb.WriteString(field[prev:ft.Pos])
-					sb.WriteString(repl)
-					prev = ft.Pos + len(ft.Str)
-				}
-			}
-			identIdx++
-		case ft.Tok.IsBlock():
-			innerBlock := ft.Block()
-			newInner := p.substituteBlock(innerBlock, sub)
-			if newInner != innerBlock {
-				sb.WriteString(field[prev : ft.Pos+ft.Beg])
-				sb.WriteString(newInner)
-				prev = ft.Pos + len(ft.Str) - ft.End
-			}
-		}
-	}
-	if prev == 0 {
-		return field
-	}
-	sb.WriteString(field[prev:])
-	return sb.String()
-}
-
-func (p *Parser) substituteBlock(s string, sub map[string]string) string {
-	toks, err := p.Scan(s, false)
-	if err != nil || len(toks) == 0 {
-		return s
-	}
-	var sb strings.Builder
-	sb.Grow(len(s))
-	prev := 0
-	for i, t := range toks {
-		switch {
-		case t.Tok == lang.Ident:
-			// Skip idents after a Period - they are field/member names, not type params.
-			if i > 0 && toks[i-1].Tok == lang.Period {
-				break
-			}
-			if repl, ok := sub[t.Str]; ok {
-				sb.WriteString(s[prev:t.Pos])
-				sb.WriteString(repl)
-				prev = t.Pos + len(t.Str)
-			}
-		case t.Tok.IsBlock():
-			inner := t.Block()
-			newInner := p.substituteBlock(inner, sub)
-			if newInner != inner {
-				sb.WriteString(s[prev : t.Pos+t.Beg])
-				sb.WriteString(newInner)
-				prev = t.Pos + len(t.Str) - t.End
-			}
-		}
-	}
-	if prev == 0 {
-		return s
-	}
-	sb.WriteString(s[prev:])
-	return sb.String()
 }

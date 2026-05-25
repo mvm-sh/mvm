@@ -511,6 +511,11 @@ func TestGenericType(t *testing.T) {
 		// interpreted interface type arg is unsupported (errors/wrap_test.go's
 		// AsType[timeout]). Native interface args (error) still pass.
 		{n: "iface_constraint_interp_iface_arg", src: `type I interface { Foo() string }; func F[T I](x T) string { return x.Foo() }; type T struct{}; func (T) Foo() string { return "ok" }; var v I = T{}; F[I](v)`, res: "ok"},
+		// Unbounded-growth recursion (each level a new mangled name) is rejected
+		// instead of looping the instantiator forever, matching Go's
+		// "instantiation cycle". This test also guards wall-clock: a regression
+		// hangs the suite rather than failing fast.
+		{n: "instantiation_cycle", src: `func F[T any]() { F[[]T]() }; F[int]()`, err: "instantiation cycle"},
 	})
 }
 

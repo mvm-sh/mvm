@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
-	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
 
@@ -29,26 +28,6 @@ func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bo
 		return arg.Rtype == typeArgs[e.paramRef].Rtype
 	}
 	return false
-}
-
-func tokensSource(toks Tokens) string {
-	if len(toks) == 1 {
-		return toks[0].Str
-	}
-	var sb strings.Builder
-	for _, t := range toks {
-		sb.WriteString(t.Str)
-	}
-	return sb.String()
-}
-
-func isSimpleIdent(s string) bool {
-	for _, r := range s {
-		if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
-			return false
-		}
-	}
-	return len(s) > 0
 }
 
 func typeArgName(t *vm.Type) string {
@@ -79,13 +58,6 @@ func typeArgName(t *vm.Type) string {
 	return t.Rtype.String()
 }
 
-func typeArgSubst(t *vm.Type, source string) string {
-	if source != "" {
-		return source
-	}
-	return typeArgName(t)
-}
-
 func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
 	switch t.Rtype.Kind() {
 	case reflect.Pointer:
@@ -106,37 +78,6 @@ func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
 		}
 	}
 	return renderLeaf(t)
-}
-
-func (p *Parser) typeArgSource(t *vm.Type) string {
-	return typeArgComposite(t, func(leaf *vm.Type) string {
-		if leaf.Name == "" {
-			return leaf.Rtype.String()
-		}
-		if leaf.PkgPath != "" {
-			if alias := p.aliasForPkgPath(leaf.PkgPath); alias != "" {
-				return alias + "." + leaf.Name
-			}
-		}
-		return leaf.Name
-	})
-}
-
-func (p *Parser) aliasForPkgPath(pkgPath string) string {
-	for _, s := range p.Symbols {
-		if s != nil && s.Kind == symbol.Pkg && s.PkgPath == pkgPath {
-			return s.Name
-		}
-	}
-	return ""
-}
-
-func (p *Parser) typeArgSourcesFor(typeArgs []*vm.Type) []string {
-	srcs := make([]string, len(typeArgs))
-	for i, t := range typeArgs {
-		srcs[i] = p.typeArgSource(t)
-	}
-	return srcs
 }
 
 func sanitizeMangled(s string) string {

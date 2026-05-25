@@ -57,6 +57,7 @@ type Parser struct {
 	inForInit         bool                 // true while parsing for-init or range clause (marks LoopVar)
 	funcDepth         int                  // nesting depth of function bodies (>0 means inside a function)
 	loopDepth         int                  // nesting depth of for loops (>0 means inside a loop)
+	instDepth         int                  // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
 	buildCtx          *buildContext        // build constraint context for file filtering
 }
 
