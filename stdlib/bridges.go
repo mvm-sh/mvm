@@ -76,7 +76,7 @@ func (b *BridgeError) Format(f fmt.State, verb rune) {
 // stderrors.Is a value-level fallback when interface == fails.
 func (b *BridgeError) Is(target error) bool {
 	if t, ok := target.(bridgedValue); ok {
-		return b.Val != nil && b.Val == t.bridgeVal()
+		return bridgeValEqual(b.Val, t.bridgeVal())
 	}
 	return false
 }
@@ -85,6 +85,17 @@ func (b *BridgeError) Is(target error) bool {
 type bridgedValue interface{ bridgeVal() any }
 
 func (b *BridgeError) bridgeVal() any { return b.Val }
+
+func bridgeValEqual(a, b any) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	ta := reflect.TypeOf(a)
+	if ta != reflect.TypeOf(b) || !ta.Comparable() {
+		return false
+	}
+	return a == b
+}
 
 // BridgeGoString bridges the fmt.GoStringer interface method.
 type BridgeGoString struct {
@@ -259,7 +270,7 @@ func (b *errBridgeBase) bridgeVal() any { return b.Val }
 // their Val is an uncomparable []error.
 func (b *errBridgeBase) identityIs(target error) bool {
 	if t, ok := target.(bridgedValue); ok {
-		return b.Val != nil && b.Val == t.bridgeVal()
+		return bridgeValEqual(b.Val, t.bridgeVal())
 	}
 	return false
 }

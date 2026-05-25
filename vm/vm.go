@@ -4278,6 +4278,13 @@ func coerceInterfaceArgs(in []reflect.Value, funcType reflect.Type) {
 		if rv.Type() == paramType {
 			continue
 		}
+		if rv.Kind() == reflect.Interface && rv.IsNil() {
+			// Typed-nil interface var (e.g. a nil `error`) to a differently-typed
+			// param: reflect can't Convert interface->interface, so emit the
+			// param's typed zero (matches the invalid-value case above).
+			in[i] = reflect.Zero(paramType)
+			continue
+		}
 		if rv.Kind() == reflect.Interface && !rv.IsNil() {
 			in[i] = rv.Elem()
 		} else if rv.Kind() == paramType.Kind() || (isNum(rv.Kind()) && isNum(paramType.Kind())) {

@@ -1741,6 +1741,14 @@ var t T
 t.X = 99
 t.X`, res: "99"},
 
+		// A local var whose name shadows its own type: later expressions
+		// resolve to the var, while the `:=` initializer's `&T{}` still refers
+		// to the type (mirrors errors_test's `poser := &poser{...}`).
+		{n: "var_shadows_own_type", src: `
+type T struct { x int }
+func f() int { T := &T{42}; return T.x }
+f()`, res: "42"},
+
 		// Naked block creates a new scope; inner variable shadows outer.
 		{n: "block_scope", src: `
 func f() int {

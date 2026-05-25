@@ -89,11 +89,17 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 				if len(e) != 1 || e[0].Tok != lang.Ident {
 					continue
 				}
+				var name string
 				if p.funcScope != "" {
-					out[lhsPositions[i]].Str = p.addOrRebindLocalVar(e[0].Str)
+					name = p.addOrRebindLocalVar(e[0].Str)
 				} else {
-					out[lhsPositions[i]].Str = p.addGlobalVar(e[0].Str)
+					name = p.addGlobalVar(e[0].Str)
 				}
+				// Reset to a clean binding target. When the LHS name shadows an
+				// outer type (e.g. `poser := &poser{}`), parseExpr resolved the
+				// type onto this token (Arg carries the *vm.Type), which would
+				// make the compiler treat the define target as a type.
+				out[lhsPositions[i]] = newIdent(name, out[lhsPositions[i]].Pos)
 			}
 			if p.funcScope != "" {
 				switch {
