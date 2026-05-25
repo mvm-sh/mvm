@@ -4003,6 +4003,9 @@ func (m *Machine) Top() (v Value) {
 	return v
 }
 
+// StackLen returns the number of values left on the data stack.
+func (m *Machine) StackLen() int { return len(m.mem) }
+
 // PopExit removes the last machine code instruction if is Exit.
 func (m *Machine) PopExit() {
 	if l := len(m.code); l > 0 && m.code[l-1].Op == Exit {

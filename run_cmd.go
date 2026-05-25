@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/mvm-sh/mvm/goparser"
@@ -23,9 +24,9 @@ Options:
 
 func runCmd(arg []string) error {
 	var (
-		str   string
-		trace traceFlag
-		stat  bool
+		str   string    // the string to eval
+		trace traceFlag // to print executed code lines
+		stat  bool      // to print execution statistics afterward
 	)
 	rflag := flag.NewFlagSet("run", flag.ContinueOnError)
 	rflag.Usage = func() {
@@ -62,16 +63,15 @@ func runCmd(arg []string) error {
 	switch {
 	case str != "":
 		i.AutoImportPackages()
-		_, err = i.Eval(str, str)
+		var res reflect.Value
+		res, err = i.Eval(str, str)
+		if err == nil && i.StackLen() == 1 && res.IsValid() {
+			_, _ = fmt.Fprintln(out, res)
+		}
 	case len(args) == 0:
 		i.AutoImportPackages()
 		return i.Repl(os.Stdin)
 	case looksLikeImportPath(args[0]):
-		// Remote/import-path main package. Empty source routes Eval through
-		// package loading (pkgfs -> stdlibfs -> remotefs); the loaded package's
-		// main() is invoked automatically by interp.Eval. Forward the trailing
-		// args as the program's os.Args (a host pointer bridge); os.Args[0] is
-		// the short program name, matching the convention `go run` uses.
 		target := args[0]
 		i.AutoImportPackages()
 		os.Args = append([]string{goparser.PackageName(target)}, args[1:]...)
@@ -81,16 +81,11 @@ func runCmd(arg []string) error {
 			}
 		}
 	default:
-		// Count the leading run of .go file arguments (go run semantics: every
-		// named .go file forms the main package; the first non-.go arg starts the
-		// program's os.Args).
 		nfiles := 0
 		for nfiles < len(args) && strings.HasSuffix(args[nfiles], ".go") {
 			nfiles++
 		}
 		if nfiles > 1 {
-			// Compile all named files as one unit so they see each other's
-			// top-level symbols regardless of file or declaration order.
 			sources := make([]goparser.PackageSource, 0, nfiles)
 			for _, a := range args[:nfiles] {
 				fpath := filepath.Clean(a)
@@ -128,11 +123,6 @@ func runCmd(arg []string) error {
 	return err
 }
 
-// looksLikeImportPath reports whether s should be treated as a remote/package
-// import path rather than a local .go file: it contains a slash, does not end
-// in ".go", and is not the path of an existing local file. Mirrors
-// comp.looksLikePkgPath (unexported) with a local-file guard so a real path
-// always wins over a network fetch.
 func looksLikeImportPath(s string) bool {
 	if !strings.ContainsRune(s, '/') || strings.HasSuffix(s, ".go") {
 		return false
@@ -141,7 +131,6 @@ func looksLikeImportPath(s string) bool {
 	return err != nil // existing local path -> not an import path
 }
 
-// newlineTracker wraps a writer and tracks whether the last byte written was a newline.
 type newlineTracker struct {
 	w       io.Writer
 	written bool

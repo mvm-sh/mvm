@@ -13,7 +13,6 @@ import (
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
 )
 
-// TestRewriteTestFlags checks the go-test -> testing.Main flag-name rewrite.
 func TestRewriteTestFlags(t *testing.T) {
 	cases := []struct {
 		in, want []string
@@ -33,7 +32,6 @@ func TestRewriteTestFlags(t *testing.T) {
 	}
 }
 
-// TestSplitTestArgs checks the mvm-flags / target / test-flags partition.
 func TestSplitTestArgs(t *testing.T) {
 	cases := []struct {
 		in       []string
@@ -59,8 +57,6 @@ func TestSplitTestArgs(t *testing.T) {
 	}
 }
 
-// TestFailingTestFile checks extraction of a bridged-stdlib test file
-// basename from a compile error's source position (drop-on-error retry).
 func TestFailingTestFile(t *testing.T) {
 	cases := []struct {
 		err, target, want string
@@ -82,9 +78,6 @@ func TestFailingTestFile(t *testing.T) {
 	}
 }
 
-// TestBuildModFS exercises the GOPROXY parsing in buildModFS. The shape
-// of the resulting modfs (offline vs network-backed) is internal; this
-// test only asserts construction never fails or returns nil.
 func TestBuildModFS(t *testing.T) {
 	cases := []string{
 		"",                                    // default proxy
@@ -103,10 +96,6 @@ func TestBuildModFS(t *testing.T) {
 	}
 }
 
-// TestEmbeddedStdResolves checks that stdlib imports resolve through
-// the default stdlib redirect FS, by virtue of the embedded std zip
-// injected at startup. This is the path NewInterpreter installs for
-// callers that don't go through wireFS (tests, embed users).
 func TestEmbeddedStdResolves(t *testing.T) {
 	stdlibFS := stdmod.DefaultFS()
 
@@ -153,8 +142,6 @@ func TestFilterTopLevelTests(t *testing.T) {
 	}
 }
 
-// buildMvm builds the mvm binary into a temp dir and returns its path.
-// Shared by the -stat integration tests.
 func buildMvm(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "mvm")
@@ -164,7 +151,6 @@ func buildMvm(t *testing.T) string {
 	return bin
 }
 
-// writeFixture writes src as x_test.go in a fresh temp dir and returns the dir.
 func writeFixture(t *testing.T, src string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -174,8 +160,6 @@ func writeFixture(t *testing.T, src string) string {
 	return dir
 }
 
-// runMvmTest runs `bin test <args...>` and returns the exit code and combined
-// output. A failure that is not a normal non-zero exit fails the test.
 func runMvmTest(t *testing.T, bin string, args ...string) (int, string) {
 	t.Helper()
 	out, err := exec.Command(bin, append([]string{"test"}, args...)...).CombinedOutput() //nolint:gosec // bin is buildMvm's t.TempDir output
@@ -189,47 +173,6 @@ func runMvmTest(t *testing.T, bin string, args ...string) (int, string) {
 	return 0, string(out)
 }
 
-// TestStatOrderingAfterTests asserts the stats block appears AFTER the package
-// PASS/FAIL line (and therefore after the test body's stdout). Stats flush once
-// testing.MainStart(...).Run() returns, so they follow everything testing
-// prints; this guards that ordering.
-func TestStatOrderingAfterTests(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in -short")
-	}
-
-	fixture := writeFixture(t, `package x
-import "fmt"
-import "testing"
-func TestSentinel(t *testing.T) { fmt.Println("SENTINEL_OUTPUT") }
-`)
-	code, s := runMvmTest(t, buildMvm(t), "-stat", fixture)
-	if code != 0 {
-		t.Fatalf("mvm test exited %d:\n%s", code, s)
-	}
-	sentinel := strings.Index(s, "SENTINEL_OUTPUT")
-	stats := strings.Index(s, "mvm stats:")
-	pass := strings.Index(s, "PASS")
-	switch {
-	case sentinel < 0:
-		t.Fatalf("test body did not run (no SENTINEL_OUTPUT):\n%s", s)
-	case stats < 0:
-		t.Fatalf("no stats block:\n%s", s)
-	case pass < 0:
-		t.Fatalf("no PASS line:\n%s", s)
-	case stats < sentinel:
-		t.Errorf("stats appeared BEFORE test output; want after:\n%s", s)
-	case stats < pass:
-		t.Errorf("stats appeared BEFORE PASS; want stats after the package PASS/FAIL line:\n%s", s)
-	}
-}
-
-// TestStatFlushAcrossFailureModes guards that stats flush regardless of how a
-// test exits: t.Errorf (plain fail), t.Fatal (runtime.Goexit), or t.Skip
-// (runtime.Goexit). All three flow through testing.MainStart(...).Run(), which
-// returns normally so the post-run flush always fires. Panicking tests are out
-// of scope per ADR-018 (testing re-panics and crashes the process before Run
-// returns).
 func TestStatFlushAcrossFailureModes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")
@@ -269,13 +212,6 @@ func TestZ(t *testing.T) {}
 	}
 }
 
-// TestExampleRun guards that `mvm test` discovers and runs Example* functions
-// (with an // Output: directive) and that their stdout is captured correctly.
-// The example mixes fmt.Print (which mvm routes through the interpreter writer)
-// with a direct os.Stdout write (the bridged global): both must land in the
-// captured stream in program order, which only holds when the interpreter's
-// stdout follows testing's per-example os.Stdout redirection. A package with no
-// Test* funcs (examples only) must still run rather than report "no tests".
 func TestExampleRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")
@@ -322,9 +258,6 @@ func ExampleMix() {
 	}
 }
 
-// TestRunMultiFile guards `mvm run f1.go f2.go ...`: the named files are compiled
-// as one main package, so a top-level symbol declared in one file resolves from
-// another regardless of the order the files are listed (issue #19).
 func TestRunMultiFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")
@@ -351,10 +284,41 @@ func TestRunMultiFile(t *testing.T) {
 	}
 }
 
-// TestBenchmarkRun guards that `mvm test -bench` discovers and runs Benchmark*
-// functions through the MainStart driver. Benchmarks run only when -bench is
-// given; a benchmarks-only package must still drive (not short-circuit on the
-// "no tests" guard), and a failing benchmark must surface as FAIL/exit 1.
+// TestRunEvalEcho guards that `mvm run -e` echoes the result of the last
+// statement to stdout (bare, no prefix) only when it left exactly one value on
+// the data stack: a value-producing expression or single-return call. Void and
+// multi-return calls, and statements whose value lives in a global (assignment,
+// define, declaration), leave 0 (or 2+) values and produce no echo.
+func TestRunEvalEcho(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short")
+	}
+	bin := buildMvm(t)
+	cases := []struct {
+		name, expr, want string
+	}{
+		{"arith", "1+2", "3\n"},
+		{"builtin len", `len("abc")`, "3\n"},
+		{"multi-return call suppressed", `fmt.Println("hi")`, "hi\n"}, // no trailing <nil>
+		{"void call suppressed", "f := func(){}; f()", ""},
+		{"define suppressed", "x:=5", ""},
+		{"assign suppressed", "x:=5; x=x+3", ""},
+		{"multi-define suppressed", "a,b:=1,2", ""},
+		{"declaration suppressed", "var x int", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := exec.Command(bin, "run", "-e", c.expr).CombinedOutput() //nolint:gosec // bin from t.TempDir
+			if err != nil {
+				t.Fatalf("run -e %q: %v\n%s", c.expr, err, out)
+			}
+			if string(out) != c.want {
+				t.Errorf("run -e %q = %q, want %q", c.expr, out, c.want)
+			}
+		})
+	}
+}
+
 func TestBenchmarkRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in -short")

@@ -121,10 +121,10 @@ func QualifyName(pkg, name string) string {
 	return pkg + "." + name
 }
 
-// ImportPackageConsts attaches high-precision constant values (from
-// stdlib.ConstValues) to already-imported packages, so the compiler can fold
-// constant expressions involving bridged floats (e.g. math.Pi) at full
-// precision. Call it after ImportPackageValues.
+// ImportPackageConsts attaches high-precision constant values
+// to already-imported packages, so the compiler can fold
+// constant expressions involving bridged floats at full precision.
+// Call it after ImportPackageValues.
 func (p *Parser) ImportPackageConsts(m map[string]map[string]string) {
 	for pkg, consts := range m {
 		bp, ok := p.Packages[pkg]
