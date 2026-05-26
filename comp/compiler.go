@@ -2722,7 +2722,20 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			return fmt.Errorf("label not found: %q", t.Str)
 		}
 		loc := t.Arg[0].(int)
-		c.Code[loc].A = int32(int(s.Value.Int()) - loc) // relative code position
+		jumpOff := int(s.Value.Int()) - loc
+		switch c.Code[loc].Op {
+		case vm.GetLocalLowerIntImmJumpFalse, vm.GetLocalLowerIntImmJumpTrue:
+			// Packed encoding: A = jumpOff_int16<<16 | localOff_uint16. The
+			// localOff was already written at fuse time; OR the jumpOff into
+			// the high 16 bits. Error out if a function body exceeds the int16
+			// jumpOff bound (typical Go code stays well under).
+			if jumpOff < -32768 || jumpOff > 32767 {
+				return c.errAt(t, "jump offset %d overflows int16 in fused compare-and-branch", jumpOff)
+			}
+			c.Code[loc].A = (int32(jumpOff) << 16) | (c.Code[loc].A & 0xFFFF)
+		default:
+			c.Code[loc].A = int32(jumpOff)
+		}
 	}
 	return err
 }
@@ -2876,31 +2889,43 @@ func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,
 	}
 	prev := &c.Code[len(c.Code)-1]
 	var fused vm.Op
-	var newB int32
+	var newA, newB int32
 	switch prev.Op {
 	case cmpOp:
+		// Layout: A=jumpOff(int32), B=imm32.
 		fused = fusedOp
-		newB = prev.A + immAdj // immediate moves to B; A will hold jump offset
+		newB = prev.A + immAdj
+		// newA = jumpOff (filled below).
 	case getLocalCmpOp:
-		imm := prev.B + immAdj
-		if imm < -32768 || imm > 32767 {
-			return false // immediate doesn't fit in int16 after adjustment
+		// Layout: A=jumpOff_i16<<16|localOff_i16, B=imm32. localOff is the
+		// signed slot offset relative to fp (params are negative, locals
+		// positive); always fits int16 in practice. jumpOff fits int16 in
+		// practice (loop bodies are tens of ops); the fixup loop checks at
+		// the end and errors if a real function violates the bound.
+		if prev.A < -32768 || prev.A > 32767 {
+			return false // localOff doesn't fit int16
 		}
 		fused = getLocalFusedOp
-		newB = (prev.A << 16) | (imm & 0xFFFF) // pack localOff<<16 | imm
+		newA = prev.A & 0xFFFF // low 16: localOff (sign bit preserved by mask).
+		newB = prev.B + immAdj // full int32 imm.
 	default:
 		return false
 	}
 	loc := len(c.Code) - 1
-	var jumpOff int32
 	if s, ok := c.Symbols[t.Str]; !ok {
 		t.Arg = []any{loc} // fixup at the fused instruction's position
 		*fixList = append(*fixList, t)
+	} else if fused == getLocalFusedOp {
+		jumpOff := int32(int(s.Value.Int()) - loc)
+		if jumpOff < -32768 || jumpOff > 32767 {
+			return false // backward jump too far for the packed encoding
+		}
+		newA |= jumpOff << 16
 	} else {
-		jumpOff = int32(int(s.Value.Int()) - loc)
+		newA = int32(int(s.Value.Int()) - loc)
 	}
 	prev.Op = fused
-	prev.A = jumpOff
+	prev.A = newA
 	prev.B = newB
 	return true
 }

@@ -325,8 +325,8 @@ const (
 	// using the identity: (a > imm) same as !(a < imm+1).
 	LowerIntImmJumpFalse         // n -- ; if n >= $2 { ip += $1 } ; sp--
 	LowerIntImmJumpTrue          // n -- ; if n < $2 { ip += $1 } ; sp--
-	GetLocalLowerIntImmJumpFalse // -- ; if local >= imm { ip += $1 } ; $2 = localOff<<16 | imm&0xFFFF
-	GetLocalLowerIntImmJumpTrue  // -- ; if local < imm { ip += $1 } ; $2 = localOff<<16 | imm&0xFFFF
+	GetLocalLowerIntImmJumpFalse // -- ; if local[$1.lo] >= $2 { ip += $1.hi } ($1 = jumpOff_int16<<16 | localOff_int16, $2 = imm32)
+	GetLocalLowerIntImmJumpTrue  // -- ; if local[$1.lo] < $2 { ip += $1.hi } ($1 = jumpOff_int16<<16 | localOff_int16, $2 = imm32)
 
 	// In-place local update super-instructions for `x op= y` and `x op= n`,
 	// collapsing the GetLocal2+RHS+SetLocal+Pop sequence. No stack effect.
@@ -1265,13 +1265,13 @@ func (m *Machine) Run() (err error) {
 				continue
 			}
 		case GetLocalLowerIntImmJumpFalse:
-			if int(mem[int(c.B>>16)+fp-1].num) >= int(int16(c.B)) {
-				ip += int(c.A)
+			if int(mem[int(int16(c.A))+fp-1].num) >= int(c.B) {
+				ip += int(c.A >> 16)
 				continue
 			}
 		case GetLocalLowerIntImmJumpTrue:
-			if int(mem[int(c.B>>16)+fp-1].num) < int(int16(c.B)) {
-				ip += int(c.A)
+			if int(mem[int(int16(c.A))+fp-1].num) < int(c.B) {
+				ip += int(c.A >> 16)
 				continue
 			}
 		case AddLocalLocal:
