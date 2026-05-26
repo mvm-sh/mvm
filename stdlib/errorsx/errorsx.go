@@ -15,44 +15,93 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
+var errorRtype = reflect.TypeOf((*error)(nil)).Elem()
+
 func init() {
 	stdlib.RegisterPackagePatcher("errors", patchErrors)
-	// Argument 1 of mvmAs is the target pointer. The default native-call
-	// boundary would bridge a mvm Iface as e.g. *BridgeError; instead we
-	// need the raw pointer so mvmAs can dereference and assign through it.
-	vm.RegisterArgProxy(mvmAs, 1, stdlib.PassthroughIface)
+	vm.RegisterArgProxy(mvmAs, 1, asTargetProxy)
 }
 
 func patchErrors(_ *vm.Machine, values map[string]vm.Value) {
 	values["As"] = vm.FromReflect(reflect.ValueOf(mvmAs))
 }
 
-// mvmAs replaces stderrors.As. It walks err's chain (Unwrap and
-// Unwrap-[]error) and at each layer extracts the underlying interpreted
-// value via vm.UnbridgeValue when the layer is a bridge wrapper. The
-// first layer whose value is assignable to *target's element type sets
-// the target and returns true.
+// asTarget carries an As target across the native-call boundary with its
+// interpreted element type intact.
+type asTarget struct {
+	ptr      reflect.Value // the target pointer to assign through
+	elemType *vm.Type      // interpreted type of *target (nil if unknown)
+}
+
+func asTargetProxy(_ *vm.Machine, ifc vm.Iface) reflect.Value {
+	t := asTarget{ptr: ifc.Val.Reflect()}
+	if ifc.Typ != nil {
+		t.elemType = ifc.Typ.ElemType
+	}
+	return reflect.ValueOf(t)
+}
+
+// mvmAs replaces stderrors.As.
 func mvmAs(err error, target any) bool {
+	t, ok := target.(asTarget)
+	if !ok {
+		// Target not routed through asTargetProxy (e.g. a native caller).
+		t = asTarget{ptr: reflect.ValueOf(target)}
+	}
 	if err == nil {
 		return false
 	}
-	if target == nil {
+	ptr := t.ptr
+	if !ptr.IsValid() {
 		panic("errors: target cannot be nil")
 	}
-	rv := reflect.ValueOf(target)
-	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+	if ptr.Kind() != reflect.Pointer || ptr.IsNil() {
 		panic("errors: target must be a non-nil pointer")
 	}
-	return asWalk(err, rv, rv.Type().Elem())
+	targetType := ptr.Type().Elem()
+	// errors.As requires *target to be an interface or to implement error.
+	// Only a basic-kind target (int, string, ...) can never implement error;
+	// reject those. Composite targets (struct/pointer/slice) may carry an
+	// interpreted method set invisible to native reflect, so accept them
+	// unless their basic-kind elem clearly can't (the elemType methods check
+	// covers a named basic type such as `type code int` with an Error method).
+	if isBasicKind(targetType.Kind()) && !errorImplementer(t.elemType, targetType) {
+		panic("errors: *target must be interface or implement error")
+	}
+	return asWalk(err, ptr, targetType, t.elemType)
 }
 
-func asWalk(err error, targetVal reflect.Value, targetType reflect.Type) bool {
+func isBasicKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.String:
+		return true
+	}
+	return false
+}
+
+func errorImplementer(elemType *vm.Type, rtype reflect.Type) bool {
+	if rtype.Implements(errorRtype) {
+		return true
+	}
+	if elemType != nil {
+		for _, m := range elemType.Methods {
+			if m.IsResolved() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func asWalk(err error, targetVal reflect.Value, targetType reflect.Type, elemType *vm.Type) bool {
 	for err != nil {
 		v := reflect.ValueOf(err)
 		if uv := vm.UnbridgeValue(v); uv.IsValid() {
 			v = uv
 		}
-		if v.IsValid() && v.Type().AssignableTo(targetType) {
+		if v.IsValid() && asAssignable(v, targetType, elemType) {
 			targetVal.Elem().Set(v)
 			return true
 		}
@@ -67,7 +116,7 @@ func asWalk(err error, targetVal reflect.Value, targetType reflect.Type) bool {
 				if e == nil {
 					continue
 				}
-				if asWalk(e, targetVal, targetType) {
+				if asWalk(e, targetVal, targetType, elemType) {
 					return true
 				}
 			}
@@ -77,4 +126,14 @@ func asWalk(err error, targetVal reflect.Value, targetType reflect.Type) bool {
 		}
 	}
 	return false
+}
+
+func asAssignable(v reflect.Value, targetType reflect.Type, elemType *vm.Type) bool {
+	if targetType.Kind() != reflect.Interface || targetType.NumMethod() > 0 {
+		return v.Type().AssignableTo(targetType)
+	}
+	if elemType == nil || len(elemType.IfaceMethods) == 0 {
+		return true // interface{} / any: every value matches
+	}
+	return elemType.MissingMethod(v.Type()) == ""
 }

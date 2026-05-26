@@ -221,9 +221,12 @@ func deepUnbridgeDepth(rv reflect.Value, depth int) reflect.Value {
 			return out
 		}
 		return rv
-	case reflect.Slice:
+	case reflect.Slice, reflect.Array:
 		et := rv.Type().Elem()
-		if rv.IsNil() || (et.Kind() != reflect.Interface && et.Kind() != reflect.Slice) {
+		if et.Kind() != reflect.Interface && et.Kind() != reflect.Slice && et.Kind() != reflect.Array {
+			return rv
+		}
+		if rv.Kind() == reflect.Slice && rv.IsNil() {
 			return rv
 		}
 		n := rv.Len()
@@ -239,13 +242,22 @@ func deepUnbridgeDepth(rv reflect.Value, depth int) reflect.Value {
 		}
 		// A bridge's underlying value may not satisfy the named element
 		// interface (e.g. an interpreted multierror unbridges to a plain
-		// []error, which is not itself an error). Widen to []any so both
-		// DeepEqual operands reduce to the same comparable shape.
-		sliceType := rv.Type()
-		if !allAssignable {
-			sliceType = reflect.SliceOf(AnyRtype)
+		// []error, which is not itself an error). Widen the element type to
+		// `any` so both DeepEqual operands reduce to the same comparable shape.
+		var out reflect.Value
+		if rv.Kind() == reflect.Slice {
+			st := rv.Type()
+			if !allAssignable {
+				st = reflect.SliceOf(AnyRtype)
+			}
+			out = reflect.MakeSlice(st, n, n)
+		} else {
+			at := rv.Type()
+			if !allAssignable {
+				at = reflect.ArrayOf(n, AnyRtype)
+			}
+			out = reflect.New(at).Elem()
 		}
-		out := reflect.MakeSlice(sliceType, n, n)
 		for j := range n {
 			out.Index(j).Set(elems[j])
 		}

@@ -33,6 +33,22 @@ func DeepEqualArg(m *vm.Machine, ifc vm.Iface) reflect.Value {
 	return vm.DeepUnbridge(PassthroughIface(m, ifc))
 }
 
+// ReflectArg is the reflect.TypeOf/ValueOf arg proxy. A POINTER to an
+// interpreted value must reach reflect unbridged, so reflect.ValueOf(&v).Elem()
+// yields the real pointee rather than a *BridgeError's field (needed by
+// errors.As's reflect-based target readback). Non-pointer values keep the
+// default `any` bridging: the display bridge is what lets reflect see an
+// interpreted type's String/Error methods (MethodByName, Interface() display);
+// stripping it there would make reflect.ValueOf(stringer).MethodByName("String")
+// invalid. (BridgeForAny leaves a plain struct unbridged and wraps a func as a
+// native func, so both still introspect correctly.)
+func ReflectArg(m *vm.Machine, ifc vm.Iface) reflect.Value {
+	if ifc.Typ != nil && ifc.Typ.Rtype != nil && ifc.Typ.Rtype.Kind() == reflect.Pointer {
+		return PassthroughIface(m, ifc)
+	}
+	return m.BridgeForAny(ifc)
+}
+
 // Bridge types for common interface methods.
 // Each bridge is a struct with a Fn field and a pointer-receiver method
 // that delegates to Fn. At the native call boundary, the VM allocates a
@@ -594,6 +610,13 @@ func init() {
 	// instances with non-nil func fields). DeepEqualArg also strips those.
 	vm.RegisterArgProxy(reflect.DeepEqual, 0, DeepEqualArg)
 	vm.RegisterArgProxy(reflect.DeepEqual, 1, DeepEqualArg)
+	// reflect.TypeOf/ValueOf (and internal/reflectlite's, bound to the same
+	// funcs) introspect a value, so they must see the concrete interpreted
+	// value, not its display bridge: reflect.ValueOf(&interpretedErr) would
+	// otherwise wrap *stdlib.BridgeError, and .Elem()/.Type()/.Interface()
+	// would report the bridge instead of the underlying value.
+	vm.RegisterArgProxy(reflect.TypeOf, 0, ReflectArg)
+	vm.RegisterArgProxy(reflect.ValueOf, 0, ReflectArg)
 
 	// sort.Slice* take the slice as `any` and drive it through reflect.Swapper /
 	// reflect.ValueOf, so the raw slice must reach them unwrapped. Without these

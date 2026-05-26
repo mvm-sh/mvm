@@ -473,7 +473,6 @@ func TestGenericType(t *testing.T) {
 		{n: "generic_method_ptr", src: `type Box[T any] struct { V T }; func (b *Box[T]) Set(v T) { b.V = v }; b := &Box[int]{V: 0}; b.Set(99); b.V`, res: "99"},
 		{n: "generic_method_multi", src: `type Box[T any] struct { V T }; func (b Box[T]) Get() T { return b.V }; func (b *Box[T]) Set(v T) { b.V = v }; b := &Box[int]{V: 1}; b.Set(2); b.Get()`, res: "2"},
 		{n: "generic_method_multi_tparam", src: `type Pair[K comparable, V any] struct { K K; V V }; func (p Pair[K, V]) Key() K { return p.K }; Pair[string, int]{K: "x", V: 1}.Key()`, res: "x"},
-		// Out of scope: skipped tests for known unsupported features.
 		{n: "constraint_check", src: `func Less[T comparable](a, b T) bool { return a < b }; Less[func()](nil, nil)`, err: "does not satisfy constraint"},
 		{n: "comparable_ok", src: `func Id[T comparable](x T) T { return x }; Id[int](42)`, res: "42"},
 		{n: "comparable_slice", src: `func Id[T comparable](x T) T { return x }; Id[[]int](nil)`, err: "does not satisfy constraint"},
@@ -485,36 +484,18 @@ func TestGenericType(t *testing.T) {
 		{n: "generic_interface", src: `type Stringer[T any] interface { String(T) string }; ""`, res: ""},
 		{n: "nested_generic", src: `type Box[T any] struct { V T }; type Wrap[U any] struct { Inner Box[U] }; w := Wrap[int]{Inner: Box[int]{V: 1}}; w.Inner.V`, res: "1"},
 		{n: "generic_type_alias", src: `type Box[T any] struct { V T }; type IntBox = Box[int]; b := IntBox{V: 1}; b.V`, res: "1"},
-		// Interface-with-union type constraints (cmp.Ordered-style).
 		{n: "union_iface_ok", src: `type Ord interface { ~int | ~string }; func F[T Ord](x T) T { return x }; F[int](42)`, res: "42"},
 		{n: "union_iface_ok_str", src: `type Ord interface { ~int | ~string }; func F[T Ord](x T) T { return x }; F[string]("hi")`, res: "hi"},
 		{n: "union_iface_reject", src: `type Ord interface { ~int | ~string }; func F[T Ord](x T) T { return x }; F[float64](1.0)`, err: "does not satisfy constraint"},
 		{n: "approx_named", src: `type Ord interface { ~int }; type MyInt int; func F[T Ord](x T) T { return x }; F[MyInt](MyInt(1))`, res: "1"},
-		// Inter-param reference in constraints (e.g. slices.Sort-style [S ~[]E, E Ord]).
 		{n: "typeparam_ref", src: `func F[T any, U T](x U) U { return x }; F[int, int](1)`, res: "1"},
-		// `comparable` as an embedded constraint-interface element (not just in
-		// direct constraint position). go1.26 errors/wrap_test.go's compError.
 		{n: "comparable_iface_elem_ok", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[int](42)`, res: "42"},
 		{n: "comparable_iface_elem_reject", src: `type C interface { comparable }; func F[T C](x T) T { return x }; F[func()](nil)`, err: "does not satisfy constraint"},
 		{n: "comparable_iface_with_method", src: `import "fmt"; type C interface { comparable; error }; func F[T C](xs []T) bool { var z T; return len(xs) > 0 && xs[0] != z }; F([]error{fmt.Errorf("x")})`, res: "true"},
-		// Interface constraint (e.g. [T error]) satisfied by an interpreted
-		// concrete type: its methods live in vm-level Methods, invisible to
-		// reflect.Implements, so the constraint check walks method symbols by
-		// name (incl. a pointer arg's value-receiver methods). Underpins the
-		// errors.AsType shim. See [[project_generic_iface_constraint]].
 		{n: "iface_constraint_interp_ptr", src: `type E struct{ s string }; func (e *E) Error() string { return e.s }; func F[T error](x T) T { return x }; F[*E](&E{"x"}).Error()`, res: "x"},
 		{n: "iface_constraint_interp_value", src: `type E struct{ s string }; func (e E) Error() string { return e.s }; func F[T error](x T) T { return x }; F[E](E{"y"}).Error()`, res: "y"},
 		{n: "iface_constraint_interp_reject", src: `type E struct{ n int }; func F[T error](x T) T { return x }; F[*E](&E{})`, err: "does not satisfy constraint"},
-		// Gap: a user-defined (interpreted) interface type argument to an
-		// interface constraint is rejected -- its method set lives in
-		// IfaceMethods, and instantiating a cross-pkg generic with a local
-		// interpreted interface type arg is unsupported (errors/wrap_test.go's
-		// AsType[timeout]). Native interface args (error) still pass.
 		{n: "iface_constraint_interp_iface_arg", src: `type I interface { Foo() string }; func F[T I](x T) string { return x.Foo() }; type T struct{}; func (T) Foo() string { return "ok" }; var v I = T{}; F[I](v)`, res: "ok"},
-		// Unbounded-growth recursion (each level a new mangled name) is rejected
-		// instead of looping the instantiator forever, matching Go's
-		// "instantiation cycle". This test also guards wall-clock: a regression
-		// hangs the suite rather than failing fast.
 		{n: "instantiation_cycle", src: `func F[T any]() { F[[]T]() }; F[int]()`, err: "instantiation cycle"},
 	})
 }
@@ -1016,48 +997,70 @@ func TestStruct(t *testing.T) {
 		{n: "astype_nomatch", src: `import "errors"; type E struct{ s string }; func (e *E) Error() string { return e.s }; type F struct{ n int }; func (f *F) Error() string { return "f" }; var err error = &E{"boom"}; _, ok := errors.AsType[*F](err); ok`, res: "false"},
 		{n: "astype_unwrap_chain", src: `import "errors"; import "fmt"; type E struct{ s string }; func (e *E) Error() string { return e.s }; base := &E{"inner"}; w := fmt.Errorf("ctx: %w", base); v, ok := errors.AsType[*E](w); ok && v.s == "inner"`, res: "true"},
 
-		// An interpreted error with a custom Is(error)bool / As(any)bool must
-		// have that method dispatched by the native errors.Is / errors.As chain walk.
 		{n: "errors_is_custom_match", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrPermission)`, res: "true"},
 		{n: "errors_is_custom_nomatch", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrNotExist)`, res: "false"},
+
 		// SKIP (separate gap): passing the interpreted error through fmt.Errorf
 		// %w bridges it via the `any` (variadic) boundary, which uses only the
 		// single-method DisplayBridges, so the Error+Is composite is never
 		// selected and the custom Is is lost from the wrapped chain. The direct
 		// errors.Is path above works; only the through-`any` chain is affected.
 		{n: "errors_is_through_native_wrap", skip: true, src: `import "errors"; import "fmt"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; w := fmt.Errorf("ctx: %w", E{"x"}); errors.Is(w, fs.ErrPermission)`, res: "true"},
+
 		{n: "errors_as_custom_match", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "custom", Path: "/", Err: errors.New(e.s)}; return true }; var err error = E{"boom"}; var pe *fs.PathError; ok := errors.As(err, &pe); ok && pe.Path == "/"`, res: "true"},
+
 		{n: "errors_is_with_unwrap_method", src: `import "errors"; import "io/fs"; type E struct{ inner error }; func (e E) Error() string { return "e" }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; func (e E) Unwrap() error { return e.inner }; var err error = E{inner: errors.New("x")}; errors.Is(err, fs.ErrPermission)`, res: "true"},
+
 		{n: "errors_is_and_as_combined", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; func (e E) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "custom", Path: "/", Err: errors.New(e.s)}; return true }; var err error = E{"x"}; var pe *fs.PathError; errors.Is(err, fs.ErrPermission) && errors.As(err, &pe) && pe.Path == "/"`, res: "true"},
+
 		{n: "errors_as_with_unwrap_method", src: `import "errors"; import "io/fs"; type E struct{ inner error }; func (e E) Error() string { return "e" }; func (e E) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "custom", Path: "/", Err: errors.New("x")}; return true }; func (e E) Unwrap() error { return e.inner }; var err error = E{inner: errors.New("y")}; var pe *fs.PathError; errors.As(err, &pe) && pe.Path == "/"`, res: "true"},
+
 		// SKIP (documented gap): %T on an interpreted type shows the synthetic
 		// reflect.StructOf / bridge name, not the source type name. fmt computes
 		// %T from reflect.TypeOf before any Formatter, so it cannot be intercepted.
 		{n: "errors_pct_T_identity", skip: true, src: `import "fmt"; type E struct{ s string }; func (e E) Error() string { return e.s }; var err error = E{"x"}; fmt.Sprintf("%T", err)`, res: "main.E"},
 
 		{n: "errors_multierror_is", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrPermission)`, res: "true"},
+
 		{n: "errors_multierror_is_miss", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrNotExist)`, res: "false"},
+
 		{n: "errors_multierror_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x"), &fs.PathError{Op: "open", Path: "/x", Err: fs.ErrPermission}}; var pe *fs.PathError; errors.As(err, &pe) && pe.Path == "/x"`, res: "true"},
-		// errors.AsType (interpreted generic shim) over an interpreted multierror:
-		// the shim's `switch err.(type)` distinguishes Unwrap() error from
-		// Unwrap() []error, which needs signature-aware interface satisfaction
-		// (method IDs are global by name). Fixed via vm.Type.Implements sigCompatible.
+
 		{n: "errors_multierror_astype", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{&fs.PathError{Op: "open", Path: "/x", Err: fs.ErrPermission}}; _, ok := errors.AsType[*fs.PathError](err); ok`, res: "true"},
-		// Nested multierror: the inner multierror crosses back as a native bridge,
-		// so the native type-assert path must also discriminate Unwrap signatures.
+
 		{n: "errors_multierror_astype_nested", src: `import "errors"; type errorT struct{ s string }; func (e errorT) Error() string { return e.s }; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; err := error(M{M{errors.New("a"), errorT{"x"}}, errorT{"y"}}); got, ok := errors.AsType[errorT](err); ok && got.s == "x"`, res: "true"},
-		// A Unwrap() []error method must not satisfy interface{ Unwrap() error }
-		// (method IDs are global by name; satisfaction is signature-aware).
+
 		{n: "iface_method_sig_discriminates", src: `type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var e error = M{}; _, single := e.(interface{ Unwrap() error }); _, multi := e.(interface{ Unwrap() []error }); !single && multi`, res: "true"},
+
+		{n: "reflect_valueof_ptr_error_no_bridge", src: `import "reflect"; type E struct{ s string }; func (e E) Error() string { return e.s }; e := E{"x"}; v, ok := reflect.ValueOf(&e).Elem().Interface().(E); ok && v.s == "x"`, res: "true"},
+
+		{n: "reflect_valueof_value_method_visible", src: `import "reflect"; type S struct{ s string }; func (x S) String() string { return "S:"+x.s }; reflect.ValueOf(S{"z"}).MethodByName("String").IsValid()`, res: "true"},
+
+		{n: "errors_as_into_struct", src: `import "errors"; type E struct{ s string }; func (e E) Error() string { return e.s }; type w struct{ e error }; func (x w) Error() string { return "w" }; func (x w) Unwrap() error { return x.e }; var got E; ok := errors.As(w{E{"x"}}, &got); ok && got.s == "x"`, res: "true"},
+
+		{n: "errors_as_validation_basic", src: `import "errors"; func f() (r bool) { defer func() { r = recover() != nil }(); var s string; errors.As(errors.New("e"), &s); return false }; f()`, res: "true"},
+
+		// SKIP (fundamental gap): an anonymous interpreted interface target
+		// (interface{ Timeout() bool }) routed through an `any` field loses its
+		// method set at the native boundary (the arg proxy is bypassed and the
+		// pointer's element *Type degrades to interface{}), so errors.As can't
+		// tell which chain element implements it and matches the first one.
+		// Direct (non-any-field) anonymous-interface targets work. Blocks
+		// wrap_test.go TestAs #8/#10/#16 (mvm test errors).
+		{n: "errors_as_anon_iface_target_via_any", skip: true, src: `import "errors"; var timeout interface{ Timeout() bool }; tc := struct{ t any }{&timeout}; errors.As(errors.New("e"), tc.t)`, res: "false"},
+
 		{n: "errors_multierror_self", src: `import "errors"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x")}; errors.Is(err, err)`, res: "false"},
+
 		{n: "errors_multierror_custom_is", src: `import "errors"; import "fmt"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) Is(t error) bool { return t == fs.ErrExist }; var err error = M{fmt.Errorf("w: %w", fs.ErrPermission)}; errors.Is(err, fs.ErrExist) && errors.Is(err, fs.ErrPermission)`, res: "true"},
+
 		{n: "errors_multierror_custom_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "c", Path: "/p"}; return true }; var err error = M{errors.New("x")}; var pe *fs.PathError; errors.As(err, &pe) && pe.Path == "/p"`, res: "true"},
+
 		{n: "errors_multierror_custom_is_as", src: `import "errors"; import "io/fs"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; func (m M) Is(t error) bool { return t == fs.ErrExist }; func (m M) As(target any) bool { pe, ok := target.(**fs.PathError); if !ok { return false }; *pe = &fs.PathError{Op: "c", Path: "/p"}; return true }; var err error = M{errors.New("x")}; var pe *fs.PathError; errors.Is(err, fs.ErrExist) && errors.As(err, &pe) && pe.Path == "/p"`, res: "true"},
-		// reflect.DeepEqual over a []error whose element is an interpreted
-		// (bridged) error: the []error from native errors.Join.Unwrap() and an
-		// interpreted literal hold distinct bridge instances; the DeepEqual arg
-		// proxy strips nested bridges so they compare equal (was: false).
+
 		{n: "errors_join_unwrap_deepequal", src: `import "errors"; import "reflect"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; merr := M{errors.New("e3")}; got := errors.Join(merr).(interface{ Unwrap() []error }).Unwrap(); reflect.DeepEqual(got, []error{merr})`, res: "true"},
+
+		{n: "errors_deepequal_array", src: `import "errors"; import "reflect"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; e := errors.New("e3"); reflect.DeepEqual([1]error{M{e}}, [1]error{M{e}})`, res: "true"},
+
 		// SKIP (deeper gap): a multierror promoted from an EMBEDDED field panics
 		// "reflect: ... value obtained from unexported field" (the promoted-method
 		// closure returns a []error derived from the unexported embedded field).
@@ -1080,8 +1083,6 @@ t := reflect.TypeOf(T{})
 _, ok := reflect.Zero(t).Interface().(Speaker)
 ok`, res: "true"},
 
-		// reflect.Value.MethodByName on a vm.Iface: mvm methods are invisible to
-		// Go reflect, so nativeMethodLookup intercepts and synthesises a bound method.
 		{n: "reflect_value_methodbyname_iface", src: `
 import "reflect"
 type Namer interface { Name() string }
@@ -1101,9 +1102,6 @@ rv := reflect.ValueOf(l)
 out := rv.MethodByName("List").Call(nil)[0].Interface().([]int)
 len(out)`, res: "3"},
 
-		// MethodByName chain inside a closure dispatched via reflect.Value.Call:
-		// re-enters the VM through makeCallFunc, so MethodFuncTypes must reach
-		// the child runner.
 		{n: "reflect_value_methodbyname_reentrant", src: `
 import "reflect"
 type Greeter interface { Hi() string }
@@ -1116,10 +1114,6 @@ f := func() string {
 }
 reflect.ValueOf(f).Call(nil)[0].String()`, res: "hi"},
 
-		// Tier-1: interface type assertion / type switch on an interpreted value
-		// obtained via native reflect (so it arrives as a native any holding the
-		// methodless synthetic rtype, not an mvm Iface). TypeAssert/TypeBranch recover
-		// the *Type via typeByRtype and dispatch the interpreted method.
 		{n: "reflect_assert_iface_okform", src: `
 import "reflect"
 type T struct{ x int }
@@ -1127,12 +1121,14 @@ func (t T) Hello() string { return "hi" }
 type Speaker interface{ Hello() string }
 func f() string { x := reflect.ValueOf(T{5}).Interface(); s, ok := x.(Speaker); if !ok { return "no" }; return s.Hello() }
 f()`, res: "hi"},
+
 		{n: "reflect_assert_iface_panicform", src: `
 import "reflect"
 type T struct{}
 func (t T) Hello() string { return "hi" }
 type Speaker interface{ Hello() string }
 reflect.ValueOf(T{}).Interface().(Speaker).Hello()`, res: "hi"},
+
 		{n: "reflect_assert_iface_ptr_receiver", src: `
 import "reflect"
 type T struct{ n int }
@@ -1140,6 +1136,7 @@ func (t *T) Inc() int { t.n++; return t.n }
 type Inc interface{ Inc() int }
 func f() int { x := reflect.ValueOf(&T{5}).Interface(); if v, ok := x.(Inc); ok { return v.Inc() }; return -1 }
 f()`, res: "6"},
+
 		{n: "reflect_typeswitch_iface", src: `
 import "reflect"
 type T struct{}
@@ -1147,6 +1144,7 @@ func (t T) Hello() string { return "hi" }
 type Speaker interface{ Hello() string }
 func f() string { x := reflect.ValueOf(T{}).Interface(); switch v := x.(type) { case Speaker: return v.Hello(); default: return "def" } }
 f()`, res: "hi"},
+
 		{n: "reflect_assert_iface_negative", src: `
 import "reflect"
 type T struct{}
@@ -1154,11 +1152,13 @@ func (t T) Hello() string { return "hi" }
 type Missing interface{ Nope() int }
 func f() bool { x := reflect.ValueOf(T{}).Interface(); _, ok := x.(Missing); return ok }
 f()`, res: "false"},
+
 		{n: "reflect_assert_concrete_from_any", src: `
 import "reflect"
 type T struct{ x int }
 func f() int { x := reflect.ValueOf(T{7}).Interface(); t, ok := x.(T); if !ok { return -1 }; return t.x }
 f()`, res: "7"},
+
 		{n: "reflect_zero_iface_assert", src: `
 import "reflect"
 type G struct{}
@@ -1166,11 +1166,7 @@ func (g G) Generate() int { return 42 }
 type Generator interface{ Generate() int }
 func f() int { if g, ok := reflect.Zero(reflect.TypeOf(G{})).Interface().(Generator); ok { return g.Generate() }; return -1 }
 f()`, res: "42"},
-		// #1 regression: two defined types over the same primitive base share one
-		// rtype (reflect can't mint a distinct named rtype), so a reflect round-trip
-		// can't tell them apart. The recovery must DECLINE on that ambiguity rather
-		// than cross-dispatch the wrong sibling's method. Invariant: never returns the
-		// other type's tag (it may legitimately decline or, when unambiguous, recover).
+
 		{n: "reflect_rtype_collision_no_crossdispatch", src: `
 import "reflect"
 type Celsius float64
@@ -1188,8 +1184,7 @@ func f() string {
 	return "safe"
 }
 f()`, res: "safe"},
-		// Unambiguous defined-over-primitive (no sibling sharing the rtype) still
-		// recovers correctly, so the ambiguity guard does not over-decline.
+
 		{n: "reflect_defined_primitive_recovers", src: `
 import "reflect"
 type Celsius float64
@@ -1197,11 +1192,7 @@ func (c Celsius) Tag() string { return "C" }
 type Tagger interface{ Tag() string }
 func f() string { cv := reflect.ValueOf(Celsius(0)).Interface(); if t, ok := cv.(Tagger); ok { return t.Tag() }; return "no" }
 f()`, res: "C"},
-		// Same ambiguity over a named STRUCT base: `type Y X` reuses X's reflect.StructOf
-		// rtype, so X and Y are non-SameAs siblings on one rtype (not just primitive
-		// bases). The recovery must DECLINE rather than cross-dispatch -- declaring Y
-		// (even just to give it its own Tag) makes a reflect round-tripped X/Y
-		// indistinguishable. Invariant: never returns the other type's tag.
+
 		{n: "reflect_struct_sibling_no_crossdispatch", src: `
 import "reflect"
 type X struct{ n int }
@@ -1219,15 +1210,14 @@ func f() string {
 	return "safe"
 }
 f()`, res: "safe"},
-		// #3 regression: Go method-set rule -- a value type T does NOT satisfy an
-		// interface whose method has a pointer receiver; only *T does. Covered on the
-		// mvm-iface and reflect paths. The legit *T case must still satisfy.
+
 		{n: "ptr_recv_value_not_impl_mvmiface", src: `
 type T struct{ n int }
 func (t *T) Inc() int { t.n++; return t.n }
 type Inc interface{ Inc() int }
 func f() bool { var x interface{} = T{5}; _, ok := x.(Inc); return ok }
 f()`, res: "false"},
+
 		{n: "ptr_recv_value_not_impl_reflect", src: `
 import "reflect"
 type T struct{ n int }
@@ -1235,17 +1225,14 @@ func (t *T) Inc() int { t.n++; return t.n }
 type Inc interface{ Inc() int }
 func f() bool { x := reflect.ValueOf(T{5}).Interface(); _, ok := x.(Inc); return ok }
 f()`, res: "false"},
+
 		{n: "ptr_recv_pointer_impl_mvmiface", src: `
 type T struct{ n int }
 func (t *T) Inc() int { t.n++; return t.n }
 type Inc interface{ Inc() int }
 func f() int { var x interface{} = &T{5}; if v, ok := x.(Inc); ok { return v.Inc() }; return -1 }
 f()`, res: "6"},
-		// The testing/quick pattern derives the arg type via reflect.TypeOf(closure).In(0).
-		// That type (G) is reachable only through the closure's func signature -- the
-		// func *Type is in globals (WrapFunc typeIndexes it) but G itself was never
-		// separately typeIndexed -- so typeByRtype must recurse into Params/Returns to
-		// find it. (Previously failed unless a G value was materialized elsewhere.)
+
 		{n: "reflect_closure_in0_iface_assert", src: `
 import "reflect"
 type G struct{}
@@ -1254,7 +1241,7 @@ type Generator interface{ Generate() int }
 func check(f interface{}) int { if g, ok := reflect.Zero(reflect.TypeOf(f).In(0)).Interface().(Generator); ok { return g.Generate() }; return -1 }
 func run() int { fn := func(g G) bool { return true }; return check(fn) }
 run()`, res: "42"},
-		// Same via a function RETURN type (recursion must cover Returns too).
+
 		{n: "reflect_closure_out0_iface_assert", src: `
 import "reflect"
 type G struct{}
@@ -1263,11 +1250,7 @@ type Generator interface{ Generate() int }
 func check(f interface{}) int { if g, ok := reflect.Zero(reflect.TypeOf(f).Out(0)).Interface().(Generator); ok { return g.Generate() }; return -1 }
 func run() int { fn := func() G { return G{} }; return check(fn) }
 run()`, res: "7"},
-		// reflect.TypeAssert[T] (Go 1.26) generic shim: delegates to the .(T) opcode,
-		// so it recovers interpreted types like the assertion forms above. Covers the
-		// interface-target, concrete-target, the testing/quick f.In(0) pattern, and the
-		// no-match case. (Native testing/quick still uses compiled reflect.TypeAssert;
-		// this shim only serves interpreted callers.)
+
 		{n: "reflect_typeassert_iface", src: `
 import "reflect"
 type G struct{}
@@ -1275,6 +1258,7 @@ func (g G) Generate() int { return 42 }
 type Generator interface{ Generate() int }
 func f() int { g, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(G{}))); if ok { return g.Generate() }; return -1 }
 f()`, res: "42"},
+
 		{n: "reflect_typeassert_closure_in0", src: `
 import "reflect"
 type G struct{}
@@ -1283,10 +1267,12 @@ type Generator interface{ Generate() int }
 func check(f interface{}) int { g, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(f).In(0))); if ok { return g.Generate() }; return -1 }
 func run() int { fn := func(g G) bool { return true }; return check(fn) }
 run()`, res: "42"},
+
 		{n: "reflect_typeassert_concrete", src: `
 import "reflect"
 func f() int { n, ok := reflect.TypeAssert[int](reflect.ValueOf(7)); if ok { return n }; return -1 }
 f()`, res: "7"},
+
 		{n: "reflect_typeassert_nomatch", src: `
 import "reflect"
 type G struct{}
@@ -1294,8 +1280,6 @@ type Generator interface{ Generate() int }
 func f() bool { _, ok := reflect.TypeAssert[Generator](reflect.Zero(reflect.TypeOf(G{}))); return ok }
 f()`, res: "false"},
 
-		// struct with embedded type that has methods and additional fields
-		// (reflect.StructOf panics if Anonymous=true on a type with methods in a multi-field struct)
 		{n: "embed_with_methods", src: `
 import "bytes"
 type Buf struct {
@@ -1305,13 +1289,6 @@ type Buf struct {
 b := &Buf{Buffer: bytes.NewBufferString("hello"), size: 5}
 b.size`, res: "5"},
 
-		// Struct equality where one field is an interface holding a struct value.
-		// Pre-fix this returned false because reflect.Value.Equal on the outer
-		// struct recursed into the embedded reflect.Value inside mvm's Iface.Val
-		// and compared its `ptr` field (different memory addresses for two
-		// independently-constructed Inner values). With Value.Equal walking
-		// struct fields itself, the interface field hits the iface-aware path
-		// and compares correctly. Mirrors x/text/language.TestEquality.
 		{n: "struct_eq_iface_field", src: `
 type fullTag interface{ Marker() }
 type Inner struct{ a uint16; b string }
@@ -1321,6 +1298,7 @@ mk := func(s string) Tag { return Tag{lang: 2, full: Inner{a: 5, b: s}} }
 t1 := mk("af-Arab")
 t2 := mk("af-Arab")
 t1 == t2`, res: "true"},
+
 		{n: "struct_eq_iface_field_diff", src: `
 type fullTag interface{ Marker() }
 type Inner struct{ a uint16; b string }
@@ -1329,10 +1307,6 @@ type Tag struct{ lang uint16; full fullTag }
 mk := func(s string) Tag { return Tag{lang: 2, full: Inner{a: 5, b: s}} }
 mk("af-Arab") == mk("es-419")`, res: "false"},
 
-		// Struct passed by value: callee field write must not leak back to caller.
-		// Triggered in x/text/language internal.FromTag where t.Maximize() mutated
-		// the receiver's caller-side storage, making "und-US" canonicalize to
-		// "en-Latn-US".
 		{n: "struct_param_field_write_no_leak", src: `
 type T struct{ A, B int }
 func f(t T) { t.A = 99 }
@@ -1340,14 +1314,12 @@ t := T{A: 1, B: 2}
 f(t)
 t.A`, res: "1"},
 
-		// Same for arrays: pass-by-value, callee index writes must not leak.
 		{n: "array_param_index_write_no_leak", src: `
 func f(a [3]int) { a[0] = 99 }
 a := [3]int{1, 2, 3}
 f(a)
 a[0]`, res: "1"},
 
-		// Value-receiver methods are pass-by-value of the receiver.
 		{n: "value_recv_method_no_leak", src: `
 type T struct{ A int }
 func (t T) Set() { t.A = 99 }
@@ -1677,28 +1649,17 @@ func TestSlice(t *testing.T) {
 		{n: "#11", src: src0 + `z := s[1:3]; z`, res: `[1 2]`},
 		{n: "#12", src: `s := "Hello"; z := s[1:3]; z`, res: `el`},
 
-		// Spread-append of a slice into an interface-typed slice (go-multierror
-		// append.go:39). Pre-fix, the compiler iface-wrapped the spread source
-		// itself, boxing the whole []error in Iface{Typ:[]error}.
 		{n: "spread_iface_slice", src: `import "errors"
 			errs := []error{errors.New("a"), errors.New("b")}
 			r := append([]error{}, errs...); len(r)`, res: "2"},
 
-		// MkSlice element-set must unwrap Iface for methodful-interface targets
-		// (go-multierror variadic call sites). Pre-fix, numSet's reflect.Set
-		// rejected vm.Iface -> error.
 		{n: "variadic_iface_slice", src: `type E struct{ msg string }
 			func (e *E) Error() string { return e.msg }
 			f := func(errs ...error) int { return len(errs) }
 			f(&E{msg: "x"})`, res: "1"},
 
-		// Typed-nil interface into a methodful-interface slot must zero, not
-		// fall through to reflect.Set(interface{}, error) which panics.
 		{n: "nil_iface_in_slice", src: `var e error; r := append([]error{}, e); len(r)`, res: "1"},
 
-		// Nested composite literals sharing the same slice element type:
-		// pre-fix, the outer Composite's backward scan re-patched the inner
-		// Fnew, leaving the outer slice empty and the IndexSet at i=0 panicking.
 		{n: "nested_composite_same_type", src: `import "errors"
 			type E struct{ Errors []error }
 			func (e *E) Error() string { return "x" }
@@ -1723,6 +1684,7 @@ type (
 	Two string
 )
 var o One = One{Two: "hi"}; string(o.Two)`, res: "hi"},
+
 		{n: "named_arith", src: "type t int; var a, b t = 3, 4; a + b", res: "7"},
 		{n: "named_conv", src: "type t int; t(42)", res: "42"},
 		{n: "named_method", src: "type t int; func (v t) Double() int { return int(v) * 2 }; var a t = 5; a.Double()", res: "10"},
@@ -1734,6 +1696,7 @@ const (
 )
 type T struct { elem [n2 + 1]int }
 len(T{}.elem)`, res: "2"},
+
 		{n: "alias", src: "type Number = int; Number(1) < int(2)", res: "true"},
 		{n: "local_shadow", src: `
 type T struct { X int }
@@ -1752,15 +1715,11 @@ var t T
 t.X = 99
 t.X`, res: "99"},
 
-		// A local var whose name shadows its own type: later expressions
-		// resolve to the var, while the `:=` initializer's `&T{}` still refers
-		// to the type (mirrors errors_test's `poser := &poser{...}`).
 		{n: "var_shadows_own_type", src: `
 type T struct { x int }
 func f() int { T := &T{42}; return T.x }
 f()`, res: "42"},
 
-		// Naked block creates a new scope; inner variable shadows outer.
 		{n: "block_scope", src: `
 func f() int {
 	a := 1
@@ -1768,7 +1727,7 @@ func f() int {
 	return a
 }
 f()`, res: "1"},
-		// Multiple nested blocks each shadow independently.
+
 		{n: "block_scope_nested", src: `
 func f() int {
 	a := 1
@@ -1777,19 +1736,16 @@ func f() int {
 }
 f()`, res: "1"},
 
-		// Parameter name shadows an imported package.
 		{n: "param_shadows_pkg", src: `
 import "time"
 func test(time string, t time.Time) string { return time }
 test("ok", time.Now())`, res: "ok"},
 
-		// Struct field name shadows a builtin type (e.g. rune).
 		{n: "field_shadows_type", src: `
 type P struct { pos uint8; size uint8 }
 type buf struct { rune [3]P }
 len(buf{}.rune)`, res: "3"},
 
-		// Local type aliases chained inside a function, used in composite literal.
 		{n: "local_alias_composite", src: `
 type original struct { Field string }
 func f() string {
@@ -1800,9 +1756,6 @@ func f() string {
 }
 f()`, res: "test"},
 
-		// Comment-only line at the start of a type block must not be carried
-		// into the first declaration's tokens. Same shape as the const block
-		// regression in TestConst/leading_comment_in_block.
 		{n: "leading_comment_in_block", src: "type (\n\t// header comment\n\tA int\n\tB int\n)\nvar a A = 1; var b B = 2; int(a) + int(b)", res: "3"},
 	})
 }
@@ -1828,7 +1781,6 @@ func (t *T) Bar() string { return "bar" }
 var b Barer = &T{}
 b.Foo() + b.Bar()`, res: "foobar"},
 
-		// embedding a builtin interface (error) and a method name that shadows a user-defined type name
 		{n: "embed_builtin", src: `
 type Error interface {
 	error
@@ -1888,7 +1840,6 @@ r`, res: "foo"},
 		{n: "iface_return_cap", src: `func f(a []int) interface{} {return cap(a)}; a := []int{1, 2, 3}; f(a).(int)`, res: "3"},
 		{n: "iface_return_multi", src: `func f(x int) (interface{}, int) {return x, x + 1}; a, b := f(5); a.(int) + b`, res: "11"},
 
-		// return concrete value from named interface func, then call method
 		{n: "iface_return_method", src: `
 type I interface { A() string }
 type s struct{}
@@ -1897,7 +1848,6 @@ func (c *s) A() string { return "a" }
 v, _ := NewS()
 v.A()`, res: "a"},
 
-		// chained method call on interface-typed struct field returned as interface
 		{n: "iface_struct_field_method", src: `
 type Enabler interface { Enabled() bool }
 type Logger struct { core Enabler }
@@ -1907,14 +1857,12 @@ func (t *T) Enabled() bool { return true }
 base := &Logger{&T{}}
 base.GetCore().Enabled()`, res: "true"},
 
-		// nil error interface: short-circuit prevents call on nil receiver
 		{n: "error_nil_shortcircuit", src: `
 var a error = nil
 r := ""
 if a == nil || a.Error() == "nil" { r = "nil" }
 r`, res: "nil"},
 
-		// explicit interface type conversion T(x) where T is an interface type
 		{n: "explicit_iface_conv", src: `
 type myInterface interface { myFunc() string }
 type V struct{}
@@ -1926,7 +1874,6 @@ y := myInterface(&x)
 y = &U{y}
 y.myFunc()`, res: "hello"},
 
-		// sort.Interface bridge: interpreted type passed to native sort.Sort
 		{n: "sort_iface", src: `
 import "sort"
 type byLen []string
@@ -1937,7 +1884,6 @@ s := byLen{"bbb", "a", "cc"}
 sort.Sort(s)
 s[0] + " " + s[1] + " " + s[2]`, res: "a cc bbb"},
 
-		// heap.Interface bridge: interpreted type passed to native heap functions
 		{n: "heap_iface", src: `
 import "container/heap"
 type IntHeap []int
@@ -1959,7 +1905,6 @@ r := 0
 for h.Len() > 0 { r = r*10 + heap.Pop(h).(int) }
 r`, res: "1235"},
 
-		// sort.Interface bridge with pointer receiver
 		{n: "sort_iface_ptr", src: `
 import "sort"
 type S struct { vals []int }
@@ -1970,7 +1915,6 @@ s := &S{vals: []int{3, 1, 2}}
 sort.Sort(s)
 s.vals[0]*100 + s.vals[1]*10 + s.vals[2]`, res: "123"},
 
-		// flag.Value bridge: interpreted type passed to native flag.Var
 		{n: "flag_value_bridge", src: `
 import "flag"
 type myVal struct{ s string }
@@ -1982,16 +1926,12 @@ fs.Var(v, "myflag", "usage")
 fs.Set("myflag", "updated")
 v.String()`, res: "updated"},
 
-		// sort.Slice with interpreted less function
 		{n: "sort_slice", src: `
 import "sort"
 s := []int{3, 1, 4, 1, 5}
 sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
 s[0]*10000 + s[1]*1000 + s[2]*100 + s[3]*10 + s[4]`, res: "11345"},
 
-		// Package-var writes from a native->mvm callback must propagate to the outer
-		// Run, matching Go semantics. Used to fail because CallFunc copied globals to
-		// a private backing array and discarded the callback's writes on return.
 		{n: "callback_global_write_visible", src: `
 import "strings"
 var counter int
@@ -2002,7 +1942,6 @@ func bump(r rune) rune {
 strings.Map(bump, "abc")
 counter`, res: "3"},
 
-		// native interface conversion: wrap interpreted *T in native io.Reader
 		{n: "native_iface_conv", src: `
 import "io"
 type T struct { r io.Reader }
@@ -2013,7 +1952,6 @@ y = &T{y}
 n, _ := y.Read([]byte(""))
 n`, res: "0"},
 
-		// io.Writer bridge: interpreted type with Write passed to fmt.Fprint
 		{n: "writer_bridge", src: `
 import "fmt"
 type T []byte
@@ -2022,7 +1960,6 @@ x := T{}
 fmt.Fprint(&x, "hello")
 fmt.Sprintf("%s", x)`, res: "hello"},
 
-		// io.Writer bridge after type assertion
 		{n: "writer_assert", src: `
 import "fmt"
 import "io"
@@ -2036,7 +1973,6 @@ func foo(w io.Writer) string {
 x := T{}
 foo(&x)`, res: "test"},
 
-		// append concrete value to interface-typed slice
 		{n: "append_iface_slice", src: `
 import "io"
 type B []byte
@@ -2046,7 +1982,6 @@ a := make([]io.Writer, 0)
 a = append(a, b)
 len(a)`, res: "1"},
 
-		// interface embedding a package-qualified interface
 		{n: "embed_pkg_iface", src: `
 import "io"
 type Transport interface { io.Reader }
@@ -2056,7 +1991,6 @@ var tr Transport = &T{}
 _, err := tr.Read(nil)
 err == nil`, res: "true"},
 
-		// interface embedding multiple package-qualified interfaces
 		{n: "embed_pkg_iface_multi", src: `
 import "io"
 type RW interface {
@@ -2070,7 +2004,6 @@ var rw RW = &T{}
 n, _ := rw.Write([]byte("hi"))
 n`, res: "2"},
 
-		// user-defined interface embedding native interfaces, concrete type is native
 		{n: "embed_native_iface_native_type", src: `
 import (
 	"io"
@@ -2114,7 +2047,6 @@ func main() int {
 }
 main()`, res: "6"},
 
-		// method promoted from embedded interface called on struct (direct and through field chain)
 		{n: "embed_iface_method_call", src: `
 type I2 interface { F() string }
 type S2 struct { I2 }
@@ -2126,7 +2058,6 @@ s2 := &S2{t}
 s3 := &S3{s2}
 s2.F() + " " + s3.base.F()`, res: "hello world hello world"},
 
-		// method promoted from embedded native interface with return value assignment
 		{n: "embed_iface_method_assign", src: `
 import "net/http"
 import "net/http/httptest"
@@ -2147,7 +2078,6 @@ body, _ := io.ReadAll(resp.Body)
 server.Close()
 string(body)`, res: "okmap[]"},
 
-		// struct field of interpreted type implementing io.Reader passed to native io.ReadAll
 		{n: "struct_field_iface_native", src: `
 import "io"
 type myReader struct{ data string; done bool }
@@ -2162,7 +2092,6 @@ w := wrapper{R: &myReader{data: "hello"}}
 b, _ := io.ReadAll(w.R)
 string(b)`, res: "hello"},
 
-		// bridge callback with named returns and interface return type (yaegi-issue-558)
 		{n: "bridge_named_return_iface", src: `
 import "io"
 import "strings"
@@ -2190,7 +2119,6 @@ wr := &WR{r: strings.NewReader("hello")}
 io.Copy(io.Discard, wr)
 wr.used`, res: "true"},
 
-		// Variadic interface spread: both indexed element and spread (yaegi-issue-1205 scenario).
 		{n: "iface_slice_spread_both", src: `
 type Option interface { val() int }
 type T struct{ v int }
@@ -2201,7 +2129,6 @@ a := f(opt[0])
 b := f(opt...)
 a + b`, res: "42"},
 
-		// Function values stored in map[string]interface{} must be callable by native code.
 		{n: "map_func_value_native", src: `
 m := map[string]interface{}{
 	"double": func(s string) string { return s + s },
@@ -2317,7 +2244,6 @@ v1 := f1(3).(int)
 v2 := f2(3).(int64)
 v1 + int(v2)`, res: "8"},
 
-		// struct field name same as a type name, type-assert on interface field (yaegi-issue-1320)
 		{n: "iface_field_same_name_as_type", src: `
 type Pooler interface { Get() string }
 type baseClient struct { connPool Pooler }
@@ -2356,10 +2282,6 @@ var i interface{} = errors.New("boom")
 _, ok := i.(T)
 ok`, res: "false"},
 
-		// Regression: TypeAssert previously used AssignableTo to dstTyp.Rtype
-		// which equals AnyRtype for user-defined interfaces, yielding false
-		// positives (every type "matched"). Native errorString must NOT
-		// satisfy the local causer interface.
 		{n: "user_iface_native_err_no_match", src: `
 import "errors"
 type causer interface { Cause() error }
@@ -2367,10 +2289,6 @@ e := errors.New("test")
 _, ok := e.(causer)
 ok`, res: "false"},
 
-		// Regression: pointer-receiver methods on user types are registered
-		// on the value type's vm.Type (with PtrRecv); the runtime concrete
-		// *T has empty Methods. ResolveMethodType walks to ElemType so the
-		// assertion sees them. pkg/errors's Cause() relied on this.
 		{n: "user_iface_ptr_recv_match", src: `
 type stringer interface { String() string }
 type W struct { s string }
@@ -2406,12 +2324,6 @@ func (s S) Get() int { return s.n }
 var g Getter = S{7}
 switch v := g.(type) { case S: v.Get() }`, res: "7"},
 
-		// Type switch whose CASE is an interpreted interface (not a concrete type):
-		// the compiler must populate IfaceMethod IDs for TypeSwitchJump so
-		// vm.Type.Implements can match. The single-type-with-binding form worked by
-		// accident (a side-emitted TypeAssert populated the IDs); these no-binding and
-		// multi-type forms regressed without the fix. Covered on both the mvm-iface
-		// and reflect-round-tripped (native any) paths.
 		{n: "iface_case_nobind", src: `
 type T struct{}
 func (t T) Hello() string { return "hi" }
@@ -2420,6 +2332,7 @@ var x interface{} = T{}
 var r int
 switch x.(type) { case Speaker: r = 1; default: r = 2 }
 r`, res: "1"},
+
 		{n: "iface_case_multitype", src: `
 type T struct{}
 func (t T) Hello() string { return "hi" }
@@ -2429,6 +2342,7 @@ var x interface{} = T{}
 var r int
 switch x.(type) { case Other, Speaker: r = 1; default: r = 2 }
 r`, res: "1"},
+
 		{n: "iface_case_nomatch", src: `
 type T struct{}
 func (t T) Hello() string { return "hi" }
@@ -2437,6 +2351,7 @@ var x interface{} = T{}
 var r int
 switch x.(type) { case Other: r = 1; default: r = 2 }
 r`, res: "2"},
+
 		{n: "iface_case_reflect_nobind", src: `
 import "reflect"
 type T struct{}
@@ -2477,7 +2392,6 @@ func f(params ...interface{}) int {
 }
 f(99)`, res: "2"},
 
-		// Native interface in type switch: *os.File implements io.Reader.
 		{n: "native_iface", src: `
 import (
 	"io"
@@ -2496,7 +2410,6 @@ var fd *os.File
 var r io.Reader = fd
 f(r)`, res: "reader"},
 
-		// Interface slice composite literal: element stored as vm.Iface, callable via IfaceCall.
 		{n: "iface_slice_index", src: `
 type Option interface { val() int }
 type T struct{ v int }
@@ -2504,7 +2417,6 @@ func (t *T) val() int { return t.v }
 opt := []Option{&T{v: 7}}
 opt[0].val()`, res: "7"},
 
-		// Variadic interface spread: pass []Option directly with opt...
 		{n: "iface_spread", src: `
 type Option interface { val() int }
 type T struct{ v int }
@@ -2513,20 +2425,18 @@ func f(opts ...Option) int { return opts[0].val() }
 opt := []Option{&T{v: 42}}
 f(opt...)`, res: "42"},
 
-		// Native interface values in type switch (e.g. from json.Unmarshal map).
 		{n: "native_map_typeswitch_str", src: `
 import "encoding/json"
 var m map[string]interface{}
 json.Unmarshal([]byte(` + "`" + `{"a":"hello"}` + "`" + `), &m)
 switch m["a"].(type) { case string: "ok"; default: "fail" }`, res: "ok"},
+
 		{n: "native_map_typeswitch_nil", src: `
 import "encoding/json"
 var m map[string]interface{}
 json.Unmarshal([]byte(` + "`" + `{"a":null}` + "`" + `), &m)
 switch m["a"].(type) { case nil: "ok"; default: "fail" }`, res: "ok"},
 
-		// yaegi-issue-1465: &genericParam through any(...).(type) must
-		// propagate writes back to the original local via AddrLocal aliasing.
 		{n: "generic_ptr_writeback", src: `
 func F[T int | string](x T) T {
 	switch v := any(&x).(type) {
@@ -2537,11 +2447,6 @@ func F[T int | string](x T) T {
 }
 F(42)`, res: "999"},
 
-		// Distinct interpreted types whose rtype identity collides
-		// (StructOf placeholders for `struct{s string}`; basic int rtype
-		// shared by `type Foo int` vs `type Bar int`) must keep their
-		// Iface wrapping through `[]interface{}` storage and append so
-		// the type switch resolves by Iface.Typ.
 		{n: "iface_slice_struct_aliased_rtype", src: `
 type Variant struct{ s string }
 type Extension struct{ s string }
@@ -2558,6 +2463,7 @@ for _, x := range p {
 	}
 }
 r`, res: "V:rozaj;E:u-va-posix;"},
+
 		{n: "iface_slice_int_aliased_rtype", src: `
 type Foo int
 type Bar int
@@ -2572,9 +2478,7 @@ for _, x := range p {
 	}
 }
 r`, res: "F1;B2;"},
-		// Append into `[]interface{}`: a methodful interpreted type would
-		// otherwise get bridge-wrapped as *BridgeString and lose identity
-		// in the subsequent type switch.
+
 		{n: "iface_append_methodful_keeps_identity", src: `
 import "fmt"
 type V struct{ s string }
@@ -2595,11 +2499,6 @@ for _, x := range p {
 }
 fmt.Sprint(p[0]) + "|" + fmt.Sprint(p[1]) + "|" + r`, res: "V:x|E:y|v:x;e:y;"},
 
-		// type-switch on a bridge-wrapped value (e.g. *BridgeError carrying
-		// an interpreted *Err pumped through a variadic ...error slot): the
-		// TypeBranch handler must unbridge before checking AssignableTo, or
-		// the case clause for the original concrete type silently misses.
-		// Mirrors the TypeAssert (comma-ok) fallback already in place.
 		{n: "iface_typeswitch_bridge_unwrap", src: `
 import "fmt"
 type Err struct{ X int }
@@ -3713,7 +3612,7 @@ func TestGoroutine(t *testing.T) {
 ch := make(chan int, 1)
 go func() { ch <- 7 }() // launch
 <-ch`, res: "7"},
-		// Channel variable reassigned after goroutine start: goroutine must keep the original channel.
+
 		{n: "chan_reassign_after_goroutine", src: `
 func sendTo(ch chan<- int, v int) { ch <- v }
 ch := make(chan int)
@@ -3721,11 +3620,13 @@ go sendTo(ch, 42)
 orig := ch
 ch = make(chan int)
 <-orig`, res: "42"},
-		// Function values through channels.
+
 		{n: "chan_func_named", src: `func f() int { return 42 }; ch := make(chan func() int, 1); ch <- f; g := <-ch; g()`, res: "42"},
+
 		{n: "chan_func_closure", src: `x := 10; f := func() int { return x }; ch := make(chan func() int, 1); ch <- f; g := <-ch; g()`, res: "10"},
+
 		{n: "chan_func_goroutine", src: `func f(n int) int { return n * 2 }; ch := make(chan func(int) int, 1); go func() { ch <- f }(); g := <-ch; g(21)`, res: "42"},
-		// Daisy-chain goroutines (sieve-style): channel pipeline where ch is reassigned each iteration.
+
 		{n: "goroutine_chan_pipeline", src: `
 func filter(in <-chan int, out chan<- int, prime int) {
 	for { i := <-in; if i%prime != 0 { out <- i } }
@@ -3738,6 +3639,7 @@ ch1 := make(chan int)
 go filter(ch, ch1, prime)
 ch = ch1
 <-ch`, res: "3"},
+
 		{n: "go_native_func_arg", src: `
 import "sort"
 ch := make(chan bool, 1)
@@ -3754,6 +3656,7 @@ s[0]*100 + s[1]*10 + s[2]`, res: "123"},
 func TestSelect(t *testing.T) {
 	run(t, []etest{
 		{n: "select_recv_buffered", src: `ch := make(chan int, 1); ch <- 42; r := 0; select { case v := <-ch: r = v }; r`, res: "42"},
+
 		{n: "select_default", src: `ch := make(chan int); r := 0; select { case v := <-ch: r = v; default: r = 99 }; r`, res: "99"},
 
 		{n: "select_send", src: `
@@ -3872,16 +3775,6 @@ answer()`, res: "42"},
 	})
 }
 
-// TestReflectMethodByNameConcurrentMachines exercises the
-// reflect.Value.MethodByName path concurrently from independent Machines
-// running on independent goroutines. Each subtest defines a type whose Name()
-// returns a sub-test-specific string; if reflectValueShim resolved the
-// receiver against the wrong Machine (the global-activeMachine race the
-// memory project_active_machine_race describes), the call would either
-// return a value drawn from another goroutine's interpreter or panic on a
-// zero reflect.Value. The combination of t.Parallel + a tight inner loop
-// reliably exercised the race under -race before the fix; afterwards the
-// test is both data-race-clean and value-stable.
 func TestReflectMethodByNameConcurrentMachines(t *testing.T) {
 	const goroutines = 8
 	const iters = 50
@@ -3915,16 +3808,6 @@ out`
 	}
 }
 
-// TestRuntimeCallersConcurrentMachines exercises the runtime.Callers bridge
-// concurrently from independent Machines. Pre-fix, both goroutines wrote to
-// a single atomic.Pointer slot; whichever Machine Run-swapped in last won,
-// so the unlucky goroutine's runtime.Callers walked the wrong Machine's
-// stack and the returned PCs resolved to functions defined in the other
-// goroutine's interpreted source -- a silent correctness bug, not a panic.
-// Each subtest declares a uniquely-named function whose body captures
-// runtime.Callers and concatenates all frame names; the assertion confirms
-// the goroutine's own function name appears (and no other goroutine's
-// signature leaks in).
 func TestRuntimeCallersConcurrentMachines(t *testing.T) {
 	const goroutines = 8
 	for i := 0; i < goroutines; i++ {
