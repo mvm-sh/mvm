@@ -888,7 +888,28 @@ func (p *Parser) parsePackageDecl(in Tokens) (out Tokens, err error) {
 		return out, p.errAt(in[1], "package %s; expected %s", in[1].Str, p.pkgName)
 	}
 	p.pkgName = in[1].Str
+	p.backfillPlaceholderPkgPath()
 	return out, err
+}
+
+// backfillPlaceholderPkgPath sets the PkgPath of every still-empty type
+// placeholder to p.pkgName. preRegisterTypes runs before the package decl is
+// parsed, so its placeholders are created with an empty PkgPath; we backfill
+// here (and at the implicit "main" default in ParseDecl / parseStmt) before
+// any type-body parse reads them, so generic instance mangled names stay
+// consistent and fmt %T renders <pkg>.<Name> for forward-declared types.
+func (p *Parser) backfillPlaceholderPkgPath() {
+	if p.pkgName == "" {
+		return
+	}
+	for _, sym := range p.Symbols {
+		if sym == nil || sym.Kind != symbol.Type || sym.Type == nil {
+			continue
+		}
+		if sym.Type.Placeholder && sym.Type.PkgPath == "" {
+			sym.Type.PkgPath = p.pkgName
+		}
+	}
 }
 
 func (p *Parser) parseType(in Tokens) (out Tokens, err error) {

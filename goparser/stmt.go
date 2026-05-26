@@ -433,6 +433,7 @@ func (p *Parser) parseStmt(in Tokens) (out Tokens, err error) {
 			return out, p.errAt(in[0], "no package defined")
 		}
 		p.pkgName = "main"
+		p.backfillPlaceholderPkgPath()
 	}
 
 	switch t := in[0]; t.Tok {

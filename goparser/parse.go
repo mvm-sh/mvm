@@ -434,6 +434,7 @@ func (p *Parser) ParseDecl(toks Tokens) (handled bool, err error) {
 			return false, errors.New("no package defined")
 		}
 		p.pkgName = "main"
+		p.backfillPlaceholderPkgPath()
 	}
 	switch toks[0].Tok {
 	case lang.Package:

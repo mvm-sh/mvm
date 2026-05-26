@@ -1040,14 +1040,9 @@ func TestStruct(t *testing.T) {
 
 		{n: "errors_as_validation_basic", src: `import "errors"; func f() (r bool) { defer func() { r = recover() != nil }(); var s string; errors.As(errors.New("e"), &s); return false }; f()`, res: "true"},
 
-		// SKIP (fundamental gap): an anonymous interpreted interface target
-		// (interface{ Timeout() bool }) routed through an `any` field loses its
-		// method set at the native boundary (the arg proxy is bypassed and the
-		// pointer's element *Type degrades to interface{}), so errors.As can't
-		// tell which chain element implements it and matches the first one.
-		// Direct (non-any-field) anonymous-interface targets work. Blocks
-		// wrap_test.go TestAs #8/#10/#16 (mvm test errors).
-		{n: "errors_as_anon_iface_target_via_any", skip: true, src: `import "errors"; var timeout interface{ Timeout() bool }; tc := struct{ t any }{&timeout}; errors.As(errors.New("e"), tc.t)`, res: "false"},
+		{n: "errors_as_anon_iface_target_via_any", src: `import "errors"; var timeout interface{ Timeout() bool }; tc := struct{ t any }{&timeout}; errors.As(errors.New("e"), tc.t)`, res: "false"},
+
+		{n: "errors_as_anon_iface_target_unwrap", src: `import "errors"; import "os"; _, errF := os.Open("/nonexistent-x"); type W struct{ e error }; func (w W) Error() string { return "w" }; func (w W) Unwrap() error { return w.e }; var t interface{ Timeout() bool }; tc := struct{ t any }{&t}; errors.As(W{errF}, tc.t)`, res: "true"},
 
 		{n: "errors_multierror_self", src: `import "errors"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; var err error = M{errors.New("x")}; errors.Is(err, err)`, res: "false"},
 
@@ -1060,6 +1055,8 @@ func TestStruct(t *testing.T) {
 		{n: "errors_join_unwrap_deepequal", src: `import "errors"; import "reflect"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; merr := M{errors.New("e3")}; got := errors.Join(merr).(interface{ Unwrap() []error }).Unwrap(); reflect.DeepEqual(got, []error{merr})`, res: "true"},
 
 		{n: "errors_deepequal_array", src: `import "errors"; import "reflect"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; e := errors.New("e3"); reflect.DeepEqual([1]error{M{e}}, [1]error{M{e}})`, res: "true"},
+
+		{n: "fmt_pct_T_interpreted_error", src: `import "fmt"; type S struct{ s string }; func (e S) Error() string { return e.s }; var err error = S{"x"}; fmt.Sprintf("%T", err)`, res: "main.S"},
 
 		// SKIP (deeper gap): a multierror promoted from an EMBEDDED field panics
 		// "reflect: ... value obtained from unexported field" (the promoted-method

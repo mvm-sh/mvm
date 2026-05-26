@@ -4105,6 +4105,12 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 		iv := val.IfaceVal()
 		// Unwrap Iface for native types so reflect-based code sees raw Go values.
 		keepInterpreted := iv.Typ.Name != "" && iv.Typ.Name != iv.Typ.Rtype.Name()
+		// Also keep a pointer to an interpreted interface.
+		if !keepInterpreted && iv.Typ.Rtype.Kind() == reflect.Pointer &&
+			iv.Typ.ElemType != nil && iv.Typ.ElemType.Rtype.Kind() == reflect.Interface &&
+			len(iv.Typ.ElemType.IfaceMethods) > 0 {
+			keepInterpreted = true
+		}
 		if len(iv.Typ.Methods) == 0 && !keepInterpreted {
 			if iv.Typ.Rtype.Kind() == reflect.Func {
 				// Wrap interpreted func so native method lookup works.
