@@ -348,19 +348,19 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 		case isNum(r):
 			// ok
 		case r == '.' && !hasDot && !hasExp:
-			// Check this is not a method call (e.g. 123.String()). In a hex
-			// float the fractional part may use hex digits (e.g. 0x1.fp3).
+			// Disambiguate 123. from a selector 123.String()).
+			// In a hex float the fractional part may use hex digits:  0x1.fp3.
 			var next byte
 			if i+1 < len(src) {
 				next = src[i+1]
 			}
 			hexFrac := isHex && ((next >= 'a' && next <= 'f') || (next >= 'A' && next <= 'F'))
-			if i+1 < len(src) && (isNum(rune(next)) || hexFrac) {
-				hasDot = true
-				tok = lang.Float
-			} else {
+			isSelector := !hexFrac && ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') || next == '_')
+			if isSelector {
 				return src[:i], tok
 			}
+			hasDot = true
+			tok = lang.Float
 		case r == '.' && i == 0 && hasDot:
 			// Leading dot already accounted for.
 		case (r == 'e' || r == 'E') && !hasExp && !isHex:

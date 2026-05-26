@@ -764,14 +764,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			c.emit(t, vm.GetGlobal, di)
 
 		case lang.Imag:
-			f, err := strconv.ParseComplex(t.Str, 64)
+			f, err := strconv.ParseComplex(t.Str, 128)
 			if err != nil {
 				return err
 			}
 			v := vm.ValueOf(f)
 			di := len(c.Data)
 			c.Data = append(c.Data, v)
-			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Type: c.Symbols["complex128"].Type})
+			push(&symbol.Symbol{Kind: symbol.Const, Value: v, Cval: litCval(t.Str, token.IMAG), Type: c.Symbols["complex128"].Type})
 			c.emit(t, vm.GetGlobal, di)
 
 		case lang.String:
@@ -2767,15 +2767,25 @@ func arithmeticOpType(right, left *symbol.Symbol) *vm.Type {
 	if left.Kind == symbol.Const && right.Kind != symbol.Const {
 		return symbol.Vtype(right)
 	}
-	// Both constants (or both non-const): pick the wider numeric type (float > int per Go spec).
+	// Both constants (or both non-const): pick the wider numeric type.
 	rt, lt := symbol.Vtype(right), symbol.Vtype(left)
 	if rt != nil && lt != nil {
-		rk, lk := rt.Rtype.Kind(), lt.Rtype.Kind()
-		if (lk == reflect.Float32 || lk == reflect.Float64) && rk != reflect.Float32 && rk != reflect.Float64 {
+		if numericRank(lt) > numericRank(rt) {
 			return lt
 		}
 	}
 	return rt
+}
+
+func numericRank(typ *vm.Type) int {
+	// Per Go spec, complex > float > int.
+	switch typ.Rtype.Kind() {
+	case reflect.Complex64, reflect.Complex128:
+		return 2
+	case reflect.Float32, reflect.Float64:
+		return 1
+	}
+	return 0
 }
 
 func constKind(right, left *symbol.Symbol) symbol.Kind {

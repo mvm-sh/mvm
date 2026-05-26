@@ -558,6 +558,10 @@ func constValue(c constant.Value) any {
 	case constant.Float:
 		v, _ := constant.Float64Val(c)
 		return v
+	case constant.Complex:
+		re, _ := constant.Float64Val(constant.Real(c))
+		im, _ := constant.Float64Val(constant.Imag(c))
+		return complex(re, im)
 	}
 	return nil
 }
@@ -579,6 +583,8 @@ func DefaultConstType(c constant.Value, syms symbol.SymMap) *vm.Type {
 		name = "int"
 	case constant.Float:
 		name = "float64"
+	case constant.Complex:
+		name = "complex128"
 	case constant.String:
 		name = "string"
 	case constant.Bool:

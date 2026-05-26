@@ -3583,6 +3583,17 @@ func TestBuiltin(t *testing.T) {
 		{n: "complex128_lit_err2", skip: true, src: `complex(12,int(34))`, err: "invalid argument: type int, expected floating-point"},
 		{n: "complex128_lit_err3", skip: true, src: `complex(float32(12),float64(34))`, err: "invalid operation: mismatched types float32 and float64"},
 		{n: "complex128_lit_err4", src: `complex(12, "34")`, err: "invalid argument: type string, expected floating-point"}, // FIXME(sbinet): compiled Go has different error string.
+
+		{n: "complex_lit_add", src: `1 + 2i`, res: "(1+2i)"},
+		{n: "complex_lit_sub", src: `(1+2i) - (3+4i)`, res: "(-2-2i)"},
+		{n: "complex_lit_mul", src: `(1+2i) * (3-4i)`, res: "(11+2i)"},
+		{n: "complex_lit_neg", src: `-(1+2i)`, res: "(-1-2i)"},
+		{n: "complex_lit_conv64", src: `complex64(1+2i)`, res: "(1+2i)"},
+		{n: "complex_lit_wide_im", src: `1e10 + 1.11e100i`, res: "(1e+10+1.11e+100i)"},
+		{n: "float_trailing_dot", src: `11.`, res: "11"},
+		{n: "float_trailing_dot_neg", src: `-11.`, res: "-11"},
+		{n: "float_trailing_dot_add", src: `11. + 1`, res: "12"},
+		{n: "float_trailing_dot_complex", src: `-11. + 7e+1i`, res: "(-11+70i)"},
 	})
 }
 
