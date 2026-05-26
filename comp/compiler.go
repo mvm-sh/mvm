@@ -992,10 +992,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					vm.GetLocalLowerIntImm, vm.GetLocalLowerUintImm, vm.LowerStr, false)
 			case lang.GreaterEqual:
 				c.emitComparisonOp(t, s2, typ, vm.LowerInt,
-					vm.LowerIntImm, vm.LowerUintImm, 0, 0, vm.LowerStr, true)
+					vm.LowerIntImm, vm.LowerUintImm,
+					vm.GetLocalLowerIntImm, vm.GetLocalLowerUintImm, vm.LowerStr, true)
 			case lang.LessEqual:
 				c.emitComparisonOp(t, s2, typ, vm.GreaterInt,
-					vm.GreaterIntImm, vm.GreaterUintImm, 0, 0, vm.GreaterStr, true)
+					vm.GreaterIntImm, vm.GreaterUintImm,
+					vm.GetLocalGreaterIntImm, vm.GetLocalGreaterUintImm, vm.GreaterStr, true)
 			}
 
 		case lang.NotEqual:
@@ -1704,14 +1706,18 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				switch {
 				case lhs.CellSlot:
 					c.emit(t, vm.CellSet, lhs.Index)
+					c.emit(t, vm.Pop, 1) // pop stale lhs value left by Ident's Get
 				case lhs.NeedsCell() && !lhs.CellSlot:
 					c.emit(t, vm.HeapAlloc)
 					lhs.CellSlot = true
 					c.emit(t, vm.SetLocal, lhs.Index, 0)
+					c.emit(t, vm.Pop, 1) // pop stale lhs value left by Ident's Get
 				default:
-					c.emit(t, vm.SetLocal, lhs.Index, 0)
+					if !c.fuseLocalAssign(t, lhs.Index) {
+						c.emit(t, vm.SetLocal, lhs.Index, 0)
+						c.emit(t, vm.Pop, 1) // pop stale lhs value left by Ident's Get
+					}
 				}
-				c.emit(t, vm.Pop, 1) // pop stale lhs value left by Ident's Get
 				break
 			}
 			c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
@@ -2010,6 +2016,22 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		case lang.JumpFalse:
 			if err := checkTopN(t, 1); err != nil {
 				return err
+			}
+			// Peephole: a trailing `Not` flips the branch sense. Drop it and
+			// dispatch to the JumpTrue-flavored fusions, which lets `<=`/`>=`
+			// loop conditions and `if !cond` reach the fused compare-and-branch
+			// fast paths instead of paying for a separate Not.
+			if len(c.Code) > 0 && c.Code[len(c.Code)-1].Op == vm.Not &&
+				!c.labelAtPos[len(c.Code)-1] && !c.labelAtPos[len(c.Code)] {
+				c.Code = c.Code[:len(c.Code)-1]
+				if c.fuseCmpJump(t, &fixList, vm.LowerIntImm, vm.LowerIntImmJumpTrue,
+					vm.GetLocalLowerIntImm, vm.GetLocalLowerIntImmJumpTrue, 0) ||
+					c.fuseCmpJump(t, &fixList, vm.GreaterIntImm, vm.LowerIntImmJumpFalse,
+						vm.GetLocalGreaterIntImm, vm.GetLocalLowerIntImmJumpFalse, 1) {
+					break
+				}
+				c.emitJump(t, &fixList, vm.JumpTrue)
+				break
 			}
 			if c.fuseCmpJump(t, &fixList, vm.LowerIntImm, vm.LowerIntImmJumpFalse,
 				vm.GetLocalLowerIntImm, vm.GetLocalLowerIntImmJumpFalse, 0) ||
@@ -2782,6 +2804,62 @@ func (c *Compiler) fuseGetLocal(op vm.Op, imm int) bool {
 	c.Code[len(c.Code)-1].Op = op
 	c.Code[len(c.Code)-1].B = int32(imm)
 	return true
+}
+
+// fuseLocalAssign collapses `x op= rhs` (and `x = x op rhs`) on a non-cell
+// integer local into one of the in-place super-instructions. The trailing
+// SetLocal+Pop are also subsumed, since the fused op leaves no stack value.
+// Returns true when the fuse succeeded (caller skips emitting SetLocal+Pop).
+func (c *Compiler) fuseLocalAssign(t goparser.Token, lhsIdx int) bool {
+	n := len(c.Code)
+	if n < 2 {
+		return false
+	}
+	last := &c.Code[n-1]
+	// Pattern A: GetLocal2 X X; GetLocal Y; (AddInt|SubInt)
+	if (last.Op == vm.AddInt || last.Op == vm.SubInt) && n >= 3 {
+		head := &c.Code[n-3]
+		mid := &c.Code[n-2]
+		if head.Op != vm.GetLocal2 || int(head.A) != lhsIdx || int(head.B) != lhsIdx {
+			return false
+		}
+		if mid.Op != vm.GetLocal {
+			return false
+		}
+		// A label pinned at n-3 (head's position) survives the fuse since the
+		// new op occupies the same slot; labels at n-2 / n-1 would be lost.
+		if c.labelAtPos[n-2] || c.labelAtPos[n-1] {
+			return false
+		}
+		op := vm.AddLocalLocal
+		if last.Op == vm.SubInt {
+			op = vm.SubLocalLocal
+		}
+		y := int(mid.A)
+		c.Code = c.Code[:n-3]
+		c.emit(t, op, lhsIdx, y)
+		return true
+	}
+	// Pattern B: GetLocal2 X X; (AddIntImm|SubIntImm) imm
+	if last.Op == vm.AddIntImm || last.Op == vm.SubIntImm {
+		head := &c.Code[n-2]
+		if head.Op != vm.GetLocal2 || int(head.A) != lhsIdx || int(head.B) != lhsIdx {
+			return false
+		}
+		// Label at n-2 (head's position) survives; one at n-1 would be lost.
+		if c.labelAtPos[n-1] {
+			return false
+		}
+		op := vm.AddLocalIntImm
+		if last.Op == vm.SubIntImm {
+			op = vm.SubLocalIntImm
+		}
+		imm := int(last.A)
+		c.Code = c.Code[:n-2]
+		c.emit(t, op, lhsIdx, imm)
+		return true
+	}
+	return false
 }
 
 func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,

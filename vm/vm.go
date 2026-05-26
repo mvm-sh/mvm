@@ -327,7 +327,15 @@ const (
 	LowerIntImmJumpTrue          // n -- ; if n < $2 { ip += $1 } ; sp--
 	GetLocalLowerIntImmJumpFalse // -- ; if local >= imm { ip += $1 } ; $2 = localOff<<16 | imm&0xFFFF
 	GetLocalLowerIntImmJumpTrue  // -- ; if local < imm { ip += $1 } ; $2 = localOff<<16 | imm&0xFFFF
-	MarkNamedRet                 // -- ; flag this frame as having captured named returns (set bit in retIPInfo)
+
+	// In-place local update super-instructions for `x op= y` and `x op= n`,
+	// collapsing the GetLocal2+RHS+SetLocal+Pop sequence. No stack effect.
+	AddLocalLocal  // -- ; local[$1] += local[$2]
+	SubLocalLocal  // -- ; local[$1] -= local[$2]
+	AddLocalIntImm // -- ; local[$1] += $2 (signed, fits int32)
+	SubLocalIntImm // -- ; local[$1] -= $2 (signed, fits int32)
+
+	MarkNamedRet // -- ; flag this frame as having captured named returns (set bit in retIPInfo)
 )
 
 // Memory attributes.
@@ -1265,6 +1273,34 @@ func (m *Machine) Run() (err error) {
 			if int(mem[int(c.B>>16)+fp-1].num) < int(int16(c.B)) {
 				ip += int(c.A)
 				continue
+			}
+		case AddLocalLocal:
+			slot := &mem[int(c.A)+fp-1]
+			n := uint64(int(slot.num) + int(mem[int(c.B)+fp-1].num))
+			slot.num = n
+			if isNum(slot.ref.Kind()) && slot.ref.CanSet() {
+				setNumReflect(slot.ref, n)
+			}
+		case SubLocalLocal:
+			slot := &mem[int(c.A)+fp-1]
+			n := uint64(int(slot.num) - int(mem[int(c.B)+fp-1].num))
+			slot.num = n
+			if isNum(slot.ref.Kind()) && slot.ref.CanSet() {
+				setNumReflect(slot.ref, n)
+			}
+		case AddLocalIntImm:
+			slot := &mem[int(c.A)+fp-1]
+			n := uint64(int(slot.num) + int(c.B))
+			slot.num = n
+			if isNum(slot.ref.Kind()) && slot.ref.CanSet() {
+				setNumReflect(slot.ref, n)
+			}
+		case SubLocalIntImm:
+			slot := &mem[int(c.A)+fp-1]
+			n := uint64(int(slot.num) - int(c.B))
+			slot.num = n
+			if isNum(slot.ref.Kind()) && slot.ref.CanSet() {
+				setNumReflect(slot.ref, n)
 			}
 		case GetGlobal:
 			// Global slots written via SetS update ref through a shared pointer without
