@@ -58,7 +58,13 @@ func init() {
 		"SkipIfShortAndSlow":    reflect.ValueOf(func(testing.TB) {}),
 		"MustHaveExec":          reflect.ValueOf(func(testing.TB) {}),
 		"MustHaveSource":        reflect.ValueOf(func(testing.TB) {}),
-		"CleanCmdEnv":           reflect.ValueOf(func(cmd *exec.Cmd) *exec.Cmd { return cmd }),
+		// Tests using Executable() re-exec the test binary, which mvm can't
+		// reproduce; skip them rather than fail with a bogus exec target.
+		"Executable": reflect.ValueOf(func(tb testing.TB) string {
+			tb.Skip("mvm test: testenv.Executable unsupported (no re-exec)")
+			return ""
+		}),
+		"CleanCmdEnv": reflect.ValueOf(func(cmd *exec.Cmd) *exec.Cmd { return cmd }),
 		"Command": reflect.ValueOf(func(_ testing.TB, name string, args ...string) *exec.Cmd {
 			return exec.Command(name, args...)
 		}),

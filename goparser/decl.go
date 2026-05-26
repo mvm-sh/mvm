@@ -863,7 +863,11 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 				nv := vm.NewValue(rtype)
 				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Type, PkgPath: pp, Value: nv, Type: &vm.Type{Name: rtype.Name(), Rtype: rtype}}) // mvm:symkey-ok: dot-import binds bare names
 			} else {
-				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Value, PkgPath: pp, Value: v}) // mvm:symkey-ok: dot-import binds bare names
+				// Mirror the pkg-qualified value-load path (compiler.go's Period
+				// handler) which tags the Symbol with its rtype, so a method
+				// expression like `CommandLine.Parse(...)` finds the receiver type.
+				rt := v.Type()
+				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Value, PkgPath: pp, Value: v, Type: &vm.Type{Name: rt.Name(), Rtype: rt}}) // mvm:symkey-ok: dot-import binds bare names
 			}
 		}
 	} else if n != "_" {
