@@ -17,13 +17,13 @@ var (
 	nextSlotS3 atomic.Uint32
 )
 
-func acquireSlotS3(h HandlerS3) (pc uintptr, err error) {
+func acquireSlotS3(h HandlerS3) (pc uintptr, release func(), err error) {
 	n := nextSlotS3.Add(1) - 1
 	if n >= poolSizeS3 {
-		return 0, errPoolFmt("S3", poolSizeS3)
+		return 0, nil, errPoolFmt("S3", poolSizeS3)
 	}
 	slotPoolS3[n].handler = h
-	return stubsS3[n], nil
+	return stubsS3[n], func() { slotPoolS3[n].handler = nil }, nil
 }
 
 // SlotsUsedS3 reports how many S3 stub slots have been consumed.

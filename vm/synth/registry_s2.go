@@ -17,13 +17,13 @@ var (
 	nextSlotS2 atomic.Uint32
 )
 
-func acquireSlotS2(h HandlerS2) (pc uintptr, err error) {
+func acquireSlotS2(h HandlerS2) (pc uintptr, release func(), err error) {
 	n := nextSlotS2.Add(1) - 1
 	if n >= poolSizeS2 {
-		return 0, errPoolFmt("S2", poolSizeS2)
+		return 0, nil, errPoolFmt("S2", poolSizeS2)
 	}
 	slotPoolS2[n].handler = h
-	return stubsS2[n], nil
+	return stubsS2[n], func() { slotPoolS2[n].handler = nil }, nil
 }
 
 // SlotsUsedS2 reports how many S2 stub slots have been consumed.

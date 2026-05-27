@@ -249,38 +249,96 @@ func main() {
 	}
 }
 
-// TestSynthShapePriorityS1OverS2 pins the Phase 2c shape priority: when a
-// type has BOTH a value-recv Stringer and a value-recv Marshaler (same
-// receiver kind), S1 wins so fmt.Stringer is preserved.
-// Without the priority, parse-order would pick whichever was declared
-// first, regressing Phase 1b's Stringer guarantee.
-func TestSynthShapePriorityS1OverS2(t *testing.T) {
+// TestSynthMultiMethod (Phase 2d) verifies that a type with BOTH a value-recv
+// Stringer AND a value-recv MarshalJSON gets both installed on the synth
+// rtype, so it satisfies both fmt.Stringer AND json.Marshaler natively.
+// Pre-Phase-2d this was impossible: the synth1 container held one method, so
+// the priority fix (S1 > S2) gave only Stringer and Marshaler fell through
+// to the bridge.
+func TestSynthMultiMethod(t *testing.T) {
 	t.Setenv("MVM_SYNTH", "1")
 
-	// MarshalJSON declared FIRST (would lose under naive ordering).
 	const src = `package main
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type T struct{ N int }
 
-func (t T) MarshalJSON() ([]byte, error) { return []byte("MARSHAL"), nil }
-func (t T) String() string               { return "STRING" }
+func (t T) String() string               { return fmt.Sprintf("S%d", t.N) }
+func (t T) MarshalJSON() ([]byte, error) { return []byte(fmt.Sprintf("[%d]", t.N)), nil }
 
 func main() {
-	var s fmt.Stringer = T{N: 1}
-	fmt.Print(s.String())
+	v := T{N: 7}
+	var s fmt.Stringer = v
+	b, err := json.Marshal(v)
+	if err != nil {
+		fmt.Print("ERR ", err)
+		return
+	}
+	fmt.Print(s.String(), " ", string(b))
 }
 `
+	var stdout, stderr bytes.Buffer
 	i := NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
-	var stdout, stderr bytes.Buffer
 	i.SetIO(os.Stdin, &stdout, &stderr)
 	if _, err := i.Eval("a.go", src); err != nil {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
-	if got, want := stdout.String(), "STRING"; got != want {
-		t.Errorf("stdout = %q, want %q (S1 should win over S2)", got, want)
+	if got, want := stdout.String(), "S7 [7]"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestSynthCompositeInterfaceReverseDecl pins the alphabetical-sort fix:
+// when a type defines methods in REVERSE alphabetical order, the synth
+// rtype must still satisfy a composite interface that requires both.
+// Go's reflect.implements does a forward linear merge of two pre-sorted
+// method arrays, so unsorted entries silently fail multi-method
+// satisfaction (and the negative result is cached in the itab).
+func TestSynthCompositeInterfaceReverseDecl(t *testing.T) {
+	t.Setenv("MVM_SYNTH", "1")
+
+	// Methods declared in REVERSE alphabetical order (String first, then
+	// MarshalJSON). Pre-fix, the synth rtype's method array preserved
+	// declaration order [String, MarshalJSON] and the composite
+	// interface assertion returned false.
+	const src = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type T struct{ N int }
+
+func (t T) String() string               { return fmt.Sprintf("S%d", t.N) }
+func (t T) MarshalJSON() ([]byte, error) { return []byte(fmt.Sprintf("[%d]", t.N)), nil }
+
+func main() {
+	v := T{N: 9}
+	if _, ok := any(v).(interface {
+		fmt.Stringer
+		json.Marshaler
+	}); !ok {
+		fmt.Print("composite assertion failed")
+		return
+	}
+	fmt.Print("ok")
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "ok"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }
 

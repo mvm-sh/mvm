@@ -15,11 +15,11 @@ import (
 // error, json.Marshaler, json.Unmarshaler, etc.) then dispatches the
 // method directly, with no bridge proxy.
 //
-// Phase 2c: shape catalog S1 (func() string) / S2 (func() ([]byte, error)) /
-// S3 (func([]byte) error) on any supported kind, plus pointer-receiver
-// variants on *T via attachPtrType.
-// At most ONE method per receiver kind per type per call; multi-method
-// support lands in Phase 2d.
+// Phase 2d: any combination of shapes S1 (func() string) / S2 (func()
+// ([]byte, error)) / S3 (func([]byte) error) on any supported kind, plus
+// pointer-receiver variants on *T via attachPtrType.
+// Up to synth's per-attach method cap (currently 16); excess methods of
+// the same receiver kind are silently dropped.
 //
 // Re-allocation of existing values is out of scope: global slots populated
 // before this call keep their old rtype.
@@ -57,12 +57,12 @@ func synthSupportedKind(k reflect.Kind) bool {
 }
 
 func (m *Machine) attachValueRecv(t *Type) (bool, error) {
-	spec, ok := m.firstSynthMethod(t, false)
-	if !ok {
+	specs := m.allSynthMethods(t, false)
+	if len(specs) == 0 {
 		return false, nil
 	}
 	newRT, err := synth.AttachMethods(t.Rtype, t.Name, t.PkgPath,
-		spec.toSynthMethod(m, t, false))
+		toSynthMethods(m, t, specs, false))
 	if err != nil {
 		return false, err
 	}
@@ -70,15 +70,15 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	return true, nil
 }
 
-// attachPtrRecv installs a ptr-recv method on *T.
+// attachPtrRecv installs ptr-recv methods on *T.
 // elemReady reports whether t.Rtype is already a fresh synth elem we own.
 // If not, clone the original layout first so attachPtrType writes
 // PtrToThis into our own rtype rather than the layout shared with reflect's
 // caches (structLookupCache for struct, the canonical native rtype for
 // primitives/slices/arrays/maps).
 func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
-	spec, ok := m.firstSynthMethod(t, true)
-	if !ok {
+	specs := m.allSynthMethods(t, true)
+	if len(specs) == 0 {
 		return nil
 	}
 	if !elemReady {
@@ -89,7 +89,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		t.Rtype = clone
 	}
 	_, err := synth.AttachPtrMethods(t.Rtype, "*"+t.Name, t.PkgPath,
-		spec.toSynthMethod(m, t, true))
+		toSynthMethods(m, t, specs, true))
 	return err
 }
 
@@ -101,46 +101,46 @@ type synthMethodSpec struct {
 	shape  synth.Shape
 }
 
-// toSynthMethod builds the synth.Method (with the right shape-typed handler
-// closure) for installation against t.
-// ptrRecv selects how recv is interpreted when the stub fires.
-func (s synthMethodSpec) toSynthMethod(m *Machine, t *Type, ptrRecv bool) synth.Method {
-	var handler any
-	switch s.shape {
-	case synth.ShapeS1:
-		handler = makeHandlerS1(m, t, s.method, ptrRecv)
-	case synth.ShapeS2:
-		handler = makeHandlerS2(m, t, s.method, ptrRecv)
-	case synth.ShapeS3:
-		handler = makeHandlerS3(m, t, s.method, ptrRecv)
+// toSynthMethods materializes the slice of synth.Method passed to
+// synth.AttachMethods / AttachPtrMethods.
+// Each method's handler closure is built per its shape.
+func toSynthMethods(
+	m *Machine, t *Type, specs []synthMethodSpec, ptrRecv bool,
+) []synth.Method {
+	out := make([]synth.Method, len(specs))
+	for i, s := range specs {
+		var handler any
+		switch s.shape {
+		case synth.ShapeS1:
+			handler = makeHandlerS1(m, t, s.method, ptrRecv)
+		case synth.ShapeS2:
+			handler = makeHandlerS2(m, t, s.method, ptrRecv)
+		case synth.ShapeS3:
+			handler = makeHandlerS3(m, t, s.method, ptrRecv)
+		}
+		out[i] = synth.Method{
+			Name:     s.name,
+			Exported: true,
+			Sig:      s.method.Rtype,
+			Shape:    s.shape,
+			Handler:  handler,
+		}
 	}
-	return synth.Method{
-		Name:     s.name,
-		Exported: true,
-		Sig:      s.method.Rtype,
-		Shape:    s.shape,
-		Handler:  handler,
-	}
+	return out
 }
 
-// firstSynthMethod returns the highest-priority resolved method on t whose
-// signature matches a supported shape and whose PtrRecv matches wantPtr.
-//
-// Phase 2c attaches at most one method per receiver kind per type.
-// When a type defines methods of multiple shapes (e.g. both String() and
-// MarshalJSON() as value-recv), priority is fixed at S1 > S2 > S3:
-//   - S1 (Stringer/Error) is the broadest interop hook; losing it degrades
-//     fmt printing AND error interop simultaneously.
-//   - S2/S3 (Marshaler/Unmarshaler) callers will fall through to the
-//     legacy bridge until Phase 2d's multi-method containers land.
-//
+// allSynthMethods returns every resolved method on t whose signature matches
+// a supported shape and whose PtrRecv matches wantPtr.
+// Iteration follows t.Methods order (declaration order); the result is
+// truncated to synth's per-attach cap to avoid attach failure on rare
+// large method sets.
 // Name filtering is intentionally absent: which method names matter is a
 // stdlib-layer concern, not a vm concern.
-func (m *Machine) firstSynthMethod(
+func (m *Machine) allSynthMethods(
 	t *Type, wantPtr bool,
-) (synthMethodSpec, bool) {
-	var best synthMethodSpec
-	bestRank := -1
+) []synthMethodSpec {
+	const synthMaxMethods = 16 // matches vm/synth.maxMethods
+	var specs []synthMethodSpec
 	for i, method := range t.Methods {
 		if !method.IsResolved() || i >= len(m.MethodNames) {
 			continue
@@ -152,33 +152,16 @@ func (m *Machine) firstSynthMethod(
 		if !ok {
 			continue
 		}
-		rank := shapeRank(shape)
-		if bestRank == -1 || rank < bestRank {
-			best = synthMethodSpec{
-				name:   m.MethodNames[i],
-				method: method,
-				shape:  shape,
-			}
-			bestRank = rank
-			if rank == 0 {
-				break // S1 is highest priority; no need to keep scanning
-			}
+		specs = append(specs, synthMethodSpec{
+			name:   m.MethodNames[i],
+			method: method,
+			shape:  shape,
+		})
+		if len(specs) == synthMaxMethods {
+			break
 		}
 	}
-	return best, bestRank != -1
-}
-
-// shapeRank returns the priority for a shape; lower is higher priority.
-func shapeRank(s synth.Shape) int {
-	switch s {
-	case synth.ShapeS1:
-		return 0
-	case synth.ShapeS2:
-		return 1
-	case synth.ShapeS3:
-		return 2
-	}
-	return 99
+	return specs
 }
 
 // detectShape inspects a method signature (receiver elided) and returns the
@@ -226,11 +209,16 @@ func isErrorType(t reflect.Type) bool { return t == errorIface }
 // the receiver Value is reflect.NewAt(t.Rtype, recv).
 // For value-recv methods, recv points at boxed T storage; the receiver Value
 // is reflect.NewAt(t.Rtype, recv).Elem().
+//
+// t.Rtype is read lazily inside the closure: the bridge replaces it with the
+// synth rtype after AttachMethods returns, so capturing it at construction
+// time would freeze the pre-synth layout identity and produce mismatched
+// reflect.Value vs ifcType.Rtype at dispatch.
 func makeHandlerS1(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS1 {
-	rtype, ifcType, methodSig := t.Rtype, t, method.Rtype
+	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {
-		rv := makeRecvValue(rtype, recv, ptrRecv)
-		out, err := callMethod(m, ifcType, rv, method, methodSig, nil)
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
 		if err != nil {
 			return fmt.Sprintf("<synth dispatch error: %v>", err)
 		}
@@ -242,10 +230,10 @@ func makeHandlerS1(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 func makeHandlerS2(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS2 {
-	rtype, ifcType, methodSig := t.Rtype, t, method.Rtype
+	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) ([]byte, error) {
-		rv := makeRecvValue(rtype, recv, ptrRecv)
-		out, err := callMethod(m, ifcType, rv, method, methodSig, nil)
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -265,11 +253,11 @@ func makeHandlerS2(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 func makeHandlerS3(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS3 {
-	rtype, ifcType, methodSig := t.Rtype, t, method.Rtype
+	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, data []byte) error {
-		rv := makeRecvValue(rtype, recv, ptrRecv)
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(data)}
-		out, err := callMethod(m, ifcType, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, rv, method, methodSig, argv)
 		if err != nil {
 			return err
 		}

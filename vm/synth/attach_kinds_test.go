@@ -26,10 +26,10 @@ func stubHandler(called *bool, out string) HandlerS1 {
 func TestAttachPrimitiveMethodsInt(t *testing.T) {
 	called := false
 	rt, err := AttachPrimitiveMethods(reflect.TypeOf(int(0)),
-		"MyInt", "test", Method{
+		"MyInt", "test", []Method{{
 			Name: "String", Exported: true, Sig: stringerSig,
 			Handler: stubHandler(&called, "myint"),
-		})
+		}})
 	if err != nil {
 		t.Fatalf("AttachPrimitiveMethods: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestAttachPrimitiveMethodsInt(t *testing.T) {
 func TestAttachPrimitiveMethodsString(t *testing.T) {
 	called := false
 	rt, err := AttachPrimitiveMethods(reflect.TypeOf(""),
-		"MyStr", "test", Method{
+		"MyStr", "test", []Method{{
 			Name: "String", Exported: true, Sig: stringerSig,
 			Handler: stubHandler(&called, "mystr"),
-		})
+		}})
 	if err != nil {
 		t.Fatalf("AttachPrimitiveMethods: %v", err)
 	}
@@ -81,9 +81,78 @@ func TestAttachPrimitiveMethodsString(t *testing.T) {
 	}
 }
 
+// TestInstallMethodsSortedByName pins the alphabetical-sort fix for #1:
+// methods passed in REVERSE alphabetical order must end up sorted in the
+// synth rtype's method array so reflect.implements (linear merge) and
+// reflect.Type.MethodByName (binary search) work correctly.
+// Without sorting, MethodByName misses entries past the binary-search
+// midpoint and Implements returns false for multi-method target ifaces.
+func TestInstallMethodsSortedByName(t *testing.T) {
+	// Five methods in REVERSE alphabetical order so binary search would
+	// miss the early ones if the array stays unsorted.
+	mk := func(name string) Method {
+		called := new(bool)
+		return Method{
+			Name: name, Exported: true, Sig: stringerSig,
+			Handler: stubHandler(called, name),
+		}
+	}
+	methods := []Method{mk("Zeta"), mk("Quux"), mk("Mid"), mk("Foo"), mk("Alpha")}
+
+	rt, err := AttachPrimitiveMethods(
+		reflect.TypeOf(int(0)), "Multi", "test", methods)
+	if err != nil {
+		t.Fatalf("AttachPrimitiveMethods: %v", err)
+	}
+	if got, want := rt.NumMethod(), 5; got != want {
+		t.Fatalf("NumMethod = %d, want %d", got, want)
+	}
+	want := []string{"Alpha", "Foo", "Mid", "Quux", "Zeta"}
+	for i, name := range want {
+		if got := rt.Method(i).Name; got != name {
+			t.Errorf("Method(%d).Name = %q, want %q", i, got, name)
+		}
+		// MethodByName uses binary search; without sort it would miss.
+		if _, ok := rt.MethodByName(name); !ok {
+			t.Errorf("MethodByName(%q) not found", name)
+		}
+	}
+}
+
+// TestAcquireSlotsPartialRollback verifies that when one method's slot
+// acquisition fails mid-batch, the handlers from earlier-acquired slots
+// are cleared so captured closure state doesn't leak.
+// Slot indices stay consumed (counters are monotonic); only handler refs
+// are released.
+func TestAcquireSlotsPartialRollback(t *testing.T) {
+	// Methods: 2 S1 (ok) + 1 with bogus handler type (errInvalidHandlerType).
+	called := new(bool)
+	methods := []Method{
+		{Name: "A", Exported: true, Sig: stringerSig, Handler: stubHandler(called, "a")},
+		{Name: "B", Exported: true, Sig: stringerSig, Handler: stubHandler(called, "b")},
+		{Name: "C", Exported: true, Sig: stringerSig, Shape: ShapeS1, Handler: "not a func"},
+	}
+	beforeUsed := SlotsUsedS1()
+	_, err := acquireSlots(methods)
+	if err == nil {
+		t.Fatal("expected error from invalid handler type")
+	}
+	afterUsed := SlotsUsedS1()
+	if afterUsed-beforeUsed != 2 {
+		t.Errorf("SlotsUsedS1 delta = %d, want 2 (counter is monotonic; both attempts before failure must show)",
+			afterUsed-beforeUsed)
+	}
+	// Verify the rolled-back slots have nil handlers.
+	for i := beforeUsed; i < afterUsed; i++ {
+		if slotPoolS1[i].handler != nil {
+			t.Errorf("slotPoolS1[%d].handler not released after rollback", i)
+		}
+	}
+}
+
 func TestAttachPrimitiveMethodsRejectsStruct(t *testing.T) {
 	_, err := AttachPrimitiveMethods(reflect.TypeOf(struct{}{}),
-		"X", "test", Method{Sig: stringerSig, Handler: stubHandler(new(bool), "")})
+		"X", "test", []Method{{Sig: stringerSig, Handler: stubHandler(new(bool), "")}})
 	if err == nil {
 		t.Fatal("expected error for non-primitive kind")
 	}
@@ -92,10 +161,10 @@ func TestAttachPrimitiveMethodsRejectsStruct(t *testing.T) {
 func TestAttachSliceMethods(t *testing.T) {
 	called := false
 	rt, err := AttachSliceMethods(reflect.TypeOf([]int(nil)),
-		"MySlice", "test", Method{
+		"MySlice", "test", []Method{{
 			Name: "String", Exported: true, Sig: stringerSig,
 			Handler: stubHandler(&called, "myslice"),
-		})
+		}})
 	if err != nil {
 		t.Fatalf("AttachSliceMethods: %v", err)
 	}
@@ -122,10 +191,10 @@ func TestAttachSliceMethods(t *testing.T) {
 func TestAttachArrayMethods(t *testing.T) {
 	called := false
 	layout := reflect.ArrayOf(4, reflect.TypeOf(int(0)))
-	rt, err := AttachArrayMethods(layout, "MyArr", "test", Method{
+	rt, err := AttachArrayMethods(layout, "MyArr", "test", []Method{{
 		Name: "String", Exported: true, Sig: stringerSig,
 		Handler: stubHandler(&called, "myarr"),
-	})
+	}})
 	if err != nil {
 		t.Fatalf("AttachArrayMethods: %v", err)
 	}
@@ -152,10 +221,10 @@ func TestAttachArrayMethods(t *testing.T) {
 func TestAttachMapMethods(t *testing.T) {
 	called := false
 	layout := reflect.MapOf(reflect.TypeOf(""), reflect.TypeOf(int(0)))
-	rt, err := AttachMapMethods(layout, "MyMap", "test", Method{
+	rt, err := AttachMapMethods(layout, "MyMap", "test", []Method{{
 		Name: "String", Exported: true, Sig: stringerSig,
 		Handler: stubHandler(&called, "mymap"),
-	})
+	}})
 	if err != nil {
 		t.Fatalf("AttachMapMethods: %v", err)
 	}

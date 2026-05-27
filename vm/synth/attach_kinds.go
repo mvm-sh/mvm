@@ -2,7 +2,9 @@ package synth
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
+	"sort"
 	"unsafe"
 )
 
@@ -10,20 +12,22 @@ import (
 // Supported kinds: struct, named primitive (int/uint/float/bool/string/
 // complex), slice, array, map.
 // Unsupported kinds return ErrKindUnsupported.
+// methods may carry mixed shapes; each is registered against its shape's
+// slot pool. len(methods) must be in [1, maxMethods].
 func AttachMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	switch k := layout.Kind(); {
 	case k == reflect.Struct:
-		return AttachStructMethods(layout, name, pkgPath, m)
+		return AttachStructMethods(layout, name, pkgPath, methods)
 	case isPrimitiveKind(k):
-		return AttachPrimitiveMethods(layout, name, pkgPath, m)
+		return AttachPrimitiveMethods(layout, name, pkgPath, methods)
 	case k == reflect.Slice:
-		return AttachSliceMethods(layout, name, pkgPath, m)
+		return AttachSliceMethods(layout, name, pkgPath, methods)
 	case k == reflect.Array:
-		return AttachArrayMethods(layout, name, pkgPath, m)
+		return AttachArrayMethods(layout, name, pkgPath, methods)
 	case k == reflect.Map:
-		return AttachMapMethods(layout, name, pkgPath, m)
+		return AttachMapMethods(layout, name, pkgPath, methods)
 	}
 	return nil, ErrKindUnsupported
 }
@@ -34,94 +38,107 @@ var ErrKindUnsupported = errors.New(
 	"synth: AttachMethods: layout kind not supported")
 
 // AttachPrimitiveMethods synthesizes a fresh rtype mirroring a named primitive
-// layout (named int/uint/float/bool/string/complex) with method m attached.
+// layout (named int/uint/float/bool/string/complex) with the given methods
+// attached.
 // The source rtype identity is shared with the native primitive; the returned
 // rtype has its own identity (new hash, separate PtrToThis) so reflect
 // queries on user types do not bleed into native primitive state.
 func AttachPrimitiveMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	if !isPrimitiveKind(layout.Kind()) {
 		return nil, errKindPrim
 	}
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 	src := rtypePtr(layout)
-	b := new(synthPrim1)
+	b := new(synthPrim)
 	b.t = *src
 	stampHeader(&b.t, name)
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, 1, m.Exported, uint32(moff))
-	b.m[0] = makeMethod(m, stubPC)
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 	return asReflectType(&b.t), nil
 }
 
-// AttachSliceMethods synthesizes a fresh slice rtype carrying method m.
+// AttachSliceMethods synthesizes a fresh slice rtype carrying the methods.
 func AttachSliceMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	if layout.Kind() != reflect.Slice {
 		return nil, errKindSlice
 	}
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 	src := (*abiSliceType)(unsafe.Pointer(rtypePtr(layout)))
-	b := new(synthSlice1)
+	b := new(synthSlice)
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, 1, m.Exported, uint32(moff))
-	b.m[0] = makeMethod(m, stubPC)
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 	return asReflectType(&b.t.abiType), nil
 }
 
-// AttachArrayMethods synthesizes a fresh array rtype carrying method m.
+// AttachArrayMethods synthesizes a fresh array rtype carrying the methods.
 func AttachArrayMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	if layout.Kind() != reflect.Array {
 		return nil, errKindArray
 	}
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 	src := (*abiArrayType)(unsafe.Pointer(rtypePtr(layout)))
-	b := new(synthArray1)
+	b := new(synthArray)
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, 1, m.Exported, uint32(moff))
-	b.m[0] = makeMethod(m, stubPC)
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 	return asReflectType(&b.t.abiType), nil
 }
 
-// AttachMapMethods synthesizes a fresh map rtype carrying method m.
+// AttachMapMethods synthesizes a fresh map rtype carrying the methods.
 func AttachMapMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	if layout.Kind() != reflect.Map {
 		return nil, errKindMap
 	}
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 	src := (*abiMapType)(unsafe.Pointer(rtypePtr(layout)))
-	b := new(synthMap1)
+	b := new(synthMap)
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, 1, m.Exported, uint32(moff))
-	b.m[0] = makeMethod(m, stubPC)
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -134,12 +151,21 @@ func stampHeader(t *abiType, name string) {
 	t.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-func makeUncommon(pkgPath string, mcount uint16, exported bool, moff uint32) abiUncommon {
+// makeUncommon builds the abiUncommon block for a synth rtype.
+// Mcount is len(methods); Xcount counts those marked Exported.
+// moff is the offset from this uncommon to the [Mcount]Method array tail.
+func makeUncommon(pkgPath string, methods []Method, moff uint32) abiUncommon {
+	xcount := 0
+	for _, m := range methods {
+		if m.Exported {
+			xcount++
+		}
+	}
 	return abiUncommon{
 		PkgPath: uint32(addReflectOff(unsafe.Pointer(
 			encodeName(pkgPath, false).Bytes))),
-		Mcount: mcount,
-		Xcount: uint16(boolInt(exported)),
+		Mcount: uint16(len(methods)),
+		Xcount: uint16(xcount),
 		Moff:   moff,
 	}
 }
@@ -152,6 +178,62 @@ func makeMethod(m Method, stubPC uintptr) abiMethod {
 		Ifn:  uint32(addReflectOff(ptrFromPC(stubPC))),
 		Tfn:  uint32(addReflectOff(ptrFromPC(stubPC))),
 	}
+}
+
+// installMethods writes the methods into the first len(methods) entries of
+// dst in lexicographic name order; stubs[i] must be the PC paired with
+// methods[i] (the helper reorders both consistently).
+// Sort is required by Go's runtime: reflect.implements does a forward
+// linear merge of two pre-sorted method arrays (reflect/type.go), and
+// reflect.Type.MethodByName uses binary search.
+// Unsorted entries cause Implements() to return false for any multi-method
+// target interface, with the negative result then cached in the itab.
+func installMethods(dst []abiMethod, methods []Method, stubs []uintptr) {
+	order := make([]int, len(methods))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return methods[order[i]].Name < methods[order[j]].Name
+	})
+	for i, idx := range order {
+		dst[i] = makeMethod(methods[idx], stubs[idx])
+	}
+}
+
+// checkMethodCount validates that len(methods) is in [1, maxMethods].
+func checkMethodCount(methods []Method) error {
+	switch {
+	case len(methods) == 0:
+		return errNoMethods
+	case len(methods) > maxMethods:
+		return fmt.Errorf("synth: too many methods (%d > %d)",
+			len(methods), maxMethods)
+	}
+	return nil
+}
+
+// acquireSlots acquires one stub PC per method, routing each through its
+// shape's slot pool.
+// Returns the per-method stub PCs in order, or the first acquisition error.
+// On error, releases handler refs from already-acquired slots so the
+// captured *Machine/*Type closure state is freed for GC (slot INDICES stay
+// consumed because per-shape counters have no safe concurrent decrement).
+func acquireSlots(methods []Method) ([]uintptr, error) {
+	stubs := make([]uintptr, len(methods))
+	releases := make([]func(), 0, len(methods))
+	for i, m := range methods {
+		pc, release, err := acquireSlot(m)
+		if err != nil {
+			for _, r := range releases {
+				r()
+			}
+			return nil, err
+		}
+		stubs[i] = pc
+		releases = append(releases, release)
+	}
+	return stubs, nil
 }
 
 func isPrimitiveKind(k reflect.Kind) bool {
@@ -173,31 +255,42 @@ var (
 	errKindSlice = errors.New("synth: AttachSliceMethods: layout kind is not Slice")
 	errKindArray = errors.New("synth: AttachArrayMethods: layout kind is not Array")
 	errKindMap   = errors.New("synth: AttachMapMethods: layout kind is not Map")
+	errNoMethods = errors.New("synth: methods slice is empty")
 )
 
-// Per-kind 1-method containers, matching the synth1 pattern for struct.
-// Layout = kind-specific type prefix + uncommon + [1]method.
+// maxMethods caps the number of methods installable per synth attach call.
+// Sized to comfortably hold the union of Stringer/Error/GoString +
+// Marshal{JSON,Text,Binary} + Unmarshal{JSON,Text,Binary} + Format-like
+// methods, plus headroom.
+// Runtime cost: maxMethods*16 bytes per synth rtype (unused slots stay
+// zero; Mcount in uncommon bounds runtime iteration to the real count).
+const maxMethods = 16
 
-type synthPrim1 struct {
+// Per-kind multi-method containers.
+// Layout = kind-specific type prefix + uncommon + [maxMethods]method.
+// The runtime reads exactly Mcount methods starting at Moff, so unused
+// slots are harmless padding.
+
+type synthPrim struct {
 	t abiType
 	u abiUncommon
-	m [1]abiMethod
+	m [maxMethods]abiMethod
 }
 
-type synthSlice1 struct {
+type synthSlice struct {
 	t abiSliceType
 	u abiUncommon
-	m [1]abiMethod
+	m [maxMethods]abiMethod
 }
 
-type synthArray1 struct {
+type synthArray struct {
 	t abiArrayType
 	u abiUncommon
-	m [1]abiMethod
+	m [maxMethods]abiMethod
 }
 
-type synthMap1 struct {
+type synthMap struct {
 	t abiMapType
 	u abiUncommon
-	m [1]abiMethod
+	m [maxMethods]abiMethod
 }

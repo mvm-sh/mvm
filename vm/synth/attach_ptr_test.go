@@ -17,12 +17,12 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		}),
 		"T",
 		"test",
-		Method{
+		[]Method{{
 			Name:     "_marker",
 			Exported: false,
 			Sig:      reflect.TypeOf((func() string)(nil)),
 			Handler:  func(unsafe.Pointer) string { return "" },
-		},
+		}},
 	)
 	if err != nil {
 		t.Fatalf("AttachStructMethods (T): %v", err)
@@ -34,12 +34,12 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		l := (*layout)(recv)
 		return fmt.Sprintf("ptr V=%d", l.V)
 	}
-	ptrT, err := AttachPtrMethods(layoutT, "*T", "test", Method{
+	ptrT, err := AttachPtrMethods(layoutT, "*T", "test", []Method{{
 		Name:     "String",
 		Exported: true,
 		Sig:      reflect.TypeOf((func() string)(nil)),
 		Handler:  handler,
-	})
+	}})
 	if err != nil {
 		t.Fatalf("AttachPtrMethods: %v", err)
 	}

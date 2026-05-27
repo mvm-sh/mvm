@@ -9,7 +9,7 @@ import (
 var errKindStruct = errors.New(
 	"synth: AttachStructMethods: layout kind is not Struct")
 
-// AttachStructMethods returns a new rtype whose method set contains m.
+// AttachStructMethods returns a new rtype whose method set contains methods.
 // name is the user-facing type name stamped into the synth rtype's Str so
 // reflect.Type.Name()/String() match the source program (the source layout's
 // Str may point into a moduledata reflect cannot resolve from a heap-built
@@ -18,44 +18,40 @@ var errKindStruct = errors.New(
 // as the canonical identity.
 // itab cache keys on pointer identity, so a mismatch silently disables
 // interface dispatch.
+// methods may carry mixed shapes; len(methods) must be in [1, maxMethods].
 func AttachStructMethods(
-	layout reflect.Type, name, pkgPath string, m Method,
+	layout reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	if layout.Kind() != reflect.Struct {
 		return nil, errKindStruct
 	}
-
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 
 	src := (*abiStructType)(unsafe.Pointer(rtypePtr(layout)))
-	b := new(synth1)
+	b := new(synthStruct)
 
 	// Fields/Equal/GCData copy by pointer; the source rtype keeps them reachable.
 	b.st = *src
 	stampHeader(&b.st.abiType, name)
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, 1, m.Exported, uint32(moff))
-	b.m[0] = makeMethod(m, stubPC)
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 
 	return asReflectType(&b.st.abiType), nil
 }
 
-// synth1 is the fixed-shape container for a synth struct with one method.
+// synthStruct is the multi-method container for a synth struct.
 // Typed-struct allocation (vs []byte) gives GC the correct pointer map for
 // Equal, GCData, and the Fields slice.
-type synth1 struct {
+type synthStruct struct {
 	st abiStructType
 	u  abiUncommon
-	m  [1]abiMethod
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+	m  [maxMethods]abiMethod
 }

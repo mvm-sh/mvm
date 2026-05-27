@@ -40,34 +40,37 @@ type Method struct {
 	Handler  any
 }
 
-// errPoolExhausted reports that the pool for the given shape is full.
-// Each shape carries its own message via fmt.
 var errInvalidHandlerType = errors.New("synth: handler type does not match shape")
 
 // acquireSlot claims a free slot in the pool for m.Shape and returns the
-// stub PC for Ifn/Tfn together with the (16-bit) slot index.
-func acquireSlot(m Method) (pc uintptr, err error) {
+// stub PC for Ifn/Tfn plus a release closure.
+// release nils the slot's handler entry, freeing captured closure state
+// (*Machine/*Type references) for GC.
+// The slot INDEX itself remains consumed: the per-shape counter is
+// monotonic with no safe decrement under concurrent acquires.
+// Release is best-effort memory hygiene, not pool reclamation.
+func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 	switch m.Shape {
 	case ShapeS1:
 		h, ok := m.Handler.(HandlerS1)
 		if !ok {
-			return 0, errInvalidHandlerType
+			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS1(h)
 	case ShapeS2:
 		h, ok := m.Handler.(HandlerS2)
 		if !ok {
-			return 0, errInvalidHandlerType
+			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS2(h)
 	case ShapeS3:
 		h, ok := m.Handler.(HandlerS3)
 		if !ok {
-			return 0, errInvalidHandlerType
+			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS3(h)
 	}
-	return 0, fmt.Errorf("synth: unknown shape %d", m.Shape)
+	return 0, nil, fmt.Errorf("synth: unknown shape %d", m.Shape)
 }
 
 // errPoolFmt produces the user-facing message for a given shape's pool

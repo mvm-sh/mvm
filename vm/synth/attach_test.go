@@ -27,12 +27,12 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 		}),
 		"layout",
 		"test",
-		Method{
+		[]Method{{
 			Name:     "String",
 			Exported: true,
 			Sig:      reflect.TypeOf((func() string)(nil)),
 			Handler:  handler,
-		},
+		}},
 	)
 	if err != nil {
 		t.Fatalf("AttachStructMethods: %v", err)
@@ -75,12 +75,12 @@ func TestAttachStructMethodsName(t *testing.T) {
 		}),
 		"MyStruct",
 		"test",
-		Method{
+		[]Method{{
 			Name:     "String",
 			Exported: true,
 			Sig:      reflect.TypeOf((func() string)(nil)),
 			Handler:  func(unsafe.Pointer) string { return "" },
-		},
+		}},
 	)
 	if err != nil {
 		t.Fatalf("AttachStructMethods: %v", err)
@@ -98,11 +98,11 @@ func TestAttachStructMethodsRejectsNonStruct(t *testing.T) {
 		reflect.TypeOf(int(0)),
 		"badKind",
 		"test",
-		Method{
+		[]Method{{
 			Name:    "String",
 			Sig:     reflect.TypeOf((func() string)(nil)),
 			Handler: func(unsafe.Pointer) string { return "" },
-		},
+		}},
 	)
 	if err == nil {
 		t.Fatal("expected error for non-struct layout, got nil")
@@ -118,7 +118,7 @@ func TestSlotPoolDistinctSlots(t *testing.T) {
 			}),
 			"slotPool_"+tag,
 			"test",
-			Method{
+			[]Method{{
 				Name:     "String",
 				Exported: true,
 				Sig:      reflect.TypeOf((func() string)(nil)),
@@ -126,7 +126,7 @@ func TestSlotPoolDistinctSlots(t *testing.T) {
 					*called = true
 					return tag
 				},
-			},
+			}},
 		)
 		if err != nil {
 			t.Fatalf("AttachStructMethods(%s): %v", tag, err)

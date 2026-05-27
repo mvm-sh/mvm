@@ -8,27 +8,27 @@ import (
 
 var errNilElemType = errors.New("synth: AttachPtrMethods: nil elem type")
 
-// AttachPtrMethods synthesizes a *T rtype carrying method m and wires it
+// AttachPtrMethods synthesizes a *T rtype carrying the methods and wires it
 // back so reflect.PointerTo(elem) returns this *T rather than a fresh
 // methodless one.
 // elem becomes the Elem of the new *T; its PtrToThis is overwritten.
-//
-// Phase 2a: one method per call.
-// Phase 2d extends to multi-method via synthN containers.
+// len(methods) must be in [1, maxMethods].
 func AttachPtrMethods(
-	elem reflect.Type, name, pkgPath string, m Method,
+	elem reflect.Type, name, pkgPath string, methods []Method,
 ) (reflect.Type, error) {
 	elemRT := rtypePtr(elem)
 	if elemRT == nil {
 		return nil, errNilElemType
 	}
-
-	stubPC, err := acquireSlot(m)
+	if err := checkMethodCount(methods); err != nil {
+		return nil, err
+	}
+	stubs, err := acquireSlots(methods)
 	if err != nil {
 		return nil, err
 	}
 
-	b := new(synthPtr1)
+	b := new(synthPtr)
 	b.elem = elemRT
 
 	// Pointer types are direct-iface, one word, and share Equal/GCData with
@@ -53,21 +53,8 @@ func AttachPtrMethods(
 	}
 
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = abiUncommon{
-		PkgPath: uint32(addReflectOff(unsafe.Pointer(
-			encodeName(pkgPath, false).Bytes))),
-		Mcount: 1,
-		Xcount: uint16(boolInt(m.Exported)),
-		Moff:   uint32(moff),
-	}
-
-	b.m[0] = abiMethod{
-		Name: uint32(addReflectOff(unsafe.Pointer(
-			encodeName(m.Name, m.Exported).Bytes))),
-		Mtyp: uint32(addReflectOff(unsafe.Pointer(rtypePtr(m.Sig)))),
-		Ifn:  uint32(addReflectOff(ptrFromPC(stubPC))),
-		Tfn:  uint32(addReflectOff(ptrFromPC(stubPC))),
-	}
+	b.u = makeUncommon(pkgPath, methods, uint32(moff))
+	installMethods(b.m[:len(methods)], methods, stubs)
 
 	// Close the cycle: reflect.PointerTo(elem) returns our synth *T because
 	// reflect consults elem.PtrToThis before allocating a fresh ptr type.
@@ -76,12 +63,12 @@ func AttachPtrMethods(
 	return asReflectType(&b.t), nil
 }
 
-// synthPtr1 is the fixed-shape container for a synth *T with one method.
-// Layout: abiType(48) + Elem(8) + uncommon(16) + method(16).
+// synthPtr is the multi-method container for a synth *T.
+// Layout: abiType(48) + Elem(8) + uncommon(16) + [maxMethods]method.
 // Uncommon at offset 56, matching runtime's PtrType + UncommonType.
-type synthPtr1 struct {
+type synthPtr struct {
 	t    abiType
 	elem *abiType
 	u    abiUncommon
-	m    [1]abiMethod
+	m    [maxMethods]abiMethod
 }
