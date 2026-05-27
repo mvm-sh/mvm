@@ -1,10 +1,13 @@
 package vm
 
 import (
+	"encoding/binary"
 	"fmt"
 	"iter"
 	"math"
 	"reflect"
+	"strings"
+	"sync"
 	"unicode"
 	"unsafe"
 )
@@ -863,8 +866,31 @@ func ChanOf(dir reflect.ChanDir, elem *Type) *Type {
 	return c
 }
 
-// FuncOf returns the function type with the given argument and result types.
+// funcTypes is the global registry for FuncOf memoization.
+// Keys are signature fingerprints (packed pointer bytes of params/returns +
+// variadic byte); values are the canonical func *Type per signature.
+// Persistence is process-lifetime: cached entries hold the input *Type values
+// (via Params/Returns), so the inputs stay reachable and the key stays valid.
+// Guarded by funcTypesMu; contention is effectively zero because mvm's compile
+// pipeline is single-threaded per Compiler.
+var (
+	funcTypesMu sync.Mutex
+	funcTypes   = map[string]*Type{}
+)
+
+// FuncOf returns the canonical function type with the given argument and
+// result types and variadic flag.
+// Repeated calls with the same (arg pointers, ret pointers, variadic) return
+// the same *Type.
+// Callers must NOT mutate the returned *Type's Params/Returns slices; they
+// alias the first caller's slices held in the cache.
 func FuncOf(arg, ret []*Type, variadic bool) *Type {
+	key := funcTypeKey(arg, ret, variadic)
+	funcTypesMu.Lock()
+	defer funcTypesMu.Unlock()
+	if t, ok := funcTypes[key]; ok {
+		return t
+	}
 	a := make([]reflect.Type, len(arg))
 	for i, e := range arg {
 		a[i] = e.Rtype
@@ -873,11 +899,65 @@ func FuncOf(arg, ret []*Type, variadic bool) *Type {
 	for i, e := range ret {
 		r[i] = e.Rtype
 	}
-	return &Type{Rtype: reflect.FuncOf(a, r, variadic), Params: arg, Returns: ret}
+	t := &Type{Rtype: reflect.FuncOf(a, r, variadic), Params: arg, Returns: ret}
+	funcTypes[key] = t
+	return t
 }
 
-// StructOf returns the struct type with the given field types, embedded field info, and tags.
+func funcTypeKey(arg, ret []*Type, variadic bool) string {
+	var b strings.Builder
+	b.Grow(int(unsafe.Sizeof(uintptr(0)))*(len(arg)+len(ret)) + 9)
+	writeUint32(&b, uint32(len(arg)))
+	for _, t := range arg {
+		writePtr(&b, t)
+	}
+	writeUint32(&b, uint32(len(ret)))
+	for _, t := range ret {
+		writePtr(&b, t)
+	}
+	if variadic {
+		b.WriteByte(1)
+	} else {
+		b.WriteByte(0)
+	}
+	return b.String()
+}
+
+func writeUint32(b *strings.Builder, v uint32) {
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], v)
+	b.Write(buf[:])
+}
+
+func writePtr(b *strings.Builder, p *Type) {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(uintptr(unsafe.Pointer(p))))
+	b.Write(buf[:])
+}
+
+// structTypes is the global registry for StructOf memoization.
+// Keys are structural fingerprints (per-field {Name, PkgPath, Base-or-self
+// pointer}, embedded list, tag strings).
+// Persistence is process-lifetime; cached entries hold the input slices.
+var (
+	structTypesMu sync.Mutex
+	structTypes   = map[string]*Type{}
+)
+
+// StructOf returns the canonical struct type with the given field types,
+// embedded field info, and tags.
+// Memoized on a structural key: callers that parse the same source shape
+// (e.g. two `struct{X int}` literals) receive the same *Type even when
+// caller-side parseStructType clones field *Type instances per call.
+// The key uses each field's Name + PkgPath + Base pointer (or self pointer
+// if Base is nil) so cloned-but-equivalent fields converge.
 func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
+	key := structTypeKey(fields, embedded, tags)
+	structTypesMu.Lock()
+	defer structTypesMu.Unlock()
+	if t, ok := structTypes[key]; ok {
+		return t
+	}
 	rf := make([]reflect.StructField, len(fields))
 	embSet := make(map[int]bool, len(embedded))
 	for _, e := range embedded {
@@ -924,7 +1004,38 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 			rf[i].Anonymous = embSet[i]
 		}
 	}
-	return &Type{Rtype: reflect.StructOf(rf), Embedded: embedded, Fields: fields}
+	t := &Type{Rtype: reflect.StructOf(rf), Embedded: embedded, Fields: fields}
+	structTypes[key] = t
+	return t
+}
+
+func structTypeKey(fields []*Type, embedded []EmbeddedField, tags []string) string {
+	var b strings.Builder
+	writeUint32(&b, uint32(len(fields)))
+	for _, f := range fields {
+		writeString(&b, f.Name)
+		writeString(&b, f.PkgPath)
+		base := f.Base
+		if base == nil {
+			base = f
+		}
+		writePtr(&b, base)
+	}
+	writeUint32(&b, uint32(len(embedded)))
+	for _, e := range embedded {
+		writeUint32(&b, uint32(e.FieldIdx))
+		writePtr(&b, e.Type)
+	}
+	writeUint32(&b, uint32(len(tags)))
+	for _, s := range tags {
+		writeString(&b, s)
+	}
+	return b.String()
+}
+
+func writeString(b *strings.Builder, s string) {
+	writeUint32(b, uint32(len(s)))
+	b.WriteString(s)
 }
 
 // FieldIndex returns the index of struct field name.
