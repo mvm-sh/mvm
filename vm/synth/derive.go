@@ -142,8 +142,8 @@ func MapOf(key, elem reflect.Type) reflect.Type {
 	if keyRT == nil || elemRT == nil {
 		return nil
 	}
-	layoutMap := reflect.MapOf(layoutFor(key), layoutFor(elem))
-	src := (*abiMapType)(unsafe.Pointer(rtypePtr(layoutMap)))
+	layoutShadow := reflect.MapOf(layoutFor(key), layoutFor(elem))
+	src := (*abiMapType)(unsafe.Pointer(rtypePtr(layoutShadow)))
 
 	b := new(abiMapType)
 	*b = *src
@@ -155,7 +155,7 @@ func MapOf(key, elem reflect.Type) reflect.Type {
 	b.Key = keyRT
 	b.Elem = elemRT
 
-	registerLayout(&b.abiType, rtypePtr(layoutMap))
+	registerLayout(&b.abiType, rtypePtr(layoutShadow))
 	return asReflectType(&b.abiType)
 }
 
@@ -188,6 +188,23 @@ func IsSynth(t reflect.Type) bool {
 	_, ok := layoutMap[rt]
 	layoutMu.RUnlock()
 	return ok
+}
+
+// HasPtrToThis reports whether t's PtrToThis field is wired (i.e., an
+// AttachPtrMethods call has registered a *T-with-methods rtype reachable
+// via reflect.PointerTo(t)).
+// vm.PointerTo consults this to prefer reflect.PointerTo over synth.PointerTo
+// when the wired *T exists, so the vm-side derived *T and the reflect-side
+// *T share identity.
+func HasPtrToThis(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	rt := rtypePtr(t)
+	if rt == nil {
+		return false
+	}
+	return rt.PtrToThis != 0
 }
 
 // registerLayout records the native-layout rtype for a synth rtype.

@@ -93,11 +93,17 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 	if err != nil {
 		return err
 	}
-	// Propagate the *T-with-methods rtype to t.derived.ptr if it was already
-	// materialized (and cascade through its own derived chain).
+	// Propagate the *T-with-methods rtype to t.derived.ptr. Materialize if
+	// missing so a subsequent vm.PointerTo(t) returns this rtype rather than
+	// building a fresh methodless *T via synth.PointerTo (which would diverge
+	// from reflect.PointerTo(t.Rtype), the latter following PtrToThis to the
+	// with-methods *T).
 	derivedMu.Lock()
-	if t.derived != nil && t.derived.ptr != nil {
-		t.derived.ptr.refreshLocked(newPtrRT)
+	d := t.ensureDerivedLocked()
+	if d.ptr == nil {
+		d.ptr = &Type{Name: t.Name, Rtype: newPtrRT, ElemType: t}
+	} else {
+		d.ptr.refreshLocked(newPtrRT)
 	}
 	derivedMu.Unlock()
 	return nil

@@ -892,8 +892,12 @@ func ChanOf(dir reflect.ChanDir, elem *Type) *Type {
 // reflect.*Of preserves native rtype identity (so reflect.PointerTo(int) and
 // vm.PointerTo's *int Rtype stay the canonical *int); on a synth elem
 // reflect.*Of crashes via resolveNameOff, so synth.* takes over.
+// Exception for PointerTo: if a synth elem has its PtrToThis wired by
+// AttachPtrMethods, reflect.PointerTo follows that wiring to the canonical
+// *T-with-methods WITHOUT entering the resolveNameOff path -- using
+// reflect.PointerTo there unifies vm-side and reflect-side *T identity.
 func derivePointerTo(elem reflect.Type) reflect.Type {
-	if synth.IsSynth(elem) {
+	if synth.IsSynth(elem) && !synth.HasPtrToThis(elem) {
 		return synth.PointerTo(elem)
 	}
 	return reflect.PointerTo(elem)
