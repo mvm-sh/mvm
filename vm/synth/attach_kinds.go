@@ -15,7 +15,7 @@ func AttachMethods(
 ) (reflect.Type, error) {
 	switch k := layout.Kind(); {
 	case k == reflect.Struct:
-		return AttachStructMethods(layout, pkgPath, m)
+		return AttachStructMethods(layout, name, pkgPath, m)
 	case isPrimitiveKind(k):
 		return AttachPrimitiveMethods(layout, name, pkgPath, m)
 	case k == reflect.Slice:
@@ -44,7 +44,7 @@ func AttachPrimitiveMethods(
 	if !isPrimitiveKind(layout.Kind()) {
 		return nil, errKindPrim
 	}
-	stubPC, err := acquireSlotS1(m.Handler)
+	stubPC, err := acquireSlot(m)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func AttachSliceMethods(
 	if layout.Kind() != reflect.Slice {
 		return nil, errKindSlice
 	}
-	stubPC, err := acquireSlotS1(m.Handler)
+	stubPC, err := acquireSlot(m)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func AttachArrayMethods(
 	if layout.Kind() != reflect.Array {
 		return nil, errKindArray
 	}
-	stubPC, err := acquireSlotS1(m.Handler)
+	stubPC, err := acquireSlot(m)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func AttachMapMethods(
 	if layout.Kind() != reflect.Map {
 		return nil, errKindMap
 	}
-	stubPC, err := acquireSlotS1(m.Handler)
+	stubPC, err := acquireSlot(m)
 	if err != nil {
 		return nil, err
 	}

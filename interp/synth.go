@@ -30,10 +30,10 @@ func (i *Interp) attachSynthMethods() error {
 		if i.synthAttached[sym.Type] {
 			continue
 		}
-		i.synthAttached[sym.Type] = true
 		if err := i.AttachSynthMethods(sym.Type); err != nil {
 			return err
 		}
+		i.synthAttached[sym.Type] = true
 	}
 	return nil
 }

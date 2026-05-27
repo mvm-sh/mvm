@@ -1,65 +1,86 @@
 package synth
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
-	"sync/atomic"
-	"unsafe"
+)
+
+// Shape identifies a method-signature shape.
+// Each shape has its own stub pool, handler type, and dispatcher.
+// New shapes can be added without touching existing shapes.
+type Shape uint8
+
+const (
+	// ShapeS1 is func() string.
+	// Covers fmt.Stringer.String, error.Error, fmt.GoStringer.GoString,
+	// flag.Value.String.
+	ShapeS1 Shape = 0
+
+	// ShapeS2 is func() ([]byte, error).
+	// Covers json.Marshaler.MarshalJSON, encoding.BinaryMarshaler,
+	// encoding.TextMarshaler, xml.Marshaler.MarshalXML (almost; subset).
+	ShapeS2 Shape = 1
+
+	// ShapeS3 is func([]byte) error.
+	// Covers json.Unmarshaler.UnmarshalJSON, encoding.BinaryUnmarshaler,
+	// encoding.TextUnmarshaler.
+	ShapeS3 Shape = 2
 )
 
 // Method describes one method to install on a synthesized type.
+// Shape selects which stub pool the slot comes from; Handler must be the
+// matching HandlerS* function type for the Shape (default ShapeS1 expects
+// HandlerS1).
 type Method struct {
 	Name     string
 	Exported bool
-	Sig      reflect.Type // method signature without receiver, e.g. func() string
-	Handler  HandlerS1    // Phase 1: all methods are shape S1
+	Sig      reflect.Type
+	Shape    Shape
+	Handler  any
 }
 
-// HandlerS1 is the per-method callback for shape S1 (func(*T) string).
-// recv is the receiver pointer per Go's iface-dispatch convention.
-// For non-direct kinds it points at the boxed value; for direct-iface kinds
-// it IS the value reinterpreted as a pointer.
-type HandlerS1 = func(recv unsafe.Pointer) string
+// errPoolExhausted reports that the pool for the given shape is full.
+// Each shape carries its own message via fmt.
+var errInvalidHandlerType = errors.New("synth: handler type does not match shape")
 
-type methodDescS1 struct {
-	handler HandlerS1
+// acquireSlot claims a free slot in the pool for m.Shape and returns the
+// stub PC for Ifn/Tfn together with the (16-bit) slot index.
+func acquireSlot(m Method) (pc uintptr, err error) {
+	switch m.Shape {
+	case ShapeS1:
+		h, ok := m.Handler.(HandlerS1)
+		if !ok {
+			return 0, errInvalidHandlerType
+		}
+		return acquireSlotS1(h)
+	case ShapeS2:
+		h, ok := m.Handler.(HandlerS2)
+		if !ok {
+			return 0, errInvalidHandlerType
+		}
+		return acquireSlotS2(h)
+	case ShapeS3:
+		h, ok := m.Handler.(HandlerS3)
+		if !ok {
+			return 0, errInvalidHandlerType
+		}
+		return acquireSlotS3(h)
+	}
+	return 0, fmt.Errorf("synth: unknown shape %d", m.Shape)
 }
 
-// slotPoolS1 holds the per-slot descriptors for shape S1, indexed by the
-// stub's baked-in slot number.
-// Phase 2c replaces with a code-generated, configurable pool.
-var slotPoolS1 [poolSizeS1]methodDescS1
-
-var nextSlotS1 atomic.Uint32
-
-var errPoolExhausted = fmt.Errorf(
-	"synth: shape S1 stub pool exhausted (cap=%d)", poolSizeS1)
-
-// acquireSlotS1 claims a free slot and returns the stub PC for Ifn/Tfn.
-func acquireSlotS1(h HandlerS1) (pc uintptr, err error) {
-	n := nextSlotS1.Add(1) - 1
-	if n >= poolSizeS1 {
-		return 0, errPoolExhausted
-	}
-	slotPoolS1[n].handler = h
-	return stubsS1[n], nil
+// errPoolFmt produces the user-facing message for a given shape's pool
+// exhaustion.
+// Centralized so each shape registry references a single template.
+func errPoolFmt(shape string, poolCap uint32) error {
+	return fmt.Errorf("synth: shape %s stub pool exhausted (cap=%d)", shape, poolCap)
 }
 
-// SlotsUsedS1 reports how many S1 stub slots have been consumed.
-// Exported for tests that verify idempotency at the interp layer.
-func SlotsUsedS1() uint32 { return nextSlotS1.Load() }
-
-// dispatchS1 is the shared dispatcher every stub tail-calls into.
-// The slot index was baked into the stub at code-gen time.
-//
-//go:nosplit
-func dispatchS1(slot uint32, recv unsafe.Pointer) string {
-	if slot >= poolSizeS1 {
-		return fmt.Sprintf("synth: invalid slot %d", slot)
-	}
-	d := &slotPoolS1[slot]
-	if d.handler == nil {
-		return fmt.Sprintf("synth: slot %d has no handler", slot)
-	}
-	return d.handler(recv)
+// dispatchErr returns the formatted error string a stub returns when its
+// slot was acquired but a runtime invariant was broken (unknown slot index,
+// missing handler).
+// Centralized so each shape dispatcher reports identically.
+func dispatchErr(slot uint32, what string) string {
+	return fmt.Sprintf("synth: slot %d %s", slot, what)
 }

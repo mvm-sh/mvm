@@ -23,7 +23,7 @@ func AttachPtrMethods(
 		return nil, errNilElemType
 	}
 
-	stubPC, err := acquireSlotS1(m.Handler)
+	stubPC, err := acquireSlot(m)
 	if err != nil {
 		return nil, err
 	}

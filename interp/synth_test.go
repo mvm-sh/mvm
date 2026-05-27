@@ -161,6 +161,129 @@ func main() {
 	}
 }
 
+// TestSynthMarshalJSON exercises shape S2 end-to-end: interpreted
+// MarshalJSON on a struct value type satisfies json.Marshaler via the
+// synthesized rtype, with no bridge proxy.
+func TestSynthMarshalJSON(t *testing.T) {
+	t.Setenv("MVM_SYNTH", "1")
+
+	const src = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type Pair struct{ K, V int }
+
+func (p Pair) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("[%d,%d]", p.K, p.V)), nil
+}
+
+func main() {
+	p := Pair{K: 1, V: 2}
+	b, err := json.Marshal(p)
+	if err != nil { fmt.Print("ERR ", err); return }
+	fmt.Print(string(b))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	before := synth.SlotsUsedS2()
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "[1,2]"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+	if got := synth.SlotsUsedS2(); got <= before {
+		t.Errorf("SlotsUsedS2 did not advance (before=%d after=%d); "+
+			"synth S2 path was not exercised", before, got)
+	}
+}
+
+// TestSynthUnmarshalJSON exercises shape S3 end-to-end: interpreted
+// UnmarshalJSON on a *T satisfies json.Unmarshaler via the synthesized
+// *T rtype, with mutations to the receiver visible after dispatch returns.
+func TestSynthUnmarshalJSON(t *testing.T) {
+	t.Setenv("MVM_SYNTH", "1")
+
+	const src = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type Tagged struct{ X int }
+
+func (t *Tagged) UnmarshalJSON(data []byte) error {
+	t.X = len(data)
+	return nil
+}
+
+func main() {
+	var v Tagged
+	if err := json.Unmarshal([]byte("[1,2,3,4]"), &v); err != nil {
+		fmt.Print("ERR ", err); return
+	}
+	fmt.Print(v.X)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	before := synth.SlotsUsedS3()
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "9"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+	if got := synth.SlotsUsedS3(); got <= before {
+		t.Errorf("SlotsUsedS3 did not advance (before=%d after=%d); "+
+			"synth S3 path was not exercised", before, got)
+	}
+}
+
+// TestSynthShapePriorityS1OverS2 pins the Phase 2c shape priority: when a
+// type has BOTH a value-recv Stringer and a value-recv Marshaler (same
+// receiver kind), S1 wins so fmt.Stringer is preserved.
+// Without the priority, parse-order would pick whichever was declared
+// first, regressing Phase 1b's Stringer guarantee.
+func TestSynthShapePriorityS1OverS2(t *testing.T) {
+	t.Setenv("MVM_SYNTH", "1")
+
+	// MarshalJSON declared FIRST (would lose under naive ordering).
+	const src = `package main
+
+import "fmt"
+
+type T struct{ N int }
+
+func (t T) MarshalJSON() ([]byte, error) { return []byte("MARSHAL"), nil }
+func (t T) String() string               { return "STRING" }
+
+func main() {
+	var s fmt.Stringer = T{N: 1}
+	fmt.Print(s.String())
+}
+`
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	var stdout, stderr bytes.Buffer
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "STRING"; got != want {
+		t.Errorf("stdout = %q, want %q (S1 should win over S2)", got, want)
+	}
+}
+
 // TestSynthAttachIdempotent verifies that a single Eval consumes the
 // expected number of S1 slots: one per distinct synth-attached *Type.
 // The compiler aliases each Type symbol under bare and pkg-qualified keys

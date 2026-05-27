@@ -15,6 +15,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
+		"T",
 		"test",
 		Method{
 			Name:     "_marker",

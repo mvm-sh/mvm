@@ -25,6 +25,7 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
+		"layout",
 		"test",
 		Method{
 			Name:     "String",
@@ -64,9 +65,38 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 	}
 }
 
+// TestAttachStructMethodsName pins the Phase 2c name-stamping: the synth
+// struct's Name()/String() must reflect the caller-supplied name, not the
+// source layout's name (which is "" for reflect.StructOf-built layouts).
+func TestAttachStructMethodsName(t *testing.T) {
+	rt, err := AttachStructMethods(
+		reflect.StructOf([]reflect.StructField{
+			{Name: "V", Type: reflect.TypeOf(int(0))},
+		}),
+		"MyStruct",
+		"test",
+		Method{
+			Name:     "String",
+			Exported: true,
+			Sig:      reflect.TypeOf((func() string)(nil)),
+			Handler:  func(unsafe.Pointer) string { return "" },
+		},
+	)
+	if err != nil {
+		t.Fatalf("AttachStructMethods: %v", err)
+	}
+	if got, want := rt.Name(), "MyStruct"; got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+	if got, want := rt.String(), "MyStruct"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
 func TestAttachStructMethodsRejectsNonStruct(t *testing.T) {
 	_, err := AttachStructMethods(
 		reflect.TypeOf(int(0)),
+		"badKind",
 		"test",
 		Method{
 			Name:    "String",
@@ -86,6 +116,7 @@ func TestSlotPoolDistinctSlots(t *testing.T) {
 			reflect.StructOf([]reflect.StructField{
 				{Name: "V", Type: reflect.TypeOf(int(0))},
 			}),
+			"slotPool_"+tag,
 			"test",
 			Method{
 				Name:     "String",
