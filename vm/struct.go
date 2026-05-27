@@ -123,8 +123,16 @@ func placeholderFieldName(name string, n uint64) string {
 }
 
 // SetFields finalizes a forward-declared struct type using src's definition.
-// It patches the internal reflect.Type in place so that any derived types
-// (e.g., pointer types created via PointerTo) automatically see the real layout.
+// It patches the internal reflect.Type in place so derived types (e.g.
+// pointer types via PointerTo) see the real layout.
+//
+// Synth integration point (Phase 1b): once the compiler populates t.Methods,
+// an alternate path can call vm/synth.AttachStructMethods on t.Rtype to
+// install real Go-runtime methods.
+// Interpreted types then satisfy native interfaces without bridge proxies.
+// Gated on vm/synth.Enabled() (MVM_SYNTH=1) until the Phase 3a sweep flips
+// the default.
+// See [[project_synth_rtype_poc]] and [[project_patchrtype_gc_badpointer]].
 func (t *Type) SetFields(src *Type) {
 	if t.Rtype == nil || t.Rtype.Kind() != reflect.Struct || !t.Placeholder {
 		// Not a fresh reflect.StructOf placeholder: a bare-name type collision

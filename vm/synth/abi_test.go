@@ -6,9 +6,8 @@ import (
 	"unsafe"
 )
 
-// Probe to confirm our abi mirrors match what the running Go runtime expects.
-// If Go ever changes the internal/abi layout, these tests fail loudly at
-// build/CI time rather than producing memory corruption at runtime.
+// Probes confirm the abi mirrors match the running Go runtime.
+// Layout drift fails loudly at CI time instead of corrupting memory at runtime.
 
 type probeNamed struct {
 	A int
@@ -23,18 +22,17 @@ func TestAbiTypeLayout(t *testing.T) {
 		t.Fatal("rtypePtr returned nil")
 	}
 
-	// Sanity: pointer-size-aware Size_ for {A int} is one word.
+	// {A int} is one word on this arch.
 	want := unsafe.Sizeof(uintptr(0))
 	if at.Size != want {
 		t.Errorf("Size_ = %d, want %d", at.Size, want)
 	}
 
-	// Kind is Struct.
 	if at.Kind != kindStruct {
 		t.Errorf("Kind_ = %d, want %d (struct)", at.Kind, kindStruct)
 	}
 
-	// Named + Uncommon flags should be set on a defined type with methods.
+	// A defined type with methods has both Named and Uncommon set.
 	if at.TFlag&tflagNamed == 0 {
 		t.Errorf("TFlag missing tflagNamed: %#x", at.TFlag)
 	}
@@ -42,12 +40,10 @@ func TestAbiTypeLayout(t *testing.T) {
 		t.Errorf("TFlag missing tflagUncommon: %#x", at.TFlag)
 	}
 
-	// Align matches uintptr on this arch.
 	if at.Align != uint8(unsafe.Alignof(uintptr(0))) {
 		t.Errorf("Align_ = %d, want %d", at.Align, unsafe.Alignof(uintptr(0)))
 	}
 
-	// Hash is nonzero for a real type (compiler-emitted).
 	if at.Hash == 0 {
 		t.Errorf("Hash = 0; expected nonzero for compiler-emitted rtype")
 	}
@@ -67,7 +63,6 @@ func TestAbiStructTypeLayout(t *testing.T) {
 	if st.Fields[0].Offset != 0 {
 		t.Errorf("Fields[0].Offset = %d, want 0", st.Fields[0].Offset)
 	}
-	// Field 1 (string) starts after Field 0 (int).
 	wantOff := unsafe.Sizeof(int(0))
 	if st.Fields[1].Offset != wantOff {
 		t.Errorf("Fields[1].Offset = %d, want %d", st.Fields[1].Offset, wantOff)
@@ -90,7 +85,6 @@ func TestAbiPtrTypeLayout(t *testing.T) {
 	if pt.Elem == nil {
 		t.Fatalf("Elem nil; layout drift?")
 	}
-	// Elem points to int's abiType: Kind=Int.
 	if pt.Elem.Kind != kindInt {
 		t.Errorf("Elem.Kind = %d, want %d (int)", pt.Elem.Kind, kindInt)
 	}
@@ -142,13 +136,13 @@ func TestAbiMapTypeLayout(t *testing.T) {
 }
 
 func TestUncommonOffsetsByKind(t *testing.T) {
-	// The runtime's per-Kind Uncommon() dispatch (internal/abi/type.go:319)
-	// computes uncommon's offset as sizeof(KindType). Our synthesis code
-	// will rely on these offsets being predictable; assert them here.
+	// Runtime Uncommon() (internal/abi/type.go:319) computes uncommon offset
+	// as sizeof(KindType).
+	// Synthesis depends on these being predictable.
 	cases := []struct {
 		name    string
 		mirror  uintptr
-		wantOff uintptr // for documentation -- equals mirror size
+		wantOff uintptr // doc: equals mirror size
 	}{
 		{"Type", unsafe.Sizeof(abiType{}), unsafe.Sizeof(abiType{})},
 		{"PtrType", unsafe.Sizeof(abiPtrType{}), unsafe.Sizeof(abiPtrType{})},
@@ -162,7 +156,6 @@ func TestUncommonOffsetsByKind(t *testing.T) {
 			t.Errorf("%s mirror sizeof = %d, want %d", c.name, c.mirror, c.wantOff)
 		}
 	}
-	// Document the values for the current arch in test output (-v).
 	t.Logf("uncommon offsets on this arch (ptrsize=%d):", unsafe.Sizeof(uintptr(0)))
 	for _, c := range cases {
 		t.Logf("  %-12s = %d", c.name, c.mirror)
@@ -170,15 +163,13 @@ func TestUncommonOffsetsByKind(t *testing.T) {
 }
 
 func TestAddReflectOff(t *testing.T) {
-	// Round-trip: register an arbitrary pointer, verify a non-zero offset
-	// comes back. We don't have resolveReflectName/Type/Text wired here,
-	// so we only verify the linkname works.
+	// Round-trip: register a pointer, get a non-zero offset back.
+	// Verifies the linkname; resolveReflectName/Type/Text are tested elsewhere.
 	x := 42
 	off := addReflectOff(unsafe.Pointer(&x))
 	if off == 0 {
 		t.Error("addReflectOff returned 0; linkname not resolved?")
 	}
-	// Second call with a different pointer returns a different offset.
 	y := 99
 	off2 := addReflectOff(unsafe.Pointer(&y))
 	if off2 == 0 || off2 == off {
@@ -186,6 +177,8 @@ func TestAddReflectOff(t *testing.T) {
 	}
 }
 
+// TestUncommonAndMethodSize: wire sizes are pointer-size invariant
+// (all uint32).
 func TestUncommonAndMethodSize(t *testing.T) {
 	if got, want := unsafe.Sizeof(abiUncommon{}), uintptr(16); got != want {
 		t.Errorf("sizeof(abiUncommon) = %d, want %d", got, want)

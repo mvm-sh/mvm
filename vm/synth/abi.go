@@ -30,7 +30,7 @@ const (
 )
 
 // Kind values, mirroring internal/abi.Kind iota positions.
-// Only the kinds we will synthesize are named; values are stable since 1.18.
+// Values are stable since 1.18.
 const (
 	kindInvalid       uint8 = 0
 	kindBool          uint8 = 1
@@ -102,7 +102,7 @@ type abiMapType struct {
 	SlotSize  uintptr
 	ElemOff   uintptr
 	Flags     uint32
-	_         uint32 // keep following UncommonType aligned on both 32 and 64 bit targets
+	_         uint32 // align following UncommonType on 32 and 64-bit targets
 }
 
 // abiUncommon mirrors internal/abi.UncommonType.
@@ -110,7 +110,7 @@ type abiUncommon struct {
 	PkgPath uint32 // NameOff
 	Mcount  uint16
 	Xcount  uint16
-	Moff    uint32 // byte offset from start of this struct to the [Mcount]Method array
+	Moff    uint32 // offset from this struct to the [Mcount]Method array
 	_       uint32 // unused
 }
 
