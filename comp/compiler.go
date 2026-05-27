@@ -45,7 +45,7 @@ type Compiler struct {
 	methodRtype  map[int]reflect.Type        // func type (no receiver) by global method ID
 	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex, keyed by mvm type pointer
 	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym (type-descriptor slot), keyed by mvm type pointer
-	zeroTypeIdxs map[reflect.Type]int        // dedup cache: Data slot holding a zero VALUE of a type (Fnew source); keyed by reflect.Type so name-keyed and carried-type idents converge on one Fnew slot (composite-literal length patcher at lang.Composite relies on this)
+	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type (Fnew source), keyed by mvm type pointer
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 }
 
@@ -59,7 +59,7 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		methodRtype:  map[int]reflect.Type{},
 		typeIdxs:     map[*vm.Type]int{},
 		typeSyms:     map[*vm.Type]*symbol.Symbol{},
-		zeroTypeIdxs: map[reflect.Type]int{},
+		zeroTypeIdxs: map[*vm.Type]int{},
 		labelAtPos:   map[int]bool{},
 	}
 }
@@ -3800,20 +3800,19 @@ func (c *Compiler) compileBuiltin(
 // copies to instantiate).
 // Shared across emit sites so a name-keyed type ident, a carried-type ident,
 // and a composite all patch the same Fnew.
-// Keyed on reflect.Type (NOT *vm.Type) because the composite-literal length
-// patcher (lang.Composite) searches Code for an Fnew with operand A ==
-// zeroTypeSlot(symtab.Type), and the type ident emitter wrote that Fnew via
-// zeroTypeSlot(stack.Type) -- the two may be distinct *vm.Type instances
-// with identical Rtype, so the rtype is what makes them converge.
+// Keyed on *vm.Type pointer identity; convergence between the type-ident
+// emitter (compiler.go:1926) and the composite-literal length patcher
+// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SliceOf
+// / vm.PointerTo / vm.MapOf / etc. returning the same instance per shape.
 // Distinct from typeSym, which allocates a type-DESCRIPTOR slot (make-elem/key,
-// TypeAssert, etc.) and has no such convergence requirement.
+// TypeAssert, etc.).
 func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
-	if i, ok := c.zeroTypeIdxs[typ.Rtype]; ok {
+	if i, ok := c.zeroTypeIdxs[typ]; ok {
 		return i
 	}
 	i := len(c.Data)
 	c.Data = append(c.Data, vm.NewValue(typ.Rtype))
-	c.zeroTypeIdxs[typ.Rtype] = i
+	c.zeroTypeIdxs[typ] = i
 	return i
 }
 

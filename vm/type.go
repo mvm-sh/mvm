@@ -51,6 +51,30 @@ type Type struct {
 	// was taken (normal for mvm, which parses struct types before
 	// method declarations) remain reachable through Base.
 	Base *Type
+
+	// derived caches canonical derived types built from this Type
+	// (PointerTo, SliceOf, ArrayOf, ChanOf, MapOf).
+	// Memoization keys on *Type pointer identity so the cache survives a
+	// later swap of an inner *Type's Rtype (e.g. by vm/synth).
+	// Lazily allocated on first derivation; nil for primitives never derived from.
+	// Not safe for concurrent derivation of the same base Type -- callers must
+	// serialize, which mvm's single-threaded compile pipeline already does.
+	derived *derivedTypes
+}
+
+type derivedTypes struct {
+	ptr   *Type
+	slice *Type
+	array map[int]*Type
+	chans map[reflect.ChanDir]*Type
+	maps  map[*Type]*Type
+}
+
+func (t *Type) ensureDerived() *derivedTypes {
+	if t.derived == nil {
+		t.derived = &derivedTypes{}
+	}
+	return t.derived
 }
 
 // IfaceMethod describes a method required by an interface type.
@@ -777,29 +801,66 @@ func (v Value) Equal(u Value) bool {
 	return v.ref.Equal(u.ref)
 }
 
-// PointerTo returns the pointer type with element t.
+// PointerTo returns the canonical pointer type with element t.
+// Repeated calls with the same t return the same *Type.
 func PointerTo(t *Type) *Type {
-	return &Type{Name: t.Name, Rtype: reflect.PointerTo(t.Rtype), ElemType: t}
+	d := t.ensureDerived()
+	if d.ptr != nil {
+		return d.ptr
+	}
+	d.ptr = &Type{Name: t.Name, Rtype: reflect.PointerTo(t.Rtype), ElemType: t}
+	return d.ptr
 }
 
-// ArrayOf returns the array type with the given length and element type.
+// ArrayOf returns the canonical array type with the given length and element type.
 func ArrayOf(length int, t *Type) *Type {
-	return &Type{Rtype: reflect.ArrayOf(length, t.Rtype), ElemType: t}
+	d := t.ensureDerived()
+	if d.array == nil {
+		d.array = map[int]*Type{}
+	} else if a := d.array[length]; a != nil {
+		return a
+	}
+	a := &Type{Rtype: reflect.ArrayOf(length, t.Rtype), ElemType: t}
+	d.array[length] = a
+	return a
 }
 
-// SliceOf returns the slice type with the given element type.
+// SliceOf returns the canonical slice type with the given element type.
+// Repeated calls with the same t return the same *Type.
 func SliceOf(t *Type) *Type {
-	return &Type{Rtype: reflect.SliceOf(t.Rtype), ElemType: t}
+	d := t.ensureDerived()
+	if d.slice != nil {
+		return d.slice
+	}
+	d.slice = &Type{Rtype: reflect.SliceOf(t.Rtype), ElemType: t}
+	return d.slice
 }
 
-// MapOf returns the map type with the given key and element types.
+// MapOf returns the canonical map type with the given key and element types.
+// Memoized on the key type, indexed by element type.
 func MapOf(k, e *Type) *Type {
-	return &Type{Rtype: reflect.MapOf(k.Rtype, e.Rtype), ElemType: e, KeyType: k}
+	d := k.ensureDerived()
+	if d.maps == nil {
+		d.maps = map[*Type]*Type{}
+	} else if m := d.maps[e]; m != nil {
+		return m
+	}
+	m := &Type{Rtype: reflect.MapOf(k.Rtype, e.Rtype), ElemType: e, KeyType: k}
+	d.maps[e] = m
+	return m
 }
 
-// ChanOf returns the channel type with the given direction and element type.
+// ChanOf returns the canonical channel type with the given direction and element type.
 func ChanOf(dir reflect.ChanDir, elem *Type) *Type {
-	return &Type{Rtype: reflect.ChanOf(dir, elem.Rtype), ElemType: elem}
+	d := elem.ensureDerived()
+	if d.chans == nil {
+		d.chans = map[reflect.ChanDir]*Type{}
+	} else if c := d.chans[dir]; c != nil {
+		return c
+	}
+	c := &Type{Rtype: reflect.ChanOf(dir, elem.Rtype), ElemType: elem}
+	d.chans[dir] = c
+	return c
 }
 
 // FuncOf returns the function type with the given argument and result types.
