@@ -45,6 +45,10 @@ func acquireSlotS1(h HandlerS1) (pc uintptr, err error) {
 	return stubsS1[n], nil
 }
 
+// SlotsUsedS1 reports how many S1 stub slots have been consumed.
+// Exported for tests that verify idempotency at the interp layer.
+func SlotsUsedS1() uint32 { return nextSlotS1.Load() }
+
 // dispatchS1 is the shared dispatcher every stub tail-calls into.
 // The slot index was baked into the stub at code-gen time.
 //

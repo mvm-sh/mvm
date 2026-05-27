@@ -64,6 +64,7 @@ type Interp struct {
 	*comp.Compiler
 	*vm.Machine
 	stdlibPatched bool
+	synthAttached map[*vm.Type]bool // types already passed through AttachSynthMethods
 	Stats         Stats
 }
 
