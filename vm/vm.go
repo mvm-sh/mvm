@@ -702,6 +702,17 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 			mem[idx] = FromReflect(reflect.NewAt(dstType.Elem(), up))
 		}
 
+	case srcKind == reflect.Pointer && dstKind == reflect.Pointer:
+		// *T -> *U via unsafe reinterpretation.
+		// reflect.Value.Convert for two pointer types requires
+		// name-identity on the elem types (haveIdenticalType compares
+		// nameFor strictly), so it rejects conversions Go's spec allows
+		// -- e.g., `(*ipNetValue)(p)` where p is *net.IPNet and
+		// ipNetValue is `type ipNetValue net.IPNet`.  reflect.NewAt with
+		// the same underlying pointer matches Go's language-level
+		// convertibility for unnamed-pointer types.
+		mem[idx] = FromReflect(reflect.NewAt(dstType.Elem(), v.ref.UnsafePointer()))
+
 	default:
 		// Fallback: use reflect.
 		mem[idx] = FromReflect(v.Reflect().Convert(dstType))
