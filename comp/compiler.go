@@ -40,13 +40,13 @@ type Compiler struct {
 
 	FuncRanges []vm.FuncRange // bytecode [Start, End) range for every compiled function, in source order
 
-	strings      map[string]int                  // locations of strings in Data
-	methodIDs    map[string]int                  // global method ID by method name
-	methodRtype  map[int]reflect.Type            // func type (no receiver) by global method ID
-	typeIdxs     map[*vm.Type]int                // dedup cache for typeIndex, keyed by mvm type pointer
-	typeSyms     map[reflect.Type]*symbol.Symbol // dedup cache for typeSym (type-descriptor slot), keyed by reflect.Type
-	zeroTypeIdxs map[reflect.Type]int            // dedup cache: Data slot holding a zero VALUE of a type (Fnew source), keyed by reflect.Type
-	labelAtPos   map[int]bool                    // code positions occupied by Labels; consulted by fuseCmpJump
+	strings      map[string]int              // locations of strings in Data
+	methodIDs    map[string]int              // global method ID by method name
+	methodRtype  map[int]reflect.Type        // func type (no receiver) by global method ID
+	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex, keyed by mvm type pointer
+	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym (type-descriptor slot), keyed by mvm type pointer
+	zeroTypeIdxs map[reflect.Type]int        // dedup cache: Data slot holding a zero VALUE of a type (Fnew source); keyed by reflect.Type so name-keyed and carried-type idents converge on one Fnew slot (composite-literal length patcher at lang.Composite relies on this)
+	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 }
 
 // NewCompiler returns a new compiler state for a given scanner.
@@ -58,7 +58,7 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		methodIDs:    map[string]int{},
 		methodRtype:  map[int]reflect.Type{},
 		typeIdxs:     map[*vm.Type]int{},
-		typeSyms:     map[reflect.Type]*symbol.Symbol{},
+		typeSyms:     map[*vm.Type]*symbol.Symbol{},
 		zeroTypeIdxs: map[reflect.Type]int{},
 		labelAtPos:   map[int]bool{},
 	}
@@ -3797,13 +3797,16 @@ func (c *Compiler) compileBuiltin(
 }
 
 // zeroTypeSlot returns the Data slot holding a zero VALUE of typ (what Fnew
-// copies to instantiate), deduped by rtype. It is shared across emit sites so a
-// name-keyed type ident, a carried-type ident, and a composite all patch the
-// same Fnew. The SLOT may be shared by distinct *vm.Type values with the same
-// rtype (interpreted placeholder collisions) -- that is fine for Fnew, since the
-// zero value is identical; callers carry the precise *vm.Type on the pushed
-// SYMBOL so method resolution still distinguishes them. Distinct from typeSym,
-// which allocates a type-DESCRIPTOR slot (make-elem/key, TypeAssert, etc.).
+// copies to instantiate).
+// Shared across emit sites so a name-keyed type ident, a carried-type ident,
+// and a composite all patch the same Fnew.
+// Keyed on reflect.Type (NOT *vm.Type) because the composite-literal length
+// patcher (lang.Composite) searches Code for an Fnew with operand A ==
+// zeroTypeSlot(symtab.Type), and the type ident emitter wrote that Fnew via
+// zeroTypeSlot(stack.Type) -- the two may be distinct *vm.Type instances
+// with identical Rtype, so the rtype is what makes them converge.
+// Distinct from typeSym, which allocates a type-DESCRIPTOR slot (make-elem/key,
+// TypeAssert, etc.) and has no such convergence requirement.
 func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
 	if i, ok := c.zeroTypeIdxs[typ.Rtype]; ok {
 		return i
@@ -3815,15 +3818,10 @@ func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
 }
 
 func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
-	// Use c.typeSyms (keyed by reflect.Type pointer equality) instead of
-	// c.Symbols[t.Rtype.String()]: calling String() on heap-allocated rtypes
-	// created by reflect.StructOf and then patched in-place by patchRtype
-	// crashes in resolveNameOff because the rtype address is not in any
-	// module's type section.
-	tsym, ok := c.typeSyms[t.Rtype]
+	tsym, ok := c.typeSyms[t]
 	if !ok {
 		tsym = &symbol.Symbol{Index: symbol.UnsetAddr, Kind: symbol.Type, Type: t}
-		c.typeSyms[t.Rtype] = tsym
+		c.typeSyms[t] = tsym
 	}
 	if tsym.Index == symbol.UnsetAddr {
 		tsym.Index = len(c.Data)

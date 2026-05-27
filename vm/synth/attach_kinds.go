@@ -144,8 +144,13 @@ func AttachMapMethods(
 
 // stampHeader stamps the abiType header common to every synth rtype: fresh
 // hash, uncommon+named flags, cleared PtrToThis, and a new Str NameOff.
+// tflagExtraStar is explicitly cleared: a source rtype (e.g., the canonical
+// *int or a reflect.StructOf-built struct) may carry the bit because its
+// stored name has a leading '*' that reflect.Type.Name strips; copying that
+// bit verbatim and overwriting Str silently strips the first character of
+// the user-supplied name (e.g., "T" → "").
 func stampHeader(t *abiType, name string) {
-	t.TFlag |= tflagUncommon | tflagNamed
+	t.TFlag = (t.TFlag &^ tflagExtraStar) | tflagUncommon | tflagNamed
 	t.Hash = nextSyntheticHash()
 	t.PtrToThis = 0
 	t.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))

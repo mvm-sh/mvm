@@ -130,8 +130,8 @@ func placeholderFieldName(name string, n uint64) string {
 // an alternate path can call vm/synth.AttachStructMethods on t.Rtype to
 // install real Go-runtime methods.
 // Interpreted types then satisfy native interfaces without bridge proxies.
-// Gated on vm/synth.Enabled() (MVM_SYNTH=1) until the Phase 3a sweep flips
-// the default.
+// Gated on vm/synth.Enabled() (opt in with MVM_SYNTH=1; default OFF
+// pending compile-time rtype-capture refresh work tracked under Phase 3a).
 // See [[project_synth_rtype_poc]] and [[project_patchrtype_gc_badpointer]].
 func (t *Type) SetFields(src *Type) {
 	if t.Rtype == nil || t.Rtype.Kind() != reflect.Struct || !t.Placeholder {
