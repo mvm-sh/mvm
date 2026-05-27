@@ -73,7 +73,16 @@ type derivedTypes struct {
 	maps  map[*Type]*Type
 }
 
-func (t *Type) ensureDerived() *derivedTypes {
+// derivedMu serializes all reads/writes of any Type.derived field and the
+// Rtype field of derived entries during RefreshRtype propagation.
+// Single global mutex because contention is rare (only during concurrent
+// compilation of tests that share a *Type, e.g. via the std module's
+// pre-loaded type symbols).
+// Within a single Compiler, derivation is single-threaded and the lock is
+// uncontended.
+var derivedMu sync.Mutex
+
+func (t *Type) ensureDerivedLocked() *derivedTypes {
 	if t.derived == nil {
 		t.derived = &derivedTypes{}
 	}
@@ -807,7 +816,9 @@ func (v Value) Equal(u Value) bool {
 // PointerTo returns the canonical pointer type with element t.
 // Repeated calls with the same t return the same *Type.
 func PointerTo(t *Type) *Type {
-	d := t.ensureDerived()
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	d := t.ensureDerivedLocked()
 	if d.ptr != nil {
 		return d.ptr
 	}
@@ -817,7 +828,9 @@ func PointerTo(t *Type) *Type {
 
 // ArrayOf returns the canonical array type with the given length and element type.
 func ArrayOf(length int, t *Type) *Type {
-	d := t.ensureDerived()
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	d := t.ensureDerivedLocked()
 	if d.array == nil {
 		d.array = map[int]*Type{}
 	} else if a := d.array[length]; a != nil {
@@ -831,7 +844,9 @@ func ArrayOf(length int, t *Type) *Type {
 // SliceOf returns the canonical slice type with the given element type.
 // Repeated calls with the same t return the same *Type.
 func SliceOf(t *Type) *Type {
-	d := t.ensureDerived()
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	d := t.ensureDerivedLocked()
 	if d.slice != nil {
 		return d.slice
 	}
@@ -842,7 +857,9 @@ func SliceOf(t *Type) *Type {
 // MapOf returns the canonical map type with the given key and element types.
 // Memoized on the key type, indexed by element type.
 func MapOf(k, e *Type) *Type {
-	d := k.ensureDerived()
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	d := k.ensureDerivedLocked()
 	if d.maps == nil {
 		d.maps = map[*Type]*Type{}
 	} else if m := d.maps[e]; m != nil {
@@ -855,7 +872,9 @@ func MapOf(k, e *Type) *Type {
 
 // ChanOf returns the canonical channel type with the given direction and element type.
 func ChanOf(dir reflect.ChanDir, elem *Type) *Type {
-	d := elem.ensureDerived()
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	d := elem.ensureDerivedLocked()
 	if d.chans == nil {
 		d.chans = map[reflect.ChanDir]*Type{}
 	} else if c := d.chans[dir]; c != nil {

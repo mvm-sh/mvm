@@ -64,6 +64,7 @@ func AttachPrimitiveMethods(
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
 	b.u = makeUncommon(pkgPath, methods, uint32(moff))
 	installMethods(b.m[:len(methods)], methods, stubs)
+	registerLayout(&b.t, src)
 	return asReflectType(&b.t), nil
 }
 
@@ -89,6 +90,7 @@ func AttachSliceMethods(
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
 	b.u = makeUncommon(pkgPath, methods, uint32(moff))
 	installMethods(b.m[:len(methods)], methods, stubs)
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -114,6 +116,7 @@ func AttachArrayMethods(
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
 	b.u = makeUncommon(pkgPath, methods, uint32(moff))
 	installMethods(b.m[:len(methods)], methods, stubs)
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -139,6 +142,7 @@ func AttachMapMethods(
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
 	b.u = makeUncommon(pkgPath, methods, uint32(moff))
 	installMethods(b.m[:len(methods)], methods, stubs)
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 

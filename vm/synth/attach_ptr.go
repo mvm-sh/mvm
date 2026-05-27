@@ -60,6 +60,8 @@ func AttachPtrMethods(
 	// reflect consults elem.PtrToThis before allocating a fresh ptr type.
 	elemRT.PtrToThis = addReflectOff(unsafe.Pointer(&b.t))
 
+	intPtrLayout := rtypePtr(reflect.TypeOf((*int)(nil)))
+	registerLayout(&b.t, intPtrLayout)
 	return asReflectType(&b.t), nil
 }
 

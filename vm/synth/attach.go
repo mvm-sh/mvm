@@ -44,6 +44,7 @@ func AttachStructMethods(
 	b.u = makeUncommon(pkgPath, methods, uint32(moff))
 	installMethods(b.m[:len(methods)], methods, stubs)
 
+	registerLayout(&b.st.abiType, &src.abiType)
 	return asReflectType(&b.st.abiType), nil
 }
 

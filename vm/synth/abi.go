@@ -91,6 +91,13 @@ type abiArrayType struct {
 	Len   uintptr
 }
 
+// abiChanType mirrors internal/abi.ChanType.
+type abiChanType struct {
+	abiType
+	Elem *abiType
+	Dir  uintptr // ChanDir: 1=recv, 2=send, 3=both
+}
+
 // abiMapType mirrors internal/abi.MapType.
 type abiMapType struct {
 	abiType

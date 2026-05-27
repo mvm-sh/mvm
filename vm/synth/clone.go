@@ -38,6 +38,7 @@ func cloneStruct(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	b.t.Hash = nextSyntheticHash()
 	b.t.PtrToThis = 0
 	b.u = makeUncommon(pkgPath, nil, uint32(unsafe.Sizeof(b.u)))
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -49,6 +50,7 @@ func clonePrim(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	b.t.Hash = nextSyntheticHash()
 	b.t.PtrToThis = 0
 	b.u = makeUncommon(pkgPath, nil, uint32(unsafe.Sizeof(b.u)))
+	registerLayout(&b.t, src)
 	return asReflectType(&b.t), nil
 }
 
@@ -60,6 +62,7 @@ func cloneSlice(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	b.t.Hash = nextSyntheticHash()
 	b.t.PtrToThis = 0
 	b.u = makeUncommon(pkgPath, nil, uint32(unsafe.Sizeof(b.u)))
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -71,6 +74,7 @@ func cloneArray(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	b.t.Hash = nextSyntheticHash()
 	b.t.PtrToThis = 0
 	b.u = makeUncommon(pkgPath, nil, uint32(unsafe.Sizeof(b.u)))
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
@@ -82,6 +86,7 @@ func cloneMap(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	b.t.Hash = nextSyntheticHash()
 	b.t.PtrToThis = 0
 	b.u = makeUncommon(pkgPath, nil, uint32(unsafe.Sizeof(b.u)))
+	registerLayout(&b.t.abiType, &src.abiType)
 	return asReflectType(&b.t.abiType), nil
 }
 
