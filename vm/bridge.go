@@ -1,13 +1,3 @@
-// Package vm — native-method hooks.
-//
-// The previous bridge mechanism (Bridges, InterfaceBridges, DisplayBridges,
-// CompositeBridges, RegisterArgProxy, wrapIface) is gone. Synth attaches
-// interpreted methods directly to rtypes, so native code discovers them
-// via reflect with no wrapper.
-//
-// The native-method-hook system (RegisterNativeMethodHook) is unrelated:
-// it intercepts native methods (testing.T.Log/Error/Fatal/...) when the
-// receiver is a native struct mvm wants to instrument.
 package vm
 
 import (

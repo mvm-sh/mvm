@@ -146,13 +146,6 @@ func AttachMapMethods(
 	return asReflectType(&b.t.abiType), nil
 }
 
-// stampHeader stamps the abiType header common to every synth rtype: fresh
-// hash, uncommon+named flags, cleared PtrToThis, and a new Str NameOff.
-// tflagExtraStar is explicitly cleared: a source rtype (e.g., the canonical
-// *int or a reflect.StructOf-built struct) may carry the bit because its
-// stored name has a leading '*' that reflect.Type.Name strips; copying that
-// bit verbatim and overwriting Str silently strips the first character of
-// the user-supplied name (e.g., "T" → "").
 func stampHeader(t *abiType, name string) {
 	t.TFlag = (t.TFlag &^ tflagExtraStar) | tflagUncommon | tflagNamed
 	t.Hash = nextSyntheticHash()
@@ -160,9 +153,6 @@ func stampHeader(t *abiType, name string) {
 	t.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-// makeUncommon builds the abiUncommon block for a synth rtype.
-// Mcount is len(methods); Xcount counts those marked Exported.
-// moff is the offset from this uncommon to the [Mcount]Method array tail.
 func makeUncommon(pkgPath string, methods []Method, moff uint32) abiUncommon {
 	xcount := 0
 	for _, m := range methods {
@@ -189,14 +179,6 @@ func makeMethod(m Method, stubPC uintptr) abiMethod {
 	}
 }
 
-// installMethods writes the methods into the first len(methods) entries of
-// dst in lexicographic name order; stubs[i] must be the PC paired with
-// methods[i] (the helper reorders both consistently).
-// Sort is required by Go's runtime: reflect.implements does a forward
-// linear merge of two pre-sorted method arrays (reflect/type.go), and
-// reflect.Type.MethodByName uses binary search.
-// Unsorted entries cause Implements() to return false for any multi-method
-// target interface, with the negative result then cached in the itab.
 func installMethods(dst []abiMethod, methods []Method, stubs []uintptr) {
 	order := make([]int, len(methods))
 	for i := range order {
@@ -210,7 +192,6 @@ func installMethods(dst []abiMethod, methods []Method, stubs []uintptr) {
 	}
 }
 
-// checkMethodCount validates that len(methods) is in [1, maxMethods].
 func checkMethodCount(methods []Method) error {
 	switch {
 	case len(methods) == 0:
@@ -222,12 +203,6 @@ func checkMethodCount(methods []Method) error {
 	return nil
 }
 
-// acquireSlots acquires one stub PC per method, routing each through its
-// shape's slot pool.
-// Returns the per-method stub PCs in order, or the first acquisition error.
-// On error, releases handler refs from already-acquired slots so the
-// captured *Machine/*Type closure state is freed for GC (slot INDICES stay
-// consumed because per-shape counters have no safe concurrent decrement).
 func acquireSlots(methods []Method) ([]uintptr, error) {
 	stubs := make([]uintptr, len(methods))
 	releases := make([]func(), 0, len(methods))

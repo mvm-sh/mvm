@@ -1158,19 +1158,21 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				argStart := codeStarts[len(stack)-1]
 				arg := pop() // argument (top of stack)
 				pop()        // type symbol
-				// Converting a constant to a type it cannot represent is a compile
-				// error (Go spec), e.g. int8(200). int/rune results are not range-
-				// checked by emitFoldedConst (they widen instead), so catch those
-				// here; sized types are caught by the fold below.
-				if arg.Kind == symbol.Const && arg.Cval != nil && !isOverflowCheckedType(s.Type) && goparser.OverflowsType(arg.Cval, s.Type) {
+				// A constant the target type can't represent is a compile error (int8(200)).
+				// Checked here for every conversion since the fold below is skipped for named types.
+				if arg.Kind == symbol.Const && arg.Cval != nil && goparser.OverflowsType(arg.Cval, s.Type) {
 					return c.errOverflow(t, arg.Cval, s.Type)
 				}
+				// A named-type value must keep its rtype to dispatch methods at the native
+				// boundary (e.g. xml.Marshal), but the integer-const fold below would drop it.
+				// Route named types through a runtime Convert; plain basic conversions still fold.
+				namedMethodful := s.Type.Base != nil || s.Type.Rtype.NumMethod() > 0
 				// Converting a numeric constant to a numeric type is itself a
 				// constant (Go spec): fold it so e.g. `int32(7) * int32(6)`
 				// collapses to a single load. Retract the argument's load (and any
 				// Nop left by removeFnew above) and emit the converted constant,
 				// marking it Const so an enclosing constant expression folds further.
-				if arg.Kind == symbol.Const && arg.Cval != nil && isNumericConvType(s.Type) &&
+				if !namedMethodful && arg.Kind == symbol.Const && arg.Cval != nil && isNumericConvType(s.Type) &&
 					(arg.Cval.Kind() == constant.Int || arg.Cval.Kind() == constant.Float) {
 					for argStart > 0 && c.Code[argStart-1].Op == vm.Nop {
 						argStart--
