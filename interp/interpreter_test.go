@@ -1041,6 +1041,21 @@ func TestStruct(t *testing.T) {
 
 		{n: "errors_as_into_struct", src: `import "errors"; type E struct{ s string }; func (e E) Error() string { return e.s }; type w struct{ e error }; func (x w) Error() string { return "w" }; func (x w) Unwrap() error { return x.e }; var got E; ok := errors.As(w{E{"x"}}, &got); ok && got.s == "x"`, res: "true"},
 
+		// Regression: value-receiver Error/Is methods must be promoted onto the
+		// synth *T method set so *E satisfies native error (Go: method-set(*T)
+		// includes value methods). Before the fix errors.Is(&E{}, ...) panicked
+		// "reflect: Call using *E as type error".
+		{n: "errors_is_ptr_recv_value_method", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = &E{"x"}; errors.Is(err, fs.ErrPermission)`, res: "true"},
+
+		// SKIP (documented gap): a panic from an interpreted Is dispatched by
+		// native errors.Is is swallowed to false rather than propagated, because
+		// re-panicking it crashes the nested-panic-across-native-boundary path
+		// (interp -> native errors.Is -> interp Is -> panic leaves the machine
+		// stack inconsistent on unwind: "index out of range" while running the
+		// deferred recover). The synth S4/S6/S7 handlers therefore swallow. Want:
+		// the panic propagates and recover() sees it (res "true").
+		{n: "errors_is_panic_propagates", skip: true, src: `import "errors"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { panic("boom") }; func f() (r bool) { defer func() { r = recover() != nil }(); errors.Is(E{"x"}, errors.New("t")); return false }; f()`, res: "true"},
+
 		{n: "errors_as_validation_basic", src: `import "errors"; func f() (r bool) { defer func() { r = recover() != nil }(); var s string; errors.As(errors.New("e"), &s); return false }; f()`, res: "true"},
 
 		{n: "errors_as_anon_iface_target_via_any", src: `import "errors"; var timeout interface{ Timeout() bool }; tc := struct{ t any }{&timeout}; errors.As(errors.New("e"), tc.t)`, res: "false"},

@@ -26,6 +26,22 @@ const (
 	// Covers json.Unmarshaler.UnmarshalJSON, encoding.BinaryUnmarshaler,
 	// encoding.TextUnmarshaler.
 	ShapeS3 Shape = 2
+
+	// ShapeS4 is func(error) bool.
+	// Covers the errors-tree predicate errors.Is dispatches: (T).Is(error) bool.
+	ShapeS4 Shape = 3
+
+	// ShapeS5 is func(any) bool.
+	// Covers errors.As dispatch: (T).As(any) bool.
+	ShapeS5 Shape = 4
+
+	// ShapeS6 is func() error.
+	// Covers single-error unwrap: (T).Unwrap() error.
+	ShapeS6 Shape = 5
+
+	// ShapeS7 is func() []error.
+	// Covers multi-error unwrap: (T).Unwrap() []error.
+	ShapeS7 Shape = 6
 )
 
 // Method describes one method to install on a synthesized type.
@@ -69,6 +85,30 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS3(h)
+	case ShapeS4:
+		h, ok := m.Handler.(HandlerS4)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS4(h)
+	case ShapeS5:
+		h, ok := m.Handler.(HandlerS5)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS5(h)
+	case ShapeS6:
+		h, ok := m.Handler.(HandlerS6)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS6(h)
+	case ShapeS7:
+		h, ok := m.Handler.(HandlerS7)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS7(h)
 	}
 	return 0, nil, fmt.Errorf("synth: unknown shape %d", m.Shape)
 }

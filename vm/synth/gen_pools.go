@@ -29,6 +29,10 @@ var shapes = []shape{
 	{ID: "S1", Results: "string"},
 	{ID: "S2", Results: "([]byte, error)"},
 	{ID: "S3", Params: ", data []byte", ArgList: ", data", Results: "error"},
+	{ID: "S4", Params: ", target error", ArgList: ", target", Results: "bool"},
+	{ID: "S5", Params: ", target any", ArgList: ", target", Results: "bool"},
+	{ID: "S6", Results: "error"},
+	{ID: "S7", Results: "[]error"},
 }
 
 func main() {

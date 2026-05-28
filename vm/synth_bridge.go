@@ -79,7 +79,7 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 		return false, nil
 	}
 	newRT, err := synth.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs, false))
+		toSynthMethods(m, t, specs))
 	if err != nil {
 		return false, err
 	}
@@ -106,7 +106,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		t.RefreshRtype(clone)
 	}
 	newPtrRT, err := synth.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs, true))
+		toSynthMethods(m, t, specs))
 	if err != nil {
 		return err
 	}
@@ -128,28 +128,41 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 
 // synthMethodSpec describes a single method picked for synth attachment.
 // shape is the matched signature shape; name comes from MethodNames.
+// ptrRecv is the method's own receiver kind, which drives recv dereferencing
+// in the handler: a value-receiver method promoted onto *T must deref recv to
+// T, while a pointer-receiver method keeps the *T.
 type synthMethodSpec struct {
-	name   string
-	method Method
-	shape  synth.Shape
+	name    string
+	method  Method
+	shape   synth.Shape
+	ptrRecv bool
 }
 
 // toSynthMethods materializes the slice of synth.Method passed to
 // synth.AttachMethods / AttachPtrMethods.
-// Each method's handler closure is built per its shape.
+// Each method's handler closure is built per its shape, with recv dereferencing
+// driven by the method's own receiver kind (s.ptrRecv).
 func toSynthMethods(
-	m *Machine, t *Type, specs []synthMethodSpec, ptrRecv bool,
+	m *Machine, t *Type, specs []synthMethodSpec,
 ) []synth.Method {
 	out := make([]synth.Method, len(specs))
 	for i, s := range specs {
 		var handler any
 		switch s.shape {
 		case synth.ShapeS1:
-			handler = makeHandlerS1(m, t, s.method, ptrRecv)
+			handler = makeHandlerS1(m, t, s.method, s.ptrRecv)
 		case synth.ShapeS2:
-			handler = makeHandlerS2(m, t, s.method, ptrRecv)
+			handler = makeHandlerS2(m, t, s.method, s.ptrRecv)
 		case synth.ShapeS3:
-			handler = makeHandlerS3(m, t, s.method, ptrRecv)
+			handler = makeHandlerS3(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS4:
+			handler = makeHandlerS4(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS5:
+			handler = makeHandlerS5(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS6:
+			handler = makeHandlerS6(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS7:
+			handler = makeHandlerS7(m, t, s.method, s.ptrRecv)
 		}
 		out[i] = synth.Method{
 			Name:     s.name,
@@ -162,15 +175,22 @@ func toSynthMethods(
 	return out
 }
 
-// allSynthMethods returns every resolved method on t whose signature matches
-// a supported shape and whose PtrRecv matches wantPtr.
+// allSynthMethods returns the resolved, shape-matching methods to install on
+// one synth rtype. includePtr selects which method set is built:
+//   - value rtype T (includePtr=false): value-receiver methods only.
+//   - pointer rtype *T (includePtr=true): value + pointer receiver methods,
+//     matching Go's rule that method-set(*T) = value methods + ptr methods.
+//     Without the value methods here, *T fails native interface satisfaction
+//     (e.g. *errorUncomparable would not satisfy error though Error() is
+//     value-receiver).
+//
 // Iteration follows t.Methods order (declaration order); the result is
 // truncated to synth's per-attach cap to avoid attach failure on rare
 // large method sets.
 // Name filtering is intentionally absent: which method names matter is a
 // stdlib-layer concern, not a vm concern.
 func (m *Machine) allSynthMethods(
-	t *Type, wantPtr bool,
+	t *Type, includePtr bool,
 ) []synthMethodSpec {
 	const synthMaxMethods = 16 // matches vm/synth.maxMethods
 	var specs []synthMethodSpec
@@ -178,7 +198,7 @@ func (m *Machine) allSynthMethods(
 		if !method.IsResolved() || i >= len(m.MethodNames) {
 			continue
 		}
-		if method.PtrRecv != wantPtr {
+		if method.PtrRecv && !includePtr {
 			continue
 		}
 		shape, ok := detectShape(method.Rtype)
@@ -186,9 +206,10 @@ func (m *Machine) allSynthMethods(
 			continue
 		}
 		specs = append(specs, synthMethodSpec{
-			name:   m.MethodNames[i],
-			method: method,
-			shape:  shape,
+			name:    m.MethodNames[i],
+			method:  method,
+			shape:   shape,
+			ptrRecv: method.PtrRecv,
 		})
 		if len(specs) == synthMaxMethods {
 			break
@@ -204,6 +225,10 @@ func (m *Machine) allSynthMethods(
 //	S1: func() string
 //	S2: func() ([]byte, error)
 //	S3: func([]byte) error
+//	S4: func(error) bool       (errors.Is)
+//	S5: func(any) bool         (errors.As)
+//	S6: func() error           (single-error Unwrap)
+//	S7: func() []error         (multi-error Unwrap)
 func detectShape(sig reflect.Type) (synth.Shape, bool) {
 	if sig == nil || sig.Kind() != reflect.Func {
 		return 0, false
@@ -212,12 +237,22 @@ func detectShape(sig reflect.Type) (synth.Shape, bool) {
 	switch {
 	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.String:
 		return synth.ShapeS1, true
+	case nin == 0 && nout == 1 && isErrorType(sig.Out(0)):
+		return synth.ShapeS6, true
+	case nin == 0 && nout == 1 && isErrorSlice(sig.Out(0)):
+		return synth.ShapeS7, true
 	case nin == 0 && nout == 2 &&
 		isByteSlice(sig.Out(0)) && isErrorType(sig.Out(1)):
 		return synth.ShapeS2, true
 	case nin == 1 && nout == 1 &&
 		isByteSlice(sig.In(0)) && isErrorType(sig.Out(0)):
 		return synth.ShapeS3, true
+	case nin == 1 && nout == 1 &&
+		isErrorType(sig.In(0)) && sig.Out(0).Kind() == reflect.Bool:
+		return synth.ShapeS4, true
+	case nin == 1 && nout == 1 &&
+		isAnyType(sig.In(0)) && sig.Out(0).Kind() == reflect.Bool:
+		return synth.ShapeS5, true
 	}
 	return 0, false
 }
@@ -229,13 +264,21 @@ func detectShape(sig reflect.Type) (synth.Shape, bool) {
 // identity, so accepting aliases here would burn slot-pool entries on
 // types that never satisfy the target interface.
 var (
-	errorIface    = reflect.TypeOf((*error)(nil)).Elem()
-	byteSliceType = reflect.TypeOf([]byte(nil))
+	errorIface     = reflect.TypeOf((*error)(nil)).Elem()
+	byteSliceType  = reflect.TypeOf([]byte(nil))
+	anyIface       = reflect.TypeOf((*any)(nil)).Elem()
+	errorSliceType = reflect.TypeOf([]error(nil))
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
 
 func isErrorType(t reflect.Type) bool { return t == errorIface }
+
+// isAnyType matches the empty interface exactly (errors.As targets `any`),
+// distinguishing S5 from S4 whose param is the one-method `error` interface.
+func isAnyType(t reflect.Type) bool { return t == anyIface }
+
+func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 
 // makeHandlerS1 builds the per-method bridge closure for shape S1.
 // For ptrRecv methods, recv from the stub IS the *T pointer (direct-iface);
@@ -303,6 +346,110 @@ func makeHandlerS3(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 		rerr, _ := out[0].Interface().(error)
 		return rerr
 	}
+}
+
+// makeHandlerS4 bridges shape S4: (T).Is(target error) bool.
+// target is passed through its static error type (reflect.ValueOf(&target)
+// .Elem() stays valid and interface-typed even when target is nil).
+func makeHandlerS4(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS4 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, target error) bool {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
+		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		// A dispatch error (incl. an interpreted-method panic surfaced as a
+		// *PanicError) is swallowed to false: re-panicking it back through the
+		// native caller crashes the nested-panic-across-native-boundary path
+		// (machine stack left inconsistent on unwind). See the skipped
+		// interp.TestStruct errors_is_panic_propagates.
+		if err != nil || len(out) != 1 {
+			return false
+		}
+		return out[0].Bool()
+	}
+}
+
+// makeHandlerS5 bridges shape S5: (T).As(target any) bool.
+// target boxes the *E pointer errors.As wants populated; passing it through
+// lets the interpreted As write back into the caller's storage.
+func makeHandlerS5(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS5 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, target any) bool {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
+		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		// A dispatch error (incl. an interpreted-method panic surfaced as a
+		// *PanicError) is swallowed to false: re-panicking it back through the
+		// native caller crashes the nested-panic-across-native-boundary path
+		// (machine stack left inconsistent on unwind). See the skipped
+		// interp.TestStruct errors_is_panic_propagates.
+		if err != nil || len(out) != 1 {
+			return false
+		}
+		return out[0].Bool()
+	}
+}
+
+// makeHandlerS6 bridges shape S6: (T).Unwrap() error.
+func makeHandlerS6(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS6 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) error {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		if err != nil || len(out) != 1 {
+			return nil
+		}
+		return reflectToError(out[0])
+	}
+}
+
+// makeHandlerS7 bridges shape S7: (T).Unwrap() []error.
+func makeHandlerS7(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS7 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) []error {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		if err != nil || len(out) != 1 {
+			return nil
+		}
+		return reflectToErrorSlice(out[0])
+	}
+}
+
+// reflectToError extracts a native error from a method-return Value, tolerating
+// both an interface-typed result and a concrete (struct/ptr) error that
+// collectReturns left unboxed.
+func reflectToError(v reflect.Value) error {
+	if !v.IsValid() {
+		return nil
+	}
+	switch v.Kind() {
+	case reflect.Interface, reflect.Pointer, reflect.Slice, reflect.Map,
+		reflect.Chan, reflect.Func:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	rerr, _ := Exportable(v).Interface().(error)
+	return rerr
+}
+
+// reflectToErrorSlice extracts []error from a multi-unwrap return, tolerating a
+// named slice type (e.g. `type multiErr []error`) that collectReturns left as
+// its own concrete type instead of []error.
+func reflectToErrorSlice(v reflect.Value) []error {
+	v = Exportable(v)
+	if !v.IsValid() || v.Kind() != reflect.Slice || v.IsNil() {
+		return nil
+	}
+	if res, ok := v.Interface().([]error); ok {
+		return res
+	}
+	res := make([]error, v.Len())
+	for i := range res {
+		res[i] = reflectToError(v.Index(i))
+	}
+	return res
 }
 
 func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, ptrRecv bool) reflect.Value {

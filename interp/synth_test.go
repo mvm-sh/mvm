@@ -343,10 +343,12 @@ func main() {
 }
 
 // TestSynthAttachIdempotent verifies that a single Eval consumes the
-// expected number of S1 slots: one per distinct synth-attached *Type.
+// expected number of S1 slots: one for the value type T and one for the
+// synthesized *T, which carries T's value-receiver methods (Go's rule that
+// method-set(*T) includes value methods, so *T satisfies fmt.Stringer too).
 // The compiler aliases each Type symbol under bare and pkg-qualified keys
-// (compiler.go:136), so without per-*Type dedup the walker would attach the
-// same type twice, doubling slot consumption.
+// (compiler.go:136), so without per-*Type dedup the walker would attach each
+// rtype twice, doubling consumption to 4.
 func TestSynthAttachIdempotent(t *testing.T) {
 	t.Setenv("MVM_SYNTH", "1")
 
@@ -373,7 +375,7 @@ func main() {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	after := synth.SlotsUsedS1()
-	if got, want := after-before, uint32(1); got != want {
-		t.Errorf("SlotsUsedS1 delta = %d, want %d (alias dedup broken)", got, want)
+	if got, want := after-before, uint32(2); got != want {
+		t.Errorf("SlotsUsedS1 delta = %d, want %d (T + *T; alias dedup broken if 4)", got, want)
 	}
 }
