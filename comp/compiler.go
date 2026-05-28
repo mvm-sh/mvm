@@ -3841,29 +3841,64 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 // rtype).
 func (c *Compiler) RefreshSynthRtype() {
 	for t, idx := range c.zeroTypeIdxs {
-		if !c.Data[idx].IsValid() || c.Data[idx].Type() == t.Rtype {
+		rt := liveSynthRtype(t)
+		if !c.Data[idx].IsValid() || c.Data[idx].Type() == rt {
 			continue
 		}
-		c.Data[idx] = vm.NewValue(t.Rtype)
+		c.Data[idx] = vm.NewValue(rt)
 	}
 	for _, sym := range c.typeSyms {
 		if sym.Index == symbol.UnsetAddr || sym.Type == nil {
 			continue
 		}
-		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == sym.Type.Rtype {
+		rt := liveSynthRtype(sym.Type)
+		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == rt {
 			continue
 		}
-		c.Data[sym.Index] = vm.TypeValue(sym.Type.Rtype)
+		c.Data[sym.Index] = vm.TypeValue(rt)
 	}
 	for _, sym := range c.Symbols {
 		if sym.Kind != symbol.Var || sym.Index == symbol.UnsetAddr || sym.Type == nil {
 			continue
 		}
-		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == sym.Type.Rtype {
+		rt := liveSynthRtype(sym.Type)
+		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == rt {
 			continue
 		}
-		c.Data[sym.Index] = vm.NewValue(sym.Type.Rtype)
+		c.Data[sym.Index] = vm.NewValue(rt)
 	}
+}
+
+// liveSynthRtype upgrades a field-copy's frozen Rtype to its named source's
+// post-synth-attach rtype, so `w := o.Weight` (a copy of `type Grams int`)
+// keeps Grams's methods. Canonical types (Base == nil) are already live.
+// Basic-kind only: composite copies carry element identity that
+// CanonicalType's underlying-type walk would discard.
+func liveSynthRtype(t *vm.Type) reflect.Type {
+	if t.Base != nil && isBasicSynthKind(t.Rtype.Kind()) {
+		// Require a differing, method-bearing canonical rtype: a ptr-receiver
+		// named type (`cv2 := customValue(10)`, empty value method set) must
+		// keep its own rtype so &cv2 reaches the *customValue methods.
+		if ct := vm.CanonicalType(t); ct != nil && ct.Rtype != nil &&
+			ct.Rtype != t.Rtype && ct.Rtype.NumMethod() > 0 {
+			return ct.Rtype
+		}
+	}
+	return t.Rtype
+}
+
+func isBasicSynthKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128,
+		reflect.String:
+		return true
+	}
+	return false
 }
 
 // RebuildSynthStructRtypes walks every interpreted struct *vm.Type reachable
