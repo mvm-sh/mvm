@@ -33,6 +33,12 @@ var shapes = []shape{
 	{ID: "S5", Params: ", target any", ArgList: ", target", Results: "bool"},
 	{ID: "S6", Results: "error"},
 	{ID: "S7", Results: "[]error"},
+	{ID: "S8", Results: "int"},                                                 // sort.Interface.Len
+	{ID: "S9", Params: ", i, j int", ArgList: ", i, j", Results: "bool"},       // sort.Interface.Less
+	{ID: "S10", Params: ", i, j int", ArgList: ", i, j"},                       // sort.Interface.Swap (void)
+	{ID: "S11", Params: ", x any", ArgList: ", x"},                             // heap.Interface.Push (void)
+	{ID: "S12", Results: "any"},                                                // heap.Interface.Pop
+	{ID: "S13", Params: ", p []byte", ArgList: ", p", Results: "(int, error)"}, // io.Reader/Writer
 }
 
 func main() {
@@ -48,11 +54,15 @@ func emit(s shape) {
 	fmt.Fprintf(&b, "package synth\n\n")
 	fmt.Fprintf(&b, "import \"unsafe\"\n\n")
 	fmt.Fprintf(&b, "const poolSize%s = %d\n\n", s.ID, poolSize)
+	ret := "return "
+	if s.Results == "" {
+		ret = "" // void shape: no result to return
+	}
 	for i := range poolSize {
 		fmt.Fprintf(&b, "//go:noinline\n")
 		fmt.Fprintf(&b,
-			"func stub%s_%d(recv unsafe.Pointer%s) %s { return dispatch%s(%d, recv%s) }\n\n",
-			s.ID, i, s.Params, s.Results, s.ID, i, s.ArgList)
+			"func stub%s_%d(recv unsafe.Pointer%s) %s { %sdispatch%s(%d, recv%s) }\n\n",
+			s.ID, i, s.Params, s.Results, ret, s.ID, i, s.ArgList)
 	}
 	fmt.Fprintf(&b, "var stubs%s = [poolSize%s]uintptr{\n", s.ID, s.ID)
 	for i := range poolSize {

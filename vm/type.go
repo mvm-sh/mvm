@@ -70,6 +70,12 @@ type Type struct {
 	// IfaceMethods for native-boundary satisfaction; Rtype stays AnyRtype for
 	// in-interpreter storage. Guarded by derivedMu.
 	synthIface reflect.Type
+
+	// priorRtype is the original Rtype before the first synth swap (see
+	// RefreshRtype). Closure func types and other compiler-captured rtypes may
+	// still reference it, so typeByRtype indexes it alongside the current Rtype.
+	// Guarded by derivedMu.
+	priorRtype reflect.Type
 }
 
 type derivedTypes struct {
@@ -947,6 +953,9 @@ func (t *Type) RefreshRtype(newRT reflect.Type) {
 func (t *Type) refreshLocked(newRT reflect.Type) {
 	if newRT == nil || newRT == t.Rtype {
 		return
+	}
+	if t.priorRtype == nil {
+		t.priorRtype = t.Rtype
 	}
 	t.Rtype = newRT
 	if t.derived == nil {

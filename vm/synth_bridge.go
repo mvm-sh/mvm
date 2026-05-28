@@ -255,6 +255,18 @@ func toSynthMethods(
 			handler = makeHandlerS6(m, t, s.method, s.ptrRecv)
 		case synth.ShapeS7:
 			handler = makeHandlerS7(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS8:
+			handler = makeHandlerS8(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS9:
+			handler = makeHandlerS9(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS10:
+			handler = makeHandlerS10(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS11:
+			handler = makeHandlerS11(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS12:
+			handler = makeHandlerS12(m, t, s.method, s.ptrRecv)
+		case synth.ShapeS13:
+			handler = makeHandlerS13(m, t, s.method, s.ptrRecv)
 		}
 		out[i] = synth.Method{
 			Name:     s.name,
@@ -317,10 +329,16 @@ func (m *Machine) allSynthMethods(
 //	S1: func() string
 //	S2: func() ([]byte, error)
 //	S3: func([]byte) error
-//	S4: func(error) bool       (errors.Is)
-//	S5: func(any) bool         (errors.As)
-//	S6: func() error           (single-error Unwrap)
-//	S7: func() []error         (multi-error Unwrap)
+//	S4:  func(error) bool       (errors.Is)
+//	S5:  func(any) bool          (errors.As)
+//	S6:  func() error            (single-error Unwrap)
+//	S7:  func() []error          (multi-error Unwrap)
+//	S8:  func() int              (sort.Interface.Len)
+//	S9:  func(int, int) bool     (sort.Interface.Less)
+//	S10: func(int, int)          (sort.Interface.Swap)
+//	S11: func(any)               (heap.Interface.Push)
+//	S12: func() any              (heap.Interface.Pop)
+//	S13: func([]byte) (int, error) (io.Reader.Read / io.Writer.Write)
 func detectShape(sig reflect.Type) (synth.Shape, bool) {
 	if sig == nil || sig.Kind() != reflect.Func {
 		return 0, false
@@ -333,6 +351,10 @@ func detectShape(sig reflect.Type) (synth.Shape, bool) {
 		return synth.ShapeS6, true
 	case nin == 0 && nout == 1 && isErrorSlice(sig.Out(0)):
 		return synth.ShapeS7, true
+	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Int:
+		return synth.ShapeS8, true
+	case nin == 0 && nout == 1 && isAnyType(sig.Out(0)):
+		return synth.ShapeS12, true
 	case nin == 0 && nout == 2 &&
 		isByteSlice(sig.Out(0)) && isErrorType(sig.Out(1)):
 		return synth.ShapeS2, true
@@ -345,6 +367,18 @@ func detectShape(sig reflect.Type) (synth.Shape, bool) {
 	case nin == 1 && nout == 1 &&
 		isAnyType(sig.In(0)) && sig.Out(0).Kind() == reflect.Bool:
 		return synth.ShapeS5, true
+	case nin == 1 && nout == 0 && isAnyType(sig.In(0)):
+		return synth.ShapeS11, true
+	case nin == 1 && nout == 2 && isByteSlice(sig.In(0)) &&
+		sig.Out(0).Kind() == reflect.Int && isErrorType(sig.Out(1)):
+		return synth.ShapeS13, true
+	case nin == 2 && nout == 1 &&
+		sig.In(0).Kind() == reflect.Int && sig.In(1).Kind() == reflect.Int &&
+		sig.Out(0).Kind() == reflect.Bool:
+		return synth.ShapeS9, true
+	case nin == 2 && nout == 0 &&
+		sig.In(0).Kind() == reflect.Int && sig.In(1).Kind() == reflect.Int:
+		return synth.ShapeS10, true
 	}
 	return 0, false
 }
@@ -505,6 +539,84 @@ func makeHandlerS7(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 			return nil
 		}
 		return reflectToErrorSlice(out[0])
+	}
+}
+
+// makeHandlerS8 bridges shape S8: (T).Len() int.
+func makeHandlerS8(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS8 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) int {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		if err != nil || len(out) != 1 {
+			return 0
+		}
+		return int(out[0].Int())
+	}
+}
+
+// makeHandlerS9 bridges shape S9: (T).Less(i, j int) bool.
+func makeHandlerS9(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS9 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, i, j int) bool {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(i), reflect.ValueOf(j)}
+		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		if err != nil || len(out) != 1 {
+			return false
+		}
+		return out[0].Bool()
+	}
+}
+
+// makeHandlerS10 bridges shape S10: (T).Swap(i, j int).
+func makeHandlerS10(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS10 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, i, j int) {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(i), reflect.ValueOf(j)}
+		_, _ = callMethod(m, t, rv, method, methodSig, argv)
+	}
+}
+
+// makeHandlerS11 bridges shape S11: (T).Push(x any).
+// x is passed through reflect.ValueOf(&x).Elem() so it stays interface-typed.
+func makeHandlerS11(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS11 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, x any) {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(&x).Elem()}
+		_, _ = callMethod(m, t, rv, method, methodSig, argv)
+	}
+}
+
+// makeHandlerS12 bridges shape S12: (T).Pop() any.
+func makeHandlerS12(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS12 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) any {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		if err != nil || len(out) != 1 || !out[0].IsValid() {
+			return nil
+		}
+		return Exportable(out[0]).Interface()
+	}
+}
+
+// makeHandlerS13 bridges shape S13: (T).Read/Write(p []byte) (int, error).
+func makeHandlerS13(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS13 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, p []byte) (int, error) {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(p)}
+		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		if err != nil {
+			return 0, err
+		}
+		if len(out) != 2 {
+			return 0, errors.New("synth: S13 dispatch produced wrong arity")
+		}
+		return int(out[0].Int()), reflectToError(out[1])
 	}
 }
 

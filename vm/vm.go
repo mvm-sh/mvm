@@ -3437,21 +3437,28 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 		// carry a field/base name distinct from the type name and falsely trip the
 		// SameAs ambiguity check.
 		var register func(v *Type)
+		index := func(rt reflect.Type, v *Type) {
+			if rt == nil || ambiguous[rt] {
+				return
+			}
+			if prev, ok := t.m[rt]; ok {
+				if prev != v && !prev.SameAs(v) {
+					delete(t.m, rt)
+					ambiguous[rt] = true
+				}
+			} else {
+				t.m[rt] = v
+			}
+		}
 		register = func(v *Type) {
 			if v == nil || visited[v] {
 				return
 			}
 			visited[v] = true
-			if v.Rtype != nil && !ambiguous[v.Rtype] {
-				if prev, ok := t.m[v.Rtype]; ok {
-					if prev != v && !prev.SameAs(v) {
-						delete(t.m, v.Rtype)
-						ambiguous[v.Rtype] = true
-					}
-				} else {
-					t.m[v.Rtype] = v
-				}
-			}
+			index(v.Rtype, v)
+			// A synth attach swapped Rtype; compiler-captured rtypes (e.g. a
+			// closure param type) may still reference the pre-swap rtype.
+			index(v.priorRtype, v)
 			for _, p := range v.Params {
 				register(p)
 			}

@@ -42,6 +42,30 @@ const (
 	// ShapeS7 is func() []error.
 	// Covers multi-error unwrap: (T).Unwrap() []error.
 	ShapeS7 Shape = 6
+
+	// ShapeS8 is func() int.
+	// Covers sort.Interface.Len.
+	ShapeS8 Shape = 7
+
+	// ShapeS9 is func(int, int) bool.
+	// Covers sort.Interface.Less.
+	ShapeS9 Shape = 8
+
+	// ShapeS10 is func(int, int).
+	// Covers sort.Interface.Swap.
+	ShapeS10 Shape = 9
+
+	// ShapeS11 is func(any).
+	// Covers heap.Interface.Push.
+	ShapeS11 Shape = 10
+
+	// ShapeS12 is func() any.
+	// Covers heap.Interface.Pop.
+	ShapeS12 Shape = 11
+
+	// ShapeS13 is func([]byte) (int, error).
+	// Covers io.Reader.Read and io.Writer.Write.
+	ShapeS13 Shape = 12
 )
 
 // Method describes one method to install on a synthesized type.
@@ -109,6 +133,42 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS7(h)
+	case ShapeS8:
+		h, ok := m.Handler.(HandlerS8)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS8(h)
+	case ShapeS9:
+		h, ok := m.Handler.(HandlerS9)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS9(h)
+	case ShapeS10:
+		h, ok := m.Handler.(HandlerS10)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS10(h)
+	case ShapeS11:
+		h, ok := m.Handler.(HandlerS11)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS11(h)
+	case ShapeS12:
+		h, ok := m.Handler.(HandlerS12)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS12(h)
+	case ShapeS13:
+		h, ok := m.Handler.(HandlerS13)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS13(h)
 	}
 	return 0, nil, fmt.Errorf("synth: unknown shape %d", m.Shape)
 }
