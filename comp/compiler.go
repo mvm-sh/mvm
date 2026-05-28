@@ -238,6 +238,23 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				}
 				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype}
 			}
+			// An embedded interface promotes its methods as EmbedIface dispatch
+			// (its method set lives in IfaceMethods, not Methods). Recording them
+			// on the value type lets synth attach build a rtype satisfying the
+			// promoted interface (e.g. `struct{ error }` -> error).
+			if embType.IsInterface() {
+				embType.EnsureIfaceMethods()
+				for _, im := range embType.IfaceMethods {
+					id := c.methodID(im.Name)
+					if id < len(t.Methods) && t.Methods[id].IsResolved() {
+						continue
+					}
+					for len(t.Methods) <= id {
+						t.Methods = append(t.Methods, vm.Method{Index: -1})
+					}
+					t.Methods[id] = vm.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: im.Rtype}
+				}
+			}
 		}
 	}
 	for _, sym := range c.Symbols {
@@ -438,7 +455,7 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 					for len(typ.Methods) <= id {
 						typ.Methods = append(typ.Methods, vm.Method{Index: -1})
 					}
-					typ.Methods[id] = vm.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true}
+					typ.Methods[id] = vm.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: embIM.Rtype}
 					break
 				}
 			}

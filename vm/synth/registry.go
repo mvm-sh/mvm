@@ -70,6 +70,14 @@ const (
 	// ShapeS14 is func(fmt.State, rune).
 	// Covers fmt.Formatter.Format.
 	ShapeS14 Shape = 13
+
+	// ShapeS15 is func(*xml.Encoder, xml.StartElement) error.
+	// Covers xml.Marshaler.MarshalXML.
+	ShapeS15 Shape = 14
+
+	// ShapeS16 is func(*xml.Decoder, xml.StartElement) error.
+	// Covers xml.Unmarshaler.UnmarshalXML.
+	ShapeS16 Shape = 15
 )
 
 // Method describes one method to install on a synthesized type.
@@ -179,6 +187,18 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS14(h)
+	case ShapeS15:
+		h, ok := m.Handler.(HandlerS15)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS15(h)
+	case ShapeS16:
+		h, ok := m.Handler.(HandlerS16)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS16(h)
 	}
 	return 0, nil, fmt.Errorf("synth: unknown shape %d", m.Shape)
 }

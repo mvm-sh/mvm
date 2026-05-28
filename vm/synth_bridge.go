@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"reflect"
@@ -242,33 +243,37 @@ func toSynthMethods(
 		var handler any
 		switch s.shape {
 		case synth.ShapeS1:
-			handler = makeHandlerS1(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS1(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS2:
-			handler = makeHandlerS2(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS2(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS3:
-			handler = makeHandlerS3(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS3(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS4:
-			handler = makeHandlerS4(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS4(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS5:
-			handler = makeHandlerS5(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS5(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS6:
-			handler = makeHandlerS6(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS6(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS7:
-			handler = makeHandlerS7(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS7(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS8:
-			handler = makeHandlerS8(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS8(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS9:
-			handler = makeHandlerS9(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS9(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS10:
-			handler = makeHandlerS10(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS10(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS11:
-			handler = makeHandlerS11(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS11(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS12:
-			handler = makeHandlerS12(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS12(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS13:
-			handler = makeHandlerS13(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS13(m, t, s.method, s.name, s.ptrRecv)
 		case synth.ShapeS14:
-			handler = makeHandlerS14(m, t, s.method, s.ptrRecv)
+			handler = makeHandlerS14(m, t, s.method, s.name, s.ptrRecv)
+		case synth.ShapeS15:
+			handler = makeHandlerS15(m, t, s.method, s.name, s.ptrRecv)
+		case synth.ShapeS16:
+			handler = makeHandlerS16(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = synth.Method{
 			Name:     s.name,
@@ -385,6 +390,12 @@ func detectShape(sig reflect.Type) (synth.Shape, bool) {
 	case nin == 2 && nout == 0 &&
 		sig.In(0) == fmtStateIface && sig.In(1).Kind() == reflect.Int32:
 		return synth.ShapeS14, true
+	case nin == 2 && nout == 1 && sig.In(0) == xmlEncoderPtr &&
+		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
+		return synth.ShapeS15, true
+	case nin == 2 && nout == 1 && sig.In(0) == xmlDecoderPtr &&
+		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
+		return synth.ShapeS16, true
 	}
 	return 0, false
 }
@@ -401,6 +412,9 @@ var (
 	anyIface       = reflect.TypeOf((*any)(nil)).Elem()
 	errorSliceType = reflect.TypeOf([]error(nil))
 	fmtStateIface  = reflect.TypeOf((*fmt.State)(nil)).Elem()
+	xmlEncoderPtr  = reflect.TypeOf((*xml.Encoder)(nil))
+	xmlDecoderPtr  = reflect.TypeOf((*xml.Decoder)(nil))
+	xmlStartElem   = reflect.TypeOf(xml.StartElement{})
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
@@ -423,11 +437,11 @@ func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 // synth rtype after AttachMethods returns, so capturing it at construction
 // time would freeze the pre-synth layout identity and produce mismatched
 // reflect.Value vs ifcType.Rtype at dispatch.
-func makeHandlerS1(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS1 {
+func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS1 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil {
 			return fmt.Sprintf("<synth dispatch error: %v>", err)
 		}
@@ -438,11 +452,11 @@ func makeHandlerS1(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 	}
 }
 
-func makeHandlerS2(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS2 {
+func makeHandlerS2(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS2 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) ([]byte, error) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -461,12 +475,12 @@ func makeHandlerS2(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 	}
 }
 
-func makeHandlerS3(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS3 {
+func makeHandlerS3(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS3 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, data []byte) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(data)}
-		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
 			return err
 		}
@@ -484,12 +498,12 @@ func makeHandlerS3(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 // makeHandlerS4 bridges shape S4: (T).Is(target error) bool.
 // target is passed through its static error type (reflect.ValueOf(&target)
 // .Elem() stays valid and interface-typed even when target is nil).
-func makeHandlerS4(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS4 {
+func makeHandlerS4(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS4 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target error) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
-		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		// A dispatch error (incl. an interpreted-method panic surfaced as a
 		// *PanicError) is swallowed to false: re-panicking it back through the
 		// native caller crashes the nested-panic-across-native-boundary path
@@ -505,12 +519,12 @@ func makeHandlerS4(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 // makeHandlerS5 bridges shape S5: (T).As(target any) bool.
 // target boxes the *E pointer errors.As wants populated; passing it through
 // lets the interpreted As write back into the caller's storage.
-func makeHandlerS5(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS5 {
+func makeHandlerS5(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS5 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target any) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
-		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		// A dispatch error (incl. an interpreted-method panic surfaced as a
 		// *PanicError) is swallowed to false: re-panicking it back through the
 		// native caller crashes the nested-panic-across-native-boundary path
@@ -524,11 +538,11 @@ func makeHandlerS5(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 // makeHandlerS6 bridges shape S6: (T).Unwrap() error.
-func makeHandlerS6(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS6 {
+func makeHandlerS6(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS6 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil || len(out) != 1 {
 			return nil
 		}
@@ -537,11 +551,11 @@ func makeHandlerS6(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 // makeHandlerS7 bridges shape S7: (T).Unwrap() []error.
-func makeHandlerS7(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS7 {
+func makeHandlerS7(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS7 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) []error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil || len(out) != 1 {
 			return nil
 		}
@@ -550,11 +564,11 @@ func makeHandlerS7(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 // makeHandlerS8 bridges shape S8: (T).Len() int.
-func makeHandlerS8(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS8 {
+func makeHandlerS8(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS8 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) int {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil || len(out) != 1 {
 			return 0
 		}
@@ -563,12 +577,12 @@ func makeHandlerS8(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 // makeHandlerS9 bridges shape S9: (T).Less(i, j int) bool.
-func makeHandlerS9(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS9 {
+func makeHandlerS9(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS9 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(i), reflect.ValueOf(j)}
-		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil || len(out) != 1 {
 			return false
 		}
@@ -577,32 +591,32 @@ func makeHandlerS9(m *Machine, t *Type, method Method, ptrRecv bool) synth.Handl
 }
 
 // makeHandlerS10 bridges shape S10: (T).Swap(i, j int).
-func makeHandlerS10(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS10 {
+func makeHandlerS10(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS10 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(i), reflect.ValueOf(j)}
-		_, _ = callMethod(m, t, rv, method, methodSig, argv)
+		_, _ = callMethod(m, t, name, rv, method, methodSig, argv)
 	}
 }
 
 // makeHandlerS11 bridges shape S11: (T).Push(x any).
 // x is passed through reflect.ValueOf(&x).Elem() so it stays interface-typed.
-func makeHandlerS11(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS11 {
+func makeHandlerS11(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS11 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, x any) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(&x).Elem()}
-		_, _ = callMethod(m, t, rv, method, methodSig, argv)
+		_, _ = callMethod(m, t, name, rv, method, methodSig, argv)
 	}
 }
 
 // makeHandlerS12 bridges shape S12: (T).Pop() any.
-func makeHandlerS12(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS12 {
+func makeHandlerS12(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS12 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) any {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, rv, method, methodSig, nil)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil || len(out) != 1 || !out[0].IsValid() {
 			return nil
 		}
@@ -611,12 +625,12 @@ func makeHandlerS12(m *Machine, t *Type, method Method, ptrRecv bool) synth.Hand
 }
 
 // makeHandlerS13 bridges shape S13: (T).Read/Write(p []byte) (int, error).
-func makeHandlerS13(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS13 {
+func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS13 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, p []byte) (int, error) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(p)}
-		out, err := callMethod(m, t, rv, method, methodSig, argv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
 			return 0, err
 		}
@@ -630,12 +644,46 @@ func makeHandlerS13(m *Machine, t *Type, method Method, ptrRecv bool) synth.Hand
 // makeHandlerS14 bridges shape S14: (T).Format(fmt.State, rune).
 // st is passed through reflect.ValueOf(&st).Elem() so it keeps its fmt.State
 // type, letting the interpreted body call State methods on it.
-func makeHandlerS14(m *Machine, t *Type, method Method, ptrRecv bool) synth.HandlerS14 {
+func makeHandlerS14(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS14 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, st fmt.State, verb rune) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
-		_, _ = callMethod(m, t, rv, method, methodSig, argv)
+		_, _ = callMethod(m, t, name, rv, method, methodSig, argv)
+	}
+}
+
+// makeHandlerS15 bridges shape S15: (T).MarshalXML(*xml.Encoder, xml.StartElement) error.
+func makeHandlerS15(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS15 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(e), reflect.ValueOf(start)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S15 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
+	}
+}
+
+// makeHandlerS16 bridges shape S16: (T).UnmarshalXML(*xml.Decoder, xml.StartElement) error.
+func makeHandlerS16(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS16 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, d *xml.Decoder, start xml.StartElement) error {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(d), reflect.ValueOf(start)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S16 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
 	}
 }
 
@@ -683,10 +731,61 @@ func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, ptrRecv bool) reflec
 }
 
 func callMethod(
-	m *Machine, ifcType *Type, rv reflect.Value,
+	m *Machine, ifcType *Type, name string, rv reflect.Value,
 	method Method, methodSig reflect.Type, args []reflect.Value,
 ) ([]reflect.Value, error) {
 	ifc := Iface{Typ: ifcType, Val: FromReflect(rv)}
+	if method.EmbedIface {
+		return m.callEmbedIface(ifc, method, name, methodSig, args)
+	}
 	fval := m.MakeMethodCallable(ifc, method)
 	return m.CallFunc(fval, methodSig, args)
+}
+
+// callEmbedIface dispatches a method promoted from an embedded interface field
+// (Method.EmbedIface, Index == -1, so makeMethodCell can't build a cell).
+// It walks the embedded chain like the IfaceCall path (see the Run loop): for
+// each EmbedIface hop, navigate Path to the embedded value; a native embedded
+// value (e.g. `struct{ error }` holding a native error) is dispatched by name
+// via reflect, an interpreted one recurses to its concrete method.
+func (m *Machine) callEmbedIface(
+	ifc Iface, method Method, name string, methodSig reflect.Type, args []reflect.Value,
+) ([]reflect.Value, error) {
+	methodID := -1
+	for id, n := range m.MethodNames {
+		if n == name {
+			methodID = id
+			break
+		}
+	}
+	for method.EmbedIface {
+		rv := ifc.Val.Reflect()
+		if rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		for _, fi := range method.Path {
+			rv = rv.Field(fi)
+		}
+		// Embedded fields are often unexported (named after the type), so the
+		// navigated value carries reflect's read-only flag; clear it before
+		// dispatch or reflect.Value.Call panics.
+		rv = Exportable(rv)
+		embedded := FromReflect(rv)
+		if !embedded.IsIface() {
+			if isNilReceiver(rv) {
+				return nil, errors.New("synth: nil embedded receiver")
+			}
+			mv := nativeMethodLookup(m, rv, name)
+			if !mv.IsValid() {
+				return nil, fmt.Errorf("synth: embedded method %q not found", name)
+			}
+			return mv.Call(args), nil
+		}
+		ifc = embedded.IfaceVal()
+		if methodID < 0 || methodID >= len(ifc.Typ.Methods) {
+			return nil, fmt.Errorf("synth: embedded method %q unresolved", name)
+		}
+		method = ifc.Typ.Methods[methodID]
+	}
+	return m.CallFunc(m.MakeMethodCallable(ifc, method), methodSig, args)
 }

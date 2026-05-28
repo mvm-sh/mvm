@@ -43,6 +43,9 @@ var shapes = []shape{
 	// fmt.Formatter.Format (void); fmt.State is a non-empty interface, so the
 	// stub must carry its exact type for the call ABI.
 	{ID: "S14", Params: ", st fmt.State, verb rune", ArgList: ", st, verb", Imports: []string{"fmt"}},
+	// xml.Marshaler.MarshalXML / xml.Unmarshaler.UnmarshalXML.
+	{ID: "S15", Params: ", e *xml.Encoder, start xml.StartElement", ArgList: ", e, start", Results: "error", Imports: []string{"encoding/xml"}},
+	{ID: "S16", Params: ", d *xml.Decoder, start xml.StartElement", ArgList: ", d, start", Results: "error", Imports: []string{"encoding/xml"}},
 }
 
 func main() {

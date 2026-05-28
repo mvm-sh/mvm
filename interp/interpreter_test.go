@@ -1228,6 +1228,18 @@ type Tagger interface{ Tag() string }
 func f() string { cv := reflect.ValueOf(Celsius(0)).Interface(); if t, ok := cv.(Tagger); ok { return t.Tag() }; return "no" }
 f()`, res: "C"},
 
+		// An inline named-INT const conversion (T(1)) loses its type: emitConstLoad's
+		// Push fast-path (int kinds only) emits a bare `vm.Push 1` with no rtype, so
+		// the value reflects as plain int with no methods. Named float/string consts
+		// take the Data-slot path and keep their type (see Celsius above). A variable
+		// `a := T(1)` also works (its slot type is refreshed). Blocks the scalar
+		// xml.Marshal(Animal(1)) line of _samples/xml_marshal.go.
+		{n: "named_int_const_inline_keeps_methods", skip: true, src: `
+import "reflect"
+type T int
+func (t T) String() string { return "s" }
+reflect.TypeOf(T(1)).NumMethod()`, res: "1"},
+
 		{n: "reflect_struct_sibling_no_crossdispatch", src: `
 import "reflect"
 type X struct{ n int }
