@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/runtype"
@@ -56,7 +57,15 @@ var runtimeFuncMeta sync.Map // uintptr (sentinel addr) -> *runtimeFuncEntry
 // pointer is stable for the goroutine's lifetime and every Run() defers
 // the matching SetActiveMachine(prev) restore, so the runtime's g
 // recycling never observes a leaked slot.
-var activeMachine sync.Map // uintptr (g pointer) -> *Machine
+//
+// The value is a *machineCell, allocated once per goroutine and reused:
+// nested re-entries swap the atomic pointer instead of re-storing into
+// the map, which would allocate a trie node per call.
+type machineCell struct {
+	m atomic.Pointer[Machine]
+}
+
+var activeMachine sync.Map // uintptr (g pointer) -> *machineCell
 
 // SetActiveMachine records m as the running Machine for the current
 // goroutine and returns the previous value (nil if none). Pair with
@@ -65,15 +74,23 @@ var activeMachine sync.Map // uintptr (g pointer) -> *Machine
 // map doesn't accumulate stale entries from short-lived goroutines.
 func SetActiveMachine(m *Machine) (prev *Machine) {
 	g := gid()
-	if v, ok := activeMachine.Load(g); ok && v != nil {
-		prev = v.(*Machine)
+	if v, ok := activeMachine.Load(g); ok {
+		cell := v.(*machineCell)
+		if m == nil {
+			prev = cell.m.Load()
+			activeMachine.Delete(g)
+			return prev
+		}
+		return cell.m.Swap(m)
 	}
 	if m == nil {
-		activeMachine.Delete(g)
-	} else {
-		activeMachine.Store(g, m)
+		return nil
 	}
-	return prev
+	// First Run on this goroutine; g is unique to it, so Store is race-free.
+	cell := &machineCell{}
+	cell.m.Store(m)
+	activeMachine.Store(g, cell)
+	return nil
 }
 
 // ActiveMachine returns the Machine currently set via SetActiveMachine on
@@ -83,7 +100,7 @@ func SetActiveMachine(m *Machine) (prev *Machine) {
 // with no other route to the runtime.
 func ActiveMachine() *Machine {
 	if v, ok := activeMachine.Load(gid()); ok {
-		return v.(*Machine)
+		return v.(*machineCell).m.Load()
 	}
 	return nil
 }

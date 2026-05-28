@@ -5,12 +5,14 @@ import (
 	"testing"
 )
 
-// BenchmarkSetActiveMachine measures the per-call cost of the
-// gid + sync.Map pair that Machine.Run pays on entry and exit. The
-// number divided by 2 is what each Run round-trip pays beyond the
-// pre-fix atomic.Pointer.Swap.
+// BenchmarkSetActiveMachine measures the warm nested re-entry path (gid +
+// Load + cell.m.Swap, zero alloc) that Run pays once the goroutine's cell
+// exists. The outer SetActiveMachine establishes the cell; the cold
+// first-Run path is paid once per goroutine and not measured here.
 func BenchmarkSetActiveMachine(b *testing.B) {
 	m := &Machine{}
+	outer := SetActiveMachine(m)
+	defer SetActiveMachine(outer)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
