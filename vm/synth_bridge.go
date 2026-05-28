@@ -632,6 +632,13 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv boo
 		argv := []reflect.Value{reflect.ValueOf(p)}
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
+			// An interpreted-method panic must propagate through the native caller
+			// (e.g. bytes.Buffer.ReadFrom) to an outer recover(), as in Go;
+			// invokeNative's recover re-establishes it as an mvm panic.
+			var pe *PanicError
+			if errors.As(err, &pe) {
+				panic(pe)
+			}
 			return 0, err
 		}
 		if len(out) != 2 {

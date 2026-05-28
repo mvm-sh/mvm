@@ -875,6 +875,10 @@ func (m *Machine) Run() (err error) {
 	defer SetActiveMachine(prev)
 
 	// Append sentinel instructions so negative-IP handlers become normal opcodes.
+	// Save baseCodeLen too: a re-entrant Run (CallFunc from a native callback)
+	// overwrites it, and panicAddr() reads it freshly, so leaving the inner value
+	// would point stageUnwind at a sentinel that the code trim below removed.
+	savedBaseCodeLen := m.baseCodeLen
 	sentBase := len(m.code)
 	m.baseCodeLen = sentBase
 	m.code = append(m.code, Instruction{Op: DeferRet}, Instruction{Op: PanicUnwind}, Instruction{Op: Exit})
@@ -895,6 +899,7 @@ func (m *Machine) Run() (err error) {
 	defer func() {
 		m.mem, m.ip, m.fp = mem[:sp+1], ip, fp
 		m.code = m.code[:sentBase]
+		m.baseCodeLen = savedBaseCodeLen
 	}()
 
 	for {
