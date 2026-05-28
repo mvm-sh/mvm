@@ -144,20 +144,19 @@ type MvmFunc struct {
 	GF  reflect.Value // reflect.MakeFunc wrapper for native Go callbacks
 }
 
-// boundProxyCall is the sentinel Value that IfaceCall places on the
-// stack when a native method has registered arg proxies or a native
-// method hook. The Call opcode detects this struct, uses Fn as the
-// bound method to invoke, threads RecvType+Method to bridgeArgs for
-// per-arg proxy lookup, and consults Recv for hooks that need the
-// receiver value.
-type boundProxyCall struct {
+// boundHookCall is the sentinel Value that IfaceCall places on the stack
+// when a native method has a registered NativeMethodHook (e.g., the
+// testing.T.Log/Error/Fatal intercepts in stdlib/testing_virt.go).
+// The Call opcode detects this struct, uses Fn as the bound method, and
+// consults RecvType+Method to look up the hook (which receives Recv).
+type boundHookCall struct {
 	Fn       reflect.Value
 	RecvType reflect.Type
 	Method   string
 	Recv     reflect.Value
 }
 
-var boundProxyCallRtype = reflect.TypeOf(boundProxyCall{})
+var boundHookCallRtype = reflect.TypeOf(boundHookCall{})
 
 // IsInterface reports whether t represents an interface type.
 func (t *Type) IsInterface() bool {
@@ -748,13 +747,6 @@ func isNativeIface(v Value) bool {
 
 // Equal reports whether v is equal to u.
 func (v Value) Equal(u Value) bool {
-	// Unwrap bridge wrappers to compare underlying values.
-	if uv := unbridgeValue(v.ref); uv.IsValid() {
-		v = FromReflect(uv)
-	}
-	if uu := unbridgeValue(u.ref); uu.IsValid() {
-		u = FromReflect(uu)
-	}
 	// Native interface{} holding a concrete (e.g. flag.Getter.Get() returns
 	// any-bool from native code): unwrap to the dynamic value so a
 	// `value == literal` test matches Go's interface-to-concrete comparison
@@ -776,8 +768,8 @@ func (v Value) Equal(u Value) bool {
 		return v.IfaceVal().Val.Equal(u)
 	}
 	if u.IsIface() {
-		// v is a concrete value (e.g. unbridged from *BridgeError),
-		// u is still boxed as Iface; compare against the boxed value.
+		// v is a concrete value, u is still boxed as Iface; compare
+		// against the boxed value.
 		return u.IfaceVal().Val.Equal(v)
 	}
 	if isNum(v.ref.Kind()) && isNum(u.ref.Kind()) {
@@ -973,15 +965,18 @@ func (t *Type) refreshLocked(newRT reflect.Type) {
 	}
 }
 
-// canonicalType walks the Base chain to recover the source *Type that a
+const canonicalTypeMaxDepth = 1024
+
+// CanonicalType walks the Base chain to recover the source *Type that a
 // struct-field shallow copy was derived from.
 // Returns t itself if Base is nil.
 // Depth-capped at canonicalTypeMaxDepth so a malformed Type graph with
 // cyclic Base pointers can't hang the compiler; returns t unchanged when
 // the cap is hit.
-const canonicalTypeMaxDepth = 1024
-
-func canonicalType(t *Type) *Type {
+// Callers that hold a clone (Base != nil) but want to observe live state
+// updated by the synth cascade (which only touches canonical *Types) must
+// route through this helper rather than reading clone fields directly.
+func CanonicalType(t *Type) *Type {
 	start := t
 	for i := 0; i < canonicalTypeMaxDepth && t != nil && t.Base != nil; i++ {
 		t = t.Base
@@ -1003,7 +998,7 @@ func LiveFieldRtype(f *Type) reflect.Type {
 	if f == nil {
 		return nil
 	}
-	canonical := canonicalType(f)
+	canonical := CanonicalType(f)
 	if canonical == nil || canonical.Rtype == nil {
 		return nil
 	}
@@ -1011,7 +1006,7 @@ func LiveFieldRtype(f *Type) reflect.Type {
 	// a clone: re-derive from the canonical inner so we observe cascade
 	// updates that only landed on the canonical's derived chain.
 	if canonical.ElemType != nil && canonical.ElemType.Base != nil {
-		elemC := canonicalType(canonical.ElemType)
+		elemC := CanonicalType(canonical.ElemType)
 		switch canonical.Rtype.Kind() {
 		case reflect.Pointer:
 			return derivePointerTo(elemC.Rtype)
@@ -1024,7 +1019,7 @@ func LiveFieldRtype(f *Type) reflect.Type {
 		case reflect.Map:
 			keyC := canonical.KeyType
 			if keyC != nil {
-				keyC = canonicalType(keyC)
+				keyC = CanonicalType(keyC)
 			}
 			keyRT := canonical.Rtype.Key()
 			if keyC != nil && keyC.Rtype != nil {

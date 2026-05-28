@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"sync"
 	"unsafe"
+
+	"github.com/mvm-sh/mvm/vm/synth"
 )
 
 // RuntimeFuncInfo holds the synthesized Name/FileLine for a *runtime.Func
@@ -206,6 +208,16 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 	}
 	innerRV, ok := rv.Interface().(reflect.Value)
 	if !ok || !innerRV.IsValid() {
+		return reflect.Value{}
+	}
+	// Synth rtypes carry their interpreted methods natively via the
+	// uncommon table, so reflect.Value.MethodByName / Call work without
+	// the mvm dispatch shim. Falling through here lets the native code
+	// path resolve the method directly, preserving the bound method's
+	// validity (the shim's makeCallFunc returns invalid when the
+	// method-name table doesn't carry the signature, which trips on
+	// types attached via synth-direct).
+	if innerRV.Type() != ifaceRtype && synth.IsSynth(innerRV.Type()) {
 		return reflect.Value{}
 	}
 	switch name {

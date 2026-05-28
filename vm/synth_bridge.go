@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/vm/synth"
@@ -26,7 +27,7 @@ import (
 // New values allocated via vm.NewValue against t.Rtype after this call see
 // the synth rtype.
 func (m *Machine) AttachSynthMethods(t *Type) error {
-	if !synth.Enabled() || t == nil || t.Rtype == nil {
+	if t == nil || t.Rtype == nil {
 		return nil
 	}
 	if !synthSupportedKind(t.Rtype.Kind()) {
@@ -56,12 +57,28 @@ func synthSupportedKind(k reflect.Kind) bool {
 	return false
 }
 
+// qualifiedTypeName returns the Str-form name stamped into the synth rtype:
+// "pkgBase.Name" when the type has a package path, otherwise just Name.
+// reflect.Type.String() returns this verbatim, so fmt %T and similar matches
+// what the Go compiler emits for native types.
+// Name() strips back to the last "." to recover the bare type name.
+func qualifiedTypeName(t *Type) string {
+	if t.PkgPath == "" || t.Name == "" {
+		return t.Name
+	}
+	base := t.PkgPath
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	return base + "." + t.Name
+}
+
 func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
 		return false, nil
 	}
-	newRT, err := synth.AttachMethods(t.Rtype, t.Name, t.PkgPath,
+	newRT, err := synth.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
 		toSynthMethods(m, t, specs, false))
 	if err != nil {
 		return false, err
@@ -88,7 +105,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		}
 		t.RefreshRtype(clone)
 	}
-	newPtrRT, err := synth.AttachPtrMethods(t.Rtype, "*"+t.Name, t.PkgPath,
+	newPtrRT, err := synth.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
 		toSynthMethods(m, t, specs, true))
 	if err != nil {
 		return err

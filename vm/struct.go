@@ -126,13 +126,9 @@ func placeholderFieldName(name string, n uint64) string {
 // It patches the internal reflect.Type in place so derived types (e.g.
 // pointer types via PointerTo) see the real layout.
 //
-// Synth integration point (Phase 1b): once the compiler populates t.Methods,
-// an alternate path can call vm/synth.AttachStructMethods on t.Rtype to
-// install real Go-runtime methods.
-// Interpreted types then satisfy native interfaces without bridge proxies.
-// Gated on vm/synth.Enabled() (opt in with MVM_SYNTH=1; default OFF
-// pending compile-time rtype-capture refresh work tracked under Phase 3a).
-// See [[project_synth_rtype_poc]] and [[project_patchrtype_gc_badpointer]].
+// Once t.Methods is populated, vm.AttachSynthMethods installs the methods
+// directly on the struct rtype via vm/synth so native code sees them
+// through reflect without any bridge wrapper.
 func (t *Type) SetFields(src *Type) {
 	if t.Rtype == nil || t.Rtype.Kind() != reflect.Struct || !t.Placeholder {
 		// Not a fresh reflect.StructOf placeholder: a bare-name type collision

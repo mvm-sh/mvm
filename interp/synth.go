@@ -3,17 +3,15 @@ package interp
 import (
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
-	"github.com/mvm-sh/mvm/vm/synth"
 )
 
 // attachSynthMethods walks every compiled type and asks the machine to
 // install a synthesized rtype carrying that type's methods.
-// No-op when synth.Enabled() is false (the default; opt in via MVM_SYNTH=1).
 //
 // Idempotency: each *vm.Type is attached at most once per Interp lifetime.
-// The compiler aliases symbols under both bare and pkg-qualified keys
-// (compiler.go:136), so the same *Type is reached twice per walk; and
-// re-entrant Eval (test_cmd's package + _testmain) walks again.
+// The compiler aliases symbols under both bare and pkg-qualified keys, so
+// the same *Type is reached twice per walk; and re-entrant Eval
+// (test_cmd's package + _testmain) walks again.
 // Without dedup the S1 stub pool exhausts after ~64 packages.
 //
 // vm.Type.RefreshRtype propagates the swap through t.derived, and
@@ -22,9 +20,6 @@ import (
 // post-cascade Rtype -- Fnew sources, type descriptors, var storage.
 // See [[project_synth_rtype_poc]] and [[project_symbolic_types_refactor]].
 func (i *Interp) attachSynthMethods() error {
-	if !synth.Enabled() {
-		return nil
-	}
 	if i.synthAttached == nil {
 		i.synthAttached = map[*vm.Type]bool{}
 	}

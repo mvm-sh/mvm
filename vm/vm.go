@@ -965,20 +965,19 @@ func (m *Machine) Run() (err error) {
 				m.heap = nil
 			} else {
 				rv := fval.ref
-				// Method-call sentinel: IfaceCall placed a boundProxyCall on
-				// the stack because the target method has registered arg
-				// proxies or a native method hook. Unwrap it and thread the
-				// method identity to bridgeArgs (for proxies) or to the hook
-				// lookup further down.
-				var proxyRecvType reflect.Type
-				var proxyMethod string
-				var proxyRecv reflect.Value
-				if rv.IsValid() && rv.Type() == boundProxyCallRtype {
-					bpc := rv.Interface().(boundProxyCall)
-					rv = bpc.Fn
-					proxyRecvType = bpc.RecvType
-					proxyMethod = bpc.Method
-					proxyRecv = bpc.Recv
+				// Method-call sentinel: IfaceCall placed a boundHookCall on
+				// the stack because the target method has a registered
+				// NativeMethodHook. Unwrap it and thread (RecvType, Method,
+				// Recv) to the hook lookup further down.
+				var hookRecvType reflect.Type
+				var hookMethod string
+				var hookRecv reflect.Value
+				if rv.IsValid() && rv.Type() == boundHookCallRtype {
+					bhc := rv.Interface().(boundHookCall)
+					rv = bhc.Fn
+					hookRecvType = bhc.RecvType
+					hookMethod = bhc.Method
+					hookRecv = bhc.Recv
 				}
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
@@ -990,7 +989,7 @@ func (m *Machine) Run() (err error) {
 					for i := range in {
 						in[i] = mem[sp-narg+1+i].Reflect()
 					}
-					m.bridgeArgs(in, funcType, rv.Pointer(), proxyRecvType, proxyMethod)
+					m.bridgeArgs(in, funcType)
 					coerceInterfaceArgs(in, funcType)
 					m.wrapFuncArgs(in, mem[sp-narg+1:sp+1], funcType)
 					sp -= narg + 1
@@ -1001,27 +1000,13 @@ func (m *Machine) Run() (err error) {
 					m.mem, m.fp, m.ip = mem, fp, ip+1
 					// Invoke the native func/method, converting any Go panic
 					// into an mvm panic so an interpreted recover() can catch it.
-					hook := lookupNativeMethodHook(proxyRecvType, proxyMethod)
-					out, panicked := m.invokeNative(hook, proxyRecv, rv, in, c.B&CallSpreadFlag != 0)
+					hook := lookupNativeMethodHook(hookRecvType, hookMethod)
+					out, panicked := m.invokeNative(hook, hookRecv, rv, in, c.B&CallSpreadFlag != 0)
 					if panicked {
 						ip = m.stageUnwind(ip, fp, mem)
 						continue
 					}
-					nout := funcType.NumOut()
-					for i, v := range out {
-						// When a native func returns an interface value
-						// holding a bridge wrapper of an mvm Iface, restore
-						// the original Iface so subsequent mvm-side operations
-						// (equality, reflect.DeepEqual proxy, etc.) see the
-						// same identity the caller passed in. Only applies
-						// when the static return type is an interface; for
-						// concrete returns the bridge itself is the value.
-						if i < nout && funcType.Out(i).Kind() == reflect.Interface &&
-							v.IsValid() && !v.IsNil() {
-							if ifc, ok := UnbridgeIface(v.Elem()); ok {
-								v = reflect.ValueOf(ifc)
-							}
-						}
+					for _, v := range out {
 						if sp+1 >= len(mem) {
 							mem = growStack(mem, sp, 1)
 						}
@@ -1436,9 +1421,8 @@ func (m *Machine) Run() (err error) {
 					rv = mem[sp].Reflect().Convert(namedType).MethodByName(methodName)
 				}
 				if rv.IsValid() && recvRV.IsValid() &&
-					(hasMethodArgProxies(recvRV.Type(), methodName) ||
-						hasNativeMethodHook(recvRV.Type(), methodName)) {
-					mem[sp] = Value{ref: reflect.ValueOf(boundProxyCall{Fn: rv, RecvType: recvRV.Type(), Method: methodName, Recv: recvRV})}
+					hasNativeMethodHook(recvRV.Type(), methodName) {
+					mem[sp] = Value{ref: reflect.ValueOf(boundHookCall{Fn: rv, RecvType: recvRV.Type(), Method: methodName, Recv: recvRV})}
 					break
 				}
 				mem[sp] = Value{ref: rv}
@@ -1571,24 +1555,6 @@ func (m *Machine) Run() (err error) {
 						}
 					}
 				}
-				// If the value is a bridge wrapper (e.g. *BridgeError wrapping an
-				// interpreted value), recover the original value. For an interface
-				// target, restore the interpreted Iface and check satisfaction by
-				// method signature: the bare underlying value is method-less and
-				// assignable to every interpreted interface (Rtype==any), a false
-				// positive. For a concrete target, the underlying value is what the
-				// assertion wants.
-				if !matched && !isNil {
-					if dstTyp.IsInterface() {
-						if bifc, ok := UnbridgeIface(rv); ok && bifc.Typ != nil && bifc.Typ.Implements(dstTyp) {
-							matched, wrapTyp = true, bifc.Typ
-							rv = bifc.Val.Reflect()
-						}
-					} else if orig := unbridgeValue(rv); orig.IsValid() && orig.Type().AssignableTo(dstTyp.Rtype) {
-						rv = orig
-						matched = true
-					}
-				}
 				if matched {
 					if wrapTyp != nil {
 						mem[sp] = Value{ref: reflect.ValueOf(Iface{Typ: wrapTyp, Val: FromReflect(rv)})}
@@ -1713,21 +1679,6 @@ func (m *Machine) Run() (err error) {
 						}
 					default:
 						matched = concrete.Type().AssignableTo(dtyp.Rtype)
-					}
-					// Bridge wrapper (e.g. *BridgeError) holding an interpreted
-					// value: recover it. For an interface target, restore the
-					// interpreted Iface and match by method signature (the bare
-					// underlying value is methodless and implements every
-					// interpreted interface, a false positive); keep TypeBranch
-					// consistent with the TypeAssert that binds the case variable.
-					if !matched {
-						if dtyp.IsInterface() {
-							if bifc, ok := UnbridgeIface(rv); ok && bifc.Typ != nil {
-								matched = bifc.Typ.Implements(dtyp)
-							}
-						} else if orig := unbridgeValue(rv); orig.IsValid() {
-							matched = orig.Type().AssignableTo(dtyp.Rtype)
-						}
 					}
 				}
 			} else {
@@ -3382,34 +3333,11 @@ func (m *Machine) reflectForSend(val Value, elemType reflect.Type) reflect.Value
 	return rv.Convert(elemType)
 }
 
-// bridgeIface wraps an Iface value for a target interface type, trying
-// InterfaceBridges, then single-method Bridges, then concrete unwrap.
+// bridgeIface returns the underlying reflect.Value for an mvm Iface when
+// passed across a native-call boundary. Synth-attached methods are visible
+// directly on the value's rtype, so no wrapping is needed.
 func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value {
-	if len(m.MethodNames) > 0 {
-		// Prefer the richest registered interface bridge the value fully
-		// implements and that still satisfies targetType, so capabilities
-		// beyond the target survive the native type assertion (e.g. a value
-		// implementing crypto.MessageSigner passed to a crypto.Signer
-		// parameter must still answer signer.(MessageSigner)).
-		if bridgePtrType := m.bestInterfaceBridge(ifc, targetType); bridgePtrType != nil {
-			if w := m.wrapIfaceMulti(ifc, bridgePtrType); w.IsValid() {
-				return w
-			}
-		}
-		if bridgePtrType, ok := InterfaceBridges[targetType]; ok {
-			if w := m.wrapIfaceMulti(ifc, bridgePtrType); w.IsValid() {
-				return w
-			}
-		}
-		if w := m.wrapIface(ifc, targetType); w.IsValid() {
-			return w
-		}
-	}
-	if IfaceFallbackHook != nil {
-		if w := IfaceFallbackHook(m, ifc, targetType); w.IsValid() {
-			return w
-		}
-	}
+	_ = targetType
 	val := ifc.Val.Reflect()
 	if ifc.Typ != nil && (!val.IsValid() || (val.Kind() == reflect.Interface && val.IsNil())) {
 		return reflect.Zero(ifc.Typ.Rtype)
@@ -3420,75 +3348,6 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 		}
 	}
 	return val
-}
-
-// ifaceProvidedMethods returns the set of method names the interpreted
-// value supplies. A pointer-receiver method only counts when the value's
-// static type is a pointer, matching Go's method-set rules.
-func (m *Machine) ifaceProvidedMethods(ifc Iface) map[string]bool {
-	if ifc.Typ == nil {
-		return nil
-	}
-	provided := make(map[string]bool)
-	methodTypes, n := ifaceMethodTypes(ifc.Typ)
-	isPtr := ifc.Typ.Rtype != nil && ifc.Typ.Rtype.Kind() == reflect.Pointer
-	for _, mt := range methodTypes[:n] {
-		for id, method := range mt.Methods {
-			if method.Index < 0 || id >= len(m.MethodNames) {
-				continue
-			}
-			if method.PtrRecv && !isPtr {
-				continue
-			}
-			provided[m.MethodNames[id]] = true
-		}
-	}
-	return provided
-}
-
-// bestInterfaceBridge returns the registered InterfaceBridges entry whose
-// interface declares the most methods such that the interface satisfies
-// targetType and the interpreted value provides every one of those methods.
-// This preserves richer capabilities (e.g. crypto.MessageSigner) when the
-// native parameter only requires a sub-interface (crypto.Signer). Returns
-// nil for empty-interface targets or when no fully-implemented bridge exists.
-func (m *Machine) bestInterfaceBridge(ifc Iface, targetType reflect.Type) reflect.Type {
-	if targetType.Kind() != reflect.Interface || targetType.NumMethod() == 0 {
-		return nil
-	}
-	// provided is built lazily: the common case (no registered bridge
-	// satisfies targetType, e.g. error / fmt.Stringer) returns before
-	// allocating it or walking the value's method set.
-	var provided map[string]bool
-	var best reflect.Type
-	bestN := 0
-	for ifaceType, bridgePtrType := range InterfaceBridges {
-		nm := ifaceType.NumMethod()
-		if nm <= bestN || !ifaceType.Implements(targetType) {
-			continue
-		}
-		if provided == nil {
-			if provided = m.ifaceProvidedMethods(ifc); len(provided) == 0 {
-				return nil
-			}
-		}
-		if !interfaceMethodsCovered(ifaceType, provided) {
-			continue
-		}
-		best, bestN = bridgePtrType, nm
-	}
-	return best
-}
-
-// interfaceMethodsCovered reports whether provided contains every method
-// name declared by ifaceType.
-func interfaceMethodsCovered(ifaceType reflect.Type, provided map[string]bool) bool {
-	for i := range ifaceType.NumMethod() {
-		if !provided[ifaceType.Method(i).Name] {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *Machine) wrapForFunc(val Value, funcType reflect.Type) reflect.Value {
@@ -3706,7 +3565,7 @@ func (rs *runnerState) releaseRunner(m *Machine) {
 // not a runtime.Error, e.g. *interp.ExitError from a virtualized os.Exit -- is
 // re-panicked so Run's recoverPanic terminates the program rather than letting
 // recover() swallow it.
-func (m *Machine) invokeNative(hook NativeMethodHook, proxyRecv, rv reflect.Value, in []reflect.Value, spread bool) (out []reflect.Value, panicked bool) {
+func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value, in []reflect.Value, spread bool) (out []reflect.Value, panicked bool) {
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -3744,7 +3603,7 @@ func (m *Machine) invokeNative(hook NativeMethodHook, proxyRecv, rv reflect.Valu
 	}()
 	switch {
 	case hook != nil && !spread:
-		return hook(m, proxyRecv, in), false
+		return hook(m, hookRecv, in), false
 	case spread:
 		// For spread calls (f(s...)), unwrap Iface values inside the variadic
 		// slice and use CallSlice.
@@ -4319,13 +4178,11 @@ func numReflect(t reflect.Type, src Value) reflect.Value {
 	return src.Reflect()
 }
 
-// bridgeArgs scans native-call arguments for Iface values and replaces them
-// with wrapper instances that implement Go interfaces via registered bridges.
-// Non-bridged Iface values are unwrapped to their concrete value.
-func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fnPtr uintptr, recvType reflect.Type, methodName string) {
+// bridgeArgs unwraps any Iface-typed arguments to the underlying concrete
+// reflect.Value for the native call boundary.
+func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type) {
 	for i, rv := range in {
 		if !rv.IsValid() || rv.Type() != ifaceRtype {
-			// Also check inside interface{} wrapping.
 			if rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() &&
 				rv.Elem().Type() == ifaceRtype {
 				rv = rv.Elem()
@@ -4334,17 +4191,6 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fnPtr ui
 			}
 		}
 		ifc := rv.Interface().(Iface)
-		var factory ProxyFactory
-		if fnPtr != 0 {
-			factory = lookupFuncArgProxy(fnPtr, i)
-		}
-		if factory == nil && recvType != nil && methodName != "" {
-			factory = lookupMethodArgProxy(recvType, methodName, i)
-		}
-		if factory != nil {
-			in[i] = factory(m, ifc)
-			continue
-		}
 		targetType := paramTypeFor(funcType, i)
 		if targetType == nil {
 			targetType = AnyRtype
@@ -4441,317 +4287,6 @@ func ifaceMethodTypes(typ *Type) (types [6]*Type, n int) {
 		}
 	}
 	return
-}
-
-// errorSliceRtype is []error, used to detect the multi-error
-// Unwrap() []error signature so it bridges distinctly from the
-// single-error Unwrap() error.
-var errorSliceRtype = reflect.TypeOf([]error(nil))
-
-// bridgeMethodName maps an interpreted method to the bridge-registry key
-// used for selection.
-func bridgeMethodName(name string, method Method) string {
-	if name == "Unwrap" && method.Rtype != nil &&
-		method.Rtype.NumOut() == 1 && method.Rtype.Out(0) == errorSliceRtype {
-		return "UnwrapMulti"
-	}
-	return name
-}
-
-// wrapIface creates a bridge value that implements a Go interface.
-func (m *Machine) wrapIface(ifc Iface, targetType reflect.Type) reflect.Value {
-	if ifc.Typ == nil {
-		return reflect.Value{}
-	}
-
-	// For non-empty interfaces, build a set of required method names.
-	// For interface{}/any, use DisplayBridges as the filter.
-	nonEmpty := targetType.Kind() == reflect.Interface && targetType.NumMethod() > 0
-	var required map[string]bool
-	if nonEmpty {
-		required = make(map[string]bool, targetType.NumMethod())
-		for i := range targetType.NumMethod() {
-			required[targetType.Method(i).Name] = true
-		}
-	} else {
-		required = DisplayBridges
-	}
-
-	// Single pass: collect all methods that have registered bridges.
-	var bridged [8]bridgedMethod
-	count := 0
-
-	methodTypes, n := ifaceMethodTypes(ifc.Typ)
-	isPtr := ifc.Typ.Rtype.Kind() == reflect.Pointer
-	for _, mt := range methodTypes[:n] {
-		for id, method := range mt.Methods {
-			if id >= len(m.MethodNames) || !method.IsResolved() {
-				continue
-			}
-			// Pointer-receiver methods are not part of the value type's
-			// method set: mvm registers them on T with PtrRecv=true but
-			// in Go semantics they only belong to *T's method set.
-			if method.PtrRecv && !isPtr {
-				continue
-			}
-			name := bridgeMethodName(m.MethodNames[id], method)
-			if _, ok := Bridges[name]; !ok {
-				continue
-			}
-			if count < len(bridged) {
-				bridged[count] = bridgedMethod{name, method}
-				count++
-			}
-		}
-	}
-
-	// Multi-method composite bridges are checked first: every declared
-	// method must be present on the source so wrapIfaceMulti leaves no
-	// Fn<MethodName> field nil.
-	if nonEmpty && count >= 3 {
-		for _, mcb := range multiCompositeBridges {
-			if len(mcb.Methods) > count || !subsetOfBridged(mcb.Methods, bridged[:count]) {
-				continue
-			}
-			if !mcb.Type.Implements(targetType) {
-				continue
-			}
-			if w := m.wrapIfaceMulti(ifc, mcb.Type); w.IsValid() {
-				return w
-			}
-		}
-	}
-
-	// Try composite bridge if 2+ bridgeable methods and target is a non-empty interface.
-	if count >= 2 && nonEmpty && len(CompositeBridges) > 0 {
-		for i := 0; i < count; i++ {
-			for j := i + 1; j < count; j++ {
-				key := [2]string{bridged[i].name, bridged[j].name}
-				if key[0] > key[1] {
-					key[0], key[1] = key[1], key[0]
-				}
-				compType, ok := CompositeBridges[key]
-				if !ok {
-					continue
-				}
-				if !compType.Implements(targetType) {
-					continue
-				}
-				if w := m.wrapIfaceMulti(ifc, compType); w.IsValid() {
-					return w
-				}
-			}
-		}
-	}
-
-	// Single-method fallback. Prefer "primary" bridges (Error, String,
-	// GoString) over Format because BridgeError/String/GoString now also
-	// dispatch user Format via FnFormat (populated by populateBridgeAux),
-	// AND they satisfy native type assertions.
-	for _, primary := range primaryBridgeOrder {
-		if w := m.tryBridge(ifc, bridged[:count], required, targetType, nonEmpty, primary); w.IsValid() {
-			return w
-		}
-	}
-	// Last resort: any matching bridge (catches Format-only types).
-	for _, bm := range bridged[:count] {
-		if w := m.tryBridge(ifc, bridged[:count], required, targetType, nonEmpty, bm.name); w.IsValid() {
-			return w
-		}
-	}
-
-	return reflect.Value{}
-}
-
-// primaryBridgeOrder lists method names whose single-method bridge type
-// also satisfies higher-level Go interfaces.
-var primaryBridgeOrder = [...]string{"Error", "String", "GoString"}
-
-// tryBridge attempts to build a single-method bridge for the named
-// method against targetType. Returns an invalid Value if no method on
-// ifc with that name has a registered bridge that satisfies the target.
-func (m *Machine) tryBridge(ifc Iface, bridged []bridgedMethod, required map[string]bool, targetType reflect.Type, nonEmpty bool, name string) reflect.Value {
-	if !required[name] {
-		return reflect.Value{}
-	}
-	for _, bm := range bridged {
-		if bm.name != name {
-			continue
-		}
-		bridgePtrType := Bridges[bm.name]
-		bridge := reflect.New(bridgePtrType.Elem())
-		if nonEmpty && !bridge.Type().Implements(targetType) {
-			continue
-		}
-		fnField := bridge.Elem().FieldByName("Fn")
-		if bm.method.EmbedIface {
-			fnField.Set(m.makeEmbedIfaceClosure(ifc, bm.method, bm.name, fnField.Type()))
-		} else {
-			fnField.Set(m.makeBridgeClosure(ifc, bm.method, fnField.Type()))
-		}
-		m.populateBridgeAux(bridge.Elem(), ifc, bridged, bm.name)
-		return bridge
-	}
-	return reflect.Value{}
-}
-
-// populateBridgeAux fills optional bridge fields after the primary
-// method closure is set. Ifc preserves the
-// full Iface so UnbridgeIface can restore it at native->mvm return
-// boundaries. FnFormat routes fmt verbs to the interpreted type's
-// own Format method when present, so user-defined fmt.Formatter
-// bodies are invoked instead of the display fallback. skipName avoids
-// overwriting the field already set by the caller.
-func (m *Machine) populateBridgeAux(elem reflect.Value, ifc Iface, bridged []bridgedMethod, skipName string) {
-	if valField := elem.FieldByName("Val"); valField.IsValid() {
-		if rv := ifc.Val.Reflect(); rv.IsValid() {
-			valField.Set(reflect.ValueOf(rv.Interface()))
-		}
-	}
-	if ifcField := elem.FieldByName("Ifc"); ifcField.IsValid() && ifcField.Type() == ifaceMetaType {
-		ifcField.Set(reflect.ValueOf(ifc))
-	}
-	if skipName == "Format" {
-		return
-	}
-	if fmtField := elem.FieldByName("FnFormat"); fmtField.IsValid() {
-		for _, bm := range bridged {
-			if bm.name != "Format" || bm.method.EmbedIface {
-				continue
-			}
-			fmtField.Set(m.makeBridgeClosure(ifc, bm.method, fmtField.Type()))
-			return
-		}
-	}
-}
-
-// ifaceMetaType is the reflect.Type of vm.Iface, used to gate setting
-// of optional "Ifc" bridge fields.
-var ifaceMetaType = reflect.TypeOf(Iface{})
-
-// bridgedMethod pairs a bridgeable method with its registered name.
-// Hoisted to package scope so populateBridgeAux can take a slice of them.
-type bridgedMethod struct {
-	name   string
-	method Method
-}
-
-func subsetOfBridged(want []string, have []bridgedMethod) bool {
-	for _, name := range want {
-		found := false
-		for i := range have {
-			if have[i].name == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-func (m *Machine) wrapIfaceMulti(ifc Iface, bridgePtrType reflect.Type) reflect.Value {
-	if ifc.Typ == nil {
-		return reflect.Value{}
-	}
-
-	bridge := reflect.New(bridgePtrType.Elem())
-	elem := bridge.Elem()
-	matched := false
-
-	methodTypes, n := ifaceMethodTypes(ifc.Typ)
-	isPtr := ifc.Typ.Rtype.Kind() == reflect.Pointer
-	for _, mt := range methodTypes[:n] {
-		for id, method := range mt.Methods {
-			if method.Index < 0 || id >= len(m.MethodNames) {
-				continue
-			}
-			// Pointer-receiver methods are not part of the value type's
-			// method set: mvm registers them on T with PtrRecv=true but
-			// in Go semantics they only belong to *T's method set.
-			if method.PtrRecv && !isPtr {
-				continue
-			}
-			fnField := elem.FieldByName("Fn" + bridgeMethodName(m.MethodNames[id], method))
-			if !fnField.IsValid() {
-				continue
-			}
-			// Value-receiver methods called on a pointer need the pointer
-			// dereferenced at each call time so mutations are visible.
-			deref := isPtr && !method.PtrRecv
-			fnField.Set(m.makeBridgeClosureImpl(ifc, method, fnField.Type(), deref))
-			matched = true
-		}
-	}
-
-	if !matched {
-		return reflect.Value{}
-	}
-	// FnFormat is auto-populated above by the Fn<MethodName> loop, so skip it here.
-	m.populateBridgeAux(elem, ifc, nil, "Format")
-	return bridge
-}
-
-func (m *Machine) makeBridgeClosure(ifc Iface, method Method, fnType reflect.Type) reflect.Value {
-	return m.makeBridgeClosureImpl(ifc, method, fnType, false)
-}
-
-func (m *Machine) makeEmbedIfaceClosure(ifc Iface, method Method, name string, fnType reflect.Type) reflect.Value {
-	ptrVal := ifc.Val
-	path := method.Path
-	zeroOut := func() []reflect.Value {
-		out := make([]reflect.Value, fnType.NumOut())
-		for i := range out {
-			out[i] = reflect.Zero(fnType.Out(i))
-		}
-		return out
-	}
-	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
-		rv := reflect.Indirect(ptrVal.Reflect())
-		for _, idx := range path {
-			if rv.Kind() == reflect.Pointer {
-				if rv.IsNil() {
-					return zeroOut()
-				}
-				rv = rv.Elem()
-			}
-			rv = rv.Field(idx)
-		}
-		rv = Exportable(rv)
-		if rv.Kind() == reflect.Interface {
-			if rv.IsNil() {
-				return zeroOut()
-			}
-			rv = rv.Elem()
-		}
-		fn := rv.MethodByName(name)
-		if !fn.IsValid() {
-			return zeroOut()
-		}
-		return fn.Call(args)
-	})
-}
-
-func (m *Machine) makeBridgeClosureImpl(ifc Iface, method Method, fnType reflect.Type, deref bool) reflect.Value {
-	cell, fval := m.makeMethodCell(ifc, method)
-	if !deref {
-		return m.makeCallFunc(fval, fnType)
-	}
-	// For value-receiver methods: dereference the pointer at each call.
-	ptrVal := ifc.Val
-	rs := m.captureRunnerState()
-	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
-		*cell = FromReflect(reflect.Indirect(ptrVal.Reflect()))
-		runner := rs.acquireRunner()
-		defer rs.releaseRunner(runner)
-		out, err := runner.callPooled(fval, fnType, args)
-		if err != nil {
-			panic(err)
-		}
-		return out
-	})
 }
 
 func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {

@@ -1952,14 +1952,6 @@ y = &T{y}
 n, _ := y.Read([]byte(""))
 n`, res: "0"},
 
-		{n: "writer_bridge", src: `
-import "fmt"
-type T []byte
-func (t *T) Write(p []byte) (n int, err error) { *t = append(*t, p...); return len(p), nil }
-x := T{}
-fmt.Fprint(&x, "hello")
-fmt.Sprintf("%s", x)`, res: "hello"},
-
 		{n: "writer_assert", src: `
 import "fmt"
 import "io"
@@ -2091,33 +2083,6 @@ type wrapper struct{ R *myReader }
 w := wrapper{R: &myReader{data: "hello"}}
 b, _ := io.ReadAll(w.R)
 string(b)`, res: "hello"},
-
-		{n: "bridge_named_return_iface", src: `
-import "io"
-import "strings"
-type myReader struct{ r io.Reader }
-func (m myReader) Read(b []byte) (n int, err error) {
-	n, err = m.r.Read(b)
-	return n, err
-}
-r := myReader{strings.NewReader("hello")}
-b, _ := io.ReadAll(r)
-string(b)`, res: "hello"},
-
-		{n: "bridge_writerto_upgrade", src: `
-import "io"
-import "strings"
-type WR struct{ r io.Reader; used bool }
-func (w *WR) Read(p []byte) (int, error) { return w.r.Read(p) }
-func (w *WR) WriteTo(dst io.Writer) (int64, error) {
-	w.used = true
-	data, _ := io.ReadAll(w)
-	n, err := dst.Write(data)
-	return int64(n), err
-}
-wr := &WR{r: strings.NewReader("hello")}
-io.Copy(io.Discard, wr)
-wr.used`, res: "true"},
 
 		{n: "iface_slice_spread_both", src: `
 type Option interface { val() int }

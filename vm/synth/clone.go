@@ -86,18 +86,6 @@ func cloneMap(layout reflect.Type, pkgPath string) (reflect.Type, error) {
 	return asReflectType(&b.t.abiType), nil
 }
 
-// CloneStruct is a back-compat shim for the struct-only Phase-2a caller.
-// New code should call Clone.
-func CloneStruct(layout reflect.Type, pkgPath string) (reflect.Type, error) {
-	if layout.Kind() != reflect.Struct {
-		return nil, errCloneStructKind
-	}
-	return cloneStruct(layout, pkgPath)
-}
-
-var errCloneStructKind = errors.New(
-	"synth: CloneStruct: layout kind is not Struct")
-
 // Zero-method containers, one per kind.
 // Layout = kind-specific type prefix + uncommon (no method array).
 
