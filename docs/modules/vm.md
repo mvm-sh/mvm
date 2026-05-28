@@ -523,117 +523,53 @@ profile-export time. Today's consumers are the `runtime.Callers`
 bridge (see [Runtime virtualization bridges](#runtime-virtualization-bridges))
 and (partially) `DumpCallStack`.
 
-### Interface bridging at the native call boundary
+### Native method dispatch via synthesized rtypes
 
-Go's `reflect.StructOf` cannot attach methods to dynamically-created types.
-When an interpreted struct (or named type) with methods is passed to a native
-Go function as an `interface{}` parameter, Go's interface dispatcher cannot
-find the method. The VM bridges this gap at the native function call site
-(`rv.Call(in)` path inside the `Call` handler).
+Go's `reflect.StructOf` cannot attach methods to dynamically-created types, so
+an interpreted struct (or named type) passed to a native function as an
+`interface{}` would not satisfy `fmt.Stringer`, `error`, `json.Marshaler`, etc.
+The VM closes this gap by attaching the interpreted methods to a *synthesized*
+rtype that native `itab`/reflect dispatch reads directly -- no per-call wrapper.
 
-Bridge types live in `stdlib/`. See [stdlib](stdlib.md#interface-bridges-bridgesgo)
-for the full catalogue. The VM only holds the registries.
+`Machine.AttachSynthMethods(t)` (`vm/synth_bridge.go`) runs for every compiled
+type. For each method it:
 
-**Registries** (`vm/bridge.go`, all populated at init by `stdlib`):
+1. matches the signature to a *shape* (`detectShape` -> `stubs.ShapeS1..S16`);
+2. builds a handler closure (`makeHandlerS*`) that re-enters the interpreter via
+   `CallFunc` when the stub fires;
+3. delegates to `stdlib/stubs`, which resolves each method to a stub-pool slot
+   PC and calls `runtype` to build the rtype.
 
-| Registry | Key | Value | Purpose |
-|----------|-----|-------|---------|
-| `Bridges` | method name | pointer-to-bridge `reflect.Type` | single-method bridges |
-| `DisplayBridges` | method name | bool | subset eligible when target is `any`/`interface{}` |
-| `CompositeBridges` | sorted `[2]string` | pointer-to-bridge `reflect.Type` | preserves two capabilities (e.g. Read+WriteTo for io.Copy) |
-| `InterfaceBridges` | `reflect.Type` of target interface | pointer-to-bridge `reflect.Type` | multi-method interfaces (sort, heap, flag) |
-| `ValBridgeTypes` | pointer-to-bridge `reflect.Type` | bool | bridges whose `Val any` field carries the original value for unwrapping on type assertion |
+`t.RefreshRtype` then swaps the synthesized rtype in and cascades it through derived
+types. See [runtype](runtype.md), [stubs](stubs.md), and
+[ADR-021](../decisions/ADR-021-synthesized-rtypes.md). This replaced the former
+per-call bridge registries and argument proxies -- `vm/bridge.go` no longer holds
+`Bridges`/`DisplayBridges`/`CompositeBridges`/`InterfaceBridges`.
 
-**`bridgeArgs(in, funcType, fnPtr, recvType, methodName)`** scans
-native-call arguments for `Iface` values (boxed by `IfaceWrap` during
-compilation). Dispatch order per argument:
+**`IfaceWrap` / `bridgeArgs`.** The compiler still emits `IfaceWrap` for
+interface-typed arguments to native calls, boxing the value as `Iface{Typ, Val}`
+so the mvm `*Type` identity crosses the boundary (essential for non-struct named
+types whose `reflect.Type` is shared with the underlying type). `bridgeArgs(in,
+funcType, fn)` then, per argument: retypes a pointer-to-interpreted-interface to
+the synthesized interface rtype (`bridgePtrToIface`, a gated allowlist, for
+`errors.As`), otherwise unwraps the `Iface` to its concrete (synthesized) value
+via `bridgeIface`.
 
-1. **Arg proxies first.** If a `ProxyFactory` is registered for this
-   argument slot (via `RegisterArgProxy` for functions or
-   `RegisterArgProxyMethod` for methods), the factory builds a wrapper that
-   re-enters the interpreter on method call. See
-   [Argument proxies](#argument-proxies) below.
-2. **Bridge lookup.** Otherwise, the target parameter type is inspected:
-   - Target is a concrete interface with a match in `InterfaceBridges`:
-     allocate that bridge.
-   - Target is `any`/`interface{}`: look for a concrete-type method that
-     exists in `DisplayBridges`; if a `CompositeBridges` entry matches two
-     methods, prefer it to preserve both capabilities.
-   - Target is a single-method interface: look up by method name in
-     `Bridges`.
-3. **Unwrap.** If no bridge matches, unwrap the `Iface` to its concrete
-   value so native code sees the original type instead of `vm.Iface`.
+**Pointer-receiver method dispatch.** `IfaceCall` resolves the method set via
+`Type.ResolveMethodType`, which walks to `ElemType.Methods` for pointer types,
+so methods on `T` are visible when the concrete value is `*T`;
+`runtype.AttachPtrMethods` mirrors this on the runtype side by wiring `*T`'s
+`PtrToThis`.
 
-**`makeBridgeClosure`** builds a `Closure{Code, Heap}` with the receiver in
-`Heap[0]` (same pattern as `IfaceCall`) and wraps it via `reflect.MakeFunc`.
-The closure creates a fresh `Machine` and calls `CallFunc` for re-entrant
-execution.
+**`MethodNames []string`** on `Machine` maps global method IDs back to names
+(populated by the compiler after each `Compile`); the dispatch handlers use it
+to call methods promoted from embedded interfaces.
 
-**`BridgeFormat`** is the bridge for `fmt.Formatter`. When an interpreted
-type defines `Format(fmt.State, rune)`, the bridge routes every fmt verb
-through user code -- `%s`, `%v`, `%q`, `%+v`, etc. -- instead of just the
-display verbs that `BridgeError`/`BridgeString`/`BridgeGoString` cover.
-This makes interpreted error wrappers (e.g. `pkg/errors`) faithfully
-render their custom verbs through native `fmt`.
-
-**Pointer-receiver method dispatch.** `IfaceCall` resolves the method
-set via `Type.ResolveMethodType`, which walks to `ElemType.Methods` for
-pointer types. Methods registered on `T` are therefore visible when the
-runtime concrete value is `*T`, matching Go's own pointer-method
-inheritance.
-
-**Method intercept hook.** `nativeMethodLookup` (the function that
-returns the bound-method `reflect.Value` for an `IfaceCall` against a
-native receiver) is also a generic extension point. The runtime
-virtualization bridge uses it to intercept `(*runtime.Func).Name` and
-`FileLine` -- see [Runtime virtualization
+**Native-receiver hook.** `RegisterNativeMethodHook(recvInstance, name, hook)`
+(`vm/bridge.go`) substitutes the result of a named method on a *native*
+receiver. The runtime virtualization bridge uses it for
+`(*runtime.Func).Name`/`FileLine` -- see [Runtime virtualization
 bridges](#runtime-virtualization-bridges).
-
-**`unbridgeValue`** inspects an interface argument during type assertion and
-type switch. If the runtime value is a known `ValBridgeTypes` pointer, it
-returns the `Val` field's reflect value so `x.(MyNamedInt)` still matches
-after the value has passed through a display bridge.
-
-**`MethodNames []string`** on `Machine` provides the reverse mapping from
-global method IDs to names, populated from the compiler after each `Compile`.
-
-```mermaid
-sequenceDiagram
-    participant Compiler
-    participant VM as VM (Run)
-    participant Bridge as Bridge (stdlib)
-    participant Native as Native Go func
-    Compiler->>VM: IfaceWrap (carries *Type)
-    VM->>VM: bridgeArgs detects Iface
-    VM->>Bridge: allocate *BridgeString, set Fn, set Val
-    VM->>Native: rv.Call(bridged args)
-    Native->>Bridge: calls String()
-    Bridge->>VM: Fn closure -> CallFunc
-    VM-->>Native: returns result
-```
-
-### Argument proxies
-
-A complementary dispatch path for mvm-native shadow packages. Where
-bridges patch a single method on a single argument, arg proxies wrap an
-entire `Iface` so that a shadow's walker (e.g. `stdlib/jsonx`) sees the
-original mvm type metadata.
-
-- **`ProxyFactory`** (`func(*Machine, Iface) reflect.Value`) -- builds a
-  pointer-to-struct wrapper whose methods re-enter the interpreter.
-- **`RegisterArgProxy(fn, arg, factory)`** -- install a factory for a plain
-  native function, keyed by `(reflect.ValueOf(fn).Pointer(), arg)`.
-- **`RegisterArgProxyMethod(recvInstance, methodName, arg, factory)`** --
-  install for a native method, keyed by
-  `(reflect.TypeOf(recvInstance), methodName, arg)`. The receiver instance
-  may be a typed-nil pointer such as `(*json.Encoder)(nil)`; only its type
-  is used.
-
-Methods must be keyed by `(type, name)` rather than by pointer because
-reflect's bound-method dispatch shares a single `methodValueCall`
-trampoline across all methods and types -- a pointer key would collide.
-
-See [ADR-012](../decisions/ADR-012-package-patchers-arg-proxies.md).
 
 ### Runtime virtualization bridges
 
@@ -732,3 +668,8 @@ See [ADR-016](../decisions/ADR-016-runtime-introspection-bridge.md).
 ## Dependencies
 
 - `scan` -- for `scan.Sources` (source position registry used by `DebugInfo`).
+- `runtype` -- rtype synthesis + derive helpers used by `vm/type.go` and
+  `vm/synth_bridge.go` (see [runtype](runtype.md)).
+- `stdlib/stubs` -- the method-shape catalog and `Attach*` wrappers used by
+  `vm/synth_bridge.go` (see [stubs](stubs.md)). `stubs` is a leaf package
+  (it imports only `runtype`), so this introduces no cycle.

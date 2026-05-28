@@ -17,7 +17,9 @@ packages.
 - [comp](modules/comp.md) -- bytecode compiler with peephole optimization
 - [vm](modules/vm.md) -- stack-based bytecode virtual machine
 - [interp](modules/interp.md) -- integration layer and REPL
+- [runtype](modules/runtype.md) -- synthesizes Go rtypes carrying interpreted methods for native dispatch
 - [stdlib](modules/stdlib.md) -- standard library wrappers for native Go imports
+- [stdlib/stubs](modules/stubs.md) -- method-shape catalog and dispatch-stub pools feeding runtype
 - [stdmod](modules/stdmod.md) -- redirect FS that routes stdlib imports through the
   synthetic `github.com/mvm-sh/std` module
 - [modfs](modules/modfs.md) -- in-memory `fs.FS` over the Go module proxy for dynamic network imports
@@ -51,3 +53,4 @@ Architecture Decision Records:
 - [ADR-018: Virtualized process exit via panic-based `ExitError`](decisions/ADR-018-virtualized-process-exit.md)
 - [ADR-019: `mvm test` drives `testing.MainStart(...).Run()` directly](decisions/ADR-019-test-runner-mainstart-driver.md)
 - [ADR-020: Type references resolved by identity slot, not by name](decisions/ADR-020-type-identity-slots.md)
+- [ADR-021: Synthesized rtypes for native method dispatch](decisions/ADR-021-synthesized-rtypes.md) (supersedes ADR-009, part of ADR-012)

@@ -166,6 +166,13 @@ See [vm](modules/vm.md#call-frame) for details.
     instantiation. Method lookup stays name-keyed. See
     [ADR-020](decisions/ADR-020-type-identity-slots.md).
 
+12. **Synthesized rtypes for native method dispatch** -- interpreted methods are
+    attached to a hand-built Go rtype (`runtype`) so native reflect/`itab` dispatch
+    calls them directly, with the method-shape stub pools in `stdlib/stubs`.
+    This replaced the per-call interface-bridge + argument-proxy mechanism and
+    the mvm-native stdlib shadows. See
+    [ADR-021](decisions/ADR-021-synthesized-rtypes.md).
+
 ## Closure and interface dispatch
 
 Closures capture variables via heap cells (`Closure{Code, Heap}`). Opcodes
@@ -176,48 +183,46 @@ Interface dispatch uses an `Iface` wrapper holding a concrete type and value.
 Methods are identified by integer IDs (`methodIDs` in the compiler).
 `IfaceWrap` boxes a value; `IfaceCall` dispatches by method ID.
 
-## Interface bridging for native Go calls
+## Native method dispatch via synthesized rtypes
 
-Go's `reflect.StructOf` cannot register methods on dynamically-created types.
-When an interpreted value with methods (e.g. `String() string`) is passed to a
-native Go function like `fmt.Println`, Go's interface dispatcher cannot find the
-method. Mvm solves this with two complementary dispatch paths at the
-native-call boundary:
+Go's `reflect.StructOf` cannot register methods on dynamically-created types,
+so when an interpreted value with methods (e.g. `String() string`) is passed to
+a native Go function like `fmt.Println`, Go's interface dispatcher cannot find
+the method.
 
-1. **Interface bridges** -- single-method (and composite / multi-method)
-   wrappers that let interpreted values satisfy a Go interface in place.
-   Four families live in `vm/bridge.go`: `Bridges`, `DisplayBridges`,
-   `CompositeBridges`, `InterfaceBridges`. Bridge type definitions live in
-   `stdlib/` and register themselves at init. Adding a new bridge requires
-   no changes to `vm/` or `comp/`. See
-   [ADR-009](decisions/ADR-009-interface-bridging.md).
+Mvm solves this by synthesizing a *real* Go rtype that carries the interpreted
+methods, so native `itab`/reflect dispatch finds them directly with no per-call
+wrapper. The machinery is split across two packages:
 
-2. **Argument proxies** -- full-`Iface` wrappers that hand a mvm-native
-   shadow package (e.g. `stdlib/jsonx`) the original mvm type metadata.
-   Used when the native code walks struct fields via reflection and a
-   single-method bridge on the top argument is not enough. Registered via
-   `vm.RegisterArgProxy` / `RegisterArgProxyMethod`; shadows also overlay
-   their replacement types via `stdlib.RegisterPackagePatcher`. See
-   [ADR-012](decisions/ADR-012-package-patchers-arg-proxies.md).
+- **`runtype`** mirrors `internal/abi` byte-for-byte and overlays an
+  `UncommonType` + method array onto a cloned layout rtype, wiring each method's
+  `Ifn`/`Tfn` to a dispatch-stub PC. See [runtype](modules/runtype.md).
+- **`stdlib/stubs`** holds the 16 method-signature *shapes* (S1 `func() string`
+  ... S16 `UnmarshalXML`), the generated stub-function pools, and the
+  per-shape dispatchers that re-enter the interpreter. See [stubs](modules/stubs.md).
 
-The compiler emits `IfaceWrap` for arguments to native function calls with
-interface parameters, carrying the mvm `*Type` identity across the
-boundary (essential for non-struct named types where the `reflect.Type` is
-shared with the underlying type). `bridgeArgs` in `vm.Run` checks arg
-proxies first, then the bridge families, then unwraps.
+`interp` attaches a synthesized rtype to every compiled type (`Machine.AttachSynthMethods`);
+the vm-side glue in `vm/synth_bridge.go` matches each method signature to a
+shape and builds the handler closure. See
+[ADR-021](decisions/ADR-021-synthesized-rtypes.md).
 
-`BridgeFormat` (for `fmt.Formatter`) is a notable bridge: when an
-interpreted type defines `Format(fmt.State, rune)`, every fmt verb
-(`%s`, `%v`, `%q`, `%+v`, ...) routes through user code instead of
-just the display verbs that `BridgeError`/`BridgeString`/`BridgeGoString`
-cover. This makes interpreted error wrappers like `pkg/errors` render
-their custom verbs faithfully through native `fmt`.
+This replaced the earlier per-call *interface bridge* + *argument proxy*
+mechanism (ADR-009, ADR-012) and deleted ~1800 lines of mvm-native shadow
+packages (`stdlib/jsonx`, `xmlx`, `gobx`). A type can now satisfy several
+interfaces at once (`Stringer` *and* `json.Marshaler`), and native
+reflect-walking code sees interpreted methods on nested struct fields with no
+shadow.
 
-`nativeMethodLookup` is also a generic extension point: bridges that
-need to substitute the result of a method call on a native receiver
-(rather than just wrap an argument) can intercept there. The runtime
-introspection bridge does exactly this for `(*runtime.Func).Name` /
-`FileLine` -- see
+The compiler still emits `IfaceWrap` for interface-typed arguments to native
+calls, carrying the mvm `*Type` identity across the boundary (essential for
+non-struct named types whose `reflect.Type` is shared with the underlying
+type). `bridgeArgs` in `vm.Run` now only unwraps the `Iface` to its concrete
+(synthesized) value, or retypes a pointer-to-interpreted-interface to the
+synthesized interface rtype for `errors.As`.
+
+The one surviving native-side hook is `RegisterNativeMethodHook` (`vm/bridge.go`):
+it substitutes the result of a named method on a *native* receiver. The runtime
+introspection bridge uses it for `(*runtime.Func).Name` / `FileLine` -- see
 [vm.md](modules/vm.md#runtime-virtualization-bridges) and
 [ADR-016](decisions/ADR-016-runtime-introspection-bridge.md).
 

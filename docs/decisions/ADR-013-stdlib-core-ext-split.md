@@ -32,8 +32,8 @@ aggregator:
   `runtime/*`, `database/sql`, `syscall/*` (per platform), `testing`,
   `text/template`, etc. ~170 files (counting per-platform syscall
   variants).
-- **`stdlib/all/`**: blank-imports `core`, `ext`, and `jsonx`. The
-  full bundle, kept as one line for embedders that want everything.
+- **`stdlib/all/`**: blank-imports `core` and `ext`. The full bundle,
+  kept as one line for embedders that want everything.
 
 The split is data-driven: `cmd/extract/categories.go` carries a `Core`
 map listing the import paths that route to `core/`. Anything not
@@ -67,7 +67,7 @@ and without dragging in net/crypto stack?* If yes, it belongs in
   "transitive footprint" analysis; a package on the `core` list could
   silently grow heavy if upstream Go adds dependencies. Periodic
   manual review is implied.
-- `stdlib/jsonx` is its own sub-package and not part of `core`/`ext`,
-  even though `encoding/json` is in `core`. The shadow walker needs
-  the patcher pattern, which is conceptually separate. `stdlib/all/`
-  pulls all three.
+- The mvm-native shadow sub-packages (`stdlib/jsonx`, `xmlx`, `gobx`) that
+  once sat alongside `core`/`ext` were removed when synthesized rtypes
+  ([ADR-021](ADR-021-synthesized-rtypes.md)) made them unnecessary; `stdlib/all/`
+  now pulls only `core` and `ext`.

@@ -8,7 +8,7 @@ import (
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/stdlib"
 	_ "github.com/mvm-sh/mvm/stdlib/all"
-	"github.com/mvm-sh/mvm/vm/synth"
+	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
 func TestSynthStringerEndToEnd(t *testing.T) {
@@ -191,14 +191,14 @@ func main() {
 	i := NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
 	i.SetIO(os.Stdin, &stdout, &stderr)
-	before := synth.SlotsUsedS2()
+	before := stubs.SlotsUsedS2()
 	if _, err := i.Eval("a.go", src); err != nil {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "[1,2]"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := synth.SlotsUsedS2(); got <= before {
+	if got := stubs.SlotsUsedS2(); got <= before {
 		t.Errorf("SlotsUsedS2 did not advance (before=%d after=%d); "+
 			"synth S2 path was not exercised", before, got)
 	}
@@ -236,14 +236,14 @@ func main() {
 	i := NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
 	i.SetIO(os.Stdin, &stdout, &stderr)
-	before := synth.SlotsUsedS3()
+	before := stubs.SlotsUsedS3()
 	if _, err := i.Eval("a.go", src); err != nil {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "9"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := synth.SlotsUsedS3(); got <= before {
+	if got := stubs.SlotsUsedS3(); got <= before {
 		t.Errorf("SlotsUsedS3 did not advance (before=%d after=%d); "+
 			"synth S3 path was not exercised", before, got)
 	}
@@ -370,11 +370,11 @@ func main() {
 	var stdout, stderr bytes.Buffer
 	i.SetIO(os.Stdin, &stdout, &stderr)
 
-	before := synth.SlotsUsedS1()
+	before := stubs.SlotsUsedS1()
 	if _, err := i.Eval("a.go", src); err != nil {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
-	after := synth.SlotsUsedS1()
+	after := stubs.SlotsUsedS1()
 	if got, want := after-before, uint32(2); got != want {
 		t.Errorf("SlotsUsedS1 delta = %d, want %d (T + *T; alias dedup broken if 4)", got, want)
 	}

@@ -5,19 +5,19 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/vm/synth"
+	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
 var stringerSig = reflect.TypeOf((func() string)(nil))
 
 func makeSynthRtype(t *testing.T, name string) reflect.Type {
 	t.Helper()
-	rt, err := synth.AttachStructMethods(
+	rt, err := stubs.AttachStructMethods(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
 		name, "test",
-		[]synth.Method{{
+		[]stubs.Method{{
 			Name: "String", Exported: true, Sig: stringerSig,
 			Handler: func(_ unsafe.Pointer) string { return "" },
 		}},

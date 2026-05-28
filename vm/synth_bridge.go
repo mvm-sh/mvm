@@ -11,11 +11,12 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/vm/synth"
+	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
 // AttachSynthMethods installs t's interpreted methods on a fresh synthesized
-// rtype via vm/synth and replaces t.Rtype.
+// rtype (via runtype + stdlib/stubs) and replaces t.Rtype.
 // Native code that asserts the new rtype to an interface (fmt.Stringer,
 // error, json.Marshaler, json.Unmarshaler, etc.) then dispatches the
 // method directly, with no bridge proxy.
@@ -107,12 +108,12 @@ func synthIfaceRtype(t *Type) reflect.Type {
 	if t.synthIface != nil {
 		return t.synthIface
 	}
-	ims := make([]synth.Imethod, 0, len(t.IfaceMethods))
+	ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))
 	for _, im := range t.IfaceMethods {
 		if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
 			return nil
 		}
-		ims = append(ims, synth.Imethod{
+		ims = append(ims, runtype.Imethod{
 			Name:     im.Name,
 			Exported: isExportedName(im.Name),
 			Sig:      im.Rtype,
@@ -121,7 +122,7 @@ func synthIfaceRtype(t *Type) reflect.Type {
 	if len(ims) == 0 {
 		return nil
 	}
-	st := synth.InterfaceOf(t.Rtype.String(), t.PkgPath, ims)
+	st := runtype.InterfaceOf(t.Rtype.String(), t.PkgPath, ims)
 	t.synthIface = st
 	return st
 }
@@ -171,7 +172,7 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	if len(specs) == 0 {
 		return false, nil
 	}
-	newRT, err := synth.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
+	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
 		toSynthMethods(m, t, specs))
 	if err != nil {
 		return false, err
@@ -192,20 +193,20 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		return nil
 	}
 	if !elemReady {
-		clone, err := synth.Clone(t.Rtype, t.PkgPath)
+		clone, err := runtype.Clone(t.Rtype, t.PkgPath)
 		if err != nil {
 			return err
 		}
 		t.RefreshRtype(clone)
 	}
-	newPtrRT, err := synth.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
+	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
 		toSynthMethods(m, t, specs))
 	if err != nil {
 		return err
 	}
 	// Propagate the *T-with-methods rtype to t.derived.ptr. Materialize if
 	// missing so a subsequent vm.PointerTo(t) returns this rtype rather than
-	// building a fresh methodless *T via synth.PointerTo (which would diverge
+	// building a fresh methodless *T via runtype.PointerTo (which would diverge
 	// from reflect.PointerTo(t.Rtype), the latter following PtrToThis to the
 	// with-methods *T).
 	derivedMu.Lock()
@@ -227,55 +228,55 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 type synthMethodSpec struct {
 	name    string
 	method  Method
-	shape   synth.Shape
+	shape   stubs.Shape
 	ptrRecv bool
 }
 
-// toSynthMethods materializes the slice of synth.Method passed to
-// synth.AttachMethods / AttachPtrMethods.
+// toSynthMethods materializes the slice of stubs.Method passed to
+// stubs.AttachMethods / AttachPtrMethods.
 // Each method's handler closure is built per its shape, with recv dereferencing
 // driven by the method's own receiver kind (s.ptrRecv).
 func toSynthMethods(
 	m *Machine, t *Type, specs []synthMethodSpec,
-) []synth.Method {
-	out := make([]synth.Method, len(specs))
+) []stubs.Method {
+	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
 		var handler any
 		switch s.shape {
-		case synth.ShapeS1:
+		case stubs.ShapeS1:
 			handler = makeHandlerS1(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS2:
+		case stubs.ShapeS2:
 			handler = makeHandlerS2(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS3:
+		case stubs.ShapeS3:
 			handler = makeHandlerS3(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS4:
+		case stubs.ShapeS4:
 			handler = makeHandlerS4(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS5:
+		case stubs.ShapeS5:
 			handler = makeHandlerS5(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS6:
+		case stubs.ShapeS6:
 			handler = makeHandlerS6(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS7:
+		case stubs.ShapeS7:
 			handler = makeHandlerS7(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS8:
+		case stubs.ShapeS8:
 			handler = makeHandlerS8(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS9:
+		case stubs.ShapeS9:
 			handler = makeHandlerS9(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS10:
+		case stubs.ShapeS10:
 			handler = makeHandlerS10(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS11:
+		case stubs.ShapeS11:
 			handler = makeHandlerS11(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS12:
+		case stubs.ShapeS12:
 			handler = makeHandlerS12(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS13:
+		case stubs.ShapeS13:
 			handler = makeHandlerS13(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS14:
+		case stubs.ShapeS14:
 			handler = makeHandlerS14(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS15:
+		case stubs.ShapeS15:
 			handler = makeHandlerS15(m, t, s.method, s.name, s.ptrRecv)
-		case synth.ShapeS16:
+		case stubs.ShapeS16:
 			handler = makeHandlerS16(m, t, s.method, s.name, s.ptrRecv)
 		}
-		out[i] = synth.Method{
+		out[i] = stubs.Method{
 			Name:     s.name,
 			Exported: true,
 			Sig:      s.method.Rtype,
@@ -303,7 +304,7 @@ func toSynthMethods(
 func (m *Machine) allSynthMethods(
 	t *Type, includePtr bool,
 ) []synthMethodSpec {
-	const synthMaxMethods = 16 // matches vm/synth.maxMethods
+	const synthMaxMethods = 16 // matches runtype.maxMethods
 	var specs []synthMethodSpec
 	for i, method := range t.Methods {
 		if !method.IsResolved() || i >= len(m.MethodNames) {
@@ -330,7 +331,7 @@ func (m *Machine) allSynthMethods(
 }
 
 // detectShape inspects a method signature (receiver elided) and returns the
-// matching synth.Shape if any.
+// matching stubs.Shape if any.
 // Recognized shapes:
 //
 //	S1: func() string
@@ -347,55 +348,55 @@ func (m *Machine) allSynthMethods(
 //	S12: func() any              (heap.Interface.Pop)
 //	S13: func([]byte) (int, error) (io.Reader.Read / io.Writer.Write)
 //	S14: func(fmt.State, rune)    (fmt.Formatter.Format)
-func detectShape(sig reflect.Type) (synth.Shape, bool) {
+func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 	if sig == nil || sig.Kind() != reflect.Func {
 		return 0, false
 	}
 	nin, nout := sig.NumIn(), sig.NumOut()
 	switch {
 	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.String:
-		return synth.ShapeS1, true
+		return stubs.ShapeS1, true
 	case nin == 0 && nout == 1 && isErrorType(sig.Out(0)):
-		return synth.ShapeS6, true
+		return stubs.ShapeS6, true
 	case nin == 0 && nout == 1 && isErrorSlice(sig.Out(0)):
-		return synth.ShapeS7, true
+		return stubs.ShapeS7, true
 	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Int:
-		return synth.ShapeS8, true
+		return stubs.ShapeS8, true
 	case nin == 0 && nout == 1 && isAnyType(sig.Out(0)):
-		return synth.ShapeS12, true
+		return stubs.ShapeS12, true
 	case nin == 0 && nout == 2 &&
 		isByteSlice(sig.Out(0)) && isErrorType(sig.Out(1)):
-		return synth.ShapeS2, true
+		return stubs.ShapeS2, true
 	case nin == 1 && nout == 1 &&
 		isByteSlice(sig.In(0)) && isErrorType(sig.Out(0)):
-		return synth.ShapeS3, true
+		return stubs.ShapeS3, true
 	case nin == 1 && nout == 1 &&
 		isErrorType(sig.In(0)) && sig.Out(0).Kind() == reflect.Bool:
-		return synth.ShapeS4, true
+		return stubs.ShapeS4, true
 	case nin == 1 && nout == 1 &&
 		isAnyType(sig.In(0)) && sig.Out(0).Kind() == reflect.Bool:
-		return synth.ShapeS5, true
+		return stubs.ShapeS5, true
 	case nin == 1 && nout == 0 && isAnyType(sig.In(0)):
-		return synth.ShapeS11, true
+		return stubs.ShapeS11, true
 	case nin == 1 && nout == 2 && isByteSlice(sig.In(0)) &&
 		sig.Out(0).Kind() == reflect.Int && isErrorType(sig.Out(1)):
-		return synth.ShapeS13, true
+		return stubs.ShapeS13, true
 	case nin == 2 && nout == 1 &&
 		sig.In(0).Kind() == reflect.Int && sig.In(1).Kind() == reflect.Int &&
 		sig.Out(0).Kind() == reflect.Bool:
-		return synth.ShapeS9, true
+		return stubs.ShapeS9, true
 	case nin == 2 && nout == 0 &&
 		sig.In(0).Kind() == reflect.Int && sig.In(1).Kind() == reflect.Int:
-		return synth.ShapeS10, true
+		return stubs.ShapeS10, true
 	case nin == 2 && nout == 0 &&
 		sig.In(0) == fmtStateIface && sig.In(1).Kind() == reflect.Int32:
-		return synth.ShapeS14, true
+		return stubs.ShapeS14, true
 	case nin == 2 && nout == 1 && sig.In(0) == xmlEncoderPtr &&
 		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
-		return synth.ShapeS15, true
+		return stubs.ShapeS15, true
 	case nin == 2 && nout == 1 && sig.In(0) == xmlDecoderPtr &&
 		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
-		return synth.ShapeS16, true
+		return stubs.ShapeS16, true
 	}
 	return 0, false
 }
@@ -437,7 +438,7 @@ func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 // synth rtype after AttachMethods returns, so capturing it at construction
 // time would freeze the pre-synth layout identity and produce mismatched
 // reflect.Value vs ifcType.Rtype at dispatch.
-func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS1 {
+func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS1 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -452,7 +453,7 @@ func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool
 	}
 }
 
-func makeHandlerS2(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS2 {
+func makeHandlerS2(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS2 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) ([]byte, error) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -475,7 +476,7 @@ func makeHandlerS2(m *Machine, t *Type, method Method, name string, ptrRecv bool
 	}
 }
 
-func makeHandlerS3(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS3 {
+func makeHandlerS3(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS3 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, data []byte) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -498,7 +499,7 @@ func makeHandlerS3(m *Machine, t *Type, method Method, name string, ptrRecv bool
 // makeHandlerS4 bridges shape S4: (T).Is(target error) bool.
 // target is passed through its static error type (reflect.ValueOf(&target)
 // .Elem() stays valid and interface-typed even when target is nil).
-func makeHandlerS4(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS4 {
+func makeHandlerS4(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS4 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target error) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -519,7 +520,7 @@ func makeHandlerS4(m *Machine, t *Type, method Method, name string, ptrRecv bool
 // makeHandlerS5 bridges shape S5: (T).As(target any) bool.
 // target boxes the *E pointer errors.As wants populated; passing it through
 // lets the interpreted As write back into the caller's storage.
-func makeHandlerS5(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS5 {
+func makeHandlerS5(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS5 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target any) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -538,7 +539,7 @@ func makeHandlerS5(m *Machine, t *Type, method Method, name string, ptrRecv bool
 }
 
 // makeHandlerS6 bridges shape S6: (T).Unwrap() error.
-func makeHandlerS6(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS6 {
+func makeHandlerS6(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS6 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -551,7 +552,7 @@ func makeHandlerS6(m *Machine, t *Type, method Method, name string, ptrRecv bool
 }
 
 // makeHandlerS7 bridges shape S7: (T).Unwrap() []error.
-func makeHandlerS7(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS7 {
+func makeHandlerS7(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS7 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) []error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -564,7 +565,7 @@ func makeHandlerS7(m *Machine, t *Type, method Method, name string, ptrRecv bool
 }
 
 // makeHandlerS8 bridges shape S8: (T).Len() int.
-func makeHandlerS8(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS8 {
+func makeHandlerS8(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS8 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) int {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -577,7 +578,7 @@ func makeHandlerS8(m *Machine, t *Type, method Method, name string, ptrRecv bool
 }
 
 // makeHandlerS9 bridges shape S9: (T).Less(i, j int) bool.
-func makeHandlerS9(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS9 {
+func makeHandlerS9(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS9 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) bool {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -591,7 +592,7 @@ func makeHandlerS9(m *Machine, t *Type, method Method, name string, ptrRecv bool
 }
 
 // makeHandlerS10 bridges shape S10: (T).Swap(i, j int).
-func makeHandlerS10(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS10 {
+func makeHandlerS10(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS10 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -602,7 +603,7 @@ func makeHandlerS10(m *Machine, t *Type, method Method, name string, ptrRecv boo
 
 // makeHandlerS11 bridges shape S11: (T).Push(x any).
 // x is passed through reflect.ValueOf(&x).Elem() so it stays interface-typed.
-func makeHandlerS11(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS11 {
+func makeHandlerS11(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS11 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, x any) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -612,7 +613,7 @@ func makeHandlerS11(m *Machine, t *Type, method Method, name string, ptrRecv boo
 }
 
 // makeHandlerS12 bridges shape S12: (T).Pop() any.
-func makeHandlerS12(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS12 {
+func makeHandlerS12(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS12 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) any {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -625,7 +626,7 @@ func makeHandlerS12(m *Machine, t *Type, method Method, name string, ptrRecv boo
 }
 
 // makeHandlerS13 bridges shape S13: (T).Read/Write(p []byte) (int, error).
-func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS13 {
+func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS13 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, p []byte) (int, error) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -651,7 +652,7 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv boo
 // makeHandlerS14 bridges shape S14: (T).Format(fmt.State, rune).
 // st is passed through reflect.ValueOf(&st).Elem() so it keeps its fmt.State
 // type, letting the interpreted body call State methods on it.
-func makeHandlerS14(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS14 {
+func makeHandlerS14(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS14 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, st fmt.State, verb rune) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -661,7 +662,7 @@ func makeHandlerS14(m *Machine, t *Type, method Method, name string, ptrRecv boo
 }
 
 // makeHandlerS15 bridges shape S15: (T).MarshalXML(*xml.Encoder, xml.StartElement) error.
-func makeHandlerS15(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS15 {
+func makeHandlerS15(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS15 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
@@ -678,7 +679,7 @@ func makeHandlerS15(m *Machine, t *Type, method Method, name string, ptrRecv boo
 }
 
 // makeHandlerS16 bridges shape S16: (T).UnmarshalXML(*xml.Decoder, xml.StartElement) error.
-func makeHandlerS16(m *Machine, t *Type, method Method, name string, ptrRecv bool) synth.HandlerS16 {
+func makeHandlerS16(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS16 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, d *xml.Decoder, start xml.StartElement) error {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)

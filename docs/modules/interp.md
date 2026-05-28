@@ -64,13 +64,13 @@ to end on real Go programs.
    immediately. `fmt.Stringer` is also exported as a type so interpreted
    code can reference it.
 
-2. **Shadow-package patchers.** For each import path registered via
+2. **Package patchers.** For each import path registered via
    `stdlib.RegisterPackagePatcher`, every patcher in the list is called with
-   the live machine and the package's `vm.Value` symbol map. This lets
-   shadow packages (e.g. `stdlib/jsonx`) splice replacement types and
-   constructors into the original `encoding/json` package before interpreted
-   code resolves the import. See
-   [ADR-012](../decisions/ADR-012-package-patchers-arg-proxies.md).
+   the live machine and the package's `vm.Value` symbol map, which it may
+   overlay with replacement symbols. The only remaining patcher is
+   `stdlib/runtime_virt.go`, which overlays the `runtime` introspection entry
+   points (see
+   [ADR-016](../decisions/ADR-016-runtime-introspection-bridge.md)).
 
 3. **`installExitVirtualization`** rebinds `os.Exit` and `log.Fatal*` in
    the parser's package registry so interpreted exit paths surface as a
@@ -145,9 +145,8 @@ forwarding trailing arguments as the program's `os.Args` (see
 if the program did not emit one, so the shell prompt is not overwritten.
 A leading `#!` line on the source file is stripped before evaluation so
 shebang-style scripts (`#!/usr/bin/env mvm`) work after `chmod +x`.
-`stdlib/all` is imported for side effects so the `jsonx`, `gobx`, and
-`xmlx` shadow `init()`s register their package patchers and arg proxies
-before any interpreter is constructed.
+`stdlib/all` is imported for side effects so the `core` and `ext` bindings
+register their native symbols before any interpreter is constructed.
 
 Both `run` and `test` call `wireFS(i)` after constructing the
 interpreter. `wireFS` builds a single `*modfs.FS` honoring `GOPROXY`

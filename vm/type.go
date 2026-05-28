@@ -11,7 +11,7 @@ import (
 	"unicode"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/vm/synth"
+	"github.com/mvm-sh/mvm/runtype"
 )
 
 // Runtime type and value representations (based on reflect).
@@ -60,7 +60,7 @@ type Type struct {
 	// derived caches canonical derived types built from this Type
 	// (PointerTo, SliceOf, ArrayOf, ChanOf, MapOf).
 	// Memoization keys on *Type pointer identity so the cache survives a
-	// later swap of an inner *Type's Rtype (e.g. by vm/synth).
+	// later swap of an inner *Type's Rtype (e.g. by runtype).
 	// Lazily allocated on first derivation; nil for primitives never derived from.
 	// Not safe for concurrent derivation of the same base Type -- callers must
 	// serialize, which mvm's single-threaded compile pipeline already does.
@@ -891,56 +891,56 @@ func ChanOf(dir reflect.ChanDir, elem *Type) *Type {
 }
 
 // derivePointerTo / SliceOf / ArrayOf / ChanOf / MapOf route between
-// reflect.* and synth.* per elem (and key) origin.
+// reflect.* and runtype.* per elem (and key) origin.
 // reflect.*Of preserves native rtype identity (so reflect.PointerTo(int) and
 // vm.PointerTo's *int Rtype stay the canonical *int); on a synth elem
-// reflect.*Of crashes via resolveNameOff, so synth.* takes over.
+// reflect.*Of crashes via resolveNameOff, so runtype.* takes over.
 // Exception for PointerTo: if a synth elem has its PtrToThis wired by
 // AttachPtrMethods, reflect.PointerTo follows that wiring to the canonical
 // *T-with-methods WITHOUT entering the resolveNameOff path -- using
 // reflect.PointerTo there unifies vm-side and reflect-side *T identity.
 func derivePointerTo(elem reflect.Type) reflect.Type {
-	if synth.IsSynth(elem) && !synth.HasPtrToThis(elem) {
-		return synth.PointerTo(elem)
+	if runtype.IsSynth(elem) && !runtype.HasPtrToThis(elem) {
+		return runtype.PointerTo(elem)
 	}
 	return reflect.PointerTo(elem)
 }
 
 func deriveSliceOf(elem reflect.Type) reflect.Type {
-	if synth.IsSynth(elem) {
-		return synth.SliceOf(elem)
+	if runtype.IsSynth(elem) {
+		return runtype.SliceOf(elem)
 	}
 	return reflect.SliceOf(elem)
 }
 
 func deriveArrayOf(n int, elem reflect.Type) reflect.Type {
-	if synth.IsSynth(elem) {
-		return synth.ArrayOf(n, elem)
+	if runtype.IsSynth(elem) {
+		return runtype.ArrayOf(n, elem)
 	}
 	return reflect.ArrayOf(n, elem)
 }
 
 func deriveChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
-	if synth.IsSynth(elem) {
-		return synth.ChanOf(dir, elem)
+	if runtype.IsSynth(elem) {
+		return runtype.ChanOf(dir, elem)
 	}
 	return reflect.ChanOf(dir, elem)
 }
 
 func deriveMapOf(key, elem reflect.Type) reflect.Type {
-	if synth.IsSynth(key) || synth.IsSynth(elem) {
-		return synth.MapOf(key, elem)
+	if runtype.IsSynth(key) || runtype.IsSynth(elem) {
+		return runtype.MapOf(key, elem)
 	}
 	return reflect.MapOf(key, elem)
 }
 
 // RefreshRtype updates t.Rtype to newRT and cascades the change through every
 // derived *Type cached on t (and recursively on those derivatives).
-// Called by AttachSynthMethods after vm/synth swaps the layout-identity of
+// Called by AttachSynthMethods after runtype swaps the layout-identity of
 // a user type to a synth-built rtype carrying interpreted methods; derived
 // rtypes (*T, []T, [N]T, chan T, map[T]E) captured by the compiler before
 // the swap would otherwise reference the pre-synth layout.
-// Uses synth.* (not reflect.*Of) for the rebuild because reflect.*Of crashes
+// Uses runtype.* (not reflect.*Of) for the rebuild because reflect.*Of crashes
 // via resolveNameOff on rtypes that live outside any registered moduledata.
 // Maps cascade only the t-as-key direction (t.derived.maps): maps with t as
 // element live under the key's derived cache and are not reachable from t.
@@ -963,19 +963,19 @@ func (t *Type) refreshLocked(newRT reflect.Type) {
 	}
 	d := t.derived
 	if d.ptr != nil {
-		d.ptr.refreshLocked(synth.PointerTo(newRT))
+		d.ptr.refreshLocked(runtype.PointerTo(newRT))
 	}
 	if d.slice != nil {
-		d.slice.refreshLocked(synth.SliceOf(newRT))
+		d.slice.refreshLocked(runtype.SliceOf(newRT))
 	}
 	for length, a := range d.array {
-		a.refreshLocked(synth.ArrayOf(length, newRT))
+		a.refreshLocked(runtype.ArrayOf(length, newRT))
 	}
 	for dir, c := range d.chans {
-		c.refreshLocked(synth.ChanOf(dir, newRT))
+		c.refreshLocked(runtype.ChanOf(dir, newRT))
 	}
 	for e, mt := range d.maps {
-		mt.refreshLocked(synth.MapOf(newRT, e.Rtype))
+		mt.refreshLocked(runtype.MapOf(newRT, e.Rtype))
 	}
 }
 
@@ -997,9 +997,9 @@ func CanonicalType(t *Type) *Type {
 		// the named-type-to-underlying link (`type Grams int`) would drop the
 		// synth rtype. IsSynth catches ptr-receiver-only types too (their value
 		// clone is synth though its value method set is empty); NumMethod>0 is a
-		// fallback for any method-bearing rtype that is not synth.
+		// fallback for any method-bearing rtype that is not runtype.
 		// Both hold only post-attach, so pre-attach the walk continues unchanged.
-		if t.Rtype != nil && (synth.IsSynth(t.Rtype) || t.Rtype.NumMethod() > 0) {
+		if t.Rtype != nil && (runtype.IsSynth(t.Rtype) || t.Rtype.NumMethod() > 0) {
 			return t
 		}
 		t = t.Base
@@ -1236,10 +1236,10 @@ func PatchSynthStructFields(t *Type) {
 		if t.Rtype.Field(i).Type == live {
 			continue
 		}
-		if !synth.SamePtrLayout(t.Rtype.Field(i).Type, live) {
+		if !runtype.SamePtrLayout(t.Rtype.Field(i).Type, live) {
 			continue
 		}
-		synth.PatchStructField(t.Rtype, i, live)
+		runtype.PatchStructField(t.Rtype, i, live)
 	}
 }
 

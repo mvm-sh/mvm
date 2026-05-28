@@ -1,7 +1,16 @@
 # ADR-012: Package patchers and argument proxies for mvm-native stdlib shadows
 
-**Status:** accepted
+**Status:** partially superseded by [ADR-021](ADR-021-synthesized-rtypes.md)
 **Date:** 2026-04-18
+
+> Superseded 2026-05-28, in part.
+> Argument proxies (`RegisterArgProxy`/`RegisterArgProxyMethod`) and the
+> mvm-native shadow packages (`stdlib/jsonx`, `xmlx`, `gobx`) were deleted:
+> synthesized rtypes (ADR-021) let native reflect-walking code see interpreted
+> methods on nested fields directly, which is exactly the
+> `reflect.StructOf`-rewriting alternative this ADR rejected below.
+> The `RegisterPackagePatcher` primitive survives, now used only to overlay the
+> runtime-virtualization shadow (see [ADR-016](ADR-016-runtime-introspection-bridge.md)).
 
 ## Context
 

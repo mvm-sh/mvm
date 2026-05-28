@@ -1,7 +1,14 @@
 # ADR-009: Interface bridging for native Go calls
 
-**Status:** accepted
+**Status:** superseded by [ADR-021](ADR-021-synthesized-rtypes.md)
 **Date:** 2026-04-09
+
+> Superseded 2026-05-28.
+> The per-call bridge families described below (`Bridges`, `DisplayBridges`,
+> `CompositeBridges`, `InterfaceBridges` and `stdlib/bridges.go`) were deleted
+> once interpreted methods could be attached to a synthesized rtype that native
+> dispatch reads directly.
+> This record is kept for historical context.
 
 ## Context
 
