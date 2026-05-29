@@ -415,6 +415,20 @@ func isBasicKind(k reflect.Kind) bool {
 	return (k >= reflect.Bool && k <= reflect.Complex128) || k == reflect.String
 }
 
+// definedOverNativeComposite reports that t is a defined composite (type ipValue
+// net.IP) over a NATIVE underlying with no own symbolic structure -- deferring it
+// (vs the eager native Rtype) lets comp materialize from Base post-attach.
+func definedOverNativeComposite(t *vm.Type) bool {
+	if t.Base == nil || t.Base.Rtype == nil || t.ElemType != nil || t.KeyType != nil || len(t.Fields) != 0 {
+		return false
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Chan, reflect.Map, reflect.Struct:
+		return true
+	}
+	return false
+}
+
 // ErrConstOverflow reports a constant that cannot be represented in its type --
 // the gc "constant X overflows T" compile error. It is a hard parse error so
 // ParseAll does not skip past it (which would otherwise mask it as a later
@@ -1120,6 +1134,10 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 			nt.Base = typ.Base
 		} else {
 			nt.Base = typ
+		}
+		if definedOverNativeComposite(&nt) {
+			nt.CaptureKind() // Kind() must survive the Rtype nil
+			nt.Rtype = nil   // defer; comp materializes from Base post-attach
 		}
 		p.SymAdd(symbol.UnsetAddr, name, typeTokenValue(&nt), symbol.Type, &nt)
 	}

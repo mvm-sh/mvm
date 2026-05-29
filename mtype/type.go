@@ -469,6 +469,14 @@ func TypeOf(v any) *Type {
 // SymBasic builds a symbolic type of a basic kind with Rtype unset.
 func SymBasic(k reflect.Kind) *Type { return &Type{kind: k} }
 
+// CaptureKind records t's kind in the symbolic field so Kind() survives a
+// caller nilling Rtype to defer materialization.
+func (t *Type) CaptureKind() {
+	if t.kind == reflect.Invalid && t.Rtype != nil {
+		t.kind = t.Rtype.Kind()
+	}
+}
+
 // SymPtr builds a symbolic *elem with Rtype unset for comp to materialize (see
 // vm.MaterializeRtype); SymSlice/SymMap/SymArray/SymChan are the parse-time
 // counterparts to vm's rtype-building PointerTo/SliceOf/... .

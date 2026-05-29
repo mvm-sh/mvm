@@ -42,6 +42,21 @@ func ensureDerived(t *mtype.Type) *derivedTypes {
 	return d
 }
 
+// definedOverBase reports that t is a defined composite (type ipValue net.IP)
+// with no own symbolic structure, so it materializes from Base; basic defined
+// types (type Grams int) use basicRtype instead.
+func definedOverBase(t *mtype.Type) bool {
+	if t.Base == nil || t.Base == t || t.ElemType != nil || t.KeyType != nil ||
+		len(t.Fields) != 0 || len(t.Params) != 0 {
+		return false
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Chan, reflect.Map, reflect.Struct:
+		return true
+	}
+	return false
+}
+
 // MaterializeRtype builds and caches t.Rtype from t's symbolic graph (Kind +
 // ElemType/KeyType/Fields/Params/Returns + ArrayLen/ChanDir/Variadic/Tags) when
 // it is not already set, recursing into children first. This is the comp-side
@@ -59,6 +74,14 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	}
 	if t.Placeholder {
 		return nil // forward-declared struct/interface not yet finalized
+	}
+	// No own structure: materialize from the underlying (synth attach restores
+	// the named identity).
+	if definedOverBase(t) {
+		if rt := MaterializeRtype(t.Base); rt != nil {
+			t.Rtype = rt
+			return rt
+		}
 	}
 	var rt reflect.Type
 	switch t.Kind() {
