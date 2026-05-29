@@ -2757,12 +2757,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Value instead of nil-dereferencing coll.Type.
 			resType := symbol.Vtype(coll)
 			if resType != nil {
-				rtype := c.rtype(resType)
-				if rtype.Kind() == reflect.Pointer && rtype.Elem().Kind() == reflect.Array {
-					rtype = rtype.Elem()
+				// Symbolic Kind/Elem so a named array operand (e.g. uuid.UUID,
+				// [16]byte) isn't materialized just to detect the array case.
+				at := resType
+				if at.IsPtr() && at.Elem().Kind() == reflect.Array {
+					at = at.Elem()
 				}
-				if rtype.Kind() == reflect.Array {
-					resType = &vm.Type{Rtype: reflect.SliceOf(rtype.Elem())}
+				if at.Kind() == reflect.Array {
+					resType = vm.SymSlice(at.Elem())
 				}
 			}
 			push(&symbol.Symbol{Kind: symbol.Value, Type: resType})
