@@ -102,6 +102,13 @@ func (t *Type) ensureDerivedLocked() *derivedTypes {
 	return t.derived
 }
 
+// ResetDerived clears the derived-type cache on a freshly cloned *Type so it
+// does not share its source's ptr/slice/array/chan/map entries. Lock-free: the
+// clone is not yet shared across goroutines.
+func (t *Type) ResetDerived() {
+	t.derived = nil
+}
+
 // IfaceMethod describes a method required by an interface type.
 type IfaceMethod struct {
 	Name  string

@@ -17,6 +17,7 @@ packages.
 - [comp](modules/comp.md) -- bytecode compiler with peephole optimization
 - [vm](modules/vm.md) -- stack-based bytecode virtual machine
 - [interp](modules/interp.md) -- integration layer and REPL
+- [synth-types](modules/synth-types.md) -- cross-cutting: how interpreted types project onto real `reflect.Type`s and the invariants that keep them in sync
 - [runtype](modules/runtype.md) -- synthesizes Go rtypes carrying interpreted methods for native dispatch
 - [stdlib](modules/stdlib.md) -- standard library wrappers for native Go imports
 - [stdlib/stubs](modules/stubs.md) -- method-shape catalog and dispatch-stub pools feeding runtype

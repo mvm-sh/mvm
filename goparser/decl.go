@@ -1019,6 +1019,9 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
+		// Distinct from its underlying: don't share the derived-type cache, or
+		// X's synth cascade flips a consumer's map[int]bool to map[TI]bool.
+		nt.ResetDerived()
 		if nt.PkgPath == "" {
 			nt.PkgPath = p.pkgName
 		}

@@ -117,6 +117,54 @@ func main() {
 	}
 }
 
+// A defined type (TI int / TB byte) must not share its underlying's derived
+// cache, or its synth cascade flips a later file's map[int]bool / []byte to
+// map[TI]bool / []TB. A flipped field rtype makes the assignment below panic.
+func TestNamedTypeNoDerivedAliasing(t *testing.T) {
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+
+	// Order-sensitive (mirrors evalLocalDir's alphabetical walk): the struct's
+	// containers must be built before the named type attaches and cascades.
+	state := `package p
+type State struct {
+	flag map[int]bool
+	raw  []byte
+}
+`
+	if _, err := i.Eval("state.go", state); err != nil {
+		t.Fatal(err)
+	}
+
+	types := `package p
+type TI int
+func (v TI) String() string { return "ti" }
+type TB byte
+func (v TB) String() string { return "tb" }
+`
+	if _, err := i.Eval("types.go", types); err != nil {
+		t.Fatal(err)
+	}
+
+	run := `package p
+func run() {
+	s := State{}
+	s.flag = make(map[int]bool)
+	s.raw = []byte("xy")
+	s.flag[1] = true
+	println(len(s.flag), len(s.raw), s.flag[1])
+}
+run()
+`
+	if _, err := i.Eval("run.go", run); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stdout.String(), "1 2 true\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestGenericExport(t *testing.T) {
 	src := `package main
 
