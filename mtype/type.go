@@ -617,11 +617,17 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 		if i < len(tags) {
 			rf[i].Tag = reflect.StructTag(tags[i])
 		}
-		// Interface fields use interface{} so vm.Iface values can be stored via reflect.Set.
-		if f.Kind() == reflect.Interface {
-			rf[i].Type = AnyRtype
-		} else {
+		// Interface fields use interface{} so vm.Iface values can be stored via
+		// reflect.Set. Exception: an embedded NATIVE non-empty interface (e.g.
+		// struct{ io.Reader }) keeps its real rtype so the struct satisfies that
+		// interface via method promotion at the native boundary.
+		switch {
+		case f.Kind() != reflect.Interface:
 			rf[i].Type = f.Rtype
+		case embSet[i] && f.Rtype != nil && f.Rtype.NumMethod() > 0:
+			rf[i].Type = f.Rtype
+		default:
+			rf[i].Type = AnyRtype
 		}
 		// reflect.StructOf panics on an unexported anonymous field with empty
 		// PkgPath, and on an anonymous method-bearing field in a multi-field

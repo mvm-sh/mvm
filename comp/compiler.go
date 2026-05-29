@@ -3292,14 +3292,15 @@ func isUint64Kind(typ *vm.Type) bool {
 	return k == reflect.Uint || k == reflect.Uint64
 }
 
-// isNumericConvType reports whether typ is a non-complex numeric type (including
-// named types like time.Duration), so a constant conversion to it can be folded.
+// isNumericConvType reports whether typ is a numeric type (including complex and
+// named types like time.Duration), so a constant conversion to it can be folded
+// or a runtime Convert emitted.
 func isNumericConvType(typ *vm.Type) bool {
 	if typ == nil {
 		return false
 	}
 	k := typ.Kind()
-	return k >= reflect.Int && k <= reflect.Float64
+	return k >= reflect.Int && k <= reflect.Complex128
 }
 
 // isIntegerKind reports whether typ is a signed or unsigned integer type.

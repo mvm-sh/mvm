@@ -3683,6 +3683,21 @@ func TestBuiltin(t *testing.T) {
 		{n: "complex128_promotion_2", src: `complex('A', 1)`, res: "(65+1i)"},
 		{n: "complex128_promotion_3", src: `complex('A', 1.2)`, res: "(65+1.2i)"},
 
+		// Constant conversion of an int/float to a complex type (Go folds these;
+		// reflect.Convert rejects int->complex, so execConvert builds it).
+		{n: "complex64_conv_int", src: `complex64(7)`, res: "(7+0i)"},
+		{n: "complex128_conv_float", src: `var a complex128 = 2.5; a`, res: "(2.5+0i)"},
+		{n: "complex64_slice_lit", src: `[]complex64{1, 2, 3}`, res: "[(1+0i) (2+0i) (3+0i)]"},
+
+		// An interpreted String/GoString/Format that panics propagates to fmt's
+		// catchPanic (synth dispatch re-raises the original value via raiseMethodErr).
+		{n: "stringer_panic_to_fmt", src: `import "fmt"; type T struct{}; func(t T) String() string { panic("boom") }; func f() string { return fmt.Sprintf("%s", T{}) }; f()`, res: "%!s(PANIC=String method: boom)"},
+		// Calling a method on a nil pointer receiver panics; fmt prints <nil>.
+		{n: "stringer_nil_recv_to_fmt", src: `import "fmt"; type T struct{ n int }; func(t T) String() string { return "x" }; func f() string { return fmt.Sprintf("%s", (*T)(nil)) }; f()`, res: "<nil>"},
+		// A struct embedding a native non-empty interface satisfies it via promotion
+		// at the native boundary (struct field keeps the real io.Reader rtype).
+		{n: "embed_native_iface", src: `import ("io"; "strings"); func f() string { var r io.Reader = struct{ io.Reader }{strings.NewReader("hi")}; b, _ := io.ReadAll(r); return string(b) }; f()`, res: "hi"},
+
 		{n: "complex_err0", src: `complex()`, err: "invalid operation: not enough arguments for complex (expected 2, found 0)"},
 		{n: "complex_err1", src: `complex(1)`, err: "invalid operation: not enough arguments for complex (expected 2, found 1)"},
 		{n: "complex_err12", src: `complex(1,2,3)`, err: "invalid operation: too many arguments for complex (expected 2, found 3)"},

@@ -675,6 +675,22 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 			mem[idx].ref = reflect.Zero(dstType)
 		}
 
+	case isNum(srcKind) && (dstKind == reflect.Complex64 || dstKind == reflect.Complex128):
+		// numeric -> complex (a constant conversion in Go; reflect.Convert
+		// rejects int/float -> complex, so build it from the real part here).
+		var re float64
+		switch {
+		case isFloat(srcKind):
+			re = math.Float64frombits(v.num)
+		case srcKind >= reflect.Uint && srcKind <= reflect.Uintptr:
+			re = float64(v.num)
+		default:
+			re = float64(int64(v.num))
+		}
+		nv := reflect.New(dstType).Elem()
+		nv.SetComplex(complex(re, 0))
+		mem[idx] = Value{ref: nv}
+
 	case isNum(srcKind) && dstKind == reflect.String:
 		// int/rune -> string (e.g. string(65) -> "A").
 		mem[idx] = Value{ref: reflect.ValueOf(string(rune(int64(v.num))))}

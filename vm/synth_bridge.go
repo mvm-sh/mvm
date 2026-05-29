@@ -439,13 +439,27 @@ func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
 		if err != nil {
-			return fmt.Sprintf("<synth dispatch error: %v>", err)
+			raiseMethodErr(err)
 		}
 		if len(out) != 1 {
 			return ""
 		}
 		return out[0].String()
 	}
+}
+
+// raiseMethodErr re-raises a failed synth dispatch as a Go panic so a native
+// caller's recover handles it (e.g. fmt's catchPanic -> "%!s(PANIC=...)", or its
+// nil-pointer-receiver special case -> "<nil>"). An interpreted-method panic
+// (surfaced as a *PanicError) is re-raised with its original value; any other
+// dispatch error (e.g. a reflect error from a nil receiver) is re-raised as is.
+// Calling a method that fails always panics in Go, so this never returns.
+func raiseMethodErr(err error) {
+	var pe *PanicError
+	if errors.As(err, &pe) {
+		panic(pe.Raw)
+	}
+	panic(err)
 }
 
 func makeHandlerS2(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS2 {
@@ -652,7 +666,10 @@ func makeHandlerS14(m *Machine, t *Type, method Method, name string, ptrRecv boo
 	return func(recv unsafe.Pointer, st fmt.State, verb rune) {
 		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
 		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
-		_, _ = callMethod(m, t, name, rv, method, methodSig, argv)
+		_, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			raiseMethodErr(err)
+		}
 	}
 }
 
