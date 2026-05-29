@@ -2337,31 +2337,33 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						break
 					}
 				}
-				typ := c.rtype(s.Type)
-				isPtr := typ.Kind() == reflect.Pointer
-				if isPtr {
-					typ = typ.Elem()
+				// Probe fields symbolically so an interpreted receiver isn't
+				// materialized; Elem/Kind fall back to Rtype for native types.
+				styp := s.Type
+				if styp.IsPtr() {
+					styp = styp.Elem()
 				}
-				if typ.Kind() == reflect.Struct {
-					// Look up struct type in symbol table to get mvm-level Fields/Params info.
-					structType := c.findTypeSym(typ)
-					if structType == nil {
-						if isPtr {
-							structType = s.Type.Elem()
-						} else {
-							structType = s.Type
-						}
-					}
+				if styp.Kind() == reflect.Struct {
+					structType := vm.CanonicalType(styp)
 					fieldName := t.Str[1:]
 					fieldPath, ft := structType.FieldLookup(fieldName)
-					if fieldPath == nil {
-						// reflect-side fallback: covers cases where the receiver's
-						// Rtype carries the layout but the mvm-level Type lacks the
-						// matching Fields slot (e.g. types accessed only through
-						// reflect.StructOf).
+					var foff uintptr
+					if fieldPath != nil {
+						foff = structType.FieldOffset(fieldPath)
+					} else if typ := c.rtype(s.Type); typ != nil {
+						// Symbolic miss: a method selector, a promoted field through a
+						// forward-declared embedded type, or a native reflect.StructOf
+						// layout. Fall back to the materialized rtype.
+						if typ.Kind() == reflect.Pointer {
+							typ = typ.Elem()
+						}
+						if st := c.findTypeSym(typ); st != nil {
+							structType = st
+						}
 						if f, ok := typ.FieldByName(fieldName); ok {
 							fieldPath = f.Index
 							ft = structType.FieldType(fieldName)
+							foff = fieldPathOffset(typ, fieldPath)
 						}
 					}
 					if fieldPath != nil {
@@ -2370,7 +2372,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							Index:          symbol.UnsetAddr,
 							Type:           ft,
 							HasFieldOffset: true,
-							FieldOffset:    fieldPathOffset(typ, fieldPath),
+							FieldOffset:    foff,
 						})
 						c.emitField(t, fieldPath)
 						break
