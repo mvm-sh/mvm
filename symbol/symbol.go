@@ -89,10 +89,10 @@ func (s *Symbol) IsType() bool { return s.Kind == Type }
 func (s *Symbol) IsFunc() bool { return s.Kind == Func }
 
 // IsPtr returns true if symbol is a pointer.
-func (s *Symbol) IsPtr() bool { return s.Type.Rtype.Kind() == reflect.Pointer }
+func (s *Symbol) IsPtr() bool { return s.Type.Kind() == reflect.Pointer }
 
 // IsInt returns true if symbol is an int.
-func (s *Symbol) IsInt() bool { return s.Type.Rtype.Kind() == reflect.Int }
+func (s *Symbol) IsInt() bool { return s.Type.Kind() == reflect.Int }
 
 // IsParam reports whether s is a function parameter slot.
 func (s *Symbol) IsParam() bool { return s.Index < 0 && s.Index != UnsetAddr }
