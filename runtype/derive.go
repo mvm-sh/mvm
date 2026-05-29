@@ -273,6 +273,24 @@ func PatchStructField(structRT reflect.Type, i int, newType reflect.Type) {
 	st.Fields[i].Typ = newFT
 }
 
+// PatchSliceElem mutates a slice rtype's element pointer in place, preserving
+// sliceRT's identity and methods. The slice header is element-independent, so
+// this is always layout-safe. No-op on nil or non-slice arguments.
+func PatchSliceElem(sliceRT, newElem reflect.Type) {
+	if sliceRT == nil || newElem == nil {
+		return
+	}
+	rt := rtypePtr(sliceRT)
+	if rt == nil || rt.Kind != kindSlice {
+		return
+	}
+	ne := rtypePtr(newElem)
+	if ne == nil {
+		return
+	}
+	(*abiSliceType)(unsafe.Pointer(rt)).Elem = ne
+}
+
 // registerLayout records the native-layout rtype for a synth rtype.
 // Called by every Attach*/Clone* path and by the derive constructors above
 // so chained derivations (e.g. SliceOf(PointerTo(synthStruct))) resolve the

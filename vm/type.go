@@ -1243,6 +1243,30 @@ func PatchSynthStructFields(t *Type) {
 	}
 }
 
+// PatchSynthSliceElem swaps a named synth slice type's frozen element for its
+// canonical cascade-refreshed element (t.Base.Rtype.Elem()), preserving t's own
+// methods. Only synth rtypes are touched -- a native slice rtype is shared with
+// reflect.
+func PatchSynthSliceElem(t *Type) {
+	if t == nil || t.Rtype == nil || t.Rtype.Kind() != reflect.Slice {
+		return
+	}
+	if !runtype.IsSynth(t.Rtype) {
+		return
+	}
+	if t.Base == nil || t.Base.Rtype == nil || t.Base.Rtype.Kind() != reflect.Slice {
+		return
+	}
+	live := t.Base.Rtype.Elem()
+	if live == nil || live == t.Rtype.Elem() {
+		return
+	}
+	if !runtype.SamePtrLayout(t.Rtype.Elem(), live) {
+		return
+	}
+	runtype.PatchSliceElem(t.Rtype, live)
+}
+
 func structTypeKey(fields []*Type, embedded []EmbeddedField, tags []string) string {
 	var b strings.Builder
 	writeUint32(&b, uint32(len(fields)))

@@ -1262,6 +1262,21 @@ func (t Tag) String() string { return "s" }
 func f() int { s := make([]Tag, 3); return len(s) }
 f()`, res: "3"},
 
+		// sort.Sort(ByAge(people)) pattern: named slice type with methods over a
+		// synth element; the conversion needs ByAge's element to match []Person's.
+		{n: "named_slice_type_conv_keeps_synth_elem", src: `
+import "reflect"
+type Person struct{ Age int }
+func (p Person) String() string { return "p" }
+type ByAge []Person
+func (a ByAge) Len() int { return len(a) }
+func f() bool {
+	people := []Person{{1}, {2}}
+	b := ByAge(people)
+	return reflect.TypeOf(b).Elem() == reflect.TypeOf(people).Elem() && reflect.TypeOf(b).NumMethod() == 1
+}
+f()`, res: "true"},
+
 		// encoding/json/xml `make(map[Animal]int)` pattern: named-key map round-trip.
 		{n: "make_named_map_key_keeps_synth", src: `
 type Animal int

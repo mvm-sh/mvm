@@ -3968,6 +3968,49 @@ func (c *Compiler) RebuildSynthStructRtypes() {
 	}
 }
 
+// RebuildSynthSliceRtypes refreshes the frozen element of every named synth
+// slice type (e.g. `type ByAge []Person` with a method); the in-Type cascade
+// reaches the unnamed []Person but not the named slice. Mirrors
+// RebuildSynthStructRtypes; called alongside it, before RefreshSynthRtype.
+func (c *Compiler) RebuildSynthSliceRtypes() {
+	for t := range c.collectSynthSlices() {
+		vm.PatchSynthSliceElem(t)
+	}
+}
+
+// collectSynthSlices returns the named slice *Types reachable from the dedup
+// maps, var symbols, and nested fields/elem/key. The synth gate lives in
+// PatchSynthSliceElem, so non-synth entries collected here are no-ops.
+func (c *Compiler) collectSynthSlices() map[*vm.Type]bool {
+	seen := map[*vm.Type]bool{}
+	out := map[*vm.Type]bool{}
+	var visit func(t *vm.Type)
+	visit = func(t *vm.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		if t.Base != nil && t.Rtype != nil && t.Rtype.Kind() == reflect.Slice {
+			out[t] = true
+		}
+		for _, f := range t.Fields {
+			visit(f)
+		}
+		visit(t.ElemType)
+		visit(t.KeyType)
+	}
+	for t := range c.zeroTypeIdxs {
+		visit(t)
+	}
+	for t := range c.typeSyms {
+		visit(t)
+	}
+	for _, sym := range c.Symbols {
+		visit(sym.Type)
+	}
+	return out
+}
+
 // collectSynthStructs returns the set of distinct interpreted struct *Types
 // reachable from the compiler's type dedup maps (zeroTypeIdxs + typeSyms)
 // and from var symbols' Types.
