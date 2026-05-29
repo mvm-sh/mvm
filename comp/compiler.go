@@ -381,8 +381,9 @@ func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
 var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
 
 // deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
-// to a post-attach FillTypeSlots pass. Off by default until the fill is proven.
-var deferSlots = os.Getenv("MVM_DEFERSLOTS") != ""
+// to a post-attach FillTypeSlots pass. On by default; set MVM_DEFERSLOTS=0 to
+// fall back to eager materialization (kept until the cascade is dropped).
+var deferSlots = os.Getenv("MVM_DEFERSLOTS") != "0"
 
 // typeSlotValue returns the value for Data slot idx holding typ: a zero value
 // (descriptor=false) or a type descriptor (descriptor=true). When deferring an
