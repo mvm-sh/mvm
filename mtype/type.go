@@ -47,6 +47,12 @@ type Type struct {
 	Fields       []*Type         // mvm-level field types for struct types, parallel to reflect visible fields
 	ElemType     *Type           // mvm-level element type for map/slice/array/pointer/chan types
 	KeyType      *Type           // mvm-level key type for map types; nil for non-maps or native-built maps
+	// Symbolic descriptors of what Rtype otherwise carries, so a type can be
+	// materialized (Rtype built) from the symbolic graph alone (see comp materialize).
+	ArrayLen int             // array length (kind Array)
+	ChanDir  reflect.ChanDir // channel direction (kind Chan)
+	Variadic bool            // last param is variadic (kind Func)
+	Tags     []string        // struct field tags, parallel to Fields (kind Struct)
 	// Base is the source *Type a struct-field shallow copy derived from, so
 	// methods registered on the source after the copy stay reachable.
 	Base *Type
@@ -341,6 +347,27 @@ func TypeOf(v any) *Type {
 	return &Type{Name: t.Name(), Rtype: t, kind: t.Kind()}
 }
 
+// SymPtr builds a symbolic *elem with Rtype unset for comp to materialize (see
+// vm.MaterializeRtype); SymSlice/SymMap/SymArray/SymChan are the parse-time
+// counterparts to vm's rtype-building PointerTo/SliceOf/... .
+func SymPtr(elem *Type) *Type { return &Type{kind: reflect.Pointer, ElemType: elem} }
+
+// SymSlice builds a symbolic []elem.
+func SymSlice(elem *Type) *Type { return &Type{kind: reflect.Slice, ElemType: elem} }
+
+// SymMap builds a symbolic map[key]elem.
+func SymMap(key, elem *Type) *Type { return &Type{kind: reflect.Map, KeyType: key, ElemType: elem} }
+
+// SymArray builds a symbolic [n]elem.
+func SymArray(n int, elem *Type) *Type {
+	return &Type{kind: reflect.Array, ArrayLen: n, ElemType: elem}
+}
+
+// SymChan builds a symbolic chan-elem with direction dir.
+func SymChan(dir reflect.ChanDir, elem *Type) *Type {
+	return &Type{kind: reflect.Chan, ChanDir: dir, ElemType: elem}
+}
+
 // funcTypes memoizes FuncOf by signature fingerprint; entries hold their input
 // *Types so keys stay valid. Guarded by funcTypesMu (uncontended per Compiler).
 var (
@@ -366,7 +393,7 @@ func FuncOf(arg, ret []*Type, variadic bool) *Type {
 	for i, e := range ret {
 		r[i] = e.Rtype
 	}
-	t := &Type{Rtype: reflect.FuncOf(a, r, variadic), kind: reflect.Func, Params: arg, Returns: ret}
+	t := &Type{Rtype: reflect.FuncOf(a, r, variadic), kind: reflect.Func, Variadic: variadic, Params: arg, Returns: ret}
 	funcTypes[key] = t
 	return t
 }
@@ -471,7 +498,7 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 			rf[i].Anonymous = embSet[i]
 		}
 	}
-	t := &Type{Rtype: reflect.StructOf(rf), kind: reflect.Struct, Embedded: embedded, Fields: fields}
+	t := &Type{Rtype: reflect.StructOf(rf), kind: reflect.Struct, Embedded: embedded, Fields: fields, Tags: tags}
 	structTypes[key] = t
 	return t
 }

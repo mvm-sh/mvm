@@ -41,6 +41,55 @@ func ensureDerived(t *mtype.Type) *derivedTypes {
 	return d
 }
 
+// MaterializeRtype builds and caches t.Rtype from t's symbolic graph (Kind +
+// ElemType/KeyType/Fields/Params/Returns + ArrayLen/ChanDir/Variadic/Tags) when
+// it is not already set, recursing into children first. This is the comp-side
+// materialization that lets goparser build a *Type without an rtype.
+//
+// A named leaf (a primitive or struct that carries methods) must already hold
+// its rtype -- the synth attach is its materialization -- so an un-materialized
+// leaf here yields nil.
+func MaterializeRtype(t *mtype.Type) reflect.Type {
+	if t == nil {
+		return nil
+	}
+	if t.Rtype != nil {
+		return t.Rtype
+	}
+	var rt reflect.Type
+	switch t.Kind() {
+	case reflect.Pointer:
+		rt = derivePointerTo(MaterializeRtype(t.ElemType))
+	case reflect.Slice:
+		rt = deriveSliceOf(MaterializeRtype(t.ElemType))
+	case reflect.Array:
+		rt = deriveArrayOf(t.ArrayLen, MaterializeRtype(t.ElemType))
+	case reflect.Chan:
+		rt = deriveChanOf(t.ChanDir, MaterializeRtype(t.ElemType))
+	case reflect.Map:
+		rt = deriveMapOf(MaterializeRtype(t.KeyType), MaterializeRtype(t.ElemType))
+	case reflect.Func:
+		in := make([]reflect.Type, len(t.Params))
+		for i, p := range t.Params {
+			in[i] = MaterializeRtype(p)
+		}
+		out := make([]reflect.Type, len(t.Returns))
+		for i, r := range t.Returns {
+			out[i] = MaterializeRtype(r)
+		}
+		rt = reflect.FuncOf(in, out, t.Variadic)
+	case reflect.Struct:
+		for _, f := range t.Fields {
+			MaterializeRtype(f)
+		}
+		rt = mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
+	default:
+		return nil // un-materialized leaf: must carry its own rtype
+	}
+	t.Rtype = rt
+	return rt
+}
+
 // PointerTo returns the canonical pointer type with element t, memoized.
 func PointerTo(t *mtype.Type) *mtype.Type {
 	derivedMu.Lock()
@@ -63,7 +112,7 @@ func ArrayOf(length int, t *mtype.Type) *mtype.Type {
 	} else if a := d.array[length]; a != nil {
 		return a
 	}
-	a := &mtype.Type{Rtype: deriveArrayOf(length, t.Rtype), ElemType: t}
+	a := &mtype.Type{Rtype: deriveArrayOf(length, t.Rtype), ElemType: t, ArrayLen: length}
 	d.array[length] = a
 	return a
 }
@@ -105,7 +154,7 @@ func ChanOf(dir reflect.ChanDir, elem *mtype.Type) *mtype.Type {
 	} else if c := d.chans[dir]; c != nil {
 		return c
 	}
-	c := &mtype.Type{Rtype: deriveChanOf(dir, elem.Rtype), ElemType: elem}
+	c := &mtype.Type{Rtype: deriveChanOf(dir, elem.Rtype), ElemType: elem, ChanDir: dir}
 	d.chans[dir] = c
 	return c
 }
