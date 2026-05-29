@@ -632,7 +632,7 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 	// which would corrupt the other package's type.)
 	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
 		s.Type != nil && s.Type.Rtype != nil &&
-		s.Type.Rtype.Kind() == reflect.Struct && s.Type.Placeholder {
+		s.Type.Kind() == reflect.Struct && s.Type.Placeholder {
 		return s.Type
 	}
 	ph := vm.NewStructType(short)
@@ -653,7 +653,7 @@ func (p *Parser) registerInterfacePlaceholder(key, short string) *vm.Type {
 	// placeholder instead.
 	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
 		s.Type != nil && s.Type.Rtype != nil &&
-		s.Type.Rtype.Kind() == reflect.Interface && s.Type.Placeholder {
+		s.Type.Kind() == reflect.Interface && s.Type.Placeholder {
 		return s.Type
 	}
 	ph := &vm.Type{Rtype: vm.AnyRtype, Name: short, Placeholder: true}

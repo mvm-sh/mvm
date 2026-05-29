@@ -3474,7 +3474,7 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 			index(v.Rtype, v)
 			// A synth attach swapped Rtype; compiler-captured rtypes (e.g. a
 			// closure param type) may still reference the pre-swap rtype.
-			index(v.priorRtype, v)
+			index(PriorRtype(v), v)
 			for _, p := range v.Params {
 				register(p)
 			}
@@ -4288,32 +4288,6 @@ func (m *Machine) wrapFuncArgs(in []reflect.Value, args []Value, funcType reflec
 			in[i] = gf
 		}
 	}
-}
-
-// ifaceMethodTypes returns the types whose Methods make up typ's method set:
-// typ, its ElemType (for pointers, since methods register on T not *T), and the
-// same for each type along the Base chain. A struct-field shallow copy has empty
-// Methods but links via Base to the source type that carries methods registered
-// after the copy was taken (e.g. a named-basic field type like `type Grams int`);
-// walking Base lets interface bridging find those methods, matching MethodByName.
-//
-// The [6] bound is ample: Base chains are collapsed to depth 1 at creation
-// (goparser decl.go points a copy's Base at its source's Base, never nesting),
-// so at most typ+ElemType plus one Base level+ElemType is produced.
-func ifaceMethodTypes(typ *Type) (types [6]*Type, n int) {
-	push := func(t *Type) {
-		if t != nil && n < len(types) {
-			types[n] = t
-			n++
-		}
-	}
-	for cur := typ; cur != nil; cur = cur.Base {
-		push(cur)
-		if cur.Rtype != nil && cur.Rtype.Kind() == reflect.Pointer {
-			push(cur.ElemType)
-		}
-	}
-	return
 }
 
 func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {

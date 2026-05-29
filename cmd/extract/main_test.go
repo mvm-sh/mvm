@@ -75,8 +75,10 @@ func TestRun(t *testing.T) {
 		{
 			dir:    filepath.Join("..", "..", "vm"),
 			consts: []string{"Nop", "Addr", "Call", "Return", "Global", "Local"},
-			types:  []string{"Op", "Machine", "Value", "Type", "Instruction"},
-			funcs:  []string{"NewMachine", "ValueOf", "TypeOf"},
+			// Type is now a type alias to mtype.Type; TypeOf moved to mtype (vm
+			// re-exports it as a var alias, no longer a func).
+			types: []string{"Op", "Machine", "Value", "Type", "Instruction"},
+			funcs: []string{"NewMachine", "ValueOf"},
 		},
 		{
 			dir:    filepath.Join("..", "..", "symbol"),

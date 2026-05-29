@@ -106,10 +106,10 @@ func (p *Parser) inferRangeTypes(operand Tokens, lhs []Tokens, lhsPositions []in
 		return
 	}
 	setType := func(i int, t *vm.Type) { p.setLHSType(i, t, lhs, lhsPositions, out) }
-	switch rt.Rtype.Kind() {
+	switch rt.Kind() {
 	case reflect.Slice, reflect.Array, reflect.String:
 		setType(0, p.Symbols["int"].Type)
-		if rt.Rtype.Kind() == reflect.String {
+		if rt.Kind() == reflect.String {
 			setType(1, p.Symbols["rune"].Type)
 		} else {
 			setType(1, rt.Elem())

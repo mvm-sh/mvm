@@ -447,7 +447,7 @@ func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 	if cv == nil || typ == nil {
 		return false
 	}
-	k := typ.Rtype.Kind()
+	k := typ.Kind()
 	signed := k >= reflect.Int && k <= reflect.Int64
 	unsigned := isUnsignedKind(k)
 	if !signed && !unsigned {
@@ -731,7 +731,7 @@ func FoldBinary(op lang.Token, x constant.Value, xtyp *vm.Type, y constant.Value
 		cv := constant.Shift(x, tok, uint(s))
 		// go/constant uses arithmetic right-shift, which sign-extends negative
 		// values produced by unary ^ on unsigned constants. Reinterpret as unsigned.
-		if op == lang.Shr && xtyp != nil && isUnsignedKind(xtyp.Rtype.Kind()) {
+		if op == lang.Shr && xtyp != nil && isUnsignedKind(xtyp.Kind()) {
 			v, _ := constant.Int64Val(cv)
 			cv = constant.MakeUint64(uint64(v)) // reinterpret signed bits as unsigned
 		}
@@ -763,7 +763,7 @@ func FoldUnary(op lang.Token, x constant.Value, xtyp *vm.Type) (constant.Value, 
 	// go/constant has no unsigned integer kind: ^ on 0 gives -1 (arbitrary
 	// precision), not the width-limited complement Go requires for typed
 	// unsigned constants. Recompute using the correct bit width.
-	if op == lang.BitComp && xtyp != nil && isUnsignedKind(xtyp.Rtype.Kind()) {
+	if op == lang.BitComp && xtyp != nil && isUnsignedKind(xtyp.Kind()) {
 		v, _ := constant.Uint64Val(x)
 		bits := xtyp.Rtype.Size() * 8
 		mask := ^uint64(0) >> (64 - bits)
@@ -998,7 +998,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 
 	switch {
 	case placeholder != nil:
-		if placeholder.Rtype.Kind() == reflect.Interface {
+		if placeholder.Kind() == reflect.Interface {
 			placeholder.IfaceMethods = typ.IfaceMethods
 			placeholder.TypeElems = typ.TypeElems
 			placeholder.Comparable = typ.Comparable
@@ -1019,9 +1019,6 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
-		// Distinct from its underlying: don't share the derived-type cache, or
-		// X's synth cascade flips a consumer's map[int]bool to map[TI]bool.
-		nt.ResetDerived()
 		if nt.PkgPath == "" {
 			nt.PkgPath = p.pkgName
 		}
@@ -1056,7 +1053,7 @@ func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
 		if typName == "" {
 			typName = typ.Rtype.String()
 		}
-		if typ.Rtype.Kind() == reflect.Pointer {
+		if typ.Kind() == reflect.Pointer {
 			typName = "*" + typName // Distinguish "*T" from "T".
 		}
 		// Resolve a symbol-table key whose Type Symbol points at typ.Rtype.

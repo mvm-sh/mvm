@@ -103,28 +103,23 @@ func isSynthIfaceTargetFunc(fn reflect.Value) bool {
 // synthIfaceRtype builds and caches t's method-bearing synth interface rtype.
 // Returns nil if any method signature is unknown, keeping the AnyRtype bridge.
 func synthIfaceRtype(t *Type) reflect.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	if t.synthIface != nil {
-		return t.synthIface
-	}
-	ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))
-	for _, im := range t.IfaceMethods {
-		if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
+	return cachedSynthIface(t, func() reflect.Type {
+		ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))
+		for _, im := range t.IfaceMethods {
+			if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
+				return nil
+			}
+			ims = append(ims, runtype.Imethod{
+				Name:     im.Name,
+				Exported: isExportedName(im.Name),
+				Sig:      im.Rtype,
+			})
+		}
+		if len(ims) == 0 {
 			return nil
 		}
-		ims = append(ims, runtype.Imethod{
-			Name:     im.Name,
-			Exported: isExportedName(im.Name),
-			Sig:      im.Rtype,
-		})
-	}
-	if len(ims) == 0 {
-		return nil
-	}
-	st := runtype.InterfaceOf(t.Rtype.String(), t.PkgPath, ims)
-	t.synthIface = st
-	return st
+		return runtype.InterfaceOf(t.Rtype.String(), t.PkgPath, ims)
+	})
 }
 
 func isExportedName(name string) bool {
@@ -177,7 +172,7 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	t.RefreshRtype(newRT)
+	RefreshRtype(t, newRT)
 	return true, nil
 }
 
@@ -197,26 +192,16 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		if err != nil {
 			return err
 		}
-		t.RefreshRtype(clone)
+		RefreshRtype(t, clone)
 	}
 	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
 		toSynthMethods(m, t, specs))
 	if err != nil {
 		return err
 	}
-	// Propagate the *T-with-methods rtype to t.derived.ptr. Materialize if
-	// missing so a subsequent vm.PointerTo(t) returns this rtype rather than
-	// building a fresh methodless *T via runtype.PointerTo (which would diverge
-	// from reflect.PointerTo(t.Rtype), the latter following PtrToThis to the
-	// with-methods *T).
-	derivedMu.Lock()
-	d := t.ensureDerivedLocked()
-	if d.ptr == nil {
-		d.ptr = &Type{Name: t.Name, Rtype: newPtrRT, ElemType: t}
-	} else {
-		d.ptr.refreshLocked(newPtrRT)
-	}
-	derivedMu.Unlock()
+	// Propagate the *T-with-methods rtype to t's derived pointer so a later
+	// PointerTo(t) returns it rather than a fresh methodless *T.
+	AttachPtrDerived(t, newPtrRT)
 	return nil
 }
 

@@ -20,7 +20,7 @@ func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bo
 	// elemInterface is handled by checkConstraint (it needs the parser's symbol
 	// table to see interpreted method sets), so it never reaches here.
 	case elemApprox:
-		return e.typ != nil && arg.Rtype.Kind() == e.typ.Rtype.Kind()
+		return e.typ != nil && arg.Kind() == e.typ.Kind()
 	case elemTypeParamRef:
 		if e.paramRef < 0 || e.paramRef >= len(typeArgs) {
 			return true
@@ -37,7 +37,7 @@ func typeArgName(t *vm.Type) string {
 		}
 		return t.Name
 	}
-	switch t.Rtype.Kind() {
+	switch t.Kind() {
 	case reflect.Pointer:
 		if t.ElemType != nil {
 			return "*" + typeArgName(t.ElemType)
@@ -59,7 +59,7 @@ func typeArgName(t *vm.Type) string {
 }
 
 func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
-	switch t.Rtype.Kind() {
+	switch t.Kind() {
 	case reflect.Pointer:
 		if t.ElemType != nil {
 			return "*" + typeArgComposite(t.ElemType, renderLeaf)
@@ -139,7 +139,7 @@ func hasUnboundTypeParam(t *vm.Type, tpNames map[string]bool, inferred map[strin
 	if t == nil {
 		return false
 	}
-	switch t.Rtype.Kind() {
+	switch t.Kind() {
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
 		return hasUnboundTypeParam(t.ElemType, tpNames, inferred)
 	case reflect.Map:
@@ -174,14 +174,14 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 	// Recurse through composite constructors first: Name may be inherited from
 	// the element (PointerTo propagates Name), so we must not leaf-match on
 	// Name for a compound shape.
-	switch pType.Rtype.Kind() {
+	switch pType.Kind() {
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
-		if argType.Rtype.Kind() != pType.Rtype.Kind() {
+		if argType.Kind() != pType.Kind() {
 			return false
 		}
 		return unifyTypeParam(pType.ElemType, argType.ElemType, tpNames, inferred)
 	case reflect.Map:
-		if argType.Rtype.Kind() != reflect.Map {
+		if argType.Kind() != reflect.Map {
 			return false
 		}
 		if !unifyTypeParam(pType.KeyType, argType.KeyType, tpNames, inferred) {
@@ -189,7 +189,7 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 		}
 		return unifyTypeParam(pType.ElemType, argType.ElemType, tpNames, inferred)
 	case reflect.Func:
-		if argType.Rtype.Kind() != reflect.Func {
+		if argType.Kind() != reflect.Func {
 			return false
 		}
 		// ParamType/ReturnType fall back to reflect when argType is a reflect-
@@ -234,8 +234,8 @@ func unpackConstraint(c tpConstraint, paramName string, concrete *vm.Type) *vm.T
 }
 
 func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
-	if shape.Rtype.Kind() == concrete.Rtype.Kind() {
-		switch shape.Rtype.Kind() {
+	if shape.Kind() == concrete.Kind() {
+		switch shape.Kind() {
 		case reflect.Map:
 			if shape.KeyType != nil {
 				if t := extractFromShape(shape.KeyType, concrete.Key(), paramName); t != nil {
@@ -282,7 +282,7 @@ func funcReturnType(typ *vm.Type) *vm.Type {
 	if len(typ.Returns) > 0 {
 		return typ.Returns[0]
 	}
-	if typ.Rtype.Kind() == reflect.Func && typ.Rtype.NumOut() > 0 {
+	if typ.Kind() == reflect.Func && typ.Rtype.NumOut() > 0 {
 		out := typ.Rtype.Out(0)
 		return &vm.Type{Name: out.Name(), Rtype: out}
 	}

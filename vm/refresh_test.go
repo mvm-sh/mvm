@@ -51,7 +51,7 @@ func TestRefreshRtypeCascadesPtrSliceChan(t *testing.T) {
 	}
 
 	synthRT := makeSynthRtype(t, "Cascade")
-	tt.RefreshRtype(synthRT)
+	RefreshRtype(tt, synthRT)
 
 	if tt.Rtype != synthRT {
 		t.Fatalf("tt.Rtype not updated")
@@ -81,7 +81,7 @@ func TestRefreshRtypeCascadesArrayMap(t *testing.T) {
 	mp := MapOf(tt, elemT)
 
 	synthRT := makeSynthRtype(t, "CascadeAM")
-	tt.RefreshRtype(synthRT)
+	RefreshRtype(tt, synthRT)
 
 	if arr.Rtype.Elem() != synthRT {
 		t.Errorf("array elem = %v, want synth", arr.Rtype.Elem())
@@ -110,7 +110,7 @@ func TestRefreshRtypeCascadesNested(t *testing.T) {
 	sliceOfPtr := SliceOf(ptr) // []*T
 
 	synthRT := makeSynthRtype(t, "Nested")
-	tt.RefreshRtype(synthRT)
+	RefreshRtype(tt, synthRT)
 
 	// *T must point at synthRT.
 	if ptr.Rtype.Elem() != synthRT {
@@ -131,7 +131,7 @@ func TestRefreshRtypeCascadesNested(t *testing.T) {
 func TestRefreshRtypeNoDerivedIsNoop(t *testing.T) {
 	nativeRT := reflect.TypeOf(int(0))
 	tt := &Type{Name: "NoDerived", Rtype: nativeRT}
-	tt.RefreshRtype(reflect.TypeOf(int64(0)))
+	RefreshRtype(tt, reflect.TypeOf(int64(0)))
 	if tt.Rtype.Kind() != reflect.Int64 {
 		t.Errorf("Rtype not refreshed")
 	}
@@ -146,7 +146,7 @@ func TestRefreshRtypeSameRtypeIsNoop(t *testing.T) {
 	tt := &Type{Name: "Same", Rtype: nativeRT}
 	ptr := PointerTo(tt)
 	prevPtrRT := ptr.Rtype
-	tt.RefreshRtype(nativeRT)
+	RefreshRtype(tt, nativeRT)
 	if ptr.Rtype != prevPtrRT {
 		t.Errorf("ptr rtype changed on no-op refresh")
 	}

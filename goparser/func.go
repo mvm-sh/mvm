@@ -432,7 +432,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		var initTypes []*vm.Type
 		for j, name := range p.namedOut {
 			typ := s.Type.Returns[n-1-j]
-			switch typ.Rtype.Kind() {
+			switch typ.Kind() {
 			case reflect.Struct, reflect.Array, reflect.Slice, reflect.Map:
 				initVars = append(initVars, name)
 				initTypes = append(initTypes, typ)

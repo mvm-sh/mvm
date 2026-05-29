@@ -753,7 +753,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			// A struct field whose type is a placeholder (not yet finalized via SetFields)
 			// means the containing struct's size cannot be computed yet. Return ErrUndefined
 			// so the retry loop defers this declaration until the placeholder is finalized.
-			if types[i].Rtype.Kind() == reflect.Struct && types[i].Placeholder {
+			if types[i].Kind() == reflect.Struct && types[i].Placeholder {
 				return nil, p.undef(types[i].Name, lt[0])
 			}
 			if name == "" {

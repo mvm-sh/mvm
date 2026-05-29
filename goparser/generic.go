@@ -19,7 +19,7 @@ const (
 	elemComparable                   // built-in comparable
 	elemExact                        // arg.Rtype must equal typ.Rtype
 	elemInterface                    // arg must Implement typ (method-set interface)
-	elemApprox                       // ~T: arg.Rtype.Kind() must match typ.Rtype.Kind()
+	elemApprox                       // ~T: arg.Kind() must match typ.Kind()
 	elemTypeParamRef                 // arg must equal typeArgs[paramRef]
 )
 
@@ -862,10 +862,10 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		fieldName := t.Str[1:] // Strip leading ".".
 		// Auto-dereference pointer types for field access (Go: s.F works for *T).
 		structTyp := leftTyp
-		if structTyp.Rtype.Kind() == reflect.Pointer {
+		if structTyp.Kind() == reflect.Pointer {
 			structTyp = structTyp.Elem()
 		}
-		if structTyp.Rtype.Kind() == reflect.Struct {
+		if structTyp.Kind() == reflect.Struct {
 			if ft := structTyp.FieldType(fieldName); ft != nil {
 				return ft, 1 + ln
 			}
@@ -899,11 +899,11 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		case lang.Addr:
 			return vm.PointerTo(inner), 1 + ln
 		case lang.Deref:
-			if inner.Rtype.Kind() == reflect.Pointer {
+			if inner.Kind() == reflect.Pointer {
 				return inner.Elem(), 1 + ln
 			}
 		case lang.Arrow:
-			if inner.Rtype.Kind() == reflect.Chan {
+			if inner.Kind() == reflect.Chan {
 				return inner.Elem(), 1 + ln
 			}
 		}
@@ -1019,7 +1019,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		if containerTyp == nil {
 			return nil, 0
 		}
-		switch containerTyp.Rtype.Kind() {
+		switch containerTyp.Kind() {
 		case reflect.Slice, reflect.Array, reflect.Map:
 			return containerTyp.Elem(), 1 + il + cl
 		case reflect.String:
@@ -1049,7 +1049,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 			return nil, 0
 		}
 		total += cl
-		switch containerTyp.Rtype.Kind() {
+		switch containerTyp.Kind() {
 		case reflect.Slice, reflect.String:
 			return containerTyp, total
 		case reflect.Array:

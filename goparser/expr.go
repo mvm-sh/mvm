@@ -113,7 +113,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				}
 				if typ, n, err2 := p.parseTypeExpr(in[i:]); err2 == nil {
 					ctype = typ.String()
-					if typ.Rtype.Kind() == reflect.Pointer && !strings.HasPrefix(ctype, "*") {
+					if typ.Kind() == reflect.Pointer && !strings.HasPrefix(ctype, "*") {
 						ctype = "*" + ctype
 					}
 					p.SymAdd(symbol.UnsetAddr, ctype, vm.NewValue(typ.Rtype), symbol.Type, typ)
@@ -306,7 +306,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				inner := sym.Type.Elem()
 				// In a map literal, a `{...}` immediately followed by `:` is an
 				// (elided-type) key, so infer its type from the key, not the value.
-				if sym.Type.Rtype.Kind() == reflect.Map && i+1 < lin && in[i+1].Tok == lang.Colon {
+				if sym.Type.Kind() == reflect.Map && i+1 < lin && in[i+1].Tok == lang.Colon {
 					inner = sym.Type.Key()
 				}
 				ctype = p.registerType(inner, t.Pos, &out)
