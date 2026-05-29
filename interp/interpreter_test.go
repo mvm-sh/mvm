@@ -2892,11 +2892,18 @@ func TestMethod(t *testing.T) {
 		{n: "mexpr_native_passed", src: `import "math/big"; func apply(f func(*big.Int, *big.Int, *big.Int) *big.Int, x, y, z *big.Int) *big.Int { return f(x, y, z) }; func run() string { return apply((*big.Int).Add, big.NewInt(1), big.NewInt(2), big.NewInt(3)).String() }; run()`, res: "5"},
 		// Native method expression called DIRECTLY also works (Kind:Value -> value-call path).
 		{n: "mexpr_native_direct", src: `import "math/big"; func f() string { return (*big.Int).Add(big.NewInt(1), big.NewInt(2), big.NewInt(3)).String() }; f()`, res: "5"},
-		// SKIP (still broken): an INTERPRETED method expression stored/passed with
-		// extra args has the wrong arity ("index out of range [-1]") -- the method body
-		// reads its receiver from Heap[0], so the value form needs a receiver-binding
-		// adapter (no reflect Method.Func exists for interpreted types).
-		{n: "mexpr_val_stored", skip: true, src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; func f() int { g := T.Add; return g(T{3}, 4) }; f()`, res: "7"},
+		// An INTERPRETED VALUE-receiver method expression stored/passed as a value
+		// works via a receiver-binding adapter (MkMethodExpr): the func binds its
+		// first arg as the receiver and runs the method body on a pooled runner.
+		// See [[project_native_method_expression_arity]].
+		{n: "mexpr_val_stored", src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; func f() int { g := T.Add; return g(T{3}, 4) }; f()`, res: "7"},
+		{n: "mexpr_val_passed", src: `type T struct{n int}; func(t T) Add(a, b int) int { return t.n + a + b }; func apply(f func(T, int, int) int) int { return f(T{10}, 2, 3) }; apply(T.Add)`, res: "15"},
+		// Value-receiver method expression as a composite-literal element (the fmt
+		// fmtTests shape that crashed: reflect.Value.Field on a misaligned stack).
+		{n: "mexpr_val_composite", src: `type G int; func(g G) S() string { return "s" }; func f() int { t := []struct{ v any }{{G.S}}; return len(t) }; f()`, res: "1"},
+		// SKIP (still broken): a POINTER-receiver method expression stored/passed.
+		// The (*T).M form materializes the receiver rtype to a placeholder, so it
+		// stays symbolic-only (nil-deref when stored). Value-receiver is fixed above.
 		{n: "mexpr_ptr_stored", skip: true, src: `type T struct{n int}; func(t *T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
 
 		// Method call on composite literal.

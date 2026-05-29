@@ -119,6 +119,7 @@ const (
 	TypeAssert             // iface -- v [ok] ; assert iface holds type at mem[$1]; $2=0 panics, $2=1 ok form
 	TypeBranch             // iface -- ; pop iface; if iface doesn't hold type at mem[$2] (or $2==-1 for nil), ip += $1
 	WrapFunc               // mvmFuncVal -- MvmFunc ; wrap mvm func in reflect.MakeFunc for native callbacks; $0=typeIdx, $1=depth from sp (0=top)
+	MkMethodExpr           // -- f ; push func value for interpreted method expression T.M; $0=method code global, $1=method-expr (recv-first) typeIdx
 
 	// Goroutine and channel opcodes.
 	GoCall     // f [a1..ai] -- ; spawn goroutine; $0=narg
@@ -2080,6 +2081,16 @@ func (m *Machine) Run() (err error) {
 			fval := mem[sp-int(c.B)]
 			mem[sp-int(c.B)] = Value{ref: reflect.ValueOf(MvmFunc{Val: fval, GF: m.wrapForFunc(fval, typ.Rtype)})}
 
+		case MkMethodExpr:
+			codeAddr := int(m.globals[int(c.A)].num)
+			exprType := m.globals[int(c.B)].ref.Interface().(*Type)
+			if sp+1 >= len(mem) {
+				mem = growStack(mem, sp, 1)
+			}
+			sp++
+			// Materialize lazily: *T may only resolve after generate (post-attach).
+			mem[sp] = Value{ref: m.makeMethodExprFunc(codeAddr, MaterializeRtype(exprType))}
+
 		case Trap:
 			ip, fp, sp, mem = m.handleTrap(ip, fp, sp, mem)
 			continue
@@ -3666,6 +3677,34 @@ func (m *Machine) makeCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 		runner := rs.acquireRunner()
 		defer rs.releaseRunner(runner)
 		out, err := runner.callPooled(fval, fnType, args)
+		if err != nil {
+			panic(err)
+		}
+		return out
+	})
+}
+
+// makeMethodExprFunc builds the method-expression func value: a native func of
+// type exprType (func(recv, params...) rets) that binds args[0] as the receiver
+// (like makeMethodCell) and runs the method body on a pooled runner.
+func (m *Machine) makeMethodExprFunc(codeAddr int, exprType reflect.Type) reflect.Value {
+	ins := make([]reflect.Type, exprType.NumIn()-1)
+	for i := range ins {
+		ins[i] = exprType.In(i + 1)
+	}
+	outs := make([]reflect.Type, exprType.NumOut())
+	for i := range outs {
+		outs[i] = exprType.Out(i)
+	}
+	innerType := reflect.FuncOf(ins, outs, exprType.IsVariadic())
+	rs := m.captureRunnerState()
+	return reflect.MakeFunc(exprType, func(args []reflect.Value) []reflect.Value {
+		cell := new(Value)
+		*cell = FromReflect(args[0])
+		clo := Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
+		runner := rs.acquireRunner()
+		defer rs.releaseRunner(runner)
+		out, err := runner.callPooled(clo, innerType, args[1:])
 		if err != nil {
 			panic(err)
 		}

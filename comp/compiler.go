@@ -353,6 +353,28 @@ func (c *Compiler) MethodFuncTypes() []reflect.Type {
 	return ft
 }
 
+// methodExprType builds func(recv, params...) rets from a receiver type and the
+// method's receiver-less signature; nil if inner is not a usable func type.
+func (c *Compiler) methodExprType(recv, inner *vm.Type) *vm.Type {
+	if recv == nil || inner == nil || inner.Kind() != reflect.Func {
+		return nil
+	}
+	params := make([]*vm.Type, 0, inner.NumIn()+1)
+	params = append(params, recv)
+	for i := 0; i < inner.NumIn(); i++ {
+		params = append(params, inner.ParamType(i))
+	}
+	rets := make([]*vm.Type, inner.NumOut())
+	for i := range rets {
+		rets[i] = inner.ReturnType(i)
+	}
+	variadic := inner.Variadic
+	if inner.Rtype != nil {
+		variadic = inner.Rtype.IsVariadic()
+	}
+	return vm.SymFunc(params, rets, variadic)
+}
+
 func (c *Compiler) typeIndex(typ *vm.Type) int {
 	if i, ok := c.typeIdxs[typ]; ok {
 		return i
@@ -1308,6 +1330,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if s.MethodExpr {
 				if narg < 1 {
 					return c.errAt(t, "method expression call requires at least a receiver argument")
+				}
+				// Direct call: retract the speculative MkMethodExpr value emit (only
+				// needed when stored) and bind the receiver inline below.
+				if meStart := codeStarts[len(stack)-1-narg]; meStart < len(c.Code) && c.Code[meStart].Op == vm.MkMethodExpr {
+					c.Code[meStart] = vm.Instruction{Op: vm.Nop}
 				}
 				methodNarg := narg - 1
 				methodWantsPtr := strings.HasPrefix(s.Name, "*")
@@ -2305,13 +2332,29 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						if !s.NoFnew {
 							c.removeFnew(s.Index)
 						}
-						push(&symbol.Symbol{
+						// Emit a runtime func value so the method expression works
+						// stored, not just inline-called (Call retracts it for the fast
+						// path). Value-receiver only: (*T).M materializes the receiver
+						// to a placeholder rtype, so it stays symbolic-only.
+						var exprType *vm.Type
+						if !strings.HasPrefix(m.Name, "*") && !s.Type.IsPtr() {
+							exprType = c.methodExprType(s.Type, m.Type)
+						}
+						sym := &symbol.Symbol{
 							Kind:       symbol.Func,
 							Name:       m.Name,
 							Index:      m.Index,
 							Type:       m.Type,
 							MethodExpr: true,
-						})
+						}
+						if exprType != nil {
+							sym.Type = exprType
+							meStart := len(c.Code)
+							c.emit(t, vm.MkMethodExpr, m.Index, c.typeIndex(exprType))
+							pushAt(sym, meStart)
+							break
+						}
+						push(sym)
 						break
 					}
 					push(m)
