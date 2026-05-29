@@ -194,6 +194,26 @@ func StampName(t reflect.Type, name string) {
 	rt.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
+// nameOwners gives each qualified name a single owning rtype, so a type built as
+// several distinct heap rtypes can't stamp one name onto two identities (which
+// breaks gob/json type registration).
+var nameOwners sync.Map // string -> *abiType
+
+// StampNameUnique stamps name onto t only if no other rtype already owns it,
+// reporting whether t now owns it. Method-bearing types claim their name via
+// attach's stampHeader, so callers must gate this to methodless types.
+func StampNameUnique(t reflect.Type, name string) bool {
+	rt := rtypePtr(t)
+	if rt == nil {
+		return false
+	}
+	if owner, loaded := nameOwners.LoadOrStore(name, rt); loaded && owner != rt {
+		return false
+	}
+	StampName(t, name)
+	return true
+}
+
 // IsSynth reports whether t is a synth-built rtype (produced by any of the
 // Attach*, Clone*, or derive constructors in this package).
 // Callers route between reflect.*Of (native rtype identity preserved) and

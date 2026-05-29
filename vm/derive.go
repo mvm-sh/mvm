@@ -150,6 +150,11 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 				MaterializeRtype(f)
 			}
 			mtype.PatchRtype(ph, mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype)
+			// PatchRtype keeps ph's placeholder name; stamp the real one.
+			// Method-bearing types get theirs from attach instead.
+			if len(t.Methods) == 0 {
+				runtype.StampNameUnique(ph, qualifiedTypeName(t))
+			}
 			return ph
 		}
 		for _, f := range t.Fields {
