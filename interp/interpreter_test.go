@@ -1653,6 +1653,27 @@ func (t T) GetX() int { return t.X }
 func (t *T) Double() { t.X = t.X * 2 }
 var v T; v.X = 4; v.Double(); v.GetX()`, res: "8"},
 
+		// Symbolic defined basic types: a method must resolve via the var/const's
+		// named *Type, not the underlying kind (global vars used to retype wrong).
+		{n: "defined_basic_global_var_method", src: `
+type Grams int
+func (g Grams) Double() Grams { return g * 2 }
+var w Grams = 7
+int(w.Double())`, res: "14"},
+
+		{n: "defined_basic_const_method", src: `
+type Grams int
+func (g Grams) Double() Grams { return g * 2 }
+const c Grams = 5
+int(c.Double())`, res: "10"},
+
+		{n: "defined_basic_global_var_noinit_method", src: `
+type Grams int
+func (g Grams) Double() Grams { return g * 2 }
+var w Grams
+func f() int { w = 6; return int(w.Double()) }
+f()`, res: "12"},
+
 		{n: "iface_val_recv", src: `
 type Getter interface { GetX() int }
 type T struct { X int }

@@ -410,6 +410,11 @@ func isUnsignedKind(k reflect.Kind) bool {
 	return k >= reflect.Uint && k <= reflect.Uintptr
 }
 
+// isBasicKind reports whether k is a non-composite Go basic kind.
+func isBasicKind(k reflect.Kind) bool {
+	return (k >= reflect.Bool && k <= reflect.Complex128) || k == reflect.String
+}
+
 // ErrConstOverflow reports a constant that cannot be represented in its type --
 // the gc "constant X overflows T" compile error. It is a hard parse error so
 // ParseAll does not skip past it (which would otherwise mask it as a later
@@ -1104,6 +1109,10 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
+		if isBasicKind(nt.Kind()) {
+			// Stay symbolic: comp materializes from Base, attach adds the methods.
+			nt.Rtype = nil
+		}
 		if nt.PkgPath == "" {
 			nt.PkgPath = p.pkgName
 		}

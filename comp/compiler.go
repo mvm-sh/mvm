@@ -413,6 +413,19 @@ func (c *Compiler) FillTypeSlots() {
 			c.Data[p.idx] = vm.NewValue(rt)
 		}
 	}
+	// Type symbols whose slot came from an invalid parse-time descriptor (e.g. an
+	// imported `type Language uint16`) bypass pendingTypeSlots; materialize them.
+	for _, sym := range c.Symbols {
+		if sym.Kind != symbol.Type || sym.Index == symbol.UnsetAddr || sym.Type == nil {
+			continue
+		}
+		if sym.Index >= len(c.Data) || c.Data[sym.Index].IsValid() {
+			continue
+		}
+		if rt := liveSynthRtype(sym.Type); rt != nil {
+			c.Data[sym.Index] = vm.NewValue(rt)
+		}
+	}
 }
 
 func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
@@ -1798,10 +1811,18 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
 			if lhs.Index != symbol.UnsetAddr {
-				if v := c.Data[lhs.Index]; !v.IsValid() && rhs.Type != nil {
-					c.Data[lhs.Index] = c.typeSlotValue(lhs.Index, rhs.Type, false)
-					if sym := c.Symbols[lhs.Name]; sym != nil {
-						sym.Type = rhs.Type
+				if v := c.Data[lhs.Index]; !v.IsValid() {
+					// A declared LHS type owns the (deferred) slot; infer from the
+					// RHS only for an untyped var, else a typed global retypes wrong.
+					typ := lhs.Type
+					if typ == nil {
+						typ = rhs.Type
+					}
+					if typ != nil {
+						c.Data[lhs.Index] = c.typeSlotValue(lhs.Index, typ, false)
+						if sym := c.Symbols[lhs.Name]; sym != nil && sym.Type == nil {
+							sym.Type = typ
+						}
 					}
 				}
 			}
