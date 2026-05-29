@@ -299,6 +299,12 @@ func (v Value) Seq() iter.Seq[reflect.Value] { return v.Reflect().Seq() }
 // Seq2 returns a range-over-2 iterator for the value v.
 func (v Value) Seq2() iter.Seq2[reflect.Value, reflect.Value] { return v.ref.Seq2() }
 
+// emptySeq/emptySeq2 are the iterators for an invalid (nil) range subject: a
+// nil slice/map/string ranges zero times in Go, so the VM uses these instead
+// of reflect.Value.Seq, which panics on a zero Value.
+func emptySeq(func(reflect.Value) bool)                 {}
+func emptySeq2(func(reflect.Value, reflect.Value) bool) {}
+
 // CopyArray returns a Value holding a copy of the array in v, so that
 // range iterates over a snapshot (Go spec: range over array uses a copy).
 func (v Value) CopyArray() Value {

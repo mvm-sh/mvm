@@ -1793,7 +1793,13 @@ func (m *Machine) Run() (err error) {
 				mem = growStack(mem, sp, 1)
 			}
 			sp++
-			mem[sp] = ValueOf(mem[sp-1-int(c.A)].ref.Len())
+			// An invalid value represents a zero/nil slice/map/chan/string; Go's
+			// len of those is 0, so avoid reflect.Value.Len's zero-Value panic.
+			if src := mem[sp-1-int(c.A)].ref; src.IsValid() {
+				mem[sp] = ValueOf(src.Len())
+			} else {
+				mem[sp] = ValueOf(0)
+			}
 		case Next:
 			if k, ok := mem[sp-1].ref.Interface().(func() (reflect.Value, bool))(); ok {
 				m.assignSlot(&m.globals[int(c.B)], FromReflect(k))
@@ -1848,15 +1854,19 @@ func (m *Machine) Run() (err error) {
 			mem[sp] = Value{num: uint64(int(c.A)), ref: zint}
 		case Pull:
 			v := mem[sp]
-			if c.A != 0 {
-				v = v.CopyArray()
+			seq := emptySeq // invalid (nil slice/map/string) -> empty range, as in Go
+			if v.ref.IsValid() {
+				if c.A != 0 {
+					v = v.CopyArray()
+				}
+				if c.B != 0 {
+					// Range-over-func: wrap a mvm Closure into a native Go func.
+					funcType := m.globals[int(c.B)-1].ref.Type()
+					v = Value{ref: m.wrapForFunc(v, funcType)}
+				}
+				seq = v.Seq()
 			}
-			if c.B != 0 {
-				// Range-over-func: wrap a mvm Closure into a native Go func.
-				funcType := m.globals[int(c.B)-1].ref.Type()
-				v = Value{ref: m.wrapForFunc(v, funcType)}
-			}
-			next, stop := iter.Pull(v.Seq())
+			next, stop := iter.Pull(seq)
 			if sp+2 >= len(mem) {
 				mem = growStack(mem, sp, 2)
 			}
@@ -1865,14 +1875,18 @@ func (m *Machine) Run() (err error) {
 			sp += 2
 		case Pull2:
 			v := mem[sp]
-			if c.A != 0 {
-				v = v.CopyArray()
+			seq2 := emptySeq2 // invalid (nil slice/map) -> empty range, as in Go
+			if v.ref.IsValid() {
+				if c.A != 0 {
+					v = v.CopyArray()
+				}
+				if c.B != 0 {
+					funcType := m.globals[int(c.B)-1].ref.Type()
+					v = Value{ref: m.wrapForFunc(v, funcType)}
+				}
+				seq2 = v.Seq2()
 			}
-			if c.B != 0 {
-				funcType := m.globals[int(c.B)-1].ref.Type()
-				v = Value{ref: m.wrapForFunc(v, funcType)}
-			}
-			next, stop := iter.Pull2(v.Seq2())
+			next, stop := iter.Pull2(seq2)
 			if sp+2 >= len(mem) {
 				mem = growStack(mem, sp, 2)
 			}

@@ -86,6 +86,10 @@ const (
 	// ShapeS18 is func(int) bool.
 	// Covers fmt.State.Flag.
 	ShapeS18 Shape = 17
+
+	// ShapeS19 is func(fmt.ScanState, rune) error.
+	// Covers fmt.Scanner.Scan.
+	ShapeS19 Shape = 18
 )
 
 // Method describes one method to install on a synthesized type.
@@ -219,6 +223,12 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS18(h)
+	case ShapeS19:
+		h, ok := m.Handler.(HandlerS19)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS19(h)
 	}
 	return 0, nil, fmt.Errorf("stubs: unknown shape %d", m.Shape)
 }

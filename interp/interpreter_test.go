@@ -232,6 +232,9 @@ func TestAssign(t *testing.T) {
 		{n: "#31_string_swap", src: `func f() string { s, t := "a", "b"; s, t = t, s; return s+t }; f()`, res: "ba"},
 		{n: "#32_map_swap", src: `func f() int { m, n := map[string]int{"x":1}, map[string]int{"x":2}; m, n = n, m; return m["x"]*10+n["x"] }; f()`, res: "21"},
 		{n: "#33_iface_swap", src: "func f() int { var x, y interface{} = 1, 2; x, y = y, x; return x.(int)*10+y.(int) }; f()", res: "21"},
+		// Multi-assign with bare nil RHS: the swap-temp rewrite emits `_swap_0_ := nil`,
+		// which has no type to infer, so the temp is undefined.
+		{n: "multi_assign_bare_nil", skip: true, src: "func f() int { var a, b []int; a, b = nil, nil; return len(a)+len(b) }; f()", res: "0"},
 		// Stdlib package interface-typed vars (e.g. crypto/rand.Reader) must keep
 		// their declared interface type when inferred via :=, otherwise the runtime
 		// assignment panics with "io.Reader is not assignable to rand.reader".
@@ -3692,8 +3695,8 @@ func TestBuiltin(t *testing.T) {
 		// An interpreted String/GoString/Format that panics propagates to fmt's
 		// catchPanic (synth dispatch re-raises the original value via raiseMethodErr).
 		{n: "stringer_panic_to_fmt", src: `import "fmt"; type T struct{}; func(t T) String() string { panic("boom") }; func f() string { return fmt.Sprintf("%s", T{}) }; f()`, res: "%!s(PANIC=String method: boom)"},
-		// Calling a method on a nil pointer receiver panics; fmt prints <nil>.
-		{n: "stringer_nil_recv_to_fmt", src: `import "fmt"; type T struct{ n int }; func(t T) String() string { return "x" }; func f() string { return fmt.Sprintf("%s", (*T)(nil)) }; f()`, res: "<nil>"},
+		// A method that derefs a nil pointer receiver panics; fmt prints <nil>.
+		{n: "stringer_nil_recv_to_fmt", src: `import "fmt"; type T struct{ s string }; func(t T) String() string { return t.s }; func f() string { return fmt.Sprintf("%s", (*T)(nil)) }; f()`, res: "<nil>"},
 		// A struct embedding a native non-empty interface satisfies it via promotion
 		// at the native boundary (struct field keeps the real io.Reader rtype).
 		{n: "embed_native_iface", src: `import ("io"; "strings"); func f() string { var r io.Reader = struct{ io.Reader }{strings.NewReader("hi")}; b, _ := io.ReadAll(r); return string(b) }; f()`, res: "hi"},

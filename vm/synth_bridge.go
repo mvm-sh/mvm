@@ -264,6 +264,8 @@ func toSynthMethods(
 			handler = makeHandlerS17(m, t, s.method, s.name, s.ptrRecv)
 		case stubs.ShapeS18:
 			handler = makeHandlerS18(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS19:
+			handler = makeHandlerS19(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -392,6 +394,9 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 	case nin == 2 && nout == 1 && sig.In(0) == xmlDecoderPtr &&
 		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
 		return stubs.ShapeS16, true
+	case nin == 2 && nout == 1 && sig.In(0) == fmtScanStateIface &&
+		sig.In(1).Kind() == reflect.Int32 && isErrorType(sig.Out(0)):
+		return stubs.ShapeS19, true
 	}
 	return 0, false
 }
@@ -403,14 +408,15 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 // identity, so accepting aliases here would burn slot-pool entries on
 // types that never satisfy the target interface.
 var (
-	errorIface     = reflect.TypeOf((*error)(nil)).Elem()
-	byteSliceType  = reflect.TypeOf([]byte(nil))
-	anyIface       = reflect.TypeOf((*any)(nil)).Elem()
-	errorSliceType = reflect.TypeOf([]error(nil))
-	fmtStateIface  = reflect.TypeOf((*fmt.State)(nil)).Elem()
-	xmlEncoderPtr  = reflect.TypeOf((*xml.Encoder)(nil))
-	xmlDecoderPtr  = reflect.TypeOf((*xml.Decoder)(nil))
-	xmlStartElem   = reflect.TypeOf(xml.StartElement{})
+	errorIface        = reflect.TypeOf((*error)(nil)).Elem()
+	byteSliceType     = reflect.TypeOf([]byte(nil))
+	anyIface          = reflect.TypeOf((*any)(nil)).Elem()
+	errorSliceType    = reflect.TypeOf([]error(nil))
+	fmtStateIface     = reflect.TypeOf((*fmt.State)(nil)).Elem()
+	fmtScanStateIface = reflect.TypeOf((*fmt.ScanState)(nil)).Elem()
+	xmlEncoderPtr     = reflect.TypeOf((*xml.Encoder)(nil))
+	xmlDecoderPtr     = reflect.TypeOf((*xml.Decoder)(nil))
+	xmlStartElem      = reflect.TypeOf(xml.StartElement{})
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
@@ -731,6 +737,25 @@ func makeHandlerS18(m *Machine, t *Type, method Method, name string, ptrRecv boo
 			return false
 		}
 		return out[0].Bool()
+	}
+}
+
+// makeHandlerS19 bridges shape S19: (T).Scan(fmt.ScanState, rune) error.
+// st is passed through reflect.ValueOf(&st).Elem() so it keeps its
+// fmt.ScanState type, letting the interpreted body call ScanState methods on it.
+func makeHandlerS19(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS19 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, st fmt.ScanState, verb rune) error {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S19 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
 	}
 }
 

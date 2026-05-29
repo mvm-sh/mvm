@@ -63,6 +63,9 @@ var shapes = []shape{
 	{ID: "S16", Params: ", d *xml.Decoder, start xml.StartElement", ArgList: ", d, start", Results: "error", Imports: []string{"encoding/xml"}},
 	{ID: "S17", Results: "(int, bool)"},                             // fmt.State.Width / fmt.State.Precision
 	{ID: "S18", Params: ", c int", ArgList: ", c", Results: "bool"}, // fmt.State.Flag
+	// fmt.Scanner.Scan; fmt.ScanState is a non-empty interface, so the stub
+	// must carry its exact type for the call ABI.
+	{ID: "S19", Params: ", st fmt.ScanState, verb rune", ArgList: ", st, verb", Results: "error", Imports: []string{"fmt"}},
 }
 
 func main() {
