@@ -46,7 +46,17 @@ type Compiler struct {
 	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex, keyed by mvm type pointer
 	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym (type-descriptor slot), keyed by mvm type pointer
 	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type (Fnew source), keyed by mvm type pointer
+	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index, for *Type-identity slot compares
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
+
+	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots (MVM_DEFERSLOTS)
+}
+
+// pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
+type pendingSlot struct {
+	idx        int
+	typ        *vm.Type
+	descriptor bool // true: TypeValue (type descriptor); false: NewValue (zero value)
 }
 
 // NewCompiler returns a new compiler state for a given scanner.
@@ -60,6 +70,7 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		typeIdxs:     map[*vm.Type]int{},
 		typeSyms:     map[*vm.Type]*symbol.Symbol{},
 		zeroTypeIdxs: map[*vm.Type]int{},
+		zeroSlotType: map[int]*vm.Type{},
 		labelAtPos:   map[int]bool{},
 	}
 }
@@ -290,7 +301,7 @@ func (c *Compiler) allocGlobalSlots() {
 				// SetFields, leaving s.Value's backing memory too small to
 				// hold the finalized struct. Reads past the original size hit
 				// adjacent memory (the language.Und Tag pExt-garbage bug).
-				v = vm.NewValue(c.rtype(s.Type))
+				v = c.typeSlotValue(s.Index, s.Type, false)
 			}
 			c.Data = append(c.Data, v)
 		}
@@ -368,6 +379,40 @@ func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
 // materializes an interpreted type from scratch (nil Rtype) during generate.
 // Symbolizing those sites drives the count to zero so generate becomes reflect-free.
 var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
+
+// deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
+// to a post-attach FillTypeSlots pass. Off by default until the fill is proven.
+var deferSlots = os.Getenv("MVM_DEFERSLOTS") != ""
+
+// typeSlotValue returns the value for Data slot idx holding typ: a zero value
+// (descriptor=false) or a type descriptor (descriptor=true). When deferring an
+// un-materialized typ, it records the slot and returns an invalid placeholder.
+func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Value {
+	if deferSlots && typ != nil && typ.Rtype == nil {
+		c.pendingTypeSlots = append(c.pendingTypeSlots, pendingSlot{idx: idx, typ: typ, descriptor: descriptor})
+		return vm.Value{}
+	}
+	if descriptor {
+		return vm.TypeValue(c.rtype(typ))
+	}
+	return vm.NewValue(c.rtype(typ))
+}
+
+// FillTypeSlots writes the materialized value into every deferred slot. Run
+// after MaterializeAll + attach so each observes its final rtype; no-op if none.
+func (c *Compiler) FillTypeSlots() {
+	for _, p := range c.pendingTypeSlots {
+		rt := liveSynthRtype(p.typ)
+		if rt == nil {
+			continue
+		}
+		if p.descriptor {
+			c.Data[p.idx] = vm.TypeValue(rt)
+		} else {
+			c.Data[p.idx] = vm.NewValue(rt)
+		}
+	}
+}
 
 func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
 	// rtype is an already-materialized reflect.Type; a symbol can match it by
@@ -1633,10 +1678,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// If lhs has an interface type, keep it and wrap the concrete value.
 				if lhs[i].Type != nil && lhs[i].Type.IsInterface() && !typ.IsInterface() {
 					c.emitIfaceWrap(t, lhs[i].Type, typ)
-					c.Data[lhs[i].Index] = vm.NewValue(c.rtype(lhs[i].Type))
+					c.Data[lhs[i].Index] = c.typeSlotValue(lhs[i].Index, lhs[i].Type, false)
 				} else {
 					lhs[i].Type = typ
-					c.Data[lhs[i].Index] = vm.NewValue(c.rtype(typ))
+					c.Data[lhs[i].Index] = c.typeSlotValue(lhs[i].Index, typ, false)
 				}
 			}
 			c.emit(t, vm.SetS, n)
@@ -1753,7 +1798,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
 			if lhs.Index != symbol.UnsetAddr {
 				if v := c.Data[lhs.Index]; !v.IsValid() && rhs.Type != nil {
-					c.Data[lhs.Index] = vm.NewValue(c.rtype(rhs.Type))
+					c.Data[lhs.Index] = c.typeSlotValue(lhs.Index, rhs.Type, false)
 					if sym := c.Symbols[lhs.Name]; sym != nil {
 						sym.Type = rhs.Type
 					}
@@ -2459,7 +2504,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if s.Kind == symbol.LocalVar {
 					c.emit(t, vm.New, s.Index, c.typeSym(s.Type).Index)
 				} else {
-					c.Data[s.Index] = vm.NewValue(c.rtype(s.Type))
+					c.Data[s.Index] = c.typeSlotValue(s.Index, s.Type, false)
 				}
 			}
 			switch rangeKind {
@@ -2710,9 +2755,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.New, s.Index, c.typeSym(typ).Index)
 				case s.Index == symbol.UnsetAddr:
 					s.Index = len(c.Data)
-					c.Data = append(c.Data, vm.NewValue(c.rtype(typ)))
+					c.Data = append(c.Data, c.typeSlotValue(s.Index, typ, false))
 				default:
-					c.Data[s.Index] = vm.NewValue(c.rtype(typ))
+					c.Data[s.Index] = c.typeSlotValue(s.Index, typ, false)
 				}
 				return s.Index
 			}
@@ -3390,12 +3435,22 @@ func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
 	for i := len(c.Code) - 1; i >= 0; i-- {
 		if c.Code[i].Op == vm.FnewE {
 			di := int(c.Code[i].A)
-			if di == index || c.Data[di].Type() == c.rtype(typ) {
+			if di == index || c.slotMatchesType(di, typ) {
 				c.Code[i].Op = vm.Fnew
 				return
 			}
 		}
 	}
+}
+
+// slotMatchesType reports whether Data slot di holds a zero value of typ,
+// comparing *Type identity (via zeroSlotType) so it never reads a deferred
+// slot's nil rtype; rtype equality is the fallback for eager/native slots.
+func (c *Compiler) slotMatchesType(di int, typ *vm.Type) bool {
+	if st := c.zeroSlotType[di]; st != nil {
+		return st == typ || st.Identical(typ)
+	}
+	return c.Data[di].IsValid() && c.Data[di].Type() == c.rtype(typ)
 }
 
 func (c *Compiler) removeFnew(index int) {
@@ -3841,8 +3896,9 @@ func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
 		return i
 	}
 	i := len(c.Data)
-	c.Data = append(c.Data, vm.NewValue(c.rtype(typ)))
+	c.Data = append(c.Data, c.typeSlotValue(i, typ, false))
 	c.zeroTypeIdxs[typ] = i
+	c.zeroSlotType[i] = typ
 	return i
 }
 
@@ -3874,7 +3930,7 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 	}
 	if tsym.Index == symbol.UnsetAddr {
 		tsym.Index = len(c.Data)
-		c.Data = append(c.Data, vm.TypeValue(c.rtype(t)))
+		c.Data = append(c.Data, c.typeSlotValue(tsym.Index, t, true))
 	}
 	return tsym
 }
@@ -4102,6 +4158,9 @@ func (c *Compiler) MaterializeAll() {
 		visit(t)
 	}
 	for t := range c.typeSyms {
+		visit(t)
+	}
+	for t := range c.typeIdxs {
 		visit(t)
 	}
 	for _, sym := range c.Symbols {

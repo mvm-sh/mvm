@@ -251,8 +251,7 @@ func SymMap(k, e *mtype.Type) *mtype.Type {
 // PointerTo returns the canonical pointer type with element t, memoized.
 func PointerTo(t *mtype.Type) *mtype.Type {
 	if t.Rtype == nil {
-		// Symbolic elem (interpreted type pre-materialize): defer the rtype build
-		// to MaterializeRtype rather than crash in reflect.PointerTo(nil).
+		// Un-materialized elem: defer to MaterializeRtype, don't crash in reflect.PointerTo(nil).
 		return SymPtr(t)
 	}
 	derivedMu.Lock()

@@ -42,5 +42,7 @@ func (i *Interp) attachSynthMethods() error {
 		i.RebuildSynthSliceRtypes()
 		i.RefreshSynthRtype()
 	}
+	// Unconditional: deferred slots exist even when nothing was attached.
+	i.FillTypeSlots()
 	return nil
 }
