@@ -953,7 +953,7 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 			if rtype, ok := v.UnwrapType(); ok {
 				nv := vm.NewValue(rtype)
 				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Type, PkgPath: pp, Value: nv, Type: &vm.Type{Name: rtype.Name(), Rtype: rtype}}) // mvm:symkey-ok: dot-import binds bare names
-			} else {
+			} else if v.IsValid() {
 				// Mirror the pkg-qualified value-load path (compiler.go's Period
 				// handler) which tags the Symbol with its rtype, so a method
 				// expression like `CommandLine.Parse(...)` finds the receiver type.

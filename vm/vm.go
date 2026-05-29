@@ -1552,7 +1552,8 @@ func (m *Machine) Run() (err error) {
 					if dstTyp.IsInterface() {
 						matched = dstTyp.NativeImplements(rv.Type())
 					} else {
-						matched = rv.Type().AssignableTo(dstTyp.Rtype) || dstTyp.NativeImplements(rv.Type())
+						dstRT := MaterializeRtype(dstTyp)
+						matched = (dstRT != nil && rv.Type().AssignableTo(dstRT)) || dstTyp.NativeImplements(rv.Type())
 					}
 					// Interpreted concrete type round-tripped through native reflect (e.g.
 					// reflect.Value.Interface()): its synthetic rtype carries no native
@@ -1693,7 +1694,8 @@ func (m *Machine) Run() (err error) {
 							matched = dtyp.NativeImplements(concrete.Type())
 						}
 					default:
-						matched = concrete.Type().AssignableTo(dtyp.Rtype)
+						dtypRT := MaterializeRtype(dtyp)
+						matched = dtypRT != nil && concrete.Type().AssignableTo(dtypRT)
 					}
 				}
 			} else {
