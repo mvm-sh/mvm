@@ -5,6 +5,7 @@ package mtype
 import (
 	"encoding/binary"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -276,18 +277,91 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 }
 
 func (t *Type) String() string {
+	if t == nil {
+		return "<nil>"
+	}
 	if t.Name != "" {
 		if t.PkgPath != "" {
 			return t.PkgPath + "." + t.Name
 		}
 		// For native types without an explicit PkgPath, use the reflect
 		// representation which includes the package qualifier (e.g. "http.Pusher").
-		if t.Rtype.PkgPath() != "" {
+		if t.Rtype != nil && t.Rtype.PkgPath() != "" {
 			return t.Rtype.String()
 		}
 		return t.Name
 	}
-	return t.Rtype.String()
+	if t.Rtype != nil {
+		return t.Rtype.String()
+	}
+	return t.symbolicString()
+}
+
+// symbolicString renders an unnamed composite from the symbolic graph, for use
+// before an rtype is materialized. Basic kinds fall back to the kind name.
+func (t *Type) symbolicString() string {
+	switch t.Kind() {
+	case reflect.Pointer:
+		return "*" + t.ElemType.String()
+	case reflect.Slice:
+		return "[]" + t.ElemType.String()
+	case reflect.Array:
+		return "[" + strconv.Itoa(t.ArrayLen) + "]" + t.ElemType.String()
+	case reflect.Map:
+		return "map[" + t.KeyType.String() + "]" + t.ElemType.String()
+	case reflect.Chan:
+		switch t.ChanDir {
+		case reflect.RecvDir:
+			return "<-chan " + t.ElemType.String()
+		case reflect.SendDir:
+			return "chan<- " + t.ElemType.String()
+		default:
+			return "chan " + t.ElemType.String()
+		}
+	case reflect.Func:
+		var b strings.Builder
+		b.WriteString("func(")
+		for i, p := range t.Params {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(p.String())
+		}
+		b.WriteByte(')')
+		switch len(t.Returns) {
+		case 0:
+		case 1:
+			b.WriteByte(' ')
+			b.WriteString(t.Returns[0].String())
+		default:
+			b.WriteString(" (")
+			for i, r := range t.Returns {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(r.String())
+			}
+			b.WriteByte(')')
+		}
+		return b.String()
+	case reflect.Struct:
+		var b strings.Builder
+		b.WriteString("struct {")
+		for i, f := range t.Fields {
+			if i > 0 {
+				b.WriteByte(';')
+			}
+			b.WriteByte(' ')
+			if f.Name != "" {
+				b.WriteString(f.Name)
+				b.WriteByte(' ')
+			}
+			b.WriteString(f.String())
+		}
+		b.WriteString(" }")
+		return b.String()
+	}
+	return t.Kind().String()
 }
 
 // Elem returns a type's element type, preserving mvm-level info (e.g. IfaceMethods).
@@ -339,6 +413,30 @@ func (t *Type) ParamType(i int) *Type {
 		return &Type{Name: in.Name(), Rtype: in, kind: in.Kind()}
 	}
 	return nil
+}
+
+// NumOut returns a func type's number of results, from the symbolic Returns
+// slice when populated, else from reflect. Symmetric with ReturnType.
+func (t *Type) NumOut() int {
+	if len(t.Returns) > 0 {
+		return len(t.Returns)
+	}
+	if t.Rtype != nil && t.Rtype.Kind() == reflect.Func {
+		return t.Rtype.NumOut()
+	}
+	return 0
+}
+
+// NumIn returns a func type's number of parameters, from the symbolic Params
+// slice when populated, else from reflect. Symmetric with ParamType.
+func (t *Type) NumIn() int {
+	if len(t.Params) > 0 {
+		return len(t.Params)
+	}
+	if t.Rtype != nil && t.Rtype.Kind() == reflect.Func {
+		return t.Rtype.NumIn()
+	}
+	return 0
 }
 
 // TypeOf returns the mvm type of v.

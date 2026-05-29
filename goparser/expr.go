@@ -116,7 +116,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 					if typ.Kind() == reflect.Pointer && !strings.HasPrefix(ctype, "*") {
 						ctype = "*" + ctype
 					}
-					p.SymAdd(symbol.UnsetAddr, ctype, vm.NewValue(typ.Rtype), symbol.Type, typ)
+					p.SymAdd(symbol.UnsetAddr, ctype, typeTokenValue(typ), symbol.Type, typ)
 					out = append(out, newIdent(ctype, t.Pos))
 					i += n - 1
 					break
@@ -285,7 +285,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						// Use the FULL-path-qualified key to avoid package name collisions.
 						ctype = s.PkgPath + "." + typeName
 						if _, ok := p.Symbols[ctype]; !ok {
-							p.SymAdd(symbol.UnsetAddr, ctype, vm.NewValue(typ.Rtype), symbol.Type, typ)
+							p.SymAdd(symbol.UnsetAddr, ctype, typeTokenValue(typ), symbol.Type, typ)
 						}
 						out[len(out)-1] = newIdent(ctype, pkgTok.Pos)
 						ops = ops[:len(ops)-1] // Remove Period operator.
@@ -477,7 +477,7 @@ func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 		}
 	}
 	if existing, ok := p.Symbols[key]; !ok || existing.Type != typ {
-		p.SymAdd(symbol.UnsetAddr, key, vm.NewValue(typ.Rtype), symbol.Type, typ)
+		p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(typ), symbol.Type, typ)
 	}
 	// Carry the resolved type on the emitted ident so the compiler resolves it by
 	// identity (its global slot) rather than by re-looking up key at compile time.

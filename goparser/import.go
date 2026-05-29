@@ -637,7 +637,7 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 	}
 	ph := vm.NewStructType(short)
 	ph.Name = short
-	p.SymAdd(symbol.UnsetAddr, key, vm.NewValue(ph.Rtype), symbol.Type, ph)
+	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }
 
@@ -657,7 +657,7 @@ func (p *Parser) registerInterfacePlaceholder(key, short string) *vm.Type {
 		return s.Type
 	}
 	ph := &vm.Type{Rtype: vm.AnyRtype, Name: short, Placeholder: true}
-	p.SymAdd(symbol.UnsetAddr, key, vm.NewValue(ph.Rtype), symbol.Type, ph)
+	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }
 

@@ -450,7 +450,7 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 			Name:  tp.name,
 			Index: symbol.UnsetAddr,
 			Type:  ta,
-			Value: vm.NewValue(ta.Rtype),
+			Value: typeTokenValue(ta),
 			Used:  true,
 		}
 		set(tp.name, sym)

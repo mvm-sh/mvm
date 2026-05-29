@@ -55,7 +55,7 @@ func typeArgName(t *vm.Type) string {
 			return "map[" + typeArgName(t.KeyType) + "]" + typeArgName(t.ElemType)
 		}
 	}
-	return t.Rtype.String()
+	return t.String()
 }
 
 func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
@@ -107,7 +107,7 @@ func sanitizeMangled(s string) string {
 func mangledTypeArgName(t *vm.Type) string {
 	return typeArgComposite(t, func(leaf *vm.Type) string {
 		if leaf.Name == "" {
-			return leaf.Rtype.String()
+			return leaf.String()
 		}
 		if leaf.PkgPath != "" {
 			return leaf.PkgPath + "." + leaf.Name

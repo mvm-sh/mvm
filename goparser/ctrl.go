@@ -789,7 +789,7 @@ func (p *Parser) parseReturn(in Tokens) (out Tokens, err error) {
 	}
 	// explicit distinguishes `return X...` from a bare return for the
 	// captured-named-return path (which stores explicit values into the cells).
-	in[0].Arg = []any{s.Type.Rtype.NumOut(), s.Type, explicit}
+	in[0].Arg = []any{s.Type.NumOut(), s.Type, explicit}
 	out = append(out, in[0])
 	return out, err
 }

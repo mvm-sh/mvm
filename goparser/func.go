@@ -244,7 +244,7 @@ func (p *Parser) registerParamsFromSym(s *symbol.Symbol) {
 		if name == "" {
 			continue
 		}
-		p.addSymVar(i, len(s.OutNames), p.scopedName(name), &vm.Type{Rtype: s.Type.Rtype.Out(i)}, parseTypeOut)
+		p.addSymVar(i, len(s.OutNames), p.scopedName(name), s.Type.ReturnType(i), parseTypeOut)
 	}
 }
 

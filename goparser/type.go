@@ -374,7 +374,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			if err != nil {
 				return nil, 0, err
 			}
-			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Rtype: methodType.Rtype})
+			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Rtype: vm.MaterializeRtype(methodType)})
 		}
 		// Use any as underlying reflect type; method set is tracked in IfaceMethods.
 		return &vm.Type{
@@ -517,11 +517,22 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 	return types, vars, variadic, err
 }
 
+// typeTokenValue mints the zero-value descriptor stored in a symbol's Value,
+// or an invalid Value when the type carries no rtype yet. The rtype is
+// materialized later at comp, which re-derives the descriptor from the
+// symbol's *Type; the parse-time Value is a convenience, not load-bearing.
+func typeTokenValue(typ *vm.Type) vm.Value {
+	if typ == nil || typ.Rtype == nil {
+		return vm.Value{}
+	}
+	return vm.NewValue(typ.Rtype)
+}
+
 func (p *Parser) addSymVar(index, nparams int, name string, typ *vm.Type, flag typeFlag) {
 	if p.typeOnly {
 		return
 	}
-	zv := vm.NewValue(typ.Rtype)
+	zv := typeTokenValue(typ)
 	switch flag {
 	case parseTypeRecv:
 		// Receiver lives in Heap[0] of the method closure, not on the call stack.
@@ -758,7 +769,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			}
 			if name == "" {
 				// Unnamed field: likely an embedded type not yet defined.
-				return nil, p.undef(types[i].Rtype.String(), lt[0])
+				return nil, p.undef(types[i].String(), lt[0])
 			}
 			// Copy mvm-level type (preserving Params, IfaceMethods, etc.) and set field name.
 			ft := *types[i]

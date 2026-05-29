@@ -174,7 +174,7 @@ func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []i
 		}
 		return
 	}
-	for i := 0; i < len(lhs) && i < ft.Rtype.NumOut(); i++ {
+	for i := 0; i < len(lhs) && i < ft.NumOut(); i++ {
 		p.setLHSType(i, ft.ReturnType(i), lhs, lhsPositions, out)
 	}
 }

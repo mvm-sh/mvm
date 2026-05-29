@@ -71,7 +71,7 @@ func looksLikePkgPath(name string) bool {
 }
 
 func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
-	if rm, ok := ifaceTyp.Rtype.MethodByName(methodName); ok {
+	if rm, ok := vm.MaterializeRtype(ifaceTyp).MethodByName(methodName); ok {
 		return rm.Type
 	}
 	for _, im := range ifaceTyp.IfaceMethods {
@@ -100,10 +100,10 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 }
 
 func concreteMatchesIface(concrete *vm.Type, ifaceSig reflect.Type) bool {
-	if ifaceSig == nil || concrete == nil || concrete.Rtype == nil || concrete.Kind() != reflect.Func {
+	if ifaceSig == nil || concrete == nil || concrete.Kind() != reflect.Func || vm.MaterializeRtype(concrete) == nil {
 		return false
 	}
-	rt := concrete.Rtype
+	rt := vm.MaterializeRtype(concrete)
 	if rt.NumIn() != ifaceSig.NumIn() || rt.NumOut() != ifaceSig.NumOut() {
 		return false
 	}
@@ -290,7 +290,7 @@ func (c *Compiler) allocGlobalSlots() {
 				// SetFields, leaving s.Value's backing memory too small to
 				// hold the finalized struct. Reads past the original size hit
 				// adjacent memory (the language.Und Tag pExt-garbage bug).
-				v = vm.NewValue(s.Type.Rtype)
+				v = vm.NewValue(c.rtype(s.Type))
 			}
 			c.Data = append(c.Data, v)
 		}
@@ -352,9 +352,15 @@ func (c *Compiler) typeIndex(typ *vm.Type) int {
 	return i
 }
 
+// rtype is the single seam through which comp obtains a type's reflect.Type.
+// It materializes the rtype from the symbolic graph on first use (S1: goparser
+// builds types symbolically, comp materializes them), caching it on the *Type.
+// Identity today, since parse still sets Rtype.
+func (c *Compiler) rtype(typ *vm.Type) reflect.Type { return vm.MaterializeRtype(typ) }
+
 func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
 	for _, sym := range c.Symbols {
-		if sym.Kind == symbol.Type && sym.Type != nil && sym.Type.Rtype == rtype {
+		if sym.Kind == symbol.Type && sym.Type != nil && c.rtype(sym.Type) == rtype {
 			return sym.Type
 		}
 	}
@@ -420,11 +426,11 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 	if isPtr {
 		if typ.ElemType != nil {
 			lookupTyp = typ.ElemType
-		} else if t := c.findTypeSym(typ.Rtype.Elem()); t != nil {
+		} else if t := c.findTypeSym(c.rtype(typ).Elem()); t != nil {
 			lookupTyp = t
 		}
 	} else if typ.Name == "" {
-		if t := c.findTypeSym(typ.Rtype); t != nil {
+		if t := c.findTypeSym(c.rtype(typ)); t != nil {
 			lookupTyp = t
 		}
 	}
@@ -474,8 +480,8 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 			typ.Methods = append(typ.Methods, vm.Method{Index: -1})
 		}
 		var mrtype reflect.Type
-		if m.Type != nil && m.Type.Rtype != nil && m.Type.Kind() == reflect.Func {
-			mrtype = m.Type.Rtype
+		if m.Type != nil && m.Type.Kind() == reflect.Func {
+			mrtype = c.rtype(m.Type)
 		}
 		typ.Methods[id] = vm.Method{Index: m.Index, Path: mpath, Rtype: mrtype}
 	}
@@ -506,7 +512,7 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 // errOverflow reports a constant that cannot be represented in typ, matching the
 // goparser-side error (gc "constant X overflows T") so both carry a source snippet.
 func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *vm.Type) error {
-	return goparser.ErrConstOverflow{Value: cv.String(), Type: typ.Rtype.String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
+	return goparser.ErrConstOverflow{Value: cv.String(), Type: c.rtype(typ).String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
 func (c *Compiler) symAt(name string) (*symbol.Symbol, bool) {
@@ -1165,7 +1171,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// A named-type value must keep its rtype to dispatch methods at the native
 				// boundary (e.g. xml.Marshal), but the integer-const fold below would drop it.
 				// Route named types through a runtime Convert; plain basic conversions still fold.
-				namedMethodful := s.Type.Base != nil || s.Type.Rtype.NumMethod() > 0
+				namedMethodful := s.Type.Base != nil || c.rtype(s.Type).NumMethod() > 0
 				// Converting a numeric constant to a numeric type is itself a
 				// constant (Go spec): fold it so e.g. `int32(7) * int32(6)`
 				// collapses to a single load. Retract the argument's load (and any
@@ -1226,7 +1232,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					pop()
 				}
 				typ := s.Type
-				nret := typ.Rtype.NumOut()
+				nret := c.rtype(typ).NumOut()
 				for i := 0; i < nret; i++ {
 					push(&symbol.Symbol{Kind: symbol.Value, Type: typ.ReturnType(i)})
 				}
@@ -1238,18 +1244,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if typ == nil {
 					return c.errUndef(t, s.Name)
 				}
+				rt := c.rtype(typ)
 				// Wrap concrete args in Iface when the parameter expects an interface type.
 				// Use mvm-level Params types (which carry IfaceMethods) when available.
-				nIn := typ.Rtype.NumIn()
+				nIn := rt.NumIn()
 				nFixed := nIn
-				if typ.Rtype.IsVariadic() {
+				if rt.IsVariadic() {
 					nFixed = nIn - 1
 				}
 				for k := 0; k < narg && k < nIn; k++ {
 					argSym := stack[len(stack)-narg+k]
 					if argSym.Type == nil {
 						if k < nFixed || (spread && k == nFixed) {
-							c.emitNilCoerce(t, argSym, typ.Rtype.In(k), narg-1-k)
+							c.emitNilCoerce(t, argSym, rt.In(k), narg-1-k)
 						}
 						continue
 					}
@@ -1260,7 +1267,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if k < len(typ.Params) {
 						ifaceTyp = typ.Params[k]
 					} else {
-						ifaceTyp = &vm.Type{Rtype: typ.Rtype.In(k)}
+						ifaceTyp = &vm.Type{Rtype: rt.In(k)}
 					}
 					depth := narg - 1 - k
 					c.emitIfaceWrapAt(t, ifaceTyp, argSym.Type, depth)
@@ -1270,9 +1277,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				// Type switches on variadic slice elements require Iface wrapping at the call site.
 				// For spread calls (f(s...)), the slice is pre-built; skip per-element wrapping.
-				if typ.Rtype.IsVariadic() && !spread {
-					nFixed := typ.Rtype.NumIn() - 1
-					elemType := typ.Rtype.In(nFixed).Elem()
+				if rt.IsVariadic() && !spread {
+					nFixed := rt.NumIn() - 1
+					elemType := rt.In(nFixed).Elem()
 					if elemType.Kind() == reflect.Interface {
 						elemTyp := &vm.Type{Rtype: elemType}
 						for k := nFixed; k < narg; k++ {
@@ -1289,17 +1296,17 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				for i := 0; i < narg; i++ {
 					pop()
 				}
-				nret := typ.Rtype.NumOut()
+				nret := rt.NumOut()
 				for i := 0; i < nret; i++ {
 					push(&symbol.Symbol{Kind: symbol.Value, Type: typ.ReturnType(i)})
 				}
 				callNarg := narg
-				if typ.Rtype.IsVariadic() {
-					nFixed := typ.Rtype.NumIn() - 1
+				if rt.IsVariadic() {
+					nFixed := rt.NumIn() - 1
 					if !spread {
 						// Pack trailing arguments into a slice for the variadic parameter.
 						nExtra := narg - nFixed
-						elemType := typ.Rtype.In(nFixed).Elem()
+						elemType := rt.In(nFixed).Elem()
 						elemIdx := c.typeSym(&vm.Type{Rtype: elemType}).Index
 						c.emit(t, vm.MkSlice, nExtra, elemIdx)
 					}
@@ -1313,13 +1320,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					// see vm.detachByValueArgs). If method calls are ever lowered
 					// to CallImm, the receiver must be included as param 0.
 					op := vm.CallImm
-					if !paramNeedsDetach(typ.Rtype) {
+					if !paramNeedsDetach(rt) {
 						op = vm.CallImmFast
 					}
 					c.emit(t, op, s.Index, callNarg<<16|nret)
 				} else {
 					callNret := nret
-					if typ.Rtype.IsVariadic() && !spread {
+					if rt.IsVariadic() && !spread {
 						callNret |= int(vm.CallSpreadFlag)
 					}
 					c.emit(t, vm.Call, callNarg, callNret)
@@ -1331,7 +1338,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if rv := s.Value.Reflect(); rv.IsValid() {
 				rtyp = rv.Type()
 			} else if s.Type != nil {
-				rtyp = s.Type.Rtype
+				rtyp = c.rtype(s.Type)
 			}
 			// Wrap concrete args in Iface when the parameter expects an interface type.
 			if rtyp != nil && rtyp.Kind() == reflect.Func {
@@ -1622,10 +1629,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// If lhs has an interface type, keep it and wrap the concrete value.
 				if lhs[i].Type != nil && lhs[i].Type.IsInterface() && !typ.IsInterface() {
 					c.emitIfaceWrap(t, lhs[i].Type, typ)
-					c.Data[lhs[i].Index] = vm.NewValue(lhs[i].Type.Rtype)
+					c.Data[lhs[i].Index] = vm.NewValue(c.rtype(lhs[i].Type))
 				} else {
 					lhs[i].Type = typ
-					c.Data[lhs[i].Index] = vm.NewValue(typ.Rtype)
+					c.Data[lhs[i].Index] = vm.NewValue(c.rtype(typ))
 				}
 			}
 			c.emit(t, vm.SetS, n)
@@ -1742,7 +1749,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
 			if lhs.Index != symbol.UnsetAddr {
 				if v := c.Data[lhs.Index]; !v.IsValid() && rhs.Type != nil {
-					c.Data[lhs.Index] = vm.NewValue(rhs.Type.Rtype)
+					c.Data[lhs.Index] = vm.NewValue(c.rtype(rhs.Type))
 					if sym := c.Symbols[lhs.Name]; sym != nil {
 						sym.Type = rhs.Type
 					}
@@ -1997,8 +2004,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 								ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
 							}
 							var mrtype reflect.Type
-							if s.Type != nil && s.Type.Rtype != nil && s.Type.Kind() == reflect.Func {
-								mrtype = s.Type.Rtype
+							if s.Type != nil && s.Type.Kind() == reflect.Func {
+								mrtype = c.rtype(s.Type)
 							}
 							ts.Type.Methods[id] = vm.Method{Index: s.Index, PtrRecv: strings.HasPrefix(parts[0], "*"), Rtype: mrtype}
 						}
@@ -2209,7 +2216,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 					// Determine if auto-deref or auto-addr is needed.
 					methodWantsPtr := strings.HasPrefix(m.Name, "*")
-					recvRtype := s.Type.Rtype
+					recvRtype := c.rtype(s.Type)
 					if len(fieldPath) > 0 {
 						for _, idx := range fieldPath {
 							if recvRtype.Kind() == reflect.Pointer {
@@ -2248,7 +2255,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// calls and as a stored/passed value via Call's native-func path.
 				if s.Kind == symbol.Type && !s.Composite {
 					mname := t.Str[1:]
-					if mfunc, ok := s.Type.Rtype.MethodByName(mname); ok {
+					if mfunc, ok := c.rtype(s.Type).MethodByName(mname); ok {
 						if !s.NoFnew {
 							c.removeFnew(s.Index)
 						}
@@ -2263,7 +2270,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						break
 					}
 				}
-				typ := s.Type.Rtype
+				typ := c.rtype(s.Type)
 				isPtr := typ.Kind() == reflect.Pointer
 				if isPtr {
 					typ = typ.Elem()
@@ -2305,7 +2312,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Native method on concrete reflect type: use IfaceCall for
 				// reflect-based dispatch at runtime.
 				methodName := t.Str[1:]
-				rtype := s.Type.Rtype
+				rtype := c.rtype(s.Type)
 				rm, ok := rtype.MethodByName(methodName)
 				needAddr := false
 				if !ok && rtype.Kind() != reflect.Pointer {
@@ -2452,7 +2459,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if s.Kind == symbol.LocalVar {
 					c.emit(t, vm.New, s.Index, c.typeSym(s.Type).Index)
 				} else {
-					c.Data[s.Index] = vm.NewValue(s.Type.Rtype)
+					c.Data[s.Index] = vm.NewValue(c.rtype(s.Type))
 				}
 			}
 			switch rangeKind {
@@ -2512,7 +2519,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			case reflect.Func:
 				// Range-over-func: subject must be func(yield func(V) bool)
 				// or func(yield func(K, V) bool).
-				ft := vt.Rtype
+				ft := c.rtype(vt)
 				if ft.NumIn() != 1 || ft.NumOut() != 0 {
 					return c.errAt(t, "cannot range over %s (must be func(yield func(...) bool))", ft)
 				}
@@ -2549,7 +2556,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// literal). n > 0 is a Go spec violation -- emit a clean error
 				// rather than miscompiling.
 				if n > 0 {
-					return c.errAt(t, "cannot range over %v", topSym.Type.Rtype)
+					return c.errAt(t, "cannot range over %v", c.rtype(topSym.Type))
 				}
 				c.emit(t, vm.Pop, 1)
 				c.emit(t, vm.Push, 0)
@@ -2682,7 +2689,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Value instead of nil-dereferencing coll.Type.
 			resType := symbol.Vtype(coll)
 			if resType != nil {
-				rtype := resType.Rtype
+				rtype := c.rtype(resType)
 				if rtype.Kind() == reflect.Pointer && rtype.Elem().Kind() == reflect.Array {
 					rtype = rtype.Elem()
 				}
@@ -2704,9 +2711,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.New, s.Index, c.typeSym(typ).Index)
 				case s.Index == symbol.UnsetAddr:
 					s.Index = len(c.Data)
-					c.Data = append(c.Data, vm.NewValue(typ.Rtype))
+					c.Data = append(c.Data, vm.NewValue(c.rtype(typ)))
 				default:
-					c.Data[s.Index] = vm.NewValue(typ.Rtype)
+					c.Data[s.Index] = vm.NewValue(c.rtype(typ))
 				}
 				return s.Index
 			}
@@ -2838,7 +2845,7 @@ func (c *Compiler) emitNilCoerce(t goparser.Token, argSym *symbol.Symbol, paramR
 }
 
 func (c *Compiler) emitNumConvert(t goparser.Token, lhsType, rhsType *vm.Type, depth int) {
-	if lhsType == nil || rhsType == nil || lhsType.Rtype == rhsType.Rtype {
+	if lhsType == nil || rhsType == nil || c.rtype(lhsType) == c.rtype(rhsType) {
 		return
 	}
 	if isNumericConvType(lhsType) && isNumericConvType(rhsType) {
@@ -3384,7 +3391,7 @@ func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
 	for i := len(c.Code) - 1; i >= 0; i-- {
 		if c.Code[i].Op == vm.FnewE {
 			di := int(c.Code[i].A)
-			if di == index || c.Data[di].Type() == typ.Rtype {
+			if di == index || c.Data[di].Type() == c.rtype(typ) {
 				c.Code[i].Op = vm.Fnew
 				return
 			}
@@ -3497,7 +3504,7 @@ func (c *Compiler) compileBuiltin(
 		sliceSym := pop() // slice argument
 		pop()             // append symbol
 		push(sliceSym)    // result is same slice type
-		elemType := sliceSym.Type.Rtype.Elem()
+		elemType := c.rtype(sliceSym.Type).Elem()
 		elemIdx := c.typeSym(&vm.Type{Rtype: elemType}).Index
 		isSpread := len(t.Arg) > 1 && t.Arg[1].(int) != 0
 		// Wrap concrete values in Iface when appending to interface-typed slices.
@@ -3606,7 +3613,7 @@ func (c *Compiler) compileBuiltin(
 			// in step. The value stays a detached snapshot: t-as-element maps are
 			// not rebuilt, so the slot keeps its placeholder value.
 			keyIdx := c.typeSym(makeKeyType(typeSym.Type)).Index
-			valType := typeSym.Type.Rtype.Elem()
+			valType := c.rtype(typeSym.Type).Elem()
 			valIdx := c.typeSym(&vm.Type{Rtype: valType}).Index
 			c.emit(t, vm.MkMap, keyIdx, valIdx)
 		case reflect.Chan:
@@ -3619,7 +3626,7 @@ func (c *Compiler) compileBuiltin(
 				c.emit(t, vm.MkChan, elemIdx, 0)
 			}
 		default:
-			return true, fmt.Errorf("cannot make type %s", typeSym.Type.Rtype)
+			return true, fmt.Errorf("cannot make type %s", c.rtype(typeSym.Type))
 		}
 		return true, nil
 
@@ -3744,14 +3751,14 @@ func (c *Compiler) compileBuiltin(
 			return true, fmt.Errorf("invalid argument count for %s", s.Name)
 		}
 		argSym := (*stack)[len(*stack)-1]
-		if argSym.Type == nil || argSym.Type.Rtype == nil {
+		if argSym.Type == nil || argSym.Type.Kind() == reflect.Invalid {
 			return true, fmt.Errorf("%s: argument has no type", s.Name)
 		}
 		var val uintptr
 		if s.Name == "unsafe.Sizeof" {
-			val = argSym.Type.Rtype.Size()
+			val = argSym.Type.Size()
 		} else {
-			val = uintptr(argSym.Type.Rtype.Align())
+			val = uintptr(argSym.Type.Align())
 		}
 		pop() // argument
 		pop() // fn symbol
@@ -3796,19 +3803,19 @@ func (c *Compiler) compileBuiltin(
 				return true, fmt.Errorf("invalid argument count for %s", s.Name)
 			}
 			ptrSym := (*stack)[len(*stack)-2]
-			if ptrSym.Type == nil || ptrSym.Type.Rtype == nil || ptrSym.Type.Kind() != reflect.Pointer {
+			if ptrSym.Type == nil || ptrSym.Type.Kind() != reflect.Pointer || c.rtype(ptrSym.Type) == nil {
 				return true, errors.New("unsafe.Slice: first argument must be a pointer")
 			}
-			resultType = &vm.Type{Rtype: reflect.SliceOf(ptrSym.Type.Rtype.Elem())}
+			resultType = &vm.Type{Rtype: reflect.SliceOf(c.rtype(ptrSym.Type).Elem())}
 		} else {
 			if narg != 1 {
 				return true, fmt.Errorf("invalid argument count for %s", s.Name)
 			}
 			argSym := (*stack)[len(*stack)-1]
-			if argSym.Type == nil || argSym.Type.Rtype == nil || argSym.Type.Kind() != reflect.Slice {
+			if argSym.Type == nil || argSym.Type.Kind() != reflect.Slice || c.rtype(argSym.Type) == nil {
 				return true, errors.New("unsafe.SliceData: argument must be a slice")
 			}
-			resultType = &vm.Type{Rtype: reflect.PointerTo(argSym.Type.Rtype.Elem())}
+			resultType = &vm.Type{Rtype: reflect.PointerTo(c.rtype(argSym.Type).Elem())}
 		}
 		for range narg + 1 {
 			pop()
@@ -3837,7 +3844,7 @@ func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
 		return i
 	}
 	i := len(c.Data)
-	c.Data = append(c.Data, vm.NewValue(typ.Rtype))
+	c.Data = append(c.Data, vm.NewValue(c.rtype(typ)))
 	c.zeroTypeIdxs[typ] = i
 	return i
 }
@@ -3849,7 +3856,7 @@ func makeElemType(container *vm.Type) *vm.Type {
 	if container.ElemType != nil {
 		return container.ElemType
 	}
-	return &vm.Type{Rtype: container.Rtype.Elem()}
+	return &vm.Type{Rtype: vm.MaterializeRtype(container).Elem()}
 }
 
 // makeKeyType returns the canonical mvm-level key type of a map type, falling
@@ -3859,7 +3866,7 @@ func makeKeyType(container *vm.Type) *vm.Type {
 	if container.KeyType != nil {
 		return container.KeyType
 	}
-	return &vm.Type{Rtype: container.Rtype.Key()}
+	return &vm.Type{Rtype: vm.MaterializeRtype(container).Key()}
 }
 
 func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
@@ -3870,7 +3877,7 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 	}
 	if tsym.Index == symbol.UnsetAddr {
 		tsym.Index = len(c.Data)
-		c.Data = append(c.Data, vm.TypeValue(t.Rtype))
+		c.Data = append(c.Data, vm.TypeValue(c.rtype(t)))
 	}
 	return tsym
 }
@@ -4117,7 +4124,7 @@ func (c *Compiler) compileIntrinsic(
 		for k := 0; k < narg; k++ {
 			argSym := stack[len(stack)-narg+k]
 			paramType := funcType.In(k)
-			if argSym.Type == nil || argSym.Type.Rtype == paramType {
+			if argSym.Type == nil || c.rtype(argSym.Type) == paramType {
 				continue
 			}
 			c.emitNumConvert(t, &vm.Type{Rtype: paramType}, argSym.Type, narg-1-k)

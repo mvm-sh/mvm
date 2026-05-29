@@ -433,7 +433,7 @@ func (e ErrConstOverflow) Error() string {
 func (e ErrConstOverflow) ErrPos() int { return e.Pos }
 
 func (p *Parser) overflowErr(cv constant.Value, typ *vm.Type, tok Token) ErrConstOverflow {
-	return ErrConstOverflow{Value: cv.String(), Type: typ.Rtype.String(), Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
+	return ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
 }
 
 // OverflowsType reports whether the integer constant cv cannot be represented in
@@ -1092,11 +1092,11 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 			placeholder.SetFields(typ)
 		}
 		if s, ok := p.Symbols[name]; ok {
-			s.Value = vm.NewValue(placeholder.Rtype)
+			s.Value = typeTokenValue(placeholder)
 		}
 	case isAlias:
 		// `type X = T` aliases share identity with T.
-		p.SymAdd(symbol.UnsetAddr, name, vm.NewValue(typ.Rtype), symbol.Type, typ)
+		p.SymAdd(symbol.UnsetAddr, name, typeTokenValue(typ), symbol.Type, typ)
 	default:
 		// `type X T` defines a new named type.
 		// Clone so we don't mutate the source type's Name/Methods.
@@ -1112,7 +1112,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		} else {
 			nt.Base = typ
 		}
-		p.SymAdd(symbol.UnsetAddr, name, vm.NewValue(nt.Rtype), symbol.Type, &nt)
+		p.SymAdd(symbol.UnsetAddr, name, typeTokenValue(&nt), symbol.Type, &nt)
 	}
 	return out, err
 }
@@ -1136,18 +1136,26 @@ func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
 		typ := types[i]
 		typName := typ.Name
 		if typName == "" {
-			typName = typ.Rtype.String()
+			typName = typ.String()
 		}
 		if typ.Kind() == reflect.Pointer {
 			typName = "*" + typName // Distinguish "*T" from "T".
 		}
-		// Resolve a symbol-table key whose Type Symbol points at typ.Rtype.
-		// Pointer-identity matters: multiple pkgs can declare the same short
-		// name (e.g. internal/language.Tag vs language.Tag) with different
-		// rtypes; picking a sibling pkg's same-named type would emit Fnew of
-		// the wrong rtype and trip reflect.Set in the SetLocal below.
+		// Resolve a symbol-table key whose Type Symbol denotes typ.
+		// Identity matters: multiple pkgs can declare the same short name (e.g.
+		// internal/language.Tag vs language.Tag); picking a sibling pkg's
+		// same-named type would emit Fnew of the wrong type and trip reflect.Set
+		// in the SetLocal below. Prefer *Type pointer identity (survives nil
+		// Rtype before materialization), falling back to rtype identity for
+		// native types that share a *Type clone but carry the same rtype.
 		matches := func(s *symbol.Symbol) bool {
-			return s != nil && s.Kind == symbol.Type && s.Type != nil && s.Type.Rtype == typ.Rtype
+			if s == nil || s.Kind != symbol.Type || s.Type == nil {
+				return false
+			}
+			if s.Type == typ {
+				return true
+			}
+			return s.Type.Rtype != nil && s.Type.Rtype == typ.Rtype
 		}
 		typKey := ""
 		if sym, sc, ok := p.symGet(typName); ok && matches(sym) {
@@ -1182,7 +1190,7 @@ func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
 			// Type not yet in the symbol table; register it now at the
 			// canonical pkgKey (qualified for imported pkgs, bare for main/REPL).
 			typKey = p.pkgKey(typName)
-			p.SymAdd(symbol.UnsetAddr, typKey, vm.NewValue(typ.Rtype), symbol.Type, typ)
+			p.SymAdd(symbol.UnsetAddr, typKey, typeTokenValue(typ), symbol.Type, typ)
 		}
 		out = append(out, newIdent(v, 0))
 		// Carry the resolved type so the compiler resolves the zero-init by
