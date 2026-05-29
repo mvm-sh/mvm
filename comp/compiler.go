@@ -3998,8 +3998,9 @@ func (c *Compiler) RefreshSynthRtype() {
 	}
 }
 
-// ifaceZeroStable reports that a nil-interface zero slot needs no re-emit: it is
-// identical regardless of which interface type.
+// ifaceZeroStable reports that re-emitting an interface-kind slot is a no-op:
+// vm.NewValue yields AnyRtype for every interface, so a slot already holding one
+// can't change. Skips the (always-mismatching) old.Type()==rt check for them.
 func ifaceZeroStable(old vm.Value, rt reflect.Type) bool {
 	return rt != nil && rt.Kind() == reflect.Interface && old.Type().Kind() == reflect.Interface
 }

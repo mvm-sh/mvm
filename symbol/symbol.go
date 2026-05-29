@@ -129,16 +129,14 @@ func (sm SymMap) Get(name, scope string) (sym *Symbol, sc string, ok bool) {
 	return sym, scope, ok
 }
 
-// mrtype returns t's rtype, materializing it on demand (composite/named types
-// built symbolically by goparser carry no rtype until comp materializes them).
-func mrtype(t *vm.Type) reflect.Type {
-	if t == nil {
-		return nil
+// sameNamedType matches cand against the receiver by *Type identity (recvCanon
+// is recv's Base-walked canonical, so a clone matches its source), falling back
+// to rtype equality only when both already carry one -- never materializing.
+func sameNamedType(cand, recv, recvCanon *vm.Type, recvRt reflect.Type) bool {
+	if cand == recv || vm.CanonicalType(cand) == recvCanon {
+		return true
 	}
-	if t.Rtype != nil {
-		return t.Rtype
-	}
-	return vm.MaterializeRtype(t)
+	return recvRt != nil && cand.Rtype != nil && cand.Rtype == recvRt
 }
 
 // MethodByName returns the method symbol and the field index path to the receiver
@@ -171,13 +169,23 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 		// Methods are registered under the short receiver name (`*T.M`), so
 		// prefer whichever candidate key actually has a registered method.
 		if typName == "" {
-			rtype := mrtype(sym.Type)
-			if rtype != nil && rtype.Kind() == reflect.Pointer {
-				rtype = rtype.Elem()
+			// Match the symbol table's named value type by *Type identity; strip a
+			// pointer wrapper symbolically (interpreted ptrs carry ElemType).
+			recv := sym.Type
+			if recv.IsPtr() && recv.ElemType != nil {
+				recv = recv.ElemType
+			}
+			recvCanon := vm.CanonicalType(recv)
+			recvRt := recv.Rtype
+			if recvRt != nil && recvRt.Kind() == reflect.Pointer {
+				recvRt = recvRt.Elem()
 			}
 			var firstName string
 			for k, s := range sm {
-				if s.Kind != Type || s.Type == nil || mrtype(s.Type) != rtype || k == "" {
+				if s.Kind != Type || s.Type == nil || k == "" {
+					continue
+				}
+				if !sameNamedType(s.Type, recv, recvCanon, recvRt) {
 					continue
 				}
 				if firstName == "" {
@@ -208,9 +216,12 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 		// `type durationValue time.Duration` from hijacking calls intended
 		// for the stdlib's *time.Duration.String.
 		if typName != "" {
-			rt := mrtype(sym.Type)
+			// Probe for a native method (a stdlib bridge like time.Duration.String)
+			// only when the canonical underlying is native; interpreted types have
+			// none, so skip the probe (and the materialization it forced).
 			nativeVal, nativePtr := false, false
-			if rt != nil {
+			if canon := vm.CanonicalType(sym.Type); canon != nil && canon.Rtype != nil {
+				rt := canon.Rtype
 				ptype := rt
 				if ptype.Kind() == reflect.Pointer {
 					ptype = ptype.Elem()
@@ -231,27 +242,30 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 
 // qualifiedMethodLookup finds a method registered at a pkg-qualified canonical
 // key (Path B step 2, [[project_phase2_path_b_step2_funcs_methods]]). It searches
-// sm for a Type Symbol whose underlying Rtype matches recv's (after stripping a
-// pointer wrapper) and whose key ends in ".<typName>", then probes `<key>.<method>`
-// and `*<key>.<method>`.
+// sm for a Type Symbol matching recv and whose key ends in ".<typName>", then
+// probes `<key>.<method>` and `*<key>.<method>`.
 //
-// Two distinct mvm Types can share the same Rtype (e.g. `compact.Tag` and the
-// outer `language.Tag` are both `struct{P30 int}` in x/text via `type Tag compact.Tag`).
-// Rtype-only matching would pick one at random via Go's map iteration -- the root
-// cause of [[project_isroot_iface_dispatch_recursion]]. So a candidate whose
-// Symbol *vm.Type pointer equals recv wins immediately; an rtype-only match is
-// kept as fallback in case recv has no entry of its own.
+// Matching is by *Type identity, not rtype: two distinct mvm Types can share the
+// same Rtype (e.g. `compact.Tag` and the outer `language.Tag`, both `struct{P30
+// int}` in x/text via `type Tag compact.Tag`), and rtype-only matching would pick
+// one at random -- the root cause of [[project_isroot_iface_dispatch_recursion]].
+// An rtype-equality match is kept only as a fallback for native types.
 func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *Symbol {
 	if recv == nil {
 		return nil
 	}
-	// recv may be a field/param clone whose own rtype identity differs from the
-	// canonical type symbol's; follow Base to the source so a pointer match wins.
-	canon := recv
-	for canon.Base != nil && canon.Base != canon {
-		canon = canon.Base
+	// Methods register under the value type: strip a pointer wrapper symbolically
+	// (interpreted ptrs carry ElemType) and canonicalize so a clone matches its
+	// source. Identity matching below avoids materializing an interpreted type.
+	rv := recv
+	if rv.IsPtr() && rv.ElemType != nil {
+		rv = rv.ElemType
 	}
-	rt := mrtype(recv)
+	rvCanon := vm.CanonicalType(rv)
+	rt := rv.Rtype // native value-type rtype, fallback only
+	if rt == nil && rvCanon != nil {
+		rt = rvCanon.Rtype
+	}
 	if rt != nil && rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
@@ -271,10 +285,14 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *S
 		if m == nil {
 			continue
 		}
-		if s.Type == recv || s.Type == canon {
+		cv := s.Type
+		if cv.IsPtr() && cv.ElemType != nil {
+			cv = cv.ElemType
+		}
+		if cv == rv || vm.CanonicalType(cv) == rvCanon {
 			return m
 		}
-		srt := mrtype(s.Type)
+		srt := cv.Rtype
 		if srt != nil && srt.Kind() == reflect.Pointer {
 			srt = srt.Elem()
 		}
