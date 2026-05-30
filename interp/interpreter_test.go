@@ -1020,6 +1020,12 @@ func TestStruct(t *testing.T) {
 		// slot, not a stack. See [[project_panic_in_defer_hang]].
 		{n: "nested_panic_outer_resumes", skip: true, src: `func f() (out string) { defer func() { if r := recover(); r != nil { out = r.(string) } }(); defer func() { defer func() { recover() }(); panic("inner") }(); panic("outer"); return }; f()`, res: "outer"},
 
+		// Go 1.21+: panic of a nil interface yields *runtime.PanicNilError; a
+		// typed nil stays itself. See [[project_panic_nil_error]].
+		{n: "panic_nil_literal", src: `func f() (s string) { defer func() { s = recover().(error).Error() }(); panic(nil); return }; f()`, res: "panic called with nil argument"},
+		{n: "panic_nil_iface", src: `func f() (s string) { defer func() { s = recover().(error).Error() }(); var e error; panic(e); return }; f()`, res: "panic called with nil argument"},
+		{n: "panic_typed_nil_kept", src: `func f() (out bool) { defer func() { _, out = recover().(*int) }(); panic((*int)(nil)); return }; f()`, res: "true"},
+
 		{n: "errors_is_custom_match", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrPermission)`, res: "true"},
 		{n: "errors_is_custom_nomatch", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrNotExist)`, res: "false"},
 

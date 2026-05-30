@@ -873,13 +873,15 @@ func packRetIP(retIP, nret, frameBase int) uint64 {
 	return uint64(uint32(retIP)) | uint64(nret&retNretMask)<<32 | uint64(frameBase)<<48
 }
 
-// deferStartedFlag marks a defer entry (packed slot mem[dh-2]) as dispatched,
-// so panicUnwind skips it on re-entry instead of re-running a defer whose body
-// panicked before deferRet popped the chain. Mirrors Go's _defer.started; sits
-// above narg, which deferNarg masks off.
+// A defer entry's mem[dh-2] slot packs isX (bits 0..1: 0 VM, 1 native, 2
+// builtin), narg (bits 2..62), and deferStartedFlag (bit 63), via the helpers
+// below. The flag lets panicUnwind skip an already-dispatched defer (Go's
+// _defer.started) rather than re-run one whose body panicked before deferRet.
 const deferStartedFlag = uint64(1) << 63
 
-func deferNarg(packed uint64) int { return int((packed &^ deferStartedFlag) >> 2) }
+func packDefer(narg, isX int) uint64 { return uint64(narg<<2 | isX) }
+func deferNarg(packed uint64) int    { return int((packed &^ deferStartedFlag) >> 2) }
+func deferIsX(packed uint64) int     { return int(packed & 3) }
 
 func growStack(mem []Value, sp, need int) []Value {
 	n := max(len(mem)*2, sp+1+need+256)
@@ -2135,7 +2137,11 @@ func (m *Machine) Run() (err error) {
 
 		case Panic:
 			m.panicking = true
-			m.panicVal = mem[sp]
+			if nilInterfacePanic(mem[sp]) {
+				m.panicVal = panicNilErr // Go 1.21+: panic(nil) -> *runtime.PanicNilError
+			} else {
+				m.panicVal = mem[sp]
+			}
 			sp-- // pop the panic argument
 			ip = m.stageUnwind(ip, fp, mem)
 			continue
@@ -2156,7 +2162,7 @@ func (m *Machine) Run() (err error) {
 			if dh != 0 {
 				packed := mem[dh-2].num
 				narg := deferNarg(packed)
-				isX := int(packed & 3)
+				isX := deferIsX(packed)
 				prevHead := int(mem[dh-1].num)
 				funcVal := mem[dh-narg-3]
 				retBase := dh - narg - 3
@@ -2192,8 +2198,8 @@ func (m *Machine) Run() (err error) {
 				prevHeap := m.heap
 				nip := m.resolveIPAndHeap(funcVal)
 				if nip == nilFuncAddr {
-					// Nil deferred call panics; remaining defers still run. Left on
-					// the chain so the panic unwind pops it (its own nilFuncAddr guard).
+					// Nil deferred call panics; the entry stays on the chain (flagged
+					// started above) for panicUnwind's started guard to pop.
 					m.raiseNilDeref()
 					ip = m.stageUnwind(ip, fp, mem)
 					continue
@@ -3034,7 +3040,7 @@ func (m *Machine) deferPush(c *Instruction, mem []Value, fp, sp int) ([]Value, i
 	if sp+3 >= len(mem) {
 		mem = growStack(mem, sp, 3)
 	}
-	mem[sp+1] = Value{num: uint64(narg<<2 | isX)}
+	mem[sp+1] = Value{num: packDefer(narg, isX)}
 	mem[sp+2] = Value{num: uint64(prevHead)}
 	mem[sp+3] = Value{} // returnIP placeholder, filled by Return
 	sp += 3
@@ -3072,7 +3078,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 	if dh != 0 {
 		packed := (*mem)[dh-2].num
 		narg := deferNarg(packed)
-		isX := int(packed & 3)
+		isX := deferIsX(packed)
 		prevHead := int((*mem)[dh-1].num)
 		funcVal := (*mem)[dh-narg-3]
 		retBase := dh - narg - 3
@@ -3245,6 +3251,23 @@ func (m *Machine) raiseNilDeref() {
 	m.panicking = true
 	m.panicVal = Value{ref: reflect.ValueOf(nilPointerPanicValue)}
 }
+
+// nilInterfacePanic reports whether a panic argument is a nil interface (which
+// Go 1.21+ replaces with *runtime.PanicNilError), as opposed to a typed nil
+// like (*int)(nil), which is a non-nil interface and kept as-is.
+func nilInterfacePanic(v Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+	if v.IsIface() {
+		return v.IfaceVal().Typ == nil
+	}
+	return v.ref.Kind() == reflect.Interface && v.ref.IsNil()
+}
+
+// panicNilErr is the value Go 1.21+ panics with for panic(nil). Shared since
+// recover only reads it.
+var panicNilErr = Value{ref: reflect.ValueOf(&runtime.PanicNilError{})}
 
 func (m *Machine) panicAddr() int { return m.baseCodeLen + 1 }
 
