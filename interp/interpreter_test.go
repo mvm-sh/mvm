@@ -1003,6 +1003,23 @@ func TestStruct(t *testing.T) {
 		{n: "astype_nomatch", src: `import "errors"; type E struct{ s string }; func (e *E) Error() string { return e.s }; type F struct{ n int }; func (f *F) Error() string { return "f" }; var err error = &E{"boom"}; _, ok := errors.AsType[*F](err); ok`, res: "false"},
 		{n: "astype_unwrap_chain", src: `import "errors"; import "fmt"; type E struct{ s string }; func (e *E) Error() string { return e.s }; base := &E{"inner"}; w := fmt.Errorf("ctx: %w", base); v, ok := errors.AsType[*E](w); ok && v.s == "inner"`, res: "true"},
 
+		// Generic sync helpers, installed as a shim (stdlib/sync_shim.go) since
+		// they can't bind via reflect.ValueOf. See [[project_sync_oncevalue_shim]].
+		{n: "oncevalue_caches", src: `import "sync"; n := 0; f := sync.OnceValue(func() int { n++; return 7 }); a := f() + f(); a*10 + n`, res: "141"},
+		{n: "oncevalues_multi", src: `import "sync"; g := sync.OnceValues(func() (int, int) { return 3, 4 }); a, b := g(); c, d := g(); a + b + c + d`, res: "14"},
+		{n: "oncevalue_panics", src: `import "sync"; f := sync.OnceValue(func() int { panic("boom") }); r := func() (s string) { defer func() { s, _ = recover().(string) }(); f(); return }(); r`, res: "boom"},
+
+		// A panic inside a deferred func used to loop forever (vm: deferStartedFlag).
+		// See [[project_panic_in_defer_hang]].
+		{n: "repanic_in_defer", src: `func f() (s string) { defer func() { s = recover().(string) }(); func() { defer func() { panic(recover()) }(); panic("x") }(); return }; f()`, res: "x"},
+		{n: "panic_in_defer_normal_return", src: `func inner() { defer func() { panic("x") }() }; func f() (s string) { defer func() { s = recover().(string) }(); inner(); return }; f()`, res: "x"},
+		{n: "panic_in_defer_earlier_still_runs", src: `func inner(log *[]int) { defer func() { *log = append(*log, 1) }(); defer func() { panic("x") }() }; func f() int { log := []int{}; func() { defer func() { recover() }(); inner(&log) }(); return len(log) }; f()`, res: "1"},
+
+		// SKIP: recovering an inner panic (raised in a defer running during an
+		// outer panic's unwind) drops the outer one -- mvm has a single panic
+		// slot, not a stack. See [[project_panic_in_defer_hang]].
+		{n: "nested_panic_outer_resumes", skip: true, src: `func f() (out string) { defer func() { if r := recover(); r != nil { out = r.(string) } }(); defer func() { defer func() { recover() }(); panic("inner") }(); panic("outer"); return }; f()`, res: "outer"},
+
 		{n: "errors_is_custom_match", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrPermission)`, res: "true"},
 		{n: "errors_is_custom_nomatch", src: `import "errors"; import "io/fs"; type E struct{ s string }; func (e E) Error() string { return e.s }; func (e E) Is(t error) bool { return t == fs.ErrPermission }; var err error = E{"x"}; errors.Is(err, fs.ErrNotExist)`, res: "false"},
 

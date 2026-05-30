@@ -873,6 +873,14 @@ func packRetIP(retIP, nret, frameBase int) uint64 {
 	return uint64(uint32(retIP)) | uint64(nret&retNretMask)<<32 | uint64(frameBase)<<48
 }
 
+// deferStartedFlag marks a defer entry (packed slot mem[dh-2]) as dispatched,
+// so panicUnwind skips it on re-entry instead of re-running a defer whose body
+// panicked before deferRet popped the chain. Mirrors Go's _defer.started; sits
+// above narg, which deferNarg masks off.
+const deferStartedFlag = uint64(1) << 63
+
+func deferNarg(packed uint64) int { return int((packed &^ deferStartedFlag) >> 2) }
+
 func growStack(mem []Value, sp, need int) []Value {
 	n := max(len(mem)*2, sp+1+need+256)
 	newMem := make([]Value, n)
@@ -2147,7 +2155,7 @@ func (m *Machine) Run() (err error) {
 			dh := int(mem[fp-3].num)
 			if dh != 0 {
 				packed := mem[dh-2].num
-				narg := int(packed >> 2)
+				narg := deferNarg(packed)
 				isX := int(packed & 3)
 				prevHead := int(mem[dh-1].num)
 				funcVal := mem[dh-narg-3]
@@ -2180,6 +2188,7 @@ func (m *Machine) Run() (err error) {
 				}
 				// VM function: pack ip and nret into the returnIP slot, then call.
 				mem[dh].num = uint64(ip) | uint64(nret)<<32
+				mem[dh-2].num |= deferStartedFlag
 				prevHeap := m.heap
 				nip := m.resolveIPAndHeap(funcVal)
 				if nip == nilFuncAddr {
@@ -3036,7 +3045,7 @@ func (m *Machine) deferPush(c *Instruction, mem []Value, fp, sp int) ([]Value, i
 func (m *Machine) deferRet(mem []Value, fp, sp int) ([]Value, int, int) {
 	mem = mem[:sp+1]
 	dh := int(mem[fp-3].num)
-	narg := int(mem[dh-2].num >> 2)
+	narg := deferNarg(mem[dh-2].num)
 	val := mem[dh].num
 	returnIP := int(int32(val & 0xFFFFFFFF))
 	nret := int(val >> 32)
@@ -3062,7 +3071,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 	dh := int((*mem)[*fp-3].num)
 	if dh != 0 {
 		packed := (*mem)[dh-2].num
-		narg := int(packed >> 2)
+		narg := deferNarg(packed)
 		isX := int(packed & 3)
 		prevHead := int((*mem)[dh-1].num)
 		funcVal := (*mem)[dh-narg-3]
@@ -3074,6 +3083,10 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 			*sp = len(*mem) - 1
 			*mem = (*mem)[:cap(*mem)]
 			return false, nil
+		}
+		if packed&deferStartedFlag != 0 {
+			// Body already ran and panicked; skip rather than loop re-running it.
+			return popDefer()
 		}
 		if isX == 2 {
 			m.execBuiltinDeferred(Op(funcVal.num), dh-narg-2, narg, *mem)
@@ -3095,6 +3108,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		retIPInfo := (*mem)[*fp-2].num
 		nret := int((retIPInfo >> 32) & retNretMask)
 		(*mem)[dh].num = uint64(uint32(panicAddr)) | uint64(nret)<<32
+		(*mem)[dh-2].num |= deferStartedFlag
 		prevHeap := m.heap
 		nip := m.resolveIPAndHeap(funcVal)
 		if nip == nilFuncAddr {
