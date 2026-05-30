@@ -9,12 +9,6 @@ import (
 	"github.com/mvm-sh/mvm/runtype"
 )
 
-// Runtime materialization of mtype.Type: derived-type construction, the synth
-// cascade, and field/elem patching. These are runtime concerns, kept out of the
-// symbolic mtype package so it imports no runtype. The caches are side tables
-// keyed by *mtype.Type identity, so a cloned *Type gets a fresh entry -- no
-// shared derived cache, hence no placeholder aliasing.
-
 type derivedTypes struct {
 	ptr   *mtype.Type
 	slice *mtype.Type
@@ -42,9 +36,6 @@ func ensureDerived(t *mtype.Type) *derivedTypes {
 	return d
 }
 
-// definedOverBase reports that t is a defined composite (type ipValue net.IP)
-// with no own symbolic structure, so it materializes from Base; basic defined
-// types (type Grams int) use basicRtype instead.
 func definedOverBase(t *mtype.Type) bool {
 	if t.Base == nil || t.Base == t || t.ElemType != nil || t.KeyType != nil ||
 		len(t.Fields) != 0 || len(t.Params) != 0 {
@@ -59,12 +50,11 @@ func definedOverBase(t *mtype.Type) bool {
 
 // MaterializeRtype builds and caches t.Rtype from t's symbolic graph (Kind +
 // ElemType/KeyType/Fields/Params/Returns + ArrayLen/ChanDir/Variadic/Tags) when
-// it is not already set, recursing into children first. This is the comp-side
-// materialization that lets goparser build a *Type without an rtype.
+// it is not already set, recursing into children first.
+// This is the comp-side materialization that lets goparser build a *Type without an rtype.
 //
 // A named leaf (a primitive or struct that carries methods) must already hold
-// its rtype -- the synth attach is its materialization -- so an un-materialized
-// leaf here yields nil.
+// its rtype so an un-materialized leaf here yields nil.
 func MaterializeRtype(t *mtype.Type) reflect.Type {
 	if t == nil {
 		return nil
@@ -149,6 +139,12 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 			for _, f := range t.Fields {
 				MaterializeRtype(f)
 			}
+			if !fieldsMaterialized(t.Fields) {
+				// A field references a not-yet-finalized placeholder (e.g. *T sibling):
+				// reset Rtype so a later call retries once it is finalized.
+				t.Rtype = nil
+				return nil
+			}
 			mtype.PatchRtype(ph, mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype)
 			// PatchRtype keeps ph's placeholder name; stamp the real one.
 			// Method-bearing types get theirs from attach instead.
@@ -159,6 +155,9 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 		}
 		for _, f := range t.Fields {
 			MaterializeRtype(f)
+		}
+		if !fieldsMaterialized(t.Fields) {
+			return nil
 		}
 		rt = mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
 	default:
@@ -174,8 +173,15 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	return rt
 }
 
-// basicRtype returns the canonical native rtype for a basic kind, or nil for a
-// non-basic kind.
+func fieldsMaterialized(fields []*mtype.Type) bool {
+	for _, f := range fields {
+		if f.Rtype == nil && f.Kind() != reflect.Interface {
+			return false
+		}
+	}
+	return true
+}
+
 func basicRtype(k reflect.Kind) reflect.Type {
 	return basicRtypes[k]
 }

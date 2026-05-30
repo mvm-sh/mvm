@@ -21,9 +21,7 @@ var errKindStruct = errors.New(
 
 // AttachStructMethods returns a new rtype whose method set contains methods.
 // name is the user-facing type name stamped into the synth rtype's Str so
-// reflect.Type.Name()/String() match the source program (the source layout's
-// Str may point into a moduledata reflect cannot resolve from a heap-built
-// rtype, so we always restamp via addReflectOff).
+// reflect.Type.Name()/String() match the source program.
 // The original layout rtype is discarded; callers MUST use the returned type
 // as the canonical identity.
 // itab cache keys on pointer identity, so a mismatch silently disables

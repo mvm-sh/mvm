@@ -104,9 +104,6 @@ func ChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
 }
 
 // ArrayOf returns the [n]elem rtype.
-// Array layout (Size, Align, GCData, Equal) depends on elem's layout, so we
-// build the bones via reflect.ArrayOf on the layout shadow of elem, then
-// clone and patch Elem to point at the synth elem.
 // The cloned array's Slice field is left pointing at the shadow []layoutElem;
 // reflect.Value.Slice on a synth array therefore yields the shadow slice
 // type, which is acceptable since the use case for these constructors is
@@ -133,9 +130,6 @@ func ArrayOf(n int, elem reflect.Type) reflect.Type {
 }
 
 // MapOf returns the map[key]elem rtype.
-// Hasher and Group fields depend on the key's layout (kind/size/pointer
-// presence); we build the bones via reflect.MapOf on the layout shadows of
-// both key and elem, then clone and patch Key/Elem to the synth rtypes.
 func MapOf(key, elem reflect.Type) reflect.Type {
 	keyRT := rtypePtr(key)
 	elemRT := rtypePtr(elem)
