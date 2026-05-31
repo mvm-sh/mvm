@@ -38,6 +38,14 @@ func (m *Machine) AttachSynthMethods(t *Type) error {
 	if !synthSupportedKind(t.Rtype.Kind()) {
 		return nil
 	}
+	// An unnamed type carries only promoted methods (Go forbids methods on an
+	// anonymous type, e.g. struct{io.Reader}); those dispatch through the embedded
+	// field's own rtype, so the container needs no synth attach. Skipping keeps its
+	// identity stable -- attaching would swap it (RefreshRtype) and force the
+	// cascade to re-emit every composite that captured it.
+	if t.Name == "" {
+		return nil
+	}
 
 	valueAttached, err := m.attachValueRecv(t)
 	if err != nil {
@@ -180,6 +188,7 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	cascadeHit("RefreshRtype-value", t)
 	RefreshRtype(t, newRT)
 	return true, nil
 }
@@ -206,6 +215,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		if err != nil {
 			return err
 		}
+		cascadeHit("RefreshRtype-ptrclone", t)
 		RefreshRtype(t, clone)
 	}
 	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath, methods)

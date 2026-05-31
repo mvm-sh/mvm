@@ -105,13 +105,34 @@ func lookupReservation(t *mtype.Type) *synthReservation {
 	return reservations[t]
 }
 
-// isFieldClone reports whether t is a struct-field copy of a named method-bearing
-// type: it carries the field name in t.Name but must resolve to Base's identity.
-// A canonical defined type's Base is unnamed; defined-over-named is intercepted by
-// definedOverBase before reaching here.
+// cascadeProbe logs each real cascade action (MVM_CASCADEPROBE=1) -- the swap +
+// in-place patch work reserve aims to eliminate. Drives the residual to zero before
+// the cascade funcs are deleted.
+var cascadeProbe = os.Getenv("MVM_CASCADEPROBE") != ""
+
+func cascadeHit(what string, t *mtype.Type) {
+	if !cascadeProbe || t == nil {
+		return
+	}
+	rts := ""
+	if t.Rtype != nil {
+		rts = t.Rtype.String()
+	}
+	fmt.Fprintf(os.Stderr, "CASCADE-HIT %s name=%q rtype=%q methods=%d\n", what, t.PkgPath+"."+t.Name, rts, len(t.Methods))
+}
+
+// isFieldClone reports whether t is a struct-field copy of a named type that must
+// resolve to Base's identity: it carries the field name in t.Name with a cleared
+// PkgPath. A canonical defined type's Base is unnamed; defined-over-named is
+// intercepted by definedOverBase before reaching here.
 func isFieldClone(t *mtype.Type) bool {
-	return t.Base != nil && t.Base.Name != "" &&
-		t.Base.Kind() == t.Kind() && len(t.Base.Methods) > 0
+	if t.Base == nil || t.Base.Name == "" || t.Base.Kind() != t.Kind() {
+		return false
+	}
+	// Method-bearing base: the clone shares Base's identity + methods. Methodless
+	// named-struct base: still a clone -- route to Base for the canonical qualified
+	// identity, else the container's field stamps a bare name and gets patched.
+	return len(t.Base.Methods) > 0 || (t.Kind() == reflect.Struct && t.Base.PkgPath != "")
 }
 
 // maybeReserve gives a named non-struct method-bearing type a reserved synth
@@ -287,10 +308,12 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	if t.Placeholder {
 		return nil // forward-declared struct/interface not yet finalized
 	}
-	// No own structure: materialize from the underlying (synth attach restores
-	// the named identity).
+	// No own structure: materialize from the underlying. A method-bearing
+	// defined-over-basic type (e.g. `type Confidence int` with methods) reserves
+	// over the base layout so attach fills in place; otherwise the swap path runs.
 	if definedOverBase(t) {
 		if rt := MaterializeRtype(t.Base); rt != nil {
+			rt = maybeReserve(t, rt)
 			t.Rtype = rt
 			return rt
 		}
@@ -807,6 +830,7 @@ func PatchSynthStructFields(t *mtype.Type) {
 			if !runtype.SamePtrLayout(t.Rtype.Field(i).Type, live) {
 				continue
 			}
+			cascadeHit("PatchStructField", t)
 			runtype.PatchStructField(t.Rtype, i, live)
 		}
 	})
@@ -833,5 +857,6 @@ func PatchSynthSliceElem(t *mtype.Type) {
 	if !runtype.SamePtrLayout(t.Rtype.Elem(), live) {
 		return
 	}
+	cascadeHit("PatchSliceElem", t)
 	runtype.PatchSliceElem(t.Rtype, live)
 }

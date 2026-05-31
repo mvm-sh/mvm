@@ -402,6 +402,18 @@ func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
 // Symbolizing those sites drives the count to zero so generate becomes reflect-free.
 var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
 
+var cascadeProbe = os.Getenv("MVM_CASCADEPROBE") != ""
+
+func cascadeReemit(what string, t *vm.Type) {
+	if cascadeProbe && t != nil {
+		rts := ""
+		if t.Rtype != nil {
+			rts = t.Rtype.String()
+		}
+		fmt.Fprintf(os.Stderr, "CASCADE-HIT FillTypeSlots-%s name=%q rtype=%q\n", what, t.PkgPath+"."+t.Name, rts)
+	}
+}
+
 // deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
 // to a post-attach FillTypeSlots pass. On by default; set MVM_DEFERSLOTS=0 to
 // fall back to eager materialization (kept until the cascade is dropped).
@@ -456,9 +468,10 @@ func (c *Compiler) FillTypeSlots() {
 	for t, idx := range c.zeroTypeIdxs {
 		rt := liveSynthRtype(t)
 		old := c.Data[idx]
-		if !old.IsValid() || old.Type() == rt || ifaceZeroStable(old, rt) {
+		if !old.IsValid() || old.Type() == rt || anyZeroStable(old, rt) {
 			continue
 		}
+		cascadeReemit("zeroIdx", t)
 		c.Data[idx] = vm.NewValue(rt)
 	}
 	for _, sym := range c.typeSyms {
@@ -469,6 +482,7 @@ func (c *Compiler) FillTypeSlots() {
 		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == rt {
 			continue
 		}
+		cascadeReemit("typeSym", sym.Type)
 		c.Data[sym.Index] = vm.TypeValue(rt)
 	}
 	for _, sym := range c.Symbols {
@@ -477,9 +491,10 @@ func (c *Compiler) FillTypeSlots() {
 		}
 		rt := liveSynthRtype(sym.Type)
 		old := c.Data[sym.Index]
-		if !old.IsValid() || old.Type() == rt || ifaceZeroStable(old, rt) {
+		if !old.IsValid() || old.Type() == rt || anyZeroStable(old, rt) {
 			continue
 		}
+		cascadeReemit("var", sym.Type)
 		c.Data[sym.Index] = vm.NewValue(rt)
 	}
 }
@@ -4040,10 +4055,14 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 }
 
 // ifaceZeroStable reports that re-emitting an interface-kind slot is a no-op:
-// vm.NewValue yields AnyRtype for every interface, so a slot already holding one
-// can't change. Skips the (always-mismatching) old.Type()==rt check for them.
-func ifaceZeroStable(old vm.Value, rt reflect.Type) bool {
-	return rt != nil && rt.Kind() == reflect.Interface && old.Type().Kind() == reflect.Interface
+// anyZeroStable reports that re-emitting a zero slot is a no-op: vm.NewValue stores
+// every interface AND func var slot as AnyRtype eface, so a slot already holding one
+// re-emits byte-identically. Skips the (always-mismatching) old.Type()==rt check.
+func anyZeroStable(old vm.Value, rt reflect.Type) bool {
+	if rt == nil || old.Type().Kind() != reflect.Interface {
+		return false
+	}
+	return rt.Kind() == reflect.Interface || rt.Kind() == reflect.Func
 }
 
 // liveSynthRtype upgrades a copy's frozen Rtype to its canonical source's
