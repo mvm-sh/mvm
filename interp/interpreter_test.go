@@ -1120,6 +1120,11 @@ func TestStruct(t *testing.T) {
 
 		{n: "errors_deepequal_array", src: `import "errors"; import "reflect"; type M []error; func (m M) Error() string { return "m" }; func (m M) Unwrap() []error { return []error(m) }; e := errors.New("e3"); reflect.DeepEqual([1]error{M{e}}, [1]error{M{e}})`, res: "true"},
 
+		// fmt TestScanfMulti: a named-type value in a literal []any keeps mvm's Iface wrapper,
+		// so a native reflect walk into the slice reads vm.Iface, not the concrete the
+		// reflect-built side holds.
+		{n: "reflect_deepequal_named_in_any_slice", skip: true, src: `import "reflect"; type Xs string; var x Xs = "ee"; st := reflect.TypeOf(make([]any, 1)); rv := reflect.MakeSlice(st, 1, 1); rv.Index(0).Set(reflect.ValueOf(&x).Elem()); reflect.DeepEqual(rv.Interface(), []any{Xs("ee")})`, res: "true"},
+
 		{n: "fmt_pct_T_interpreted_error", src: `import "fmt"; type S struct{ s string }; func (e S) Error() string { return e.s }; var err error = S{"x"}; fmt.Sprintf("%T", err)`, res: "main.S"},
 
 		// SKIP (deeper gap): a multierror promoted from an EMBEDDED field panics
