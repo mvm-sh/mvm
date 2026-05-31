@@ -4046,36 +4046,20 @@ func ifaceZeroStable(old vm.Value, rt reflect.Type) bool {
 	return rt != nil && rt.Kind() == reflect.Interface && old.Type().Kind() == reflect.Interface
 }
 
-// liveSynthRtype upgrades a field-copy's frozen Rtype to its named source's
-// post-synth-attach rtype, so `w := o.Weight` (a copy of `type Grams int`)
-// keeps Grams's methods. Canonical types (Base == nil) are already live.
-// Basic-kind only: composite copies carry element identity that
-// CanonicalType's underlying-type walk would discard.
+// liveSynthRtype upgrades a copy's frozen Rtype to its canonical source's
+// post-attach rtype, so `w := o.Weight` (a `type Grams int` copy) keeps Grams's
+// methods and `flag := e.flag` (a *Flag field copy) sees the method-bearing
+// *Flag. The attach cascade refreshes only the canonical; a copy's own Rtype
+// stays frozen at the pre-attach placeholder. Gated on a differing,
+// method-bearing canonical so element identity is kept when attach was a no-op.
 func liveSynthRtype(t *vm.Type) reflect.Type {
-	if t.Base != nil && isBasicSynthKind(t.Kind()) {
-		// Require a differing, method-bearing canonical rtype: a ptr-receiver
-		// named type (`cv2 := customValue(10)`, empty value method set) must
-		// keep its own rtype so &cv2 reaches the *customValue methods.
+	if t.Base != nil {
 		if ct := vm.CanonicalType(t); ct != nil && ct.Rtype != nil &&
 			ct.Rtype != t.Rtype && ct.Rtype.NumMethod() > 0 {
 			return ct.Rtype
 		}
 	}
 	return t.Rtype
-}
-
-func isBasicSynthKind(k reflect.Kind) bool {
-	switch k {
-	case reflect.Bool,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32, reflect.Float64,
-		reflect.Complex64, reflect.Complex128,
-		reflect.String:
-		return true
-	}
-	return false
 }
 
 // RebuildSynthStructRtypes walks every interpreted struct *vm.Type reachable

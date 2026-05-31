@@ -10,11 +10,12 @@ import (
 )
 
 type derivedTypes struct {
-	ptr   *mtype.Type
-	slice *mtype.Type
-	array map[int]*mtype.Type
-	chans map[reflect.ChanDir]*mtype.Type
-	maps  map[*mtype.Type]*mtype.Type
+	ptr     *mtype.Type
+	slice   *mtype.Type
+	array   map[int]*mtype.Type
+	chans   map[reflect.ChanDir]*mtype.Type
+	maps    map[*mtype.Type]*mtype.Type // keyed by this type, indexed by elem
+	valMaps map[*mtype.Type]*mtype.Type // value is this type, indexed by key; lets the cascade reach map[K]T
 }
 
 var (
@@ -43,6 +44,10 @@ func definedOverBase(t *mtype.Type) bool {
 	}
 	switch t.Kind() {
 	case reflect.Slice, reflect.Array, reflect.Chan, reflect.Map, reflect.Struct:
+		return true
+	case reflect.Invalid:
+		// Defined over an imported basic whose kind never resolved (`type
+		// durationValue time.Duration`): recover the layout from Base.
 		return true
 	}
 	return false
@@ -279,6 +284,7 @@ func SymMap(k, e *mtype.Type) *mtype.Type {
 	}
 	m := mtype.SymMap(k, e)
 	d.maps[e] = m
+	registerValMap(e, k, m)
 	return m
 }
 
@@ -337,7 +343,18 @@ func MapOf(k, e *mtype.Type) *mtype.Type {
 	}
 	m := &mtype.Type{Rtype: deriveMapOf(k.Rtype, e.Rtype), ElemType: e, KeyType: k}
 	d.maps[e] = m
+	registerValMap(e, k, m)
 	return m
+}
+
+// registerValMap records map[k]e in e's valMaps so refreshLocked can rebuild it
+// when e's rtype is swapped by attach. Caller holds derivedMu.
+func registerValMap(e, k, m *mtype.Type) {
+	d := ensureDerived(e)
+	if d.valMaps == nil {
+		d.valMaps = map[*mtype.Type]*mtype.Type{}
+	}
+	d.valMaps[k] = m
 }
 
 // ChanOf returns the canonical chan-elem type with the given direction, memoized.
@@ -430,6 +447,9 @@ func refreshLocked(t *mtype.Type, newRT reflect.Type) {
 	}
 	for e, mt := range d.maps {
 		refreshLocked(mt, runtype.MapOf(newRT, e.Rtype))
+	}
+	for k, mt := range d.valMaps {
+		refreshLocked(mt, runtype.MapOf(k.Rtype, newRT))
 	}
 }
 
