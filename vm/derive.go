@@ -1,8 +1,13 @@
 package vm
 
 import (
+	"fmt"
 	"os"
+	"path"
 	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -24,6 +29,74 @@ type synthReservation struct {
 }
 
 var reservations = map[*mtype.Type]*synthReservation{} // guarded by derivedMu
+
+// sharedStructs shares one reserved rtype per (name, layout) across Evals so a
+// process-global registry keyed by reflect.Type (gob's nameToConcreteType) sees a
+// single rtype per name. Sound only for methodless-table types: a method stub
+// captures the attaching *Machine, but a methodless identity is a pure carrier.
+type sharedStructKey struct {
+	name      string
+	layoutSig string
+}
+
+var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
+
+// hasSynthTableMethods reports whether any method has a supported detectShape, so
+// attach installs a Machine-bound native stub (then the rtype can't be shared).
+// method.Rtype is often nil pre-attach; materialize Sig to read the shape.
+func hasSynthTableMethods(t *mtype.Type) bool {
+	for _, method := range t.Methods {
+		sig := method.Rtype
+		if sig == nil && method.Sig != nil {
+			sig = MaterializeRtype(method.Sig)
+		}
+		if sig == nil {
+			return true // unknown sig: assume table method, don't share
+		}
+		if _, ok := detectShape(sig); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// structMatProbe logs each named-struct materialization (MVM_STRUCTMAT=1) for the
+// reflect-free-struct-generate work: type, *Type identity, caller.
+var structMatProbe = func(*mtype.Type) {}
+
+func init() {
+	if os.Getenv("MVM_STRUCTMAT") == "" {
+		return
+	}
+	structMatProbe = func(t *mtype.Type) {
+		if t.Name == "" || t.Kind() != reflect.Struct {
+			return
+		}
+		var pcs [16]uintptr
+		n := runtime.Callers(2, pcs[:])
+		frames := runtime.CallersFrames(pcs[:n])
+		var caller string
+		for {
+			fr, more := frames.Next()
+			if !strings.Contains(fr.Function, "vm.MaterializeRtype") &&
+				!strings.Contains(fr.Function, "vm.structMatProbe") &&
+				!strings.Contains(fr.Function, "vm.deriv") {
+				caller = fr.Function + " " + path.Base(fr.File) + ":" + itoa(fr.Line)
+				break
+			}
+			if !more {
+				break
+			}
+		}
+		pre := "fresh"
+		if t.Rtype != nil {
+			pre = "preset"
+		}
+		fmt.Fprintf(os.Stderr, "structmat %s.%s id=%p %s <- %s\n", t.PkgPath, t.Name, t, pre, caller)
+	}
+}
+
+func itoa(i int) string { return strconv.Itoa(i) }
 
 func lookupReservation(t *mtype.Type) *synthReservation {
 	derivedMu.Lock()
@@ -75,6 +148,80 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	reservations[t] = res
 	derivedMu.Unlock()
 	return valueRT
+}
+
+// maybeReserveStruct reserves a named struct's identity over a provisional layout
+// (so a *T field cycle resolves to it), materializes fields, then fills the real
+// layout in place -- attach fills methods in place, so no cascade patching.
+// handled=false: gate off or methodless (native path); rt=nil: a field is not yet
+// finalized, retry later (reservation kept).
+func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
+	if !reserveSynth {
+		return nil, false
+	}
+	// A struct field clone (an embedded field, or any field carrying its type's
+	// name) must resolve to its canonical Base identity, not reserve its own --
+	// else an embedded main.Point field gets a distinct "Point" rtype and the
+	// composite literal's main.Point value is not assignable to it. Mirrors the
+	// isFieldClone branch in maybeReserve.
+	if isFieldClone(t) {
+		rt := MaterializeRtype(t.Base)
+		t.Rtype = rt
+		return rt, true
+	}
+	res := lookupReservation(t)
+	if res == nil {
+		if len(t.Methods) == 0 {
+			return nil, false // methodless struct: native identity is stable already
+		}
+		name := qualifiedTypeName(t)
+		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, t.PkgPath)
+		if err != nil {
+			return nil, false
+		}
+		res = &synthReservation{value: vr}
+		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, t.PkgPath); err == nil {
+			res.ptr = pr
+			AttachPtrDerived(t, pr.Type())
+		}
+		derivedMu.Lock()
+		reservations[t] = res
+		derivedMu.Unlock()
+	}
+	reserved := res.value.Type()
+	t.Rtype = reserved // stable identity for field cycles during this pass
+	for _, f := range t.Fields {
+		MaterializeRtype(f)
+	}
+	if !fieldsMaterialized(t.Fields) {
+		t.Rtype = nil // a field references a not-yet-finalized sibling; retry later
+		return nil, true
+	}
+	realLayout := mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
+	// Methodless-table identity is safe to share across Evals (see sharedStructs).
+	if !hasSynthTableMethods(t) {
+		key := sharedStructKey{name: qualifiedTypeName(t), layoutSig: realLayout.String()}
+		derivedMu.Lock()
+		if shared := sharedStructs[key]; shared != nil {
+			sharedRT := shared.value.Type()
+			reservations[t] = shared
+			derivedMu.Unlock()
+			t.Rtype = sharedRT
+			if shared.ptr != nil {
+				AttachPtrDerived(t, shared.ptr.Type())
+			}
+			return sharedRT, true
+		}
+		// Fill before publishing so a concurrent hit never adopts the placeholder.
+		runtype.FillStructLayout(reserved, realLayout)
+		sharedStructs[key] = res
+		derivedMu.Unlock()
+		t.Rtype = reserved
+		return reserved, true
+	}
+	runtype.FillStructLayout(reserved, realLayout)
+	t.Rtype = reserved
+	return reserved, true
 }
 
 type derivedTypes struct {
@@ -132,6 +279,7 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	if t == nil {
 		return nil
 	}
+	structMatProbe(t)
 	if t.Rtype != nil {
 		return t.Rtype
 	}
@@ -204,6 +352,9 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 			return rt
 		}
 		if t.Name != "" {
+			if rt, handled := maybeReserveStruct(t); handled {
+				return rt
+			}
 			// Named struct may be in a pointer cycle (field *T, or mutual T<->U):
 			// install a placeholder rtype, materialize fields (a *T built then
 			// resolves to it), then patch the placeholder in place.

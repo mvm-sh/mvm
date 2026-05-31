@@ -202,4 +202,7 @@ func FillStructLayout(reserved, realLayout reflect.Type) {
 		*(*byte)(unsafe.Add(dp, i)) = *(*byte)(unsafe.Add(sp, i))
 	}
 	d.TFlag |= keep
+	// Re-register the real layout: reserveStruct shadowed d with the placeholder,
+	// and layoutFor(reserved) sizes MapOf/ArrayOf buckets/strides.
+	registerLayout(d, rtypePtr(realLayout))
 }

@@ -147,6 +147,29 @@ func TestReserveStructLayoutFill(t *testing.T) {
 	_ = reflect.New(node).Elem().Interface() // must not panic
 }
 
+// TestFillStructLayoutUpdatesLayoutShadow guards the silent map/array corruption:
+// FillStructLayout must re-register the real layout as the reserved rtype's shadow,
+// else layoutFor (sizing MapOf/ArrayOf) returns the stale placeholder.
+func TestFillStructLayoutUpdatesLayoutShadow(t *testing.T) {
+	provisional := reflect.StructOf([]reflect.StructField{
+		{Name: "P", Type: reflect.TypeOf(int8(0))}, // 1 byte, smaller than the real layout
+	})
+	r, err := ReserveMethods(provisional, "Big", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved := r.Type()
+	realLayout := reflect.StructOf([]reflect.StructField{
+		{Name: "X", Type: reflect.TypeOf(int64(0))},
+		{Name: "Y", Type: reflect.TypeOf(int64(0))},
+	})
+	FillStructLayout(reserved, realLayout)
+
+	if got := layoutFor(reserved).Size(); got != realLayout.Size() {
+		t.Fatalf("layoutFor(reserved).Size() = %d, want %d (stale placeholder shadow)", got, realLayout.Size())
+	}
+}
+
 func TestFillRejectsBadCounts(t *testing.T) {
 	r, err := ReserveMethods(reflect.TypeOf(int(0)), "T", "p")
 	if err != nil {

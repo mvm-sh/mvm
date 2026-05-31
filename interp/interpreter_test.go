@@ -1546,6 +1546,19 @@ func (b Base) GetX() int { return b.X }
 type T struct { Base; Y int }
 t := T{Base{7}, 0}; t.GetX()`, res: "7"},
 
+		// Func-local struct embedding a method-bearing struct: the embedded field
+		// clone must resolve to the canonical Base identity (under MVM_RESERVE the
+		// clone carries the method, so it must not reserve a distinct "Base" rtype).
+		{n: "func_local_embed_method", src: `
+type Base struct { X int }
+func (b Base) GetX() int { return b.X }
+f := func() int {
+	type T struct { Base; Y int }
+	t := T{Base{7}, 3}
+	return t.GetX() + t.Y
+}
+f()`, res: "10"},
+
 		{n: "iface", src: `
 type Getter interface { GetX() int }
 type Base struct { X int }
