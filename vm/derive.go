@@ -16,10 +16,11 @@ import (
 )
 
 // reserveSynth gates the materialize-once reserve/fill path (cascade retirement).
-// On: named method-bearing types get a reserved synth identity at materialize
-// that attach fills in place, so composites capturing them need no patching.
-// Covers non-struct kinds; structs stay on the swap path for now.
-var reserveSynth = os.Getenv("MVM_RESERVE") == "1"
+// Default on: a named method-bearing type gets a reserved synth identity at
+// materialize that attach fills in place, so composites capturing it need no
+// patching. MVM_RESERVE=0 falls back to the swap+cascade path during the
+// transition; the gate and the cascade are removed once the flip is settled.
+var reserveSynth = os.Getenv("MVM_RESERVE") != "0"
 
 // synthReservation holds a named type's reserved value (method-set T) and
 // pointer (method-set *T) rtypes, awaiting Fill at attach.
