@@ -21,6 +21,40 @@ import (
 // These constructors bypass that path entirely by stamping their own Str via
 // addReflectOff.
 
+// deriveKey identifies an anonymous derived composite by kind + component rtype
+// identity (n holds an array length or chan dir).
+type deriveKey struct {
+	kind byte
+	key  uintptr
+	elem uintptr
+	n    int
+}
+
+var (
+	deriveCacheMu sync.Mutex
+	deriveCache   = map[deriveKey]reflect.Type{}
+)
+
+// cachedDerive memoizes anonymous synth composites by component identity, so the
+// same []T / *T / [n]T / chan T / map[K]V resolves to ONE rtype across every
+// derivation -- matching reflect.*Of's global cache, which mvm bypasses for synth
+// components. Without it two fields of the same synth-element type compare unequal
+// under reflect.DeepEqual (distinct nextSyntheticHash identities).
+func cachedDerive(k deriveKey, build func() reflect.Type) reflect.Type {
+	deriveCacheMu.Lock()
+	defer deriveCacheMu.Unlock()
+	if rt := deriveCache[k]; rt != nil {
+		return rt
+	}
+	rt := build()
+	if rt != nil {
+		deriveCache[k] = rt
+	}
+	return rt
+}
+
+func ptrID(rt *abiType) uintptr { return uintptr(unsafe.Pointer(rt)) }
+
 // PointerTo returns the *elem rtype.
 // *T is one machine word for every elem; we clone the layout from *int.
 func PointerTo(elem reflect.Type) reflect.Type {
@@ -28,6 +62,12 @@ func PointerTo(elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 1, elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildPointerTo(elem, elemRT)
+	})
+}
+
+func buildPointerTo(elem reflect.Type, elemRT *abiType) reflect.Type {
 	intPtrRT := (*abiPtrType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((*int)(nil)))))
 
 	b := new(abiPtrType)
@@ -52,6 +92,12 @@ func SliceOf(elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 2, elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildSliceOf(elem, elemRT)
+	})
+}
+
+func buildSliceOf(elem reflect.Type, elemRT *abiType) reflect.Type {
 	intSliceRT := (*abiSliceType)(unsafe.Pointer(rtypePtr(reflect.TypeOf([]int(nil)))))
 
 	b := new(abiSliceType)
@@ -76,6 +122,12 @@ func ChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 3, elem: ptrID(elemRT), n: int(dir)}, func() reflect.Type {
+		return buildChanOf(dir, elem, elemRT)
+	})
+}
+
+func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflect.Type {
 	intChanRT := (*abiChanType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((chan int)(nil)))))
 
 	var prefix string
@@ -113,6 +165,12 @@ func ArrayOf(n int, elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 4, elem: ptrID(elemRT), n: n}, func() reflect.Type {
+		return buildArrayOf(n, elem, elemRT)
+	})
+}
+
+func buildArrayOf(n int, elem reflect.Type, elemRT *abiType) reflect.Type {
 	layoutArr := reflect.ArrayOf(n, layoutFor(elem))
 	src := (*abiArrayType)(unsafe.Pointer(rtypePtr(layoutArr)))
 
@@ -136,6 +194,12 @@ func MapOf(key, elem reflect.Type) reflect.Type {
 	if keyRT == nil || elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 5, key: ptrID(keyRT), elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildMapOf(key, elem, keyRT, elemRT)
+	})
+}
+
+func buildMapOf(key, elem reflect.Type, keyRT, elemRT *abiType) reflect.Type {
 	layoutShadow := reflect.MapOf(layoutFor(key), layoutFor(elem))
 	src := (*abiMapType)(unsafe.Pointer(rtypePtr(layoutShadow)))
 

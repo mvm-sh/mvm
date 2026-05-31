@@ -103,6 +103,32 @@ func TestSliceOfOnSynthStruct(t *testing.T) {
 	}
 }
 
+// TestDerivedSynthCompositesDedup guards that repeated derivations over the same
+// synth elem return ONE rtype (like reflect.*Of's global cache), so e.g. two
+// struct fields of the same synth-element map type compare equal under DeepEqual.
+func TestDerivedSynthCompositesDedup(t *testing.T) {
+	elem := synthStructForDerive(t, "DeriveDedup")
+	key := synthStructForDerive(t, "DeriveDedupKey")
+	if SliceOf(elem) != SliceOf(elem) {
+		t.Error("SliceOf not deduped")
+	}
+	if PointerTo(elem) != PointerTo(elem) {
+		t.Error("PointerTo not deduped")
+	}
+	if ArrayOf(3, elem) != ArrayOf(3, elem) {
+		t.Error("ArrayOf not deduped")
+	}
+	if ArrayOf(3, elem) == ArrayOf(4, elem) {
+		t.Error("ArrayOf must distinguish length")
+	}
+	if ChanOf(reflect.BothDir, elem) != ChanOf(reflect.BothDir, elem) {
+		t.Error("ChanOf not deduped")
+	}
+	if MapOf(key, elem) != MapOf(key, elem) {
+		t.Error("MapOf not deduped")
+	}
+}
+
 func TestArrayOfOnSynthStruct(t *testing.T) {
 	elem := synthStructForDerive(t, "DeriveAR")
 	at := ArrayOf(4, elem)
