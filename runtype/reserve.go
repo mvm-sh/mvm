@@ -3,6 +3,7 @@ package runtype
 import (
 	"errors"
 	"reflect"
+	"sync"
 	"unsafe"
 )
 
@@ -171,4 +172,34 @@ func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, e
 	elemRT.PtrToThis = addReflectOff(unsafe.Pointer(&b.t))
 	registerLayout(&b.t, intPtrRT)
 	return &Reservation{rt: asReflectType(&b.t), u: &b.u, m: b.m[:]}, nil
+}
+
+const abiStructTypeSize = unsafe.Sizeof(abiStructType{})
+
+// fillKeepAlive pins realLayouts whose Fields slices FillStructLayout aliases.
+var (
+	fillKeepAliveMu sync.Mutex
+	fillKeepAlive   []reflect.Type
+)
+
+// FillStructLayout patches realLayout's struct layout into a reserved struct
+// rtype in place, preserving the reservation's Str/PtrToThis (offsets 40-48),
+// its uncommon+named flags, and its method table (past the struct header). Use
+// it to fill a struct reserved with a provisional layout once its fields are
+// known -- so a pointer cycle (field *T) resolves to the reserved identity.
+func FillStructLayout(reserved, realLayout reflect.Type) {
+	fillKeepAliveMu.Lock()
+	fillKeepAlive = append(fillKeepAlive, realLayout)
+	fillKeepAliveMu.Unlock()
+
+	d := rtypePtr(reserved)
+	keep := d.TFlag & (tflagUncommon | tflagNamed)
+	dp, sp := unsafe.Pointer(d), unsafe.Pointer(rtypePtr(realLayout))
+	for i := uintptr(0); i < 40; i++ {
+		*(*byte)(unsafe.Add(dp, i)) = *(*byte)(unsafe.Add(sp, i))
+	}
+	for i := uintptr(48); i < abiStructTypeSize; i++ {
+		*(*byte)(unsafe.Add(dp, i)) = *(*byte)(unsafe.Add(sp, i))
+	}
+	d.TFlag |= keep
 }

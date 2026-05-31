@@ -107,6 +107,46 @@ func TestReserveFillStructAndPtr(t *testing.T) {
 	}
 }
 
+// TestReserveStructLayoutFill covers the struct cycle path: reserve over a
+// provisional layout, fill methods, then fill the real layout (with a self-ref
+// *T field) -- identity, methods, and layout must all hold.
+func TestReserveStructLayoutFill(t *testing.T) {
+	provisional := reflect.StructOf([]reflect.StructField{
+		{Name: "Placeholder", Type: reflect.TypeOf(int(0))},
+	})
+	r, err := ReserveMethods(provisional, "Node", "tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := r.Type()
+	if err := r.Fill([]MethodSpec{sampleMethod("Visit")}); err != nil {
+		t.Fatal(err)
+	}
+	// Real layout references *Node (the reserved identity) -- the cycle.
+	realLayout := reflect.StructOf([]reflect.StructField{
+		{Name: "Val", Type: reflect.TypeOf(int(0))},
+		{Name: "Next", Type: reflect.PointerTo(node)},
+	})
+	FillStructLayout(node, realLayout)
+
+	if r.Type() != node {
+		t.Fatal("FillStructLayout changed identity")
+	}
+	if node.NumMethod() != 1 || node.Method(0).Name != "Visit" {
+		t.Fatalf("methods lost after layout fill: NumMethod=%d", node.NumMethod())
+	}
+	if node.NumField() != 2 || node.Field(0).Name != "Val" || node.Field(1).Name != "Next" {
+		t.Fatalf("layout not filled: NumField=%d", node.NumField())
+	}
+	if node.Size() != realLayout.Size() {
+		t.Fatalf("size = %d, want %d", node.Size(), realLayout.Size())
+	}
+	if node.Field(1).Type != reflect.PointerTo(node) {
+		t.Fatal("self-ref *Node field type mismatch")
+	}
+	_ = reflect.New(node).Elem().Interface() // must not panic
+}
+
 func TestFillRejectsBadCounts(t *testing.T) {
 	r, err := ReserveMethods(reflect.TypeOf(int(0)), "T", "p")
 	if err != nil {
