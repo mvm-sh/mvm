@@ -7,14 +7,9 @@ import (
 )
 
 // Reservation is a synth rtype whose method table has room allocated but is
-// initially empty (Mcount 0). Fill installs the methods in place, preserving
-// the rtype's identity (pointer, Hash, Str, PtrToThis), so any container that
-// captured the reserved rtype before Fill observes the methods afterward.
-//
-// This is the foundation for materialize-once: MaterializeRtype reserves a
-// named type's identity, composites capture it, and the post-attach pass Fills
-// methods without ever swapping the rtype -- retiring the refresh/patch cascade
-// that the eager-then-swap model requires.
+// initially empty (Mcount 0). Fill installs the methods in place, preserving the
+// rtype's identity, so a container that captured the reserved rtype before Fill
+// observes the methods afterward (the basis for cascade-free materialize-once).
 type Reservation struct {
 	rt reflect.Type
 	u  *abiUncommon
@@ -27,11 +22,9 @@ func (r *Reservation) Type() reflect.Type { return r.rt }
 
 var errNilReservation = errors.New("runtype: Fill on nil Reservation")
 
-// Fill installs methods into the reserved method table in place.
-// The method slots are written first, then Mcount/Xcount are published, so a
-// reader that observes the new counts also sees fully-written slots. The caller
-// must establish a happens-before edge to other goroutines (the attach pass
-// runs single-threaded before the VM resumes).
+// Fill installs methods into the reserved method table in place, publishing the
+// counts last so a reader seeing them also sees written slots; the caller must
+// establish happens-before to other goroutines (attach runs before the VM resumes).
 // len(methods) must be in [1, maxMethods].
 func (r *Reservation) Fill(methods []MethodSpec) error {
 	if r == nil || r.u == nil {

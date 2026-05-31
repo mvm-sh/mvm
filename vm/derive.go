@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"os"
 	"reflect"
 	"sync"
 	"unsafe"
@@ -8,6 +9,73 @@ import (
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 )
+
+// reserveSynth gates the materialize-once reserve/fill path (cascade retirement).
+// On: named method-bearing types get a reserved synth identity at materialize
+// that attach fills in place, so composites capturing them need no patching.
+// Covers non-struct kinds; structs stay on the swap path for now.
+var reserveSynth = os.Getenv("MVM_RESERVE") == "1"
+
+// synthReservation holds a named type's reserved value (method-set T) and
+// pointer (method-set *T) rtypes, awaiting Fill at attach.
+type synthReservation struct {
+	value *runtype.Reservation
+	ptr   *runtype.Reservation
+}
+
+var reservations = map[*mtype.Type]*synthReservation{} // guarded by derivedMu
+
+func lookupReservation(t *mtype.Type) *synthReservation {
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	return reservations[t]
+}
+
+// isFieldClone reports whether t is a struct-field copy of a named method-bearing
+// type: it carries the field name in t.Name but must resolve to Base's identity.
+// A canonical defined type's Base is unnamed; defined-over-named is intercepted by
+// definedOverBase before reaching here.
+func isFieldClone(t *mtype.Type) bool {
+	return t.Base != nil && t.Base.Name != "" &&
+		t.Base.Kind() == t.Kind() && len(t.Base.Methods) > 0
+}
+
+// maybeReserve gives a named non-struct method-bearing type a reserved synth
+// identity over layoutRT so attach fills methods in place. Returns layoutRT
+// unchanged when the gate is off or t is not reservable.
+func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
+	if !reserveSynth || layoutRT == nil || t.Name == "" ||
+		layoutRT.Kind() == reflect.Struct || !synthSupportedKind(layoutRT.Kind()) {
+		return layoutRT
+	}
+	if lookupReservation(t) != nil {
+		return t.Rtype
+	}
+	if isFieldClone(t) {
+		return MaterializeRtype(t.Base)
+	}
+	if len(t.Methods) == 0 {
+		return layoutRT
+	}
+	name := qualifiedTypeName(t)
+	// Reserve the value rtype unconditionally: it gives T a writable, named
+	// identity for ReservePtrMethods to wire *T into (PtrToThis on a shared/native
+	// layout faults). Fill leaves it methodless when method-set(T) is empty.
+	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgPath)
+	if err != nil {
+		return layoutRT
+	}
+	res := &synthReservation{value: vr}
+	valueRT := vr.Type()
+	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, t.PkgPath); err == nil {
+		res.ptr = r
+		AttachPtrDerived(t, r.Type())
+	}
+	derivedMu.Lock()
+	reservations[t] = res
+	derivedMu.Unlock()
+	return valueRT
+}
 
 type derivedTypes struct {
 	ptr     *mtype.Type
@@ -174,6 +242,7 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 			return nil // genuinely un-materialized leaf
 		}
 	}
+	rt = maybeReserve(t, rt)
 	t.Rtype = rt
 	return rt
 }

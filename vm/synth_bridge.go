@@ -167,8 +167,16 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 	if len(specs) == 0 {
 		return false, nil
 	}
-	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs))
+	methods := toSynthMethods(m, t, specs)
+	// Reserve/fill path: t.Rtype is already the reserved synth identity; fill
+	// methods in place so composites that captured it need no patching.
+	if res := lookupReservation(t); res != nil && res.value != nil {
+		if err := stubs.FillMethods(res.value, methods); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath, methods)
 	if err != nil {
 		return false, err
 	}
@@ -187,6 +195,12 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 	if len(specs) == 0 {
 		return nil
 	}
+	methods := toSynthMethods(m, t, specs)
+	// Reserve/fill path: *T was reserved + wired (PtrToThis, AttachPtrDerived) at
+	// materialize; just fill its methods in place.
+	if res := lookupReservation(t); res != nil && res.ptr != nil {
+		return stubs.FillMethods(res.ptr, methods)
+	}
 	if !elemReady {
 		clone, err := runtype.Clone(t.Rtype, t.PkgPath)
 		if err != nil {
@@ -194,8 +208,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 		}
 		RefreshRtype(t, clone)
 	}
-	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs))
+	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath, methods)
 	if err != nil {
 		return err
 	}

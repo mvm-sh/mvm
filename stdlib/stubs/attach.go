@@ -50,6 +50,25 @@ func AttachPtrMethods(elem reflect.Type, name, pkgPath string, methods []Method)
 	return attach(runtype.AttachPtrMethods, elem, name, pkgPath, methods)
 }
 
+// FillMethods installs methods into a reserved rtype in place (cascade-retiring
+// reserve/fill path), resolving each method's stub slot first like attach does.
+func FillMethods(res *runtype.Reservation, methods []Method) error {
+	stubs, err := acquireSlots(methods)
+	if err != nil {
+		return err
+	}
+	specs := make([]runtype.MethodSpec, len(methods))
+	for i, m := range methods {
+		specs[i] = runtype.MethodSpec{
+			Name:     m.Name,
+			Exported: m.Exported,
+			Sig:      m.Sig,
+			StubPC:   stubs[i],
+		}
+	}
+	return res.Fill(specs)
+}
+
 func attach(fn attachFunc, layout reflect.Type, name, pkgPath string, methods []Method) (reflect.Type, error) {
 	stubs, err := acquireSlots(methods)
 	if err != nil {
