@@ -2459,13 +2459,21 @@ func (m *Machine) Run() (err error) {
 				mem = growStack(mem, sp, 1)
 			}
 			sp++
-			mem[sp] = *m.heap[int(c.A)]
+			v := *m.heap[int(c.A)]
+			if isNum(v.ref.Kind()) && v.ref.CanAddr() {
+				v.num = numBits(v.ref) // a native write through &var (Addr) updates ref, not num
+			}
+			mem[sp] = v
 		case HeapSet:
 			*m.heap[int(c.A)] = mem[sp]
 			sp--
 		case CellGet:
 			sp++
-			mem[sp] = *mem[int(c.A)+fp-1].ref.Interface().(*Value)
+			v := *mem[int(c.A)+fp-1].ref.Interface().(*Value)
+			if isNum(v.ref.Kind()) && v.ref.CanAddr() {
+				v.num = numBits(v.ref) // a native write through &var (Addr) updates ref, not num
+			}
+			mem[sp] = v
 		case CellSet:
 			*mem[int(c.A)+fp-1].ref.Interface().(*Value) = mem[sp]
 			sp--
