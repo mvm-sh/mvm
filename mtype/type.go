@@ -58,6 +58,11 @@ type Type struct {
 	// Base is the source *Type a struct-field shallow copy derived from, so
 	// methods registered on the source after the copy stay reachable.
 	Base *Type
+	// Defined marks a top-level `type X T` definition (set at parse), as opposed
+	// to a struct-field shallow copy of a named type. A defined type owns its
+	// identity and is never a field clone, even when its Base is a named type
+	// (type Y X); the field-clone copy sites clear it.
+	Defined bool
 }
 
 // Kind returns t's kind. It prefers the symbolic kind set at construction and

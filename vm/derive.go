@@ -139,6 +139,9 @@ func cascadeHit(what string, t *mtype.Type) {
 // PkgPath. A canonical defined type's Base is unnamed; defined-over-named is
 // intercepted by definedOverBase before reaching here.
 func isFieldClone(t *mtype.Type) bool {
+	if t.Defined {
+		return false // a top-level `type X T` definition owns its identity
+	}
 	if t.Base == nil || t.Base.Name == "" || t.Base.Kind() != t.Kind() {
 		return false
 	}

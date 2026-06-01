@@ -1154,6 +1154,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
+		nt.Defined = true // a top-level definition, not a struct-field clone
 		if isBasicKind(nt.Kind()) {
 			// Stay symbolic: comp materializes from Base, attach adds the methods.
 			nt.Rtype = nil
@@ -1166,7 +1167,12 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		} else {
 			nt.Base = typ
 		}
-		if definedOverNativeComposite(&nt) || definedSymbolicComposite(&nt) {
+		// A struct defined over a NAMED base (type Y X) must stay symbolic too, so
+		// comp reserves Y its own method-bearing identity rather than keeping the
+		// eager rtype (which attach would have to swap). A fresh struct literal
+		// (Base.Name == "") keeps its eager rtype.
+		definedOverNamedStruct := nt.Kind() == reflect.Struct && nt.Base.Name != ""
+		if definedOverNativeComposite(&nt) || definedSymbolicComposite(&nt) || definedOverNamedStruct {
 			nt.CaptureKind() // Kind() must survive the Rtype nil
 			nt.Rtype = nil   // defer; comp materializes from the symbolic graph
 		}

@@ -667,6 +667,7 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	// (inherited from the source if it was still a placeholder when embedded) so
 	// MaterializeRtype resolves the field via its Base instead of bailing.
 	ft.Placeholder = false
+	ft.Defined = false // a field clone resolves to Base, unlike a defined type
 	// reflect.StructField.PkgPath must be empty for exported fields and the
 	// owning package's path for unexported ones. The cloned type may carry
 	// its own PkgPath (e.g. "errors" on a defined named type); reset to the
@@ -782,6 +783,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			ft := *types[i]
 			ft.Name = name
 			ft.PkgPath = pkgPath
+			ft.Defined = false // a field clone resolves to Base, unlike a defined type
 			// Back-link to the source type so methods registered on it after
 			// this clone was taken (typical: struct decl precedes method decls,
 			// or named types whose Methods are populated by the compiler later)
