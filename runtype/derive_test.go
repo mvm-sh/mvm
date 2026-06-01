@@ -7,22 +7,20 @@ import (
 )
 
 // synthStructForDerive builds a methodless synth struct rtype as a derived-type
-// test elem.
-// Clone registers its layout (all the constructors need) and needs no shape
-// pools, since no dispatch is exercised here.
+// test elem. ReserveMethods registers its layout (all the constructors need) and
+// stamps the name; it is left unfilled, so no dispatch is exercised here.
 func synthStructForDerive(t *testing.T, name string) reflect.Type {
 	t.Helper()
-	rt, err := Clone(
+	res, err := ReserveMethods(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
-		"test",
+		name, "test",
 	)
 	if err != nil {
-		t.Fatalf("Clone(%q): %v", name, err)
+		t.Fatalf("ReserveMethods(%q): %v", name, err)
 	}
-	StampName(rt, name)
-	return rt
+	return res.Type()
 }
 
 func TestPointerToOnSynthStruct(t *testing.T) {
@@ -45,34 +43,11 @@ func TestPointerToOnSynthStruct(t *testing.T) {
 	v := reflect.New(elem)
 	if v.Type() != pt {
 		// reflect.New returns reflect.PointerTo(elem) which used elem.PtrToThis
-		// (set by an earlier AttachPtrMethods) if attached; for our naked elem
+		// (set by an earlier ReservePtrMethods) if reserved; for our naked elem
 		// PtrToThis is 0, so reflect builds its own *T. Our pt is a fresh
 		// synth *T independent of that.
 		// We tolerate the inequality and just verify pt is still usable.
 		_ = v
-	}
-}
-
-func TestPatchSliceElem(t *testing.T) {
-	elem := synthStructForDerive(t, "PatchSLa")
-	st := SliceOf(elem)
-	if st.Elem() != elem {
-		t.Fatalf("setup: Elem != elem")
-	}
-	elem2 := synthStructForDerive(t, "PatchSLb")
-	PatchSliceElem(st, elem2)
-	if st.Elem() != elem2 {
-		t.Errorf("after patch: Elem = %v, want %v", st.Elem(), elem2)
-	}
-	if st.Kind() != reflect.Slice {
-		t.Errorf("Kind changed to %v", st.Kind())
-	}
-	// No-op guards must neither panic nor mutate.
-	PatchSliceElem(nil, elem2)
-	PatchSliceElem(reflect.TypeOf(0), elem2)
-	PatchSliceElem(st, nil)
-	if st.Elem() != elem2 {
-		t.Errorf("no-op guard mutated Elem to %v", st.Elem())
 	}
 }
 
@@ -100,6 +75,32 @@ func TestSliceOfOnSynthStruct(t *testing.T) {
 	sl.Index(1).FieldByName("V").SetInt(42)
 	if got := sl.Index(1).FieldByName("V").Int(); got != 42 {
 		t.Errorf("Index(1).V = %d, want 42", got)
+	}
+}
+
+// TestDerivedSynthCompositesDedup guards that repeated derivations over the same
+// synth elem return ONE rtype (like reflect.*Of's global cache), so e.g. two
+// struct fields of the same synth-element map type compare equal under DeepEqual.
+func TestDerivedSynthCompositesDedup(t *testing.T) {
+	elem := synthStructForDerive(t, "DeriveDedup")
+	key := synthStructForDerive(t, "DeriveDedupKey")
+	if SliceOf(elem) != SliceOf(elem) {
+		t.Error("SliceOf not deduped")
+	}
+	if PointerTo(elem) != PointerTo(elem) {
+		t.Error("PointerTo not deduped")
+	}
+	if ArrayOf(3, elem) != ArrayOf(3, elem) {
+		t.Error("ArrayOf not deduped")
+	}
+	if ArrayOf(3, elem) == ArrayOf(4, elem) {
+		t.Error("ArrayOf must distinguish length")
+	}
+	if ChanOf(reflect.BothDir, elem) != ChanOf(reflect.BothDir, elem) {
+		t.Error("ChanOf not deduped")
+	}
+	if MapOf(key, elem) != MapOf(key, elem) {
+		t.Error("MapOf not deduped")
 	}
 }
 
@@ -374,5 +375,34 @@ func TestStampName(t *testing.T) {
 	v.Field(0).SetInt(7)
 	if v.Field(0).Int() != 7 {
 		t.Errorf("field access broken after stamp")
+	}
+}
+
+// TestDeriveRoutesNativeVsSynth pins the Derive* routing policy: a native
+// component yields the canonical reflect identity (so e.g. two []int converge),
+// while a synth component yields a synth composite (reflect.*Of would crash).
+func TestDeriveRoutesNativeVsSynth(t *testing.T) {
+	if got := DeriveSliceOf(reflect.TypeOf(0)); got != reflect.TypeOf([]int(nil)) {
+		t.Errorf("DeriveSliceOf(int) = %v, want canonical []int", got)
+	}
+	if IsSynth(DeriveSliceOf(reflect.TypeOf(0))) {
+		t.Error("DeriveSliceOf(native) must not be synth")
+	}
+	if got := DerivePointerTo(reflect.TypeOf(0)); got != reflect.TypeOf((*int)(nil)) {
+		t.Errorf("DerivePointerTo(int) = %v, want canonical *int", got)
+	}
+	if got := DeriveMapOf(reflect.TypeOf(""), reflect.TypeOf(0)); got != reflect.TypeOf(map[string]int(nil)) {
+		t.Errorf("DeriveMapOf(string,int) = %v, want canonical map[string]int", got)
+	}
+
+	elem := synthStructForDerive(t, "DeriveRoute")
+	if !IsSynth(DeriveSliceOf(elem)) {
+		t.Error("DeriveSliceOf(synth) must be synth")
+	}
+	if !IsSynth(DerivePointerTo(elem)) {
+		t.Error("DerivePointerTo(synth without PtrToThis) must be synth")
+	}
+	if sl := DeriveSliceOf(elem); sl.Elem() != elem {
+		t.Errorf("DeriveSliceOf(synth).Elem() = %v, want the synth elem", sl.Elem())
 	}
 }

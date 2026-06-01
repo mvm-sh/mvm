@@ -9,22 +9,227 @@ import (
 	"github.com/mvm-sh/mvm/runtype"
 )
 
+// synthReservation holds a named type's reserved value (method-set T) and
+// pointer (method-set *T) rtypes, awaiting Fill at attach.
+type synthReservation struct {
+	value *runtype.Reservation
+	ptr   *runtype.Reservation
+}
+
+var reservations = map[*mtype.Type]*synthReservation{} // guarded by derivedMu
+
+// sharedStructs shares one reserved rtype per (name, layout) across Evals so a
+// process-global registry keyed by reflect.Type (gob's nameToConcreteType) sees a
+// single rtype per name. Sound only for methodless-table types: a method stub
+// captures the attaching *Machine, but a methodless identity is a pure carrier.
+type sharedStructKey struct {
+	name      string
+	layoutSig string
+}
+
+var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
+
+// hasReservableMethods reports whether t carries any method worth reserving an
+// identity for. The method pre-pass (comp.preregisterMethods) populates a slot's
+// Sig before the body compiles, so a slot counts when it is either resolved (a
+// compiled code address / embedded dispatch) or carries a symbolic Sig.
+func hasReservableMethods(t *mtype.Type) bool {
+	for i := range t.Methods {
+		if t.Methods[i].IsResolved() || t.Methods[i].Sig != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSynthTableMethods reports whether any method has a supported detectShape, so
+// attach installs a Machine-bound native stub (then the rtype can't be shared).
+// method.Rtype is often nil pre-attach; materialize Sig to read the shape.
+func hasSynthTableMethods(t *mtype.Type) bool {
+	for _, method := range t.Methods {
+		sig := method.Rtype
+		if sig == nil && method.Sig != nil {
+			sig = MaterializeRtype(method.Sig)
+		}
+		if sig == nil {
+			return true // unknown sig: assume table method, don't share
+		}
+		if _, ok := detectShape(sig); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func lookupReservation(t *mtype.Type) *synthReservation {
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	return reservations[t]
+}
+
+// isFieldClone reports whether t is a struct-field copy of a named type that must
+// resolve to Base's identity: it carries the field name in t.Name with a cleared
+// PkgPath. A canonical defined type's Base is unnamed; defined-over-named is
+// intercepted by definedOverBase before reaching here.
+func isFieldClone(t *mtype.Type) bool {
+	if t.Defined {
+		return false // a top-level `type X T` definition owns its identity
+	}
+	if t.Base == nil || t.Base.Name == "" || t.Base.Kind() != t.Kind() {
+		return false
+	}
+	// Method-bearing base: the clone shares Base's identity + methods. Methodless
+	// named-struct base: still a clone -- route to Base for the canonical qualified
+	// identity, else the container's field stamps a bare name and gets patched.
+	return len(t.Base.Methods) > 0 || (t.Kind() == reflect.Struct && t.Base.PkgPath != "")
+}
+
+// maybeReserve gives a named non-struct method-bearing type a reserved synth
+// identity over layoutRT so attach fills methods in place. Returns layoutRT
+// unchanged when t is not reservable.
+func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
+	if layoutRT == nil || t.Name == "" ||
+		layoutRT.Kind() == reflect.Struct || !runtype.SupportedKind(layoutRT.Kind()) {
+		return layoutRT
+	}
+	if lookupReservation(t) != nil {
+		return t.Rtype
+	}
+	if isFieldClone(t) {
+		return MaterializeRtype(t.Base)
+	}
+	if !hasReservableMethods(t) {
+		return layoutRT
+	}
+	return reserveValueAndPtr(t, layoutRT)
+}
+
+// reserveValueAndPtr reserves t's value identity over layoutRT and, when
+// possible, its *T identity, recording both and wiring *T via AttachPtrDerived.
+// The value rtype is reserved unconditionally: it gives T a writable, named
+// identity for ReservePtrMethods to wire *T into (PtrToThis on a shared/native
+// layout faults). Fill leaves it methodless when method-set(T) is empty. Returns
+// layoutRT unchanged if the value reservation itself fails.
+func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
+	name := qualifiedTypeName(t)
+	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgPath)
+	if err != nil {
+		return layoutRT
+	}
+	res := &synthReservation{value: vr}
+	valueRT := vr.Type()
+	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, t.PkgPath); err == nil {
+		res.ptr = r
+		AttachPtrDerived(t, r.Type())
+	}
+	derivedMu.Lock()
+	reservations[t] = res
+	derivedMu.Unlock()
+	return valueRT
+}
+
+// reserveDefinedOverBase reserves the identity of a defined type (`type T Base`)
+// over its already-materialized base layout. A defined type with its OWN methods
+// (e.g. `type ipNetValue net.IPNet`) reserves directly: maybeReserve skips
+// struct-kind layouts and treats a named base as a field clone, neither of which
+// fits a genuine defined type. A methodless or field-clone type defers to
+// maybeReserve unchanged (field clones carry no own methods, so the gate is safe).
+func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
+	if lookupReservation(t) != nil {
+		return t.Rtype
+	}
+	if t.Name != "" && hasReservableMethods(t) {
+		return reserveValueAndPtr(t, base)
+	}
+	return maybeReserve(t, base)
+}
+
+// maybeReserveStruct reserves a named struct's identity over a provisional layout
+// (so a *T field cycle resolves to it), materializes fields, then fills the real
+// layout in place -- attach fills methods into the same identity, so composites
+// that captured it need no patching.
+// handled=false: methodless (native path); rt=nil: a field is not yet finalized,
+// retry later (reservation kept).
+func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
+	// A struct field clone (an embedded field, or any field carrying its type's
+	// name) must resolve to its canonical Base identity, not reserve its own --
+	// else an embedded main.Point field gets a distinct "Point" rtype and the
+	// composite literal's main.Point value is not assignable to it. Mirrors the
+	// isFieldClone branch in maybeReserve.
+	if isFieldClone(t) {
+		rt := MaterializeRtype(t.Base)
+		t.Rtype = rt
+		return rt, true
+	}
+	res := lookupReservation(t)
+	if res == nil {
+		if !hasReservableMethods(t) {
+			return nil, false // methodless struct: native identity is stable already
+		}
+		name := qualifiedTypeName(t)
+		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, t.PkgPath)
+		if err != nil {
+			return nil, false
+		}
+		res = &synthReservation{value: vr}
+		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, t.PkgPath); err == nil {
+			res.ptr = pr
+			AttachPtrDerived(t, pr.Type())
+		}
+		derivedMu.Lock()
+		reservations[t] = res
+		derivedMu.Unlock()
+	}
+	reserved := res.value.Type()
+	t.Rtype = reserved // stable identity for field cycles during this pass
+	for _, f := range t.Fields {
+		MaterializeRtype(f)
+	}
+	if !fieldsMaterialized(t.Fields) {
+		t.Rtype = nil // a field references a not-yet-finalized sibling; retry later
+		return nil, true
+	}
+	realLayout := mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
+	// Methodless-table identity is safe to share across Evals (see sharedStructs).
+	if !hasSynthTableMethods(t) {
+		key := sharedStructKey{name: qualifiedTypeName(t), layoutSig: realLayout.String()}
+		derivedMu.Lock()
+		if shared := sharedStructs[key]; shared != nil {
+			sharedRT := shared.value.Type()
+			reservations[t] = shared
+			derivedMu.Unlock()
+			t.Rtype = sharedRT
+			if shared.ptr != nil {
+				AttachPtrDerived(t, shared.ptr.Type())
+			}
+			return sharedRT, true
+		}
+		// Fill before publishing so a concurrent hit never adopts the placeholder.
+		runtype.FillStructLayout(reserved, realLayout)
+		sharedStructs[key] = res
+		derivedMu.Unlock()
+		t.Rtype = reserved
+		return reserved, true
+	}
+	runtype.FillStructLayout(reserved, realLayout)
+	t.Rtype = reserved
+	return reserved, true
+}
+
 type derivedTypes struct {
-	ptr     *mtype.Type
-	slice   *mtype.Type
-	array   map[int]*mtype.Type
-	chans   map[reflect.ChanDir]*mtype.Type
-	maps    map[*mtype.Type]*mtype.Type // keyed by this type, indexed by elem
-	valMaps map[*mtype.Type]*mtype.Type // value is this type, indexed by key; lets the cascade reach map[K]T
+	ptr   *mtype.Type
+	slice *mtype.Type
+	array map[int]*mtype.Type
+	chans map[reflect.ChanDir]*mtype.Type
+	maps  map[*mtype.Type]*mtype.Type // keyed by this type, indexed by elem
 }
 
 var (
-	// derivedMu serializes the derived/prior/synthIface side tables and the
-	// RefreshRtype cascade. Contended only when parallel tests share a std
-	// *Type; uncontended within one single-threaded Compiler.
+	// derivedMu serializes the derived/synthIface side tables. Contended only
+	// when parallel tests share a std *Type; uncontended within one
+	// single-threaded Compiler.
 	derivedMu       sync.Mutex
 	derivedCache    = map[*mtype.Type]*derivedTypes{}
-	priorRtypes     = map[*mtype.Type]reflect.Type{}
 	synthIfaceCache = map[*mtype.Type]reflect.Type{}
 )
 
@@ -70,10 +275,12 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	if t.Placeholder {
 		return nil // forward-declared struct/interface not yet finalized
 	}
-	// No own structure: materialize from the underlying (synth attach restores
-	// the named identity).
+	// No own structure: materialize from the underlying. A method-bearing
+	// defined-over-basic type (e.g. `type Confidence int` with methods) reserves
+	// its identity over the base layout so attach fills methods in place.
 	if definedOverBase(t) {
-		if rt := MaterializeRtype(t.Base); rt != nil {
+		if base := MaterializeRtype(t.Base); base != nil {
+			rt := reserveDefinedOverBase(t, base)
 			t.Rtype = rt
 			return rt
 		}
@@ -85,31 +292,31 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 		if elem == nil {
 			return nil
 		}
-		rt = derivePointerTo(elem)
+		rt = runtype.DerivePointerTo(elem)
 	case reflect.Slice:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveSliceOf(elem)
+		rt = runtype.DeriveSliceOf(elem)
 	case reflect.Array:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveArrayOf(t.ArrayLen, elem)
+		rt = runtype.DeriveArrayOf(t.ArrayLen, elem)
 	case reflect.Chan:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveChanOf(t.ChanDir, elem)
+		rt = runtype.DeriveChanOf(t.ChanDir, elem)
 	case reflect.Map:
 		key, elem := MaterializeRtype(t.KeyType), MaterializeRtype(t.ElemType)
 		if key == nil || elem == nil {
 			return nil
 		}
-		rt = deriveMapOf(key, elem)
+		rt = runtype.DeriveMapOf(key, elem)
 	case reflect.Func:
 		in := make([]reflect.Type, len(t.Params))
 		for i, p := range t.Params {
@@ -136,6 +343,9 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 			return rt
 		}
 		if t.Name != "" {
+			if rt, handled := maybeReserveStruct(t); handled {
+				return rt
+			}
 			// Named struct may be in a pointer cycle (field *T, or mutual T<->U):
 			// install a placeholder rtype, materialize fields (a *T built then
 			// resolves to it), then patch the placeholder in place.
@@ -167,13 +377,13 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 		rt = mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
 	default:
 		// Basic kind with no rtype yet: materialize to the canonical native basic
-		// rtype (layout-correct). A named basic gets its method-bearing rtype from
-		// the synth attach + cascade; this is the underlying for composites built
-		// before attach.
+		// rtype (layout-correct). A named basic gets its method-bearing identity
+		// from maybeReserve below, which attach later fills in place.
 		if rt = basicRtype(t.Kind()); rt == nil {
 			return nil // genuinely un-materialized leaf
 		}
 	}
+	rt = maybeReserve(t, rt)
 	t.Rtype = rt
 	return rt
 }
@@ -214,9 +424,9 @@ var basicRtypes = map[reflect.Kind]reflect.Type{
 }
 
 // The Sym* derived constructors are goparser's parse-time entry points: they
-// memoize and register the derived *Type in t's derived cache (so the post-attach
-// cascade can refresh it) but leave Rtype nil -- comp materializes it later via
-// MaterializeRtype. They are the lazy counterparts of PointerTo/SliceOf/... .
+// memoize and register the derived *Type in t's derived cache but leave Rtype
+// nil -- comp materializes it later via MaterializeRtype. They are the lazy
+// counterparts of PointerTo/SliceOf/... .
 
 // SymPtr returns the canonical *t, registered in t's derived cache, Rtype nil.
 func SymPtr(t *mtype.Type) *mtype.Type {
@@ -284,7 +494,6 @@ func SymMap(k, e *mtype.Type) *mtype.Type {
 	}
 	m := mtype.SymMap(k, e)
 	d.maps[e] = m
-	registerValMap(e, k, m)
 	return m
 }
 
@@ -300,164 +509,8 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 	if d.ptr != nil {
 		return d.ptr
 	}
-	d.ptr = &mtype.Type{Name: t.Name, Rtype: derivePointerTo(t.Rtype), ElemType: t}
+	d.ptr = &mtype.Type{Name: t.Name, Rtype: runtype.DerivePointerTo(t.Rtype), ElemType: t}
 	return d.ptr
-}
-
-// ArrayOf returns the canonical [length]t type, memoized.
-func ArrayOf(length int, t *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(t)
-	if d.array == nil {
-		d.array = map[int]*mtype.Type{}
-	} else if a := d.array[length]; a != nil {
-		return a
-	}
-	a := &mtype.Type{Rtype: deriveArrayOf(length, t.Rtype), ElemType: t, ArrayLen: length}
-	d.array[length] = a
-	return a
-}
-
-// SliceOf returns the canonical []t type, memoized.
-func SliceOf(t *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(t)
-	if d.slice != nil {
-		return d.slice
-	}
-	d.slice = &mtype.Type{Rtype: deriveSliceOf(t.Rtype), ElemType: t}
-	return d.slice
-}
-
-// MapOf returns the canonical map[k]e type, memoized on the key, indexed by elem.
-func MapOf(k, e *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(k)
-	if d.maps == nil {
-		d.maps = map[*mtype.Type]*mtype.Type{}
-	} else if m := d.maps[e]; m != nil {
-		return m
-	}
-	m := &mtype.Type{Rtype: deriveMapOf(k.Rtype, e.Rtype), ElemType: e, KeyType: k}
-	d.maps[e] = m
-	registerValMap(e, k, m)
-	return m
-}
-
-// registerValMap records map[k]e in e's valMaps so refreshLocked can rebuild it
-// when e's rtype is swapped by attach. Caller holds derivedMu.
-func registerValMap(e, k, m *mtype.Type) {
-	d := ensureDerived(e)
-	if d.valMaps == nil {
-		d.valMaps = map[*mtype.Type]*mtype.Type{}
-	}
-	d.valMaps[k] = m
-}
-
-// ChanOf returns the canonical chan-elem type with the given direction, memoized.
-func ChanOf(dir reflect.ChanDir, elem *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(elem)
-	if d.chans == nil {
-		d.chans = map[reflect.ChanDir]*mtype.Type{}
-	} else if c := d.chans[dir]; c != nil {
-		return c
-	}
-	c := &mtype.Type{Rtype: deriveChanOf(dir, elem.Rtype), ElemType: elem, ChanDir: dir}
-	d.chans[dir] = c
-	return c
-}
-
-// derivePointerTo and its SliceOf/ArrayOf/ChanOf/MapOf siblings build a derived
-// rtype: runtype.* for synth elems (reflect.*Of crashes on them via
-// resolveNameOff), reflect.* otherwise to keep native identity. PointerTo uses
-// reflect.PointerTo when a synth elem's PtrToThis is wired (unifies *T identity).
-func derivePointerTo(elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) && !runtype.HasPtrToThis(elem) {
-		return runtype.PointerTo(elem)
-	}
-	return reflect.PointerTo(elem)
-}
-
-func deriveSliceOf(elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.SliceOf(elem)
-	}
-	return reflect.SliceOf(elem)
-}
-
-func deriveArrayOf(n int, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.ArrayOf(n, elem)
-	}
-	return reflect.ArrayOf(n, elem)
-}
-
-func deriveChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.ChanOf(dir, elem)
-	}
-	return reflect.ChanOf(dir, elem)
-}
-
-func deriveMapOf(key, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(key) || runtype.IsSynth(elem) {
-		return runtype.MapOf(key, elem)
-	}
-	return reflect.MapOf(key, elem)
-}
-
-// RefreshRtype swaps t.Rtype to newRT and cascades through every derived *Type
-// (*T, []T, [N]T, chan T, map[t]E) so compiler-captured derived rtypes track the
-// swap. Uses runtype.* (reflect.*Of crashes on synth rtypes). Maps cascade only
-// the t-as-key direction; t-as-element maps live under the key's cache.
-func RefreshRtype(t *mtype.Type, newRT reflect.Type) {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	refreshLocked(t, newRT)
-}
-
-func refreshLocked(t *mtype.Type, newRT reflect.Type) {
-	if newRT == nil || newRT == t.Rtype {
-		return
-	}
-	if priorRtypes[t] == nil {
-		priorRtypes[t] = t.Rtype
-	}
-	t.Rtype = newRT
-	d := derivedCache[t]
-	if d == nil {
-		return
-	}
-	if d.ptr != nil {
-		refreshLocked(d.ptr, runtype.PointerTo(newRT))
-	}
-	if d.slice != nil {
-		refreshLocked(d.slice, runtype.SliceOf(newRT))
-	}
-	for length, a := range d.array {
-		refreshLocked(a, runtype.ArrayOf(length, newRT))
-	}
-	for dir, c := range d.chans {
-		refreshLocked(c, runtype.ChanOf(dir, newRT))
-	}
-	for e, mt := range d.maps {
-		refreshLocked(mt, runtype.MapOf(newRT, e.Rtype))
-	}
-	for k, mt := range d.valMaps {
-		refreshLocked(mt, runtype.MapOf(k.Rtype, newRT))
-	}
-}
-
-// PriorRtype returns t's pre-synth-swap rtype, or nil if never swapped.
-func PriorRtype(t *mtype.Type) reflect.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	return priorRtypes[t]
 }
 
 // cachedSynthIface returns t's cached method-bearing synth interface rtype,
@@ -478,7 +531,8 @@ func cachedSynthIface(t *mtype.Type, build func() reflect.Type) reflect.Type {
 
 // AttachPtrDerived records newPtrRT (a *T-with-methods rtype) as t's derived
 // pointer type, materializing the slot if absent so a later PointerTo(t)
-// returns it instead of a fresh methodless *T.
+// returns it instead of a fresh methodless *T. The reserve path wires the *T
+// identity once at materialize, so an existing slot just adopts newPtrRT.
 func AttachPtrDerived(t *mtype.Type, newPtrRT reflect.Type) {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
@@ -486,7 +540,7 @@ func AttachPtrDerived(t *mtype.Type, newPtrRT reflect.Type) {
 	if d.ptr == nil {
 		d.ptr = &mtype.Type{Name: t.Name, Rtype: newPtrRT, ElemType: t}
 	} else {
-		refreshLocked(d.ptr, newPtrRT)
+		d.ptr.Rtype = newPtrRT
 	}
 }
 
@@ -494,14 +548,12 @@ const canonicalTypeMaxDepth = 1024
 
 // CanonicalType walks the Base chain to the source *Type a struct-field copy
 // derived from (t itself if Base is nil); depth-capped against cyclic Base.
-// Clones must route through this to observe synth-cascade updates, which only
-// touch canonical *Types.
+// Used by symbol resolution to match a clone against its defining identity.
 func CanonicalType(t *mtype.Type) *mtype.Type {
 	start := t
 	for i := 0; i < canonicalTypeMaxDepth && t != nil && t.Base != nil; i++ {
 		// Stop at a synth/method-bearing named type: crossing its named->underlying
-		// Base link (type Grams int) would drop the synth rtype. Holds only
-		// post-attach, so the pre-attach walk is unchanged.
+		// Base link (type Grams int) would drop the named method-bearing identity.
 		if t.Rtype != nil && (runtype.IsSynth(t.Rtype) || t.Rtype.NumMethod() > 0) {
 			return t
 		}
@@ -511,106 +563,4 @@ func CanonicalType(t *mtype.Type) *mtype.Type {
 		return start
 	}
 	return t
-}
-
-// LiveFieldRtype returns the current rtype for field f when rebuilding a struct.
-// Clones (Base != nil) and derived types over a clone aren't refreshed by the
-// in-Type cascade, so follow Base and re-derive.
-func LiveFieldRtype(f *mtype.Type) reflect.Type {
-	if f == nil {
-		return nil
-	}
-	canonical := CanonicalType(f)
-	if canonical == nil || canonical.Rtype == nil {
-		return nil
-	}
-	// Derived type over a clone elem/key: re-derive from the canonical inner to
-	// pick up cascade updates landed only on the canonical's derived chain.
-	if canonical.ElemType != nil && canonical.ElemType.Base != nil {
-		// A NAMED value-composite (e.g. `type Trace []Frame`) carries its own
-		// method-bearing rtype; re-deriving from the element would drop the name
-		// and methods. Its element is kept fresh by PatchSynthSliceElem. Pointers
-		// have no identity beyond *elem, so they always re-derive.
-		if canonical.Name != "" && canonical.Rtype.Kind() != reflect.Pointer {
-			return canonical.Rtype
-		}
-		elemC := CanonicalType(canonical.ElemType)
-		switch canonical.Rtype.Kind() {
-		case reflect.Pointer:
-			return derivePointerTo(elemC.Rtype)
-		case reflect.Slice:
-			return deriveSliceOf(elemC.Rtype)
-		case reflect.Array:
-			return deriveArrayOf(canonical.Rtype.Len(), elemC.Rtype)
-		case reflect.Chan:
-			return deriveChanOf(canonical.Rtype.ChanDir(), elemC.Rtype)
-		case reflect.Map:
-			keyC := canonical.KeyType
-			if keyC != nil {
-				keyC = CanonicalType(keyC)
-			}
-			keyRT := canonical.Rtype.Key()
-			if keyC != nil && keyC.Rtype != nil {
-				keyRT = keyC.Rtype
-			}
-			return deriveMapOf(keyRT, elemC.Rtype)
-		}
-	}
-	return canonical.Rtype
-}
-
-// PatchSynthStructFields patches t's struct field rtypes in place to their live
-// (post-attach) rtypes, preserving t.Rtype identity; layout-safe per field via
-// SamePtrLayout. Serialized under mtype's StructOf lock (which reads shared
-// cached field rtypes); live rtypes are computed before locking since
-// LiveFieldRtype takes derivedMu.
-func PatchSynthStructFields(t *mtype.Type) {
-	if t == nil || t.Rtype == nil || t.Rtype.Kind() != reflect.Struct {
-		return
-	}
-	if t.Rtype.NumField() != len(t.Fields) {
-		return
-	}
-	lives := make([]reflect.Type, len(t.Fields))
-	for i, f := range t.Fields {
-		lives[i] = LiveFieldRtype(f)
-	}
-	mtype.WithStructTypesLock(func() {
-		for i, live := range lives {
-			if live == nil || live.Kind() == reflect.Interface {
-				continue
-			}
-			if t.Rtype.Field(i).Type == live {
-				continue
-			}
-			if !runtype.SamePtrLayout(t.Rtype.Field(i).Type, live) {
-				continue
-			}
-			runtype.PatchStructField(t.Rtype, i, live)
-		}
-	})
-}
-
-// PatchSynthSliceElem swaps a named synth slice type's frozen element for its
-// canonical cascade-refreshed element (t.Base.Rtype.Elem()), preserving t's own
-// methods. Only synth rtypes are touched -- a native slice rtype is shared with
-// reflect.
-func PatchSynthSliceElem(t *mtype.Type) {
-	if t == nil || t.Rtype == nil || t.Rtype.Kind() != reflect.Slice {
-		return
-	}
-	if !runtype.IsSynth(t.Rtype) {
-		return
-	}
-	if t.Base == nil || t.Base.Rtype == nil || t.Base.Rtype.Kind() != reflect.Slice {
-		return
-	}
-	live := t.Base.Rtype.Elem()
-	if live == nil || live == t.Rtype.Elem() {
-		return
-	}
-	if !runtype.SamePtrLayout(t.Rtype.Elem(), live) {
-		return
-	}
-	runtype.PatchSliceElem(t.Rtype, live)
 }

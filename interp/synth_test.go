@@ -12,8 +12,6 @@ import (
 )
 
 func TestSynthStringerEndToEnd(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import "fmt"
@@ -43,11 +41,9 @@ func main() {
 }
 
 // TestSynthPtrStringerEndToEnd is the pointer-receiver counterpart of
-// TestSynthStringerEndToEnd: Phase 2a synthesizes a *T rtype via
-// attachPtrType and wires PtrToThis so &T satisfies fmt.Stringer.
+// TestSynthStringerEndToEnd: the reserve path synthesizes a *T rtype and wires
+// PtrToThis so &T satisfies fmt.Stringer.
 func TestSynthPtrStringerEndToEnd(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import "fmt"
@@ -77,7 +73,7 @@ func main() {
 	}
 }
 
-// TestSynthKindsValueRecv exercises the Phase 2b kind catalog end-to-end:
+// TestSynthKindsValueRecv exercises the synth kind catalog end-to-end:
 // each named non-struct kind (primitive, slice, array, map) with a value
 // receiver Stringer must satisfy fmt.Stringer and dispatch through the
 // synthesized rtype.
@@ -145,7 +141,6 @@ func main() {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("MVM_SYNTH", "1")
 			i := NewInterpreter(golang.GoSpec)
 			i.ImportPackageValues(stdlib.Values)
 			var stdout, stderr bytes.Buffer
@@ -165,8 +160,6 @@ func main() {
 // MarshalJSON on a struct value type satisfies json.Marshaler via the
 // synthesized rtype, with no bridge proxy.
 func TestSynthMarshalJSON(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import (
@@ -208,8 +201,6 @@ func main() {
 // UnmarshalJSON on a *T satisfies json.Unmarshaler via the synthesized
 // *T rtype, with mutations to the receiver visible after dispatch returns.
 func TestSynthUnmarshalJSON(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import (
@@ -249,15 +240,13 @@ func main() {
 	}
 }
 
-// TestSynthMultiMethod (Phase 2d) verifies that a type with BOTH a value-recv
+// TestSynthMultiMethod verifies that a type with BOTH a value-recv
 // Stringer AND a value-recv MarshalJSON gets both installed on the synth
 // rtype, so it satisfies both fmt.Stringer AND json.Marshaler natively.
 // Pre-Phase-2d this was impossible: the synth1 container held one method, so
 // the priority fix (S1 > S2) gave only Stringer and Marshaler fell through
 // to the bridge.
 func TestSynthMultiMethod(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import (
@@ -300,8 +289,6 @@ func main() {
 // method arrays, so unsorted entries silently fail multi-method
 // satisfaction (and the negative result is cached in the itab).
 func TestSynthCompositeInterfaceReverseDecl(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	// Methods declared in REVERSE alphabetical order (String first, then
 	// MarshalJSON). Pre-fix, the synth rtype's method array preserved
 	// declaration order [String, MarshalJSON] and the composite
@@ -350,8 +337,6 @@ func main() {
 // (compiler.go:136), so without per-*Type dedup the walker would attach each
 // rtype twice, doubling consumption to 4.
 func TestSynthAttachIdempotent(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import "fmt"
@@ -384,8 +369,6 @@ func main() {
 // propagate through the synth S3 bridge without an IsNil-on-struct panic
 // (the github.com/google/uuid TestJSONUnmarshal regression).
 func TestSynthUnmarshalConcreteError(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import (
@@ -434,8 +417,6 @@ func main() {
 // dispatch the named type's Format, not default slice formatting.
 // (github.com/pkg/errors TestStackTraceFormat regression.)
 func TestSynthNamedSliceField(t *testing.T) {
-	t.Setenv("MVM_SYNTH", "1")
-
 	const src = `package main
 
 import "fmt"

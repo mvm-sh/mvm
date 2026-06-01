@@ -7,11 +7,11 @@ import (
 	"unsafe"
 )
 
-func TestAttachPtrMethodsStringer(t *testing.T) {
+func TestSynthPtrStringer(t *testing.T) {
 	type layout struct {
 		V int
 	}
-	layoutT, err := AttachStructMethods(
+	layoutT, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -25,7 +25,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatalf("AttachStructMethods (T): %v", err)
+		t.Fatalf("mkSynth (T): %v", err)
 	}
 
 	called := false
@@ -34,14 +34,14 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		l := (*layout)(recv)
 		return fmt.Sprintf("ptr V=%d", l.V)
 	}
-	ptrT, err := AttachPtrMethods(layoutT, "*T", "test", []Method{{
+	ptrT, err := mkSynthPtr(layoutT, "*T", "test", []Method{{
 		Name:     "String",
 		Exported: true,
 		Sig:      reflect.TypeOf((func() string)(nil)),
 		Handler:  handler,
 	}})
 	if err != nil {
-		t.Fatalf("AttachPtrMethods: %v", err)
+		t.Fatalf("mkSynthPtr: %v", err)
 	}
 
 	if got, want := ptrT.Kind(), reflect.Pointer; got != want {

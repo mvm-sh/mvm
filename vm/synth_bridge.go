@@ -15,35 +15,35 @@ import (
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
-// AttachSynthMethods installs t's interpreted methods on a fresh synthesized
-// rtype (via runtype + stdlib/stubs) and replaces t.Rtype.
-// Native code that asserts the new rtype to an interface (fmt.Stringer,
-// error, json.Marshaler, json.Unmarshaler, etc.) then dispatches the
-// method directly, with no bridge proxy.
+// AttachSynthMethods fills t's interpreted methods into the synth rtype that was
+// reserved for t at materialize (via runtype + stdlib/stubs), in place -- t.Rtype
+// and any composite that captured it keep their identity.
+// Native code that asserts the rtype to an interface (fmt.Stringer, error,
+// json.Marshaler, json.Unmarshaler, etc.) then dispatches the method directly,
+// with no bridge proxy.
 //
-// Phase 2d: any combination of shapes S1 (func() string) / S2 (func()
-// ([]byte, error)) / S3 (func([]byte) error) on any supported kind, plus
-// pointer-receiver variants on *T via attachPtrType.
-// Up to synth's per-attach method cap (currently 16); excess methods of
-// the same receiver kind are silently dropped.
-//
-// Re-allocation of existing values is out of scope: global slots populated
-// before this call keep their old rtype.
-// New values allocated via vm.NewValue against t.Rtype after this call see
-// the synth rtype.
+// Handles any combination of the supported method shapes (see detectShape) on any
+// supported kind, plus pointer-receiver variants on *T via attachPtrRecv. Up to
+// synth's per-attach method cap (currently 16); excess methods of the same
+// receiver kind are silently dropped.
 func (m *Machine) AttachSynthMethods(t *Type) error {
 	if t == nil || t.Rtype == nil {
 		return nil
 	}
-	if !synthSupportedKind(t.Rtype.Kind()) {
+	if !runtype.SupportedKind(t.Rtype.Kind()) {
+		return nil
+	}
+	// An unnamed type carries only promoted methods (Go forbids methods on an
+	// anonymous type, e.g. struct{io.Reader}); those dispatch through the embedded
+	// field's own rtype, so the container needs no synth attach.
+	if t.Name == "" {
 		return nil
 	}
 
-	valueAttached, err := m.attachValueRecv(t)
-	if err != nil {
+	if err := m.attachValueRecv(t); err != nil {
 		return err
 	}
-	return m.attachPtrRecv(t, valueAttached)
+	return m.attachPtrRecv(t)
 }
 
 // bridgePtrToIface retypes a bridged pointer-to-interpreted-interface (e.g.
@@ -130,22 +130,6 @@ func isExportedName(name string) bool {
 	return unicode.IsUpper(r)
 }
 
-func synthSupportedKind(k reflect.Kind) bool {
-	switch k {
-	case reflect.Struct,
-		reflect.Bool,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32, reflect.Float64,
-		reflect.Complex64, reflect.Complex128,
-		reflect.String,
-		reflect.Slice, reflect.Array, reflect.Map, reflect.Func:
-		return true
-	}
-	return false
-}
-
 // qualifiedTypeName returns the Str-form name stamped into the synth rtype:
 // "pkgBase.Name" when the type has a package path, otherwise just Name.
 // reflect.Type.String() returns this verbatim, so fmt %T and similar matches
@@ -162,47 +146,37 @@ func qualifiedTypeName(t *Type) string {
 	return base + "." + t.Name
 }
 
-func (m *Machine) attachValueRecv(t *Type) (bool, error) {
+// attachValueRecv fills T's value-receiver methods into its reserved synth
+// identity in place. The reserve gate (hasReservableMethods) is a superset of
+// the attach trigger (a method with a detectShape), so a type with shaped value
+// methods was always reserved at materialize; a missing reservation is an
+// internal invariant violation.
+func (m *Machine) attachValueRecv(t *Type) error {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
-		return false, nil
+		return nil
 	}
-	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs))
-	if err != nil {
-		return false, err
+	methods := toSynthMethods(m, t, specs)
+	res := lookupReservation(t)
+	if res == nil || res.value == nil {
+		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
 	}
-	RefreshRtype(t, newRT)
-	return true, nil
+	return stubs.FillMethods(res.value, methods)
 }
 
-// attachPtrRecv installs ptr-recv methods on *T.
-// elemReady reports whether t.Rtype is already a fresh synth elem we own.
-// If not, clone the original layout first so attachPtrType writes
-// PtrToThis into our own rtype rather than the layout shared with reflect's
-// caches (structLookupCache for struct, the canonical native rtype for
-// primitives/slices/arrays/maps).
-func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
+// attachPtrRecv fills *T's methods into its reserved synth pointer identity in
+// place. *T was reserved + wired (PtrToThis, AttachPtrDerived) at materialize.
+func (m *Machine) attachPtrRecv(t *Type) error {
 	specs := m.allSynthMethods(t, true)
 	if len(specs) == 0 {
 		return nil
 	}
-	if !elemReady {
-		clone, err := runtype.Clone(t.Rtype, t.PkgPath)
-		if err != nil {
-			return err
-		}
-		RefreshRtype(t, clone)
+	methods := toSynthMethods(m, t, specs)
+	res := lookupReservation(t)
+	if res == nil || res.ptr == nil {
+		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
 	}
-	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath,
-		toSynthMethods(m, t, specs))
-	if err != nil {
-		return err
-	}
-	// Propagate the *T-with-methods rtype to t's derived pointer so a later
-	// PointerTo(t) returns it rather than a fresh methodless *T.
-	AttachPtrDerived(t, newPtrRT)
-	return nil
+	return stubs.FillMethods(res.ptr, methods)
 }
 
 // synthMethodSpec describes a single method picked for synth attachment.
@@ -218,7 +192,7 @@ type synthMethodSpec struct {
 }
 
 // toSynthMethods materializes the slice of stubs.Method passed to
-// stubs.AttachMethods / AttachPtrMethods.
+// stubs.FillMethods.
 // Each method's handler closure is built per its shape, with recv dereferencing
 // driven by the method's own receiver kind (s.ptrRecv).
 func toSynthMethods(
@@ -444,10 +418,9 @@ func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 // For value-recv methods, recv points at boxed T storage; the receiver Value
 // is reflect.NewAt(t.Rtype, recv).Elem().
 //
-// t.Rtype is read lazily inside the closure: the bridge replaces it with the
-// synth rtype after AttachMethods returns, so capturing it at construction
-// time would freeze the pre-synth layout identity and produce mismatched
-// reflect.Value vs ifcType.Rtype at dispatch.
+// t.Rtype is the reserved synth identity (stable: fill installs methods in place,
+// it does not swap), read through the *Type so the receiver Value's type matches
+// ifcType.Rtype at dispatch.
 func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS1 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {

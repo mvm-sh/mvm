@@ -538,10 +538,12 @@ type. For each method it:
 2. builds a handler closure (`makeHandlerS*`) that re-enters the interpreter via
    `CallFunc` when the stub fires;
 3. delegates to `stdlib/stubs`, which resolves each method to a stub-pool slot
-   PC and calls `runtype` to build the rtype.
+   PC and fills them into the type's reserved synth rtype in place.
 
-`t.RefreshRtype` then swaps the synthesized rtype in and cascades it through derived
-types. See [runtype](runtype.md), [stubs](stubs.md), and
+The type's synth identity was reserved at materialize (`maybeReserve` /
+`maybeReserveStruct` in `vm/derive.go`), so the fill is in place and no rtype swap
+or cascade is needed -- a composite that captured the reserved rtype sees the
+methods afterward. See [runtype](runtype.md), [stubs](stubs.md), and
 [ADR-021](../decisions/ADR-021-synthesized-rtypes.md). This replaced the former
 per-call bridge registries and argument proxies -- `vm/bridge.go` no longer holds
 `Bridges`/`DisplayBridges`/`CompositeBridges`/`InterfaceBridges`.
@@ -558,7 +560,7 @@ via `bridgeIface`.
 **Pointer-receiver method dispatch.** `IfaceCall` resolves the method set via
 `Type.ResolveMethodType`, which walks to `ElemType.Methods` for pointer types,
 so methods on `T` are visible when the concrete value is `*T`;
-`runtype.AttachPtrMethods` mirrors this on the runtype side by wiring `*T`'s
+`runtype.ReservePtrMethods` mirrors this on the runtype side by wiring `*T`'s
 `PtrToThis`.
 
 **`MethodNames []string`** on `Machine` maps global method IDs back to names

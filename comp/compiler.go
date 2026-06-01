@@ -49,7 +49,7 @@ type Compiler struct {
 	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index, for *Type-identity slot compares
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 
-	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots (MVM_DEFERSLOTS)
+	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 }
 
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
@@ -86,8 +86,17 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 		return rm.Type
 	}
 	for _, im := range ifaceTyp.IfaceMethods {
-		if im.Name == methodName && im.Rtype != nil {
+		if im.Name != methodName {
+			continue
+		}
+		if im.Rtype != nil {
 			return im.Rtype
+		}
+		// A body-local anonymous interface (a type-assertion / type-switch target)
+		// is parsed after materializeIfaceMethods, so its Rtype is still the nil
+		// goparser left; materialize it from the symbolic Sig on demand.
+		if im.Sig != nil {
+			return vm.MaterializeRtype(im.Sig)
 		}
 	}
 	return nil
@@ -194,6 +203,16 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
 // Compile and CompileFiles.
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	c.allocGlobalSlots()
+	c.preregisterMethods()
+	// Materialize interface method signatures now -- after the method pre-pass, so a
+	// named type referenced in a signature reserves its method-bearing identity
+	// rather than getting stamped methodless (goparser leaves IfaceMethod.Rtype nil).
+	c.materializeIfaceMethods()
+	// Promote embedded-interface methods now (before any body-compile
+	// materialization) so a struct embedding an interface carries its promoted
+	// methods when the reserve gate runs; the post-body call below additionally
+	// promotes embedded value-type methods once their code addresses resolve.
+	c.propagateEmbeddedMethods()
 	var rest []goparser.DeferredDecl
 	for _, decl := range remaining {
 		if len(decl.Toks) > 0 && decl.Toks[0].Tok == lang.Var {
@@ -211,6 +230,86 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	}
 	c.propagateEmbeddedMethods()
 	return nil
+}
+
+// preregisterMethods records every method onto its receiver type's Methods
+// table before Phase-2 body compile materializes any type. Phase 1 registers
+// methods only as symbols keyed "<typeKey>.<M>" (or "*<typeKey>.<M>" for pointer
+// receivers); the slot on the receiver *Type is otherwise filled lazily when the
+// method's label is emitted, which can land after the type was already
+// materialized -- too late for the reserve gate (vm.maybeReserve) to see it.
+// Index stays -1 (the code address is unknown until the body compiles); the real
+// registration overwrites the same slot in place, leaving any reservation (keyed
+// on the stable *Type) intact. Keys are walked in sorted order so method-ID
+// assignment is deterministic.
+func (c *Compiler) preregisterMethods() {
+	keys := make([]string, 0, len(c.Symbols))
+	for key := range c.Symbols {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		s := c.Symbols[key]
+		if s.Kind != symbol.Func || s.Type == nil || s.Type.Kind() != reflect.Func ||
+			strings.ContainsRune(key, '#') {
+			continue
+		}
+		body := strings.TrimPrefix(key, "*")
+		dot := strings.LastIndex(body, ".")
+		if dot < 0 {
+			continue // free function: no receiver
+		}
+		ts, ok := c.Symbols[body[:dot]]
+		if !ok || ts.Kind != symbol.Type || ts.Type == nil {
+			continue // typeKey is a package or unknown, not a receiver type
+		}
+		id := c.methodID(body[dot+1:])
+		for len(ts.Type.Methods) <= id {
+			ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
+		}
+		if m := &ts.Type.Methods[id]; !m.IsResolved() && m.Sig == nil {
+			*m = vm.Method{Index: -1, PtrRecv: strings.HasPrefix(key, "*"), Sig: s.Type}
+		}
+	}
+}
+
+// materializeIfaceMethods fills IfaceMethod.Rtype from its symbolic Sig for every
+// interface reachable from the symbol table. goparser leaves it nil at parse; doing
+// it here (after preregisterMethods) means a named type named in a method signature
+// is materialized with its method table populated, so the reserve gate gives it a
+// method-bearing identity instead of a methodless stamp that attach must swap.
+func (c *Compiler) materializeIfaceMethods() {
+	seen := map[*vm.Type]bool{}
+	var visit func(t *vm.Type)
+	visit = func(t *vm.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		visit(t.ElemType)
+		visit(t.KeyType)
+		visit(t.Base)
+		for _, f := range t.Fields {
+			visit(f)
+		}
+		for _, p := range t.Params {
+			visit(p)
+		}
+		for _, r := range t.Returns {
+			visit(r)
+		}
+		for _, e := range t.Embedded {
+			visit(e.Type)
+		}
+		for i := range t.IfaceMethods {
+			if t.IfaceMethods[i].Rtype == nil && t.IfaceMethods[i].Sig != nil {
+				t.IfaceMethods[i].Rtype = vm.MaterializeRtype(t.IfaceMethods[i].Sig)
+			}
+		}
+	}
+	for _, sym := range c.Symbols {
+		visit(sym.Type)
+	}
 }
 
 func (c *Compiler) compileDeferred(dd goparser.DeferredDecl) error {
@@ -386,32 +485,18 @@ func (c *Compiler) typeIndex(typ *vm.Type) int {
 }
 
 // rtype is the single seam through which comp obtains a type's reflect.Type.
-// It materializes the rtype from the symbolic graph on first use (S1: goparser
-// builds types symbolically, comp materializes them), caching it on the *Type.
-// Identity today, since parse still sets Rtype.
+// goparser builds types symbolically; comp materializes the rtype from the
+// symbolic graph on first use, caching it on the *Type.
 func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
-	if freshRtypeLog && typ != nil && typ.Rtype == nil {
-		_, file, line, _ := runtime.Caller(1)
-		fmt.Fprintf(os.Stderr, "fresh rtype %s:%d %s\n", path.Base(file), line, typ.String())
-	}
 	return vm.MaterializeRtype(typ)
 }
 
-// freshRtypeLog gates Stage-0 instrumentation: it reports each c.rtype call that
-// materializes an interpreted type from scratch (nil Rtype) during generate.
-// Symbolizing those sites drives the count to zero so generate becomes reflect-free.
-var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
-
-// deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
-// to a post-attach FillTypeSlots pass. On by default; set MVM_DEFERSLOTS=0 to
-// fall back to eager materialization (kept until the cascade is dropped).
-var deferSlots = os.Getenv("MVM_DEFERSLOTS") != "0"
-
 // typeSlotValue returns the value for Data slot idx holding typ: a zero value
-// (descriptor=false) or a type descriptor (descriptor=true). When deferring an
-// un-materialized typ, it records the slot and returns an invalid placeholder.
+// (descriptor=false) or a type descriptor (descriptor=true). An un-materialized
+// typ is deferred -- the slot is recorded and FillTypeSlots settles it once the
+// type's reserved identity is filled, so the slot captures the final rtype.
 func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Value {
-	if deferSlots && typ != nil && typ.Rtype == nil {
+	if typ != nil && typ.Rtype == nil {
 		c.pendingTypeSlots = append(c.pendingTypeSlots, pendingSlot{idx: idx, typ: typ, descriptor: descriptor})
 		return vm.Value{}
 	}
@@ -421,22 +506,20 @@ func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Valu
 	return vm.NewValue(c.rtype(typ))
 }
 
-// FillTypeSlots settles every type's Data slot to its post-attach rtype. It
-// fills deferred (invalid) slots and re-emits eager slots whose rtype the synth
-// attach swapped (Fnew sources, type descriptors, var storage). Run after
-// MaterializeAll + the RebuildSynth* cascade so each slot observes its final
-// rtype. Var values keep their numeric payload across the rebuild (the synth
-// swap preserves layout). Invalid-then-filled and in-sync slots are left as is.
+// FillTypeSlots settles deferred type Data slots to their final rtype, now that
+// MaterializeAll + the per-type reserve/fill attach have run. The reserve path
+// fills each type's identity in place, so a slot's type already holds the final
+// rtype; only slots left invalid at generate time (deferred, or an imported
+// descriptor that could not materialize at parse) need settling here.
 func (c *Compiler) FillTypeSlots() {
 	for _, p := range c.pendingTypeSlots {
-		rt := liveSynthRtype(p.typ)
-		if rt == nil {
+		if p.typ.Rtype == nil {
 			continue
 		}
 		if p.descriptor {
-			c.Data[p.idx] = vm.TypeValue(rt)
+			c.Data[p.idx] = vm.TypeValue(p.typ.Rtype)
 		} else {
-			c.Data[p.idx] = vm.NewValue(rt)
+			c.Data[p.idx] = vm.NewValue(p.typ.Rtype)
 		}
 	}
 	// Type symbols whose slot came from an invalid parse-time descriptor (e.g. an
@@ -448,39 +531,9 @@ func (c *Compiler) FillTypeSlots() {
 		if sym.Index >= len(c.Data) || c.Data[sym.Index].IsValid() {
 			continue
 		}
-		if rt := liveSynthRtype(sym.Type); rt != nil {
-			c.Data[sym.Index] = vm.NewValue(rt)
+		if sym.Type.Rtype != nil {
+			c.Data[sym.Index] = vm.NewValue(sym.Type.Rtype)
 		}
-	}
-	// Eager slots the attach left stale.
-	for t, idx := range c.zeroTypeIdxs {
-		rt := liveSynthRtype(t)
-		old := c.Data[idx]
-		if !old.IsValid() || old.Type() == rt || ifaceZeroStable(old, rt) {
-			continue
-		}
-		c.Data[idx] = vm.NewValue(rt)
-	}
-	for _, sym := range c.typeSyms {
-		if sym.Index == symbol.UnsetAddr || sym.Type == nil {
-			continue
-		}
-		rt := liveSynthRtype(sym.Type)
-		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == rt {
-			continue
-		}
-		c.Data[sym.Index] = vm.TypeValue(rt)
-	}
-	for _, sym := range c.Symbols {
-		if sym.Kind != symbol.Var || sym.Index == symbol.UnsetAddr || sym.Type == nil {
-			continue
-		}
-		rt := liveSynthRtype(sym.Type)
-		old := c.Data[sym.Index]
-		if !old.IsValid() || old.Type() == rt || ifaceZeroStable(old, rt) {
-			continue
-		}
-		c.Data[sym.Index] = vm.NewValue(rt)
 	}
 }
 
@@ -3765,10 +3818,9 @@ func (c *Compiler) compileBuiltin(
 			elemIdx := c.typeSym(makeElemType(typeSym.Type)).Index
 			c.emit(t, vm.MkSlice, -(narg - 1), elemIdx)
 		case reflect.Map:
-			// Canonical key type: the cascade rebuilds t-as-key map rtypes, so
-			// the var slot becomes map[synthKey]V; FillTypeSlots keeps this
-			// in step. The value stays a detached snapshot: t-as-element maps are
-			// not rebuilt, so the slot keeps its placeholder value.
+			// Canonical key type: keying on the canonical *Type lets the var slot
+			// observe the reserved map[key]V identity via FillTypeSlots. The value
+			// stays a detached snapshot.
 			keyIdx := c.typeSym(makeKeyType(typeSym.Type)).Index
 			valIdx := c.typeSym(typeSym.Type.Elem()).Index
 			c.emit(t, vm.MkMap, keyIdx, valIdx)
@@ -3991,8 +4043,8 @@ func (c *Compiler) compileBuiltin(
 // and a composite all patch the same Fnew.
 // Keyed on *vm.Type pointer identity; convergence between the type-ident
 // emitter (compiler.go:1926) and the composite-literal length patcher
-// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SliceOf
-// / vm.PointerTo / vm.MapOf / etc. returning the same instance per shape.
+// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SymSlice
+// / vm.SymPtr / vm.SymMap / etc. returning the same instance per shape.
 // Distinct from typeSym, which allocates a type-DESCRIPTOR slot (make-elem/key,
 // TypeAssert, etc.).
 func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
@@ -4039,140 +4091,12 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 	return tsym
 }
 
-// ifaceZeroStable reports that re-emitting an interface-kind slot is a no-op:
-// vm.NewValue yields AnyRtype for every interface, so a slot already holding one
-// can't change. Skips the (always-mismatching) old.Type()==rt check for them.
-func ifaceZeroStable(old vm.Value, rt reflect.Type) bool {
-	return rt != nil && rt.Kind() == reflect.Interface && old.Type().Kind() == reflect.Interface
-}
-
-// liveSynthRtype upgrades a copy's frozen Rtype to its canonical source's
-// post-attach rtype, so `w := o.Weight` (a `type Grams int` copy) keeps Grams's
-// methods and `flag := e.flag` (a *Flag field copy) sees the method-bearing
-// *Flag. The attach cascade refreshes only the canonical; a copy's own Rtype
-// stays frozen at the pre-attach placeholder. Gated on a differing,
-// method-bearing canonical so element identity is kept when attach was a no-op.
-func liveSynthRtype(t *vm.Type) reflect.Type {
-	if t.Base != nil {
-		if ct := vm.CanonicalType(t); ct != nil && ct.Rtype != nil &&
-			ct.Rtype != t.Rtype && ct.Rtype.NumMethod() > 0 {
-			return ct.Rtype
-		}
-	}
-	return t.Rtype
-}
-
-// RebuildSynthStructRtypes walks every interpreted struct *vm.Type reachable
-// from compiler-tracked symbols and patches in-place any field whose Live
-// rtype no longer matches the rtype currently embedded in t.Rtype.Field(i).
-// Struct rtype identity is preserved (no reflect.StructOf rebuild) so any
-// compile-time captures of t.Rtype stay aligned AND the AttachPtrMethods *T
-// wired into t.Rtype.PtrToThis stays valid (a full RefreshRtype cascade
-// would overwrite d.ptr.Rtype with a fresh methodless synth.PointerTo
-// result, destroying the ptr-recv method attachment).
-// Called from interp/synth.go after the per-type AttachSynthMethods cascade
-// and BEFORE FillTypeSlots so the slot-level sweep observes any field type swap.
-// Layout safety + concurrency are handled by vm.PatchSynthStructFields, which
-// serializes the in-place field-rtype writes under the same lock StructOf uses
-// (a struct *Type is shared across concurrently-compiling Interps via the
-// global StructOf cache, so the patch must not race reflect.StructOf reads).
-func (c *Compiler) RebuildSynthStructRtypes() {
-	structs := c.collectSynthStructs()
-	for t := range structs {
-		vm.PatchSynthStructFields(t)
-	}
-}
-
-// RebuildSynthSliceRtypes refreshes the frozen element of every named synth
-// slice type (e.g. `type ByAge []Person` with a method); the in-Type cascade
-// reaches the unnamed []Person but not the named slice. Mirrors
-// RebuildSynthStructRtypes; called alongside it, before FillTypeSlots.
-func (c *Compiler) RebuildSynthSliceRtypes() {
-	for t := range c.collectSynthSlices() {
-		vm.PatchSynthSliceElem(t)
-	}
-}
-
-// collectSynthSlices returns the named slice *Types reachable from the dedup
-// maps, var symbols, and nested fields/elem/key. The synth gate lives in
-// PatchSynthSliceElem, so non-synth entries collected here are no-ops.
-func (c *Compiler) collectSynthSlices() map[*vm.Type]bool {
-	seen := map[*vm.Type]bool{}
-	out := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
-		if t == nil || seen[t] {
-			return
-		}
-		seen[t] = true
-		if t.Base != nil && t.Rtype != nil && t.Kind() == reflect.Slice {
-			out[t] = true
-		}
-		for _, f := range t.Fields {
-			visit(f)
-		}
-		visit(t.ElemType)
-		visit(t.KeyType)
-	}
-	for t := range c.zeroTypeIdxs {
-		visit(t)
-	}
-	for t := range c.typeSyms {
-		visit(t)
-	}
-	for _, sym := range c.Symbols {
-		visit(sym.Type)
-	}
-	return out
-}
-
-// collectSynthStructs returns the set of distinct interpreted struct *Types
-// reachable from the compiler's type dedup maps (zeroTypeIdxs + typeSyms)
-// and from var symbols' Types.
-// Field types whose Base points elsewhere are followed: the canonical
-// struct *Type (the one whose rebuild matters) is what we collect.
-func (c *Compiler) collectSynthStructs() map[*vm.Type]bool {
-	seen := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
-		if t == nil {
-			return
-		}
-		canonical := t
-		for canonical.Base != nil {
-			canonical = canonical.Base
-		}
-		if canonical.Rtype == nil || canonical.Kind() != reflect.Struct {
-			return
-		}
-		if seen[canonical] {
-			return
-		}
-		seen[canonical] = true
-		for _, f := range canonical.Fields {
-			visit(f)
-		}
-	}
-	for t := range c.zeroTypeIdxs {
-		visit(t)
-	}
-	for t := range c.typeSyms {
-		visit(t)
-	}
-	for _, sym := range c.Symbols {
-		if sym.Type != nil {
-			visit(sym.Type)
-		}
-	}
-	return seen
-}
-
 // MaterializeAll builds the rtype of every *Type reachable from the compiler's
 // symbol table and type dedup maps (recursing into fields/elem/key/params/
 // returns/embedded/base). After the flip goparser leaves composite/named-struct
-// rtypes nil; this fills them with layout rtypes before run, so the VM never
-// dereferences a nil Rtype. Named-method types are then swapped to their
-// method-bearing rtype by the synth attach + cascade.
+// rtypes nil; this fills them with layout rtypes (reserving a method-bearing synth
+// identity for named method types) before run, so the VM never dereferences a nil
+// Rtype and the synth attach can fill methods into each identity in place.
 func (c *Compiler) MaterializeAll() {
 	seen := map[*vm.Type]bool{}
 	var visit func(t *vm.Type)

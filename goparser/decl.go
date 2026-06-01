@@ -429,6 +429,22 @@ func definedOverNativeComposite(t *vm.Type) bool {
 	return false
 }
 
+// definedSymbolicComposite reports that t is a defined slice/array/chan/map
+// (type flagVar []string) carrying its own symbolic structure that comp can
+// rebuild from ElemType/KeyType. Deferring it (Rtype nil) instead of keeping the
+// eager parse-time rtype lets the reserve path give a method-bearing one its own
+// identity, so composites capturing it need no later patching. Structs (handled
+// by definedOverNativeComposite or the placeholder path) are intentionally excluded.
+func definedSymbolicComposite(t *vm.Type) bool {
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Chan:
+		return t.ElemType != nil
+	case reflect.Map:
+		return t.KeyType != nil && t.ElemType != nil
+	}
+	return false
+}
+
 // ErrConstOverflow reports a constant that cannot be represented in its type --
 // the gc "constant X overflows T" compile error. It is a hard parse error so
 // ParseAll does not skip past it (which would otherwise mask it as a later
@@ -1138,6 +1154,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Name = in[0].Str
 		nt.Methods = nil
 		nt.Placeholder = false
+		nt.Defined = true // a top-level definition, not a struct-field clone
 		if isBasicKind(nt.Kind()) {
 			// Stay symbolic: comp materializes from Base, attach adds the methods.
 			nt.Rtype = nil
@@ -1150,9 +1167,14 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		} else {
 			nt.Base = typ
 		}
-		if definedOverNativeComposite(&nt) {
+		// A struct defined over a NAMED base (type Y X) must stay symbolic too, so
+		// comp reserves Y its own method-bearing identity rather than keeping the
+		// eager rtype (which attach could not fill in place). A fresh struct literal
+		// (Base.Name == "") keeps its eager rtype.
+		definedOverNamedStruct := nt.Kind() == reflect.Struct && nt.Base.Name != ""
+		if definedOverNativeComposite(&nt) || definedSymbolicComposite(&nt) || definedOverNamedStruct {
 			nt.CaptureKind() // Kind() must survive the Rtype nil
-			nt.Rtype = nil   // defer; comp materializes from Base post-attach
+			nt.Rtype = nil   // defer; comp materializes from the symbolic graph
 		}
 		p.SymAdd(symbol.UnsetAddr, name, typeTokenValue(&nt), symbol.Type, &nt)
 	}

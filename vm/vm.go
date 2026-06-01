@@ -3555,9 +3555,6 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 			}
 			visited[v] = true
 			index(v.Rtype, v)
-			// A synth attach swapped Rtype; compiler-captured rtypes (e.g. a
-			// closure param type) may still reference the pre-swap rtype.
-			index(PriorRtype(v), v)
 			for _, p := range v.Params {
 				register(p)
 			}

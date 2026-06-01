@@ -7,9 +7,9 @@ import (
 	"unsafe"
 )
 
-// TestAttachStructMethodsStringer end-to-ends shape S1 through real iface
+// TestSynthStructStringer end-to-ends shape S1 through real iface
 // dispatch on a synth struct.
-func TestAttachStructMethodsStringer(t *testing.T) {
+func TestSynthStructStringer(t *testing.T) {
 	type layout struct {
 		V int
 	}
@@ -21,7 +21,7 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 		return fmt.Sprintf("V=%d", v.V)
 	}
 
-	synthT, err := AttachStructMethods(
+	synthT, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -35,7 +35,7 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatalf("AttachStructMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 
 	if got, want := synthT.NumMethod(), 1; got != want {
@@ -65,11 +65,11 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 	}
 }
 
-// TestAttachStructMethodsName pins the Phase 2c name-stamping: the synth
-// struct's Name()/String() must reflect the caller-supplied name, not the
-// source layout's name (which is "" for reflect.StructOf-built layouts).
-func TestAttachStructMethodsName(t *testing.T) {
-	rt, err := AttachStructMethods(
+// TestSynthStructName pins name-stamping: the synth struct's Name()/String()
+// must reflect the caller-supplied name, not the source layout's name (which is
+// "" for reflect.StructOf-built layouts).
+func TestSynthStructName(t *testing.T) {
+	rt, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -83,7 +83,7 @@ func TestAttachStructMethodsName(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatalf("AttachStructMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Name(), "MyStruct"; got != want {
 		t.Errorf("Name() = %q, want %q", got, want)
@@ -93,26 +93,10 @@ func TestAttachStructMethodsName(t *testing.T) {
 	}
 }
 
-func TestAttachStructMethodsRejectsNonStruct(t *testing.T) {
-	_, err := AttachStructMethods(
-		reflect.TypeOf(int(0)),
-		"badKind",
-		"test",
-		[]Method{{
-			Name:    "String",
-			Sig:     reflect.TypeOf((func() string)(nil)),
-			Handler: func(unsafe.Pointer) string { return "" },
-		}},
-	)
-	if err == nil {
-		t.Fatal("expected error for non-struct layout, got nil")
-	}
-}
-
 func TestSlotPoolDistinctSlots(t *testing.T) {
 	mk := func(tag string) (reflect.Type, *bool) {
 		called := new(bool)
-		rt, err := AttachStructMethods(
+		rt, err := mkSynth(
 			reflect.StructOf([]reflect.StructField{
 				{Name: "V", Type: reflect.TypeOf(int(0))},
 			}),
@@ -129,7 +113,7 @@ func TestSlotPoolDistinctSlots(t *testing.T) {
 			}},
 		)
 		if err != nil {
-			t.Fatalf("AttachStructMethods(%s): %v", tag, err)
+			t.Fatalf("mkSynth(%s): %v", tag, err)
 		}
 		return rt, called
 	}

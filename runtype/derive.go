@@ -21,6 +21,40 @@ import (
 // These constructors bypass that path entirely by stamping their own Str via
 // addReflectOff.
 
+// deriveKey identifies an anonymous derived composite by kind + component rtype
+// identity (n holds an array length or chan dir).
+type deriveKey struct {
+	kind byte
+	key  uintptr
+	elem uintptr
+	n    int
+}
+
+var (
+	deriveCacheMu sync.Mutex
+	deriveCache   = map[deriveKey]reflect.Type{}
+)
+
+// cachedDerive memoizes anonymous synth composites by component identity, so the
+// same []T / *T / [n]T / chan T / map[K]V resolves to ONE rtype across every
+// derivation -- matching reflect.*Of's global cache, which mvm bypasses for synth
+// components. Without it two fields of the same synth-element type compare unequal
+// under reflect.DeepEqual (distinct nextSyntheticHash identities).
+func cachedDerive(k deriveKey, build func() reflect.Type) reflect.Type {
+	deriveCacheMu.Lock()
+	defer deriveCacheMu.Unlock()
+	if rt := deriveCache[k]; rt != nil {
+		return rt
+	}
+	rt := build()
+	if rt != nil {
+		deriveCache[k] = rt
+	}
+	return rt
+}
+
+func ptrID(rt *abiType) uintptr { return uintptr(unsafe.Pointer(rt)) }
+
 // PointerTo returns the *elem rtype.
 // *T is one machine word for every elem; we clone the layout from *int.
 func PointerTo(elem reflect.Type) reflect.Type {
@@ -28,6 +62,12 @@ func PointerTo(elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 1, elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildPointerTo(elem, elemRT)
+	})
+}
+
+func buildPointerTo(elem reflect.Type, elemRT *abiType) reflect.Type {
 	intPtrRT := (*abiPtrType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((*int)(nil)))))
 
 	b := new(abiPtrType)
@@ -52,6 +92,12 @@ func SliceOf(elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 2, elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildSliceOf(elem, elemRT)
+	})
+}
+
+func buildSliceOf(elem reflect.Type, elemRT *abiType) reflect.Type {
 	intSliceRT := (*abiSliceType)(unsafe.Pointer(rtypePtr(reflect.TypeOf([]int(nil)))))
 
 	b := new(abiSliceType)
@@ -76,6 +122,12 @@ func ChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 3, elem: ptrID(elemRT), n: int(dir)}, func() reflect.Type {
+		return buildChanOf(dir, elem, elemRT)
+	})
+}
+
+func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflect.Type {
 	intChanRT := (*abiChanType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((chan int)(nil)))))
 
 	var prefix string
@@ -113,6 +165,12 @@ func ArrayOf(n int, elem reflect.Type) reflect.Type {
 	if elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 4, elem: ptrID(elemRT), n: n}, func() reflect.Type {
+		return buildArrayOf(n, elem, elemRT)
+	})
+}
+
+func buildArrayOf(n int, elem reflect.Type, elemRT *abiType) reflect.Type {
 	layoutArr := reflect.ArrayOf(n, layoutFor(elem))
 	src := (*abiArrayType)(unsafe.Pointer(rtypePtr(layoutArr)))
 
@@ -136,6 +194,12 @@ func MapOf(key, elem reflect.Type) reflect.Type {
 	if keyRT == nil || elemRT == nil {
 		return nil
 	}
+	return cachedDerive(deriveKey{kind: 5, key: ptrID(keyRT), elem: ptrID(elemRT)}, func() reflect.Type {
+		return buildMapOf(key, elem, keyRT, elemRT)
+	})
+}
+
+func buildMapOf(key, elem reflect.Type, keyRT, elemRT *abiType) reflect.Type {
 	layoutShadow := reflect.MapOf(layoutFor(key), layoutFor(elem))
 	src := (*abiMapType)(unsafe.Pointer(rtypePtr(layoutShadow)))
 
@@ -173,8 +237,8 @@ func layoutFor(t reflect.Type) reflect.Type {
 // addReflectOff, points Str at it, sets tflagNamed, and clears
 // tflagExtraStar.
 // Layout is untouched (a type name is a label, not structure), so t's
-// identity, fields, methods, and any derived types stay valid -- no
-// cascade needed.  This is the safest possible synth mutation.
+// identity, fields, methods, and any derived types stay valid.
+// This is the safest possible synth mutation.
 // CALLER CONTRACT: t must be a heap rtype mvm owns (e.g. a
 // reflect.StructOf placeholder).  Stamping a shared canonical rtype
 // (int, a native struct like time.Time) would corrupt the name of every
@@ -188,10 +252,10 @@ func StampName(t reflect.Type, name string) {
 	rt.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-// IsSynth reports whether t is a synth-built rtype (produced by any of the
-// Attach*, Clone*, or derive constructors in this package).
-// Callers route between reflect.*Of (native rtype identity preserved) and
-// the synth-safe constructors above based on this predicate.
+// IsSynth reports whether t is a synth-built rtype (produced by the Reserve* or
+// derive constructors in this package).
+// The Derive* helpers below route between reflect.*Of (native rtype identity
+// preserved) and the synth-safe constructors above based on this predicate.
 func IsSynth(t reflect.Type) bool {
 	if t == nil {
 		return false
@@ -203,12 +267,11 @@ func IsSynth(t reflect.Type) bool {
 	return ok
 }
 
-// HasPtrToThis reports whether t's PtrToThis field is wired (i.e., an
-// AttachPtrMethods call has registered a *T-with-methods rtype reachable
+// HasPtrToThis reports whether t's PtrToThis field is wired (i.e., a
+// ReservePtrMethods call has registered a *T-with-methods rtype reachable
 // via reflect.PointerTo(t)).
-// vm.PointerTo consults this to prefer reflect.PointerTo over runtype.PointerTo
-// when the wired *T exists, so the vm-side derived *T and the reflect-side
-// *T share identity.
+// DerivePointerTo consults this to prefer reflect.PointerTo over the synth
+// PointerTo when the wired *T exists, so the two *T identities coincide.
 func HasPtrToThis(t reflect.Type) bool {
 	if t == nil {
 		return false
@@ -220,75 +283,60 @@ func HasPtrToThis(t reflect.Type) bool {
 	return rt.PtrToThis != 0
 }
 
-// SamePtrLayout reports whether a and b have identical pointer-density
-// (Size, Align, PtrBytes).
-// Used as a layout-safety guard before in-place rtype mutation: even if
-// Size and Align match, a difference in PtrBytes means the GC bitmap was
-// computed for a different pointer pattern and an in-place swap would
-// corrupt GC scanning.
-func SamePtrLayout(a, b reflect.Type) bool {
-	if a == nil || b == nil {
-		return false
+// DerivePointerTo, DeriveSliceOf, DeriveArrayOf, DeriveChanOf, DeriveMapOf return
+// the derived rtype for a possibly-synth element, choosing the right builder:
+// the synth-safe constructors above for synth components (reflect.*Of crashes on
+// them via resolveNameOff), reflect.* otherwise to keep the canonical native
+// identity. They are the entry points the materialization layer calls; callers
+// need not test IsSynth themselves.
+
+// DerivePointerTo returns *elem. For a synth elem whose PtrToThis is already
+// wired (a reserved *T-with-methods), reflect.PointerTo returns that wired *T, so
+// the synth and reflect sides share one *T identity; otherwise a synth elem gets
+// a fresh synth *T and a native elem its canonical reflect.PointerTo.
+func DerivePointerTo(elem reflect.Type) reflect.Type {
+	if IsSynth(elem) && !HasPtrToThis(elem) {
+		return PointerTo(elem)
 	}
-	ra := rtypePtr(a)
-	rb := rtypePtr(b)
-	if ra == nil || rb == nil {
-		return false
-	}
-	return ra.Size == rb.Size && ra.Align == rb.Align && ra.PtrBytes == rb.PtrBytes
+	return reflect.PointerTo(elem)
 }
 
-// PatchStructField mutates structRT's i-th field's Type pointer to newType,
-// preserving structRT's identity.
-// Used by the synth follow-up cascade when a struct's field rtype drifted
-// (e.g., a field-typed *Type underwent AttachSynthMethods after the struct
-// was originally StructOf'd at parse time).
-// Caller MUST ensure newType has the same Size, Align, AND PtrBytes as the
-// old field type (use SamePtrLayout to check); mvm's synth attach clones
-// source layout so this holds for synth swaps, but the guard prevents GC
-// corruption if a future caller violates the invariant.
-// No-op when out of range or on nil arguments.
-func PatchStructField(structRT reflect.Type, i int, newType reflect.Type) {
-	if structRT == nil || newType == nil {
-		return
+// DeriveSliceOf returns []elem.
+func DeriveSliceOf(elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return SliceOf(elem)
 	}
-	rt := rtypePtr(structRT)
-	if rt == nil || rt.Kind != kindStruct {
-		return
-	}
-	st := (*abiStructType)(unsafe.Pointer(rt))
-	if i < 0 || i >= len(st.Fields) {
-		return
-	}
-	newFT := rtypePtr(newType)
-	if newFT == nil {
-		return
-	}
-	st.Fields[i].Typ = newFT
+	return reflect.SliceOf(elem)
 }
 
-// PatchSliceElem mutates a slice rtype's element pointer in place, preserving
-// sliceRT's identity and methods. The slice header is element-independent, so
-// this is always layout-safe. No-op on nil or non-slice arguments.
-func PatchSliceElem(sliceRT, newElem reflect.Type) {
-	if sliceRT == nil || newElem == nil {
-		return
+// DeriveArrayOf returns [n]elem.
+func DeriveArrayOf(n int, elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return ArrayOf(n, elem)
 	}
-	rt := rtypePtr(sliceRT)
-	if rt == nil || rt.Kind != kindSlice {
-		return
+	return reflect.ArrayOf(n, elem)
+}
+
+// DeriveChanOf returns the chan-elem rtype with the given direction.
+func DeriveChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return ChanOf(dir, elem)
 	}
-	ne := rtypePtr(newElem)
-	if ne == nil {
-		return
+	return reflect.ChanOf(dir, elem)
+}
+
+// DeriveMapOf returns map[key]elem; synth if either component is synth.
+func DeriveMapOf(key, elem reflect.Type) reflect.Type {
+	if IsSynth(key) || IsSynth(elem) {
+		return MapOf(key, elem)
 	}
-	(*abiSliceType)(unsafe.Pointer(rt)).Elem = ne
+	return reflect.MapOf(key, elem)
 }
 
 // registerLayout records the native-layout rtype for a synth rtype.
-// Called by every Attach*/Clone* path and by the derive constructors above
-// so chained derivations (e.g. SliceOf(PointerTo(synthStruct))) resolve the
-// outermost layout correctly.
+// Called by every reserve path and by the derive constructors above so chained
+// derivations (e.g. SliceOf(PointerTo(synthStruct))) resolve the outermost
+// layout correctly.
 func registerLayout(synthRT, layoutRT *abiType) {
 	if synthRT == nil || layoutRT == nil {
 		return

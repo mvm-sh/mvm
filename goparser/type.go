@@ -374,10 +374,12 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			if err != nil {
 				return nil, 0, err
 			}
-			// Sig carries the symbolic signature; Rtype materializes it when its
-			// params/returns are all known (native sigs), so comp's reflect-based
-			// iface dispatch keeps working; interpreted-typed sigs fall back to Sig.
-			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType, Rtype: vm.MaterializeRtype(methodType)})
+			// Sig carries the symbolic signature; Rtype is left nil and filled by
+			// comp.materializeIfaceMethods after the method pre-pass. Materializing
+			// here would eagerly stamp a referenced named type (e.g. a struct in the
+			// signature) methodless before its method table is populated, so the
+			// reserve gate would miss it and give it a methodless identity.
+			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType})
 		}
 		// Use any as underlying reflect type; method set is tracked in IfaceMethods.
 		return &vm.Type{
@@ -667,6 +669,7 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	// (inherited from the source if it was still a placeholder when embedded) so
 	// MaterializeRtype resolves the field via its Base instead of bailing.
 	ft.Placeholder = false
+	ft.Defined = false // a field clone resolves to Base, unlike a defined type
 	// reflect.StructField.PkgPath must be empty for exported fields and the
 	// owning package's path for unexported ones. The cloned type may carry
 	// its own PkgPath (e.g. "errors" on a defined named type); reset to the
@@ -782,6 +785,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			ft := *types[i]
 			ft.Name = name
 			ft.PkgPath = pkgPath
+			ft.Defined = false // a field clone resolves to Base, unlike a defined type
 			// Back-link to the source type so methods registered on it after
 			// this clone was taken (typical: struct decl precedes method decls,
 			// or named types whose Methods are populated by the compiler later)

@@ -227,14 +227,12 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 	if !ok || !innerRV.IsValid() {
 		return reflect.Value{}
 	}
-	// Synth rtypes carry their interpreted methods natively via the
-	// uncommon table, so reflect.Value.MethodByName / Call work without
-	// the mvm dispatch shim. Falling through here lets the native code
-	// path resolve the method directly, preserving the bound method's
-	// validity (the shim's makeCallFunc returns invalid when the
-	// method-name table doesn't carry the signature, which trips on
-	// types attached via synth-direct).
-	if innerRV.Type() != ifaceRtype && runtype.IsSynth(innerRV.Type()) {
+	// A synth rtype resolves its supported-shape methods natively (uncommon table),
+	// so bail to native dispatch -- except MethodByName, whose case below probes
+	// native first then falls back to the mvm shim for unsupported-shape methods
+	// (e.g. func() []int) that the native table never carries.
+	synthRecv := innerRV.Type() != ifaceRtype && runtype.IsSynth(innerRV.Type())
+	if synthRecv && name != "MethodByName" {
 		return reflect.Value{}
 	}
 	switch name {
@@ -259,6 +257,13 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 		return reflect.MakeFunc(methodByNameShimType,
 			func(args []reflect.Value) []reflect.Value {
 				methodName := args[0].String()
+				// Supported-shape methods are in the native table; prefer them.
+				// Unsupported-shape methods fall through to the mvm shim below.
+				if synthRecv {
+					if nm := innerRV.MethodByName(methodName); nm.IsValid() {
+						return []reflect.Value{reflect.ValueOf(nm)}
+					}
+				}
 				method, found := m.MethodByName(ifc.Typ, methodName)
 				if !found {
 					return zeroReflectValueResult

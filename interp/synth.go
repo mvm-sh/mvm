@@ -14,16 +14,14 @@ import (
 // (test_cmd's package + _testmain) walks again.
 // Without dedup the S1 stub pool exhausts after ~64 packages.
 //
-// vm.Type.RefreshRtype propagates the swap through t.derived, and
-// Compiler.FillTypeSlots (called once after every type is attached) settles the
-// c.Data slots to the post-cascade Rtype -- Fnew sources, type descriptors, var
-// storage.
+// The reserve/fill path installs methods into each type's reserved synth
+// identity in place, so no rtype swap or cascade is needed; Compiler.FillTypeSlots
+// then settles the deferred c.Data slots to those final rtypes.
 // See [[project_synth_rtype_poc]] and [[project_symbolic_types_refactor]].
 func (i *Interp) attachSynthMethods() error {
 	if i.synthAttached == nil {
 		i.synthAttached = map[*vm.Type]bool{}
 	}
-	attached := false
 	for _, sym := range i.Symbols {
 		if sym.Kind != symbol.Type || sym.Type == nil {
 			continue
@@ -35,14 +33,7 @@ func (i *Interp) attachSynthMethods() error {
 			return err
 		}
 		i.synthAttached[sym.Type] = true
-		attached = true
 	}
-	if attached {
-		i.RebuildSynthStructRtypes()
-		i.RebuildSynthSliceRtypes()
-	}
-	// Unconditional: deferred slots exist even when nothing was attached, and
-	// FillTypeSlots also re-emits the eager slots the attach left stale.
 	i.FillTypeSlots()
 	return nil
 }
