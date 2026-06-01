@@ -52,6 +52,18 @@ func splitTestArgs(arg []string) (mvmFlags []string, target string, testFlags []
 	return mvmFlags, target, rest
 }
 
+// hasShortFlag reports whether -short was set in any form (incl. -short=false).
+func hasShortFlag(args []string) bool {
+	for _, a := range args {
+		s := strings.TrimLeft(a, "-")
+		if s == "short" || s == "test.short" ||
+			strings.HasPrefix(s, "short=") || strings.HasPrefix(s, "test.short=") {
+			return true
+		}
+	}
+	return false
+}
+
 func rewriteTestFlags(args []string) []string {
 	out := make([]string, len(args))
 	for i, a := range args {
@@ -88,6 +100,12 @@ func testCmd(arg []string) error {
 			return nil
 		}
 		return err
+	}
+
+	// Force -short for stress-heavy packages unless the caller chose otherwise.
+	if stdlib.ForceShort(target) && !hasShortFlag(testFlags) {
+		fmt.Fprintf(os.Stderr, "mvm test: %s: forcing -short (stress tests impractical under the interpreter)\n", target)
+		testFlags = append([]string{"-short"}, testFlags...)
 	}
 
 	os.Args = append([]string{"mvm-test"}, rewriteTestFlags(testFlags)...)

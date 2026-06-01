@@ -62,3 +62,13 @@ func SkipReason(pkgPath, testName string) string {
 	}
 	return ""
 }
+
+// ShortByDefault lists import paths `mvm test` forces -short on (unless the
+// caller set it): their stress tests loop 1e5-1e8 times -- minutes under the
+// interpreter. Only list pkgs whose tests scale down under -short, not skip.
+var ShortByDefault = map[string]bool{
+	"sync/atomic": true,
+}
+
+// ForceShort reports whether pkgPath's tests should default to -short.
+func ForceShort(pkgPath string) bool { return ShortByDefault[pkgPath] }
