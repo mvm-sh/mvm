@@ -374,10 +374,12 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			if err != nil {
 				return nil, 0, err
 			}
-			// Sig carries the symbolic signature; Rtype materializes it when its
-			// params/returns are all known (native sigs), so comp's reflect-based
-			// iface dispatch keeps working; interpreted-typed sigs fall back to Sig.
-			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType, Rtype: vm.MaterializeRtype(methodType)})
+			// Sig carries the symbolic signature; Rtype is left nil and filled by
+			// comp.materializeIfaceMethods after the method pre-pass. Materializing
+			// here would eagerly stamp a referenced named type (e.g. a struct in the
+			// signature) methodless before its method table is populated, so the
+			// reserve gate would miss it and attach would fall back to the swap.
+			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType})
 		}
 		// Use any as underlying reflect type; method set is tracked in IfaceMethods.
 		return &vm.Type{

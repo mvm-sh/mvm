@@ -86,8 +86,17 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 		return rm.Type
 	}
 	for _, im := range ifaceTyp.IfaceMethods {
-		if im.Name == methodName && im.Rtype != nil {
+		if im.Name != methodName {
+			continue
+		}
+		if im.Rtype != nil {
 			return im.Rtype
+		}
+		// A body-local anonymous interface (a type-assertion / type-switch target)
+		// is parsed after materializeIfaceMethods, so its Rtype is still the nil
+		// goparser left; materialize it from the symbolic Sig on demand.
+		if im.Sig != nil {
+			return vm.MaterializeRtype(im.Sig)
 		}
 	}
 	return nil
@@ -195,6 +204,10 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	c.allocGlobalSlots()
 	c.preregisterMethods()
+	// Materialize interface method signatures now -- after the method pre-pass, so a
+	// named type referenced in a signature reserves its method-bearing identity
+	// rather than getting stamped methodless (goparser leaves IfaceMethod.Rtype nil).
+	c.materializeIfaceMethods()
 	// Promote embedded-interface methods now (before any body-compile
 	// materialization) so a struct embedding an interface carries its promoted
 	// methods when the reserve gate runs; the post-body call below additionally
@@ -257,6 +270,45 @@ func (c *Compiler) preregisterMethods() {
 		if m := &ts.Type.Methods[id]; !m.IsResolved() && m.Sig == nil {
 			*m = vm.Method{Index: -1, PtrRecv: strings.HasPrefix(key, "*"), Sig: s.Type}
 		}
+	}
+}
+
+// materializeIfaceMethods fills IfaceMethod.Rtype from its symbolic Sig for every
+// interface reachable from the symbol table. goparser leaves it nil at parse; doing
+// it here (after preregisterMethods) means a named type named in a method signature
+// is materialized with its method table populated, so the reserve gate gives it a
+// method-bearing identity instead of a methodless stamp that attach must swap.
+func (c *Compiler) materializeIfaceMethods() {
+	seen := map[*vm.Type]bool{}
+	var visit func(t *vm.Type)
+	visit = func(t *vm.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		visit(t.ElemType)
+		visit(t.KeyType)
+		visit(t.Base)
+		for _, f := range t.Fields {
+			visit(f)
+		}
+		for _, p := range t.Params {
+			visit(p)
+		}
+		for _, r := range t.Returns {
+			visit(r)
+		}
+		for _, e := range t.Embedded {
+			visit(e.Type)
+		}
+		for i := range t.IfaceMethods {
+			if t.IfaceMethods[i].Rtype == nil && t.IfaceMethods[i].Sig != nil {
+				t.IfaceMethods[i].Rtype = vm.MaterializeRtype(t.IfaceMethods[i].Sig)
+			}
+		}
+	}
+	for _, sym := range c.Symbols {
+		visit(sym.Type)
 	}
 }
 
