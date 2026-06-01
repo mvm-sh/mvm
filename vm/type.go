@@ -25,9 +25,9 @@ type TypeElem = mtype.TypeElem
 var AnyRtype = mtype.AnyRtype
 
 // Symbolic type constructors re-exported from mtype. The derived-type
-// construction, synth cascade, and patch helpers (PointerTo, SliceOf, MapOf,
-// ArrayOf, ChanOf, CanonicalType, LiveFieldRtype, PatchSynth*, RefreshRtype,
-// ...) are runtime materialization and live in vm (derive.go), not mtype.
+// constructors and reserve/fill helpers (PointerTo, SliceOf, MapOf, ArrayOf,
+// ChanOf, CanonicalType, AttachPtrDerived, ...) are runtime materialization and
+// live in vm (derive.go), not mtype.
 var (
 	TypeOf        = mtype.TypeOf
 	FuncOf        = mtype.FuncOf

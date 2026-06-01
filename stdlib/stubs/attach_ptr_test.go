@@ -11,7 +11,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 	type layout struct {
 		V int
 	}
-	layoutT, err := AttachStructMethods(
+	layoutT, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -34,7 +34,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		l := (*layout)(recv)
 		return fmt.Sprintf("ptr V=%d", l.V)
 	}
-	ptrT, err := AttachPtrMethods(layoutT, "*T", "test", []Method{{
+	ptrT, err := mkSynthPtr(layoutT, "*T", "test", []Method{{
 		Name:     "String",
 		Exported: true,
 		Sig:      reflect.TypeOf((func() string)(nil)),

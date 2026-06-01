@@ -7,22 +7,20 @@ import (
 )
 
 // synthStructForDerive builds a methodless synth struct rtype as a derived-type
-// test elem.
-// Clone registers its layout (all the constructors need) and needs no shape
-// pools, since no dispatch is exercised here.
+// test elem. ReserveMethods registers its layout (all the constructors need) and
+// stamps the name; it is left unfilled, so no dispatch is exercised here.
 func synthStructForDerive(t *testing.T, name string) reflect.Type {
 	t.Helper()
-	rt, err := Clone(
+	res, err := ReserveMethods(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
-		"test",
+		name, "test",
 	)
 	if err != nil {
-		t.Fatalf("Clone(%q): %v", name, err)
+		t.Fatalf("ReserveMethods(%q): %v", name, err)
 	}
-	StampName(rt, name)
-	return rt
+	return res.Type()
 }
 
 func TestPointerToOnSynthStruct(t *testing.T) {
@@ -50,29 +48,6 @@ func TestPointerToOnSynthStruct(t *testing.T) {
 		// synth *T independent of that.
 		// We tolerate the inequality and just verify pt is still usable.
 		_ = v
-	}
-}
-
-func TestPatchSliceElem(t *testing.T) {
-	elem := synthStructForDerive(t, "PatchSLa")
-	st := SliceOf(elem)
-	if st.Elem() != elem {
-		t.Fatalf("setup: Elem != elem")
-	}
-	elem2 := synthStructForDerive(t, "PatchSLb")
-	PatchSliceElem(st, elem2)
-	if st.Elem() != elem2 {
-		t.Errorf("after patch: Elem = %v, want %v", st.Elem(), elem2)
-	}
-	if st.Kind() != reflect.Slice {
-		t.Errorf("Kind changed to %v", st.Kind())
-	}
-	// No-op guards must neither panic nor mutate.
-	PatchSliceElem(nil, elem2)
-	PatchSliceElem(reflect.TypeOf(0), elem2)
-	PatchSliceElem(st, nil)
-	if st.Elem() != elem2 {
-		t.Errorf("no-op guard mutated Elem to %v", st.Elem())
 	}
 }
 

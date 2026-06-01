@@ -501,18 +501,6 @@ func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
 // Symbolizing those sites drives the count to zero so generate becomes reflect-free.
 var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
 
-var cascadeProbe = os.Getenv("MVM_CASCADEPROBE") != ""
-
-func cascadeReemit(what string, t *vm.Type) {
-	if cascadeProbe && t != nil {
-		rts := ""
-		if t.Rtype != nil {
-			rts = t.Rtype.String()
-		}
-		fmt.Fprintf(os.Stderr, "CASCADE-HIT FillTypeSlots-%s name=%q rtype=%q\n", what, t.PkgPath+"."+t.Name, rts)
-	}
-}
-
 // deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
 // to a post-attach FillTypeSlots pass. On by default; set MVM_DEFERSLOTS=0 to
 // fall back to eager materialization (kept until the cascade is dropped).
@@ -532,22 +520,20 @@ func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Valu
 	return vm.NewValue(c.rtype(typ))
 }
 
-// FillTypeSlots settles every type's Data slot to its post-attach rtype. It
-// fills deferred (invalid) slots and re-emits eager slots whose rtype the synth
-// attach swapped (Fnew sources, type descriptors, var storage). Run after
-// MaterializeAll + the RebuildSynth* cascade so each slot observes its final
-// rtype. Var values keep their numeric payload across the rebuild (the synth
-// swap preserves layout). Invalid-then-filled and in-sync slots are left as is.
+// FillTypeSlots settles deferred type Data slots to their final rtype, now that
+// MaterializeAll + the per-type reserve/fill attach have run. The reserve path
+// fills each type's identity in place, so a slot's type already holds the final
+// rtype; only slots left invalid at generate time (deferred, or an imported
+// descriptor that could not materialize at parse) need settling here.
 func (c *Compiler) FillTypeSlots() {
 	for _, p := range c.pendingTypeSlots {
-		rt := liveSynthRtype(p.typ)
-		if rt == nil {
+		if p.typ.Rtype == nil {
 			continue
 		}
 		if p.descriptor {
-			c.Data[p.idx] = vm.TypeValue(rt)
+			c.Data[p.idx] = vm.TypeValue(p.typ.Rtype)
 		} else {
-			c.Data[p.idx] = vm.NewValue(rt)
+			c.Data[p.idx] = vm.NewValue(p.typ.Rtype)
 		}
 	}
 	// Type symbols whose slot came from an invalid parse-time descriptor (e.g. an
@@ -559,42 +545,9 @@ func (c *Compiler) FillTypeSlots() {
 		if sym.Index >= len(c.Data) || c.Data[sym.Index].IsValid() {
 			continue
 		}
-		if rt := liveSynthRtype(sym.Type); rt != nil {
-			c.Data[sym.Index] = vm.NewValue(rt)
+		if sym.Type.Rtype != nil {
+			c.Data[sym.Index] = vm.NewValue(sym.Type.Rtype)
 		}
-	}
-	// Eager slots the attach left stale.
-	for t, idx := range c.zeroTypeIdxs {
-		rt := liveSynthRtype(t)
-		old := c.Data[idx]
-		if !old.IsValid() || old.Type() == rt || anyZeroStable(old, rt) {
-			continue
-		}
-		cascadeReemit("zeroIdx", t)
-		c.Data[idx] = vm.NewValue(rt)
-	}
-	for _, sym := range c.typeSyms {
-		if sym.Index == symbol.UnsetAddr || sym.Type == nil {
-			continue
-		}
-		rt := liveSynthRtype(sym.Type)
-		if !c.Data[sym.Index].IsValid() || c.Data[sym.Index].Type() == rt {
-			continue
-		}
-		cascadeReemit("typeSym", sym.Type)
-		c.Data[sym.Index] = vm.TypeValue(rt)
-	}
-	for _, sym := range c.Symbols {
-		if sym.Kind != symbol.Var || sym.Index == symbol.UnsetAddr || sym.Type == nil {
-			continue
-		}
-		rt := liveSynthRtype(sym.Type)
-		old := c.Data[sym.Index]
-		if !old.IsValid() || old.Type() == rt || anyZeroStable(old, rt) {
-			continue
-		}
-		cascadeReemit("var", sym.Type)
-		c.Data[sym.Index] = vm.NewValue(rt)
 	}
 }
 
@@ -4153,144 +4106,12 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 	return tsym
 }
 
-// ifaceZeroStable reports that re-emitting an interface-kind slot is a no-op:
-// anyZeroStable reports that re-emitting a zero slot is a no-op: vm.NewValue stores
-// every interface AND func var slot as AnyRtype eface, so a slot already holding one
-// re-emits byte-identically. Skips the (always-mismatching) old.Type()==rt check.
-func anyZeroStable(old vm.Value, rt reflect.Type) bool {
-	if rt == nil || old.Type().Kind() != reflect.Interface {
-		return false
-	}
-	return rt.Kind() == reflect.Interface || rt.Kind() == reflect.Func
-}
-
-// liveSynthRtype upgrades a copy's frozen Rtype to its canonical source's
-// post-attach rtype, so `w := o.Weight` (a `type Grams int` copy) keeps Grams's
-// methods and `flag := e.flag` (a *Flag field copy) sees the method-bearing
-// *Flag. The attach cascade refreshes only the canonical; a copy's own Rtype
-// stays frozen at the pre-attach placeholder. Gated on a differing,
-// method-bearing canonical so element identity is kept when attach was a no-op.
-func liveSynthRtype(t *vm.Type) reflect.Type {
-	if t.Base != nil {
-		if ct := vm.CanonicalType(t); ct != nil && ct.Rtype != nil &&
-			ct.Rtype != t.Rtype && ct.Rtype.NumMethod() > 0 {
-			return ct.Rtype
-		}
-	}
-	return t.Rtype
-}
-
-// RebuildSynthStructRtypes walks every interpreted struct *vm.Type reachable
-// from compiler-tracked symbols and patches in-place any field whose Live
-// rtype no longer matches the rtype currently embedded in t.Rtype.Field(i).
-// Struct rtype identity is preserved (no reflect.StructOf rebuild) so any
-// compile-time captures of t.Rtype stay aligned AND the AttachPtrMethods *T
-// wired into t.Rtype.PtrToThis stays valid (a full RefreshRtype cascade
-// would overwrite d.ptr.Rtype with a fresh methodless synth.PointerTo
-// result, destroying the ptr-recv method attachment).
-// Called from interp/synth.go after the per-type AttachSynthMethods cascade
-// and BEFORE FillTypeSlots so the slot-level sweep observes any field type swap.
-// Layout safety + concurrency are handled by vm.PatchSynthStructFields, which
-// serializes the in-place field-rtype writes under the same lock StructOf uses
-// (a struct *Type is shared across concurrently-compiling Interps via the
-// global StructOf cache, so the patch must not race reflect.StructOf reads).
-func (c *Compiler) RebuildSynthStructRtypes() {
-	structs := c.collectSynthStructs()
-	for t := range structs {
-		vm.PatchSynthStructFields(t)
-	}
-}
-
-// RebuildSynthSliceRtypes refreshes the frozen element of every named synth
-// slice type (e.g. `type ByAge []Person` with a method); the in-Type cascade
-// reaches the unnamed []Person but not the named slice. Mirrors
-// RebuildSynthStructRtypes; called alongside it, before FillTypeSlots.
-func (c *Compiler) RebuildSynthSliceRtypes() {
-	for t := range c.collectSynthSlices() {
-		vm.PatchSynthSliceElem(t)
-	}
-}
-
-// collectSynthSlices returns the named slice *Types reachable from the dedup
-// maps, var symbols, and nested fields/elem/key. The synth gate lives in
-// PatchSynthSliceElem, so non-synth entries collected here are no-ops.
-func (c *Compiler) collectSynthSlices() map[*vm.Type]bool {
-	seen := map[*vm.Type]bool{}
-	out := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
-		if t == nil || seen[t] {
-			return
-		}
-		seen[t] = true
-		if t.Base != nil && t.Rtype != nil && t.Kind() == reflect.Slice {
-			out[t] = true
-		}
-		for _, f := range t.Fields {
-			visit(f)
-		}
-		visit(t.ElemType)
-		visit(t.KeyType)
-	}
-	for t := range c.zeroTypeIdxs {
-		visit(t)
-	}
-	for t := range c.typeSyms {
-		visit(t)
-	}
-	for _, sym := range c.Symbols {
-		visit(sym.Type)
-	}
-	return out
-}
-
-// collectSynthStructs returns the set of distinct interpreted struct *Types
-// reachable from the compiler's type dedup maps (zeroTypeIdxs + typeSyms)
-// and from var symbols' Types.
-// Field types whose Base points elsewhere are followed: the canonical
-// struct *Type (the one whose rebuild matters) is what we collect.
-func (c *Compiler) collectSynthStructs() map[*vm.Type]bool {
-	seen := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
-		if t == nil {
-			return
-		}
-		canonical := t
-		for canonical.Base != nil {
-			canonical = canonical.Base
-		}
-		if canonical.Rtype == nil || canonical.Kind() != reflect.Struct {
-			return
-		}
-		if seen[canonical] {
-			return
-		}
-		seen[canonical] = true
-		for _, f := range canonical.Fields {
-			visit(f)
-		}
-	}
-	for t := range c.zeroTypeIdxs {
-		visit(t)
-	}
-	for t := range c.typeSyms {
-		visit(t)
-	}
-	for _, sym := range c.Symbols {
-		if sym.Type != nil {
-			visit(sym.Type)
-		}
-	}
-	return seen
-}
-
 // MaterializeAll builds the rtype of every *Type reachable from the compiler's
 // symbol table and type dedup maps (recursing into fields/elem/key/params/
 // returns/embedded/base). After the flip goparser leaves composite/named-struct
-// rtypes nil; this fills them with layout rtypes before run, so the VM never
-// dereferences a nil Rtype. Named-method types are then swapped to their
-// method-bearing rtype by the synth attach + cascade.
+// rtypes nil; this fills them with layout rtypes (reserving a method-bearing synth
+// identity for named method types) before run, so the VM never dereferences a nil
+// Rtype and the synth attach can fill methods into each identity in place.
 func (c *Compiler) MaterializeAll() {
 	seen := map[*vm.Type]bool{}
 	var visit func(t *vm.Type)

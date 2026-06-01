@@ -145,7 +145,7 @@ func reserveFunc(layout reflect.Type, name, pkgPath string) (*Reservation, error
 
 // ReservePtrMethods reserves a *T identity carrying eventual ptr-receiver
 // methods and wires elem.PtrToThis so reflect.PointerTo(elem) returns it, all
-// before Fill. Mirrors AttachPtrMethods minus method installation.
+// before Fill.
 func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, error) {
 	elemRT := rtypePtr(elem)
 	if elemRT == nil {

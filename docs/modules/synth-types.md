@@ -8,8 +8,9 @@
 This is a cross-cutting concern, not a single package.
 The mechanism is split across [runtype](runtype.md) (low-level rtype
 fabrication), [stdlib/stubs](stubs.md) (method shapes + dispatch stubs),
-`vm/type.go` + `vm/synth_bridge.go` (the `*Type` model and the attach cascade),
-and `comp/compiler.go` (the post-attach refresh sweeps).
+`vm/type.go` + `vm/derive.go` + `vm/synth_bridge.go` (the `*Type` model, the
+reserve gate, and the attach/fill step), and `comp/compiler.go` (materialize-time
+reservation + deferred slot fill).
 This page explains the *system* those pieces form and the rules they must obey.
 See also [ADR-021](../decisions/ADR-021-synthesized-rtypes.md) (why we synthesize
 rtypes) and [ADR-020](../decisions/ADR-020-type-identity-slots.md) (keying type
@@ -37,7 +38,7 @@ the host's static one.
 | representation | `*vm.Type` | `reflect.Type` (a `*abi.Type` / rtype) |
 | owner | us | the Go runtime |
 | carries | `Base`, `ElemType`/`KeyType`, `derived` cache, `Methods`, `Fields`, `Placeholder` | layout, GC pointer map, method table, name offsets |
-| used for | parse/compile decisions, dedup, the cascade | native dispatch, assignability, GC |
+| used for | parse/compile decisions, dedup, reservation | native dispatch, assignability, GC |
 
 The guiding rule ([ADR-020](../decisions/ADR-020-type-identity-slots.md)) is that
 `*vm.Type` is the source of truth and `reflect.Type` is a *derived output*: never
@@ -48,18 +49,24 @@ Where the two drift apart is where bugs live.
 
 A type's methods are usually unknown at parse time (forward references; methods
 declared after the type).
-So the projection happens in two steps.
+So the projection happens in two steps, but with a **stable identity**: the
+type's synth rtype is *reserved* (allocated with an empty method table) at
+materialize, and the methods are *filled into it in place* at attach. Because the
+identity never changes, any composite that captured the reserved rtype before
+attach observes the methods afterward with no propagation.
 
 ```mermaid
 flowchart LR
-    parse["parse: type T U"] --> ph["placeholder rtype<br/>(= underlying U, methodless)"]
-    ph --> attach["AttachSynthMethods(T)<br/>once methods are known"]
-    attach --> swap["RefreshRtype: swap T.Rtype<br/>to a synth rtype with methods"]
-    swap --> prop["propagate the swap to<br/>every holder of the old rtype"]
+    parse["parse: type T U"] --> reserve["materialize: reserve T.Rtype<br/>(synth identity over U, Mcount 0)"]
+    reserve --> capture["composites capture<br/>the reserved rtype"]
+    reserve --> attach["AttachSynthMethods(T)<br/>once methods are known"]
+    attach --> fill["Fill: install methods<br/>in place (identity preserved)"]
 ```
 
-The swap in the final step is the single largest source of bugs: any holder of
-the old placeholder rtype that does not get the memo is left desynced.
+This replaced an earlier design that *swapped* `T.Rtype` to a fresh method-bearing
+rtype at attach and then cascaded the swap to every holder of the old rtype --
+the single largest historical source of type bugs, now retired (see history
+below).
 
 ## Runtime invariants
 
@@ -113,45 +120,49 @@ Each past bug class is a violation of one of them.
 
 ## Keeping the projection in sync
 
-When a placeholder is upgraded, the swap must reach every holder of a reference
-to the old rtype.
-There are four kinds of holder, each with its own propagation mechanism.
+Because the synth identity is reserved at materialize and methods are filled into
+it in place, *there is nothing to propagate*: every holder -- a compile-time data
+slot, a derived `*T`/`[]T`/`map[T]V`, a struct field, a `make`d value -- captures
+the final reserved rtype directly, and the in-place fill is invisible to them.
 
-| Holder froze the placeholder in... | Propagation mechanism | Lives in |
-|---|---|---|
-| compile-time data slots (Fnew sources, type descriptors, var storage) | `RefreshSynthRtype` re-emits the slot | `comp/compiler.go` |
-| derived types reachable from the canonical root (`*T`, `[]T`, `map[T]V`) | `RefreshRtype` cascade rebuilds via `runtype.*` | `vm/type.go` |
-| references embedded in another rtype (struct fields; named-slice elem) | in-place patch (`PatchSynthStructFields`, `PatchSynthSliceElem`) | `vm/type.go` + `comp` sweep |
-| values built at runtime (`make` map key/elem) | capture the canonical `*vm.Type` at emit (`makeKeyType` / `makeElemType`) | `comp/compiler.go` |
+This rests on the reservation existing *before* anything captures the identity.
+The reserve gate lives in `vm/derive.go` (`maybeReserve` for non-struct kinds,
+`maybeReserveStruct` for structs; `hasReservableMethods` decides), driven from
+`MaterializeRtype`. For that gate to fire, the type's methods must be known when
+it is first materialized:
 
-A fifth failure mode is the inverse: an illegitimately *shared* `derived` cache
-propagates an upgrade across two distinct symbolic identities.
-The fix is to not share it -- `(*Type).ResetDerived()` on the clone, since a
-defined type is distinct from its underlying.
+- **`comp.preregisterMethods`** populates each receiver type's method table (by
+  signature) before any body compiles, so a type materialized during body compile
+  already counts as method-bearing.
+- **`comp.materializeIfaceMethods`** fills interface method signatures *after* the
+  pre-pass, so a named type referenced only in an interface signature (e.g.
+  `Coverage.Regions() []Region`) reserves rather than being stamped methodless.
+- **`comp.propagateEmbeddedMethods`** runs once before body compile (for embedded
+  interfaces) and once after (for embedded value methods).
 
-The sweeps run in order from `interp/synth.go` after the per-type attach cascade:
-`RebuildSynthStructRtypes` -> `RebuildSynthSliceRtypes` -> `RefreshSynthRtype`.
+Deferred compile-time slots (`MVM_DEFERSLOTS`) are the one thing settled post
+hoc: `Compiler.FillTypeSlots` (called from `interp/synth.go` after attach) writes
+each deferred `c.Data` slot to its type's now-final `Rtype`. No re-emit or rebuild
+is involved -- the rtype is already correct, the slot just had not been written.
 
-## Rebuild vs patch
+A failure mode to avoid is an illegitimately *shared* `derived` cache across two
+distinct symbolic identities; a defined type is distinct from its underlying, so
+clones get their own (`isFieldClone` routes a true field clone to its Base
+identity instead).
 
-When a referenced element upgrades, a container can be rebuilt or patched in
-place; the choice recurs throughout the cascade.
+## History: the retired swap+cascade
 
-- **Rebuild** (`runtype.SliceOf(newElem)`) yields a fresh, correct rtype, but
-  gives it a *new identity* and *drops any methods* attached to the container.
-- **Patch** (`runtype.PatchSliceElem`, `PatchStructField`) preserves identity and
-  attached methods, but is layout-constrained (C1) and mutates shared state (C3).
-
-Rule of thumb: patch when methods or identity must survive (a named `ByAge
-[]Person` with its own `sort.Interface` methods; a struct rtype with a wired
-`PtrToThis`); rebuild when the container is anonymous and identity can float
-(the canonical `[]Person` in the derived cascade).
+Before the reserve/fill design, a type got a methodless *placeholder* rtype at
+materialize, attach *swapped* `T.Rtype` to a fresh method-bearing rtype, and a
+**cascade** propagated the swap to every holder (`RefreshRtype` through derived
+types; `PatchSynthStructFields`/`PatchSynthSliceElem` for embedded references;
+`FillTypeSlots` re-emit for data slots). The swap-and-propagate was the single
+largest source of type bugs (a missed holder desynced). Reserve-once eliminated
+it: the gate fixes were driven until no type needed a swap, then the entire
+cascade (`RefreshRtype`/`refreshLocked`/`PatchSynth*`/`LiveFieldRtype`/`priorRtypes`/
+`valMaps` + the `runtype.Attach*` builders + `Clone`) was deleted.
 
 ## Open questions / TODOs
 
-- C6 (the aspirational invariant): make `*vm.Type` the *only* compile-time
-  identity so the placeholder + refresh + patch machinery can be deleted.
-  Tracked under [ADR-020](../decisions/ADR-020-type-identity-slots.md); the
-  remaining drift is where parse/compile still reach for a `reflect.Type`.
 - C4: the `Tfn`/`Ifn` natural-ABI gap (see [runtype](runtype.md)).
 - C5: synth rtypes leak on REPL redefinition (never freed).

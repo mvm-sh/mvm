@@ -45,11 +45,10 @@ func (m *Machine) AttachSynthMethods(t *Type) error {
 		return nil
 	}
 
-	valueAttached, err := m.attachValueRecv(t)
-	if err != nil {
+	if err := m.attachValueRecv(t); err != nil {
 		return err
 	}
-	return m.attachPtrRecv(t, valueAttached)
+	return m.attachPtrRecv(t)
 }
 
 // bridgePtrToIface retypes a bridged pointer-to-interpreted-interface (e.g.
@@ -168,66 +167,37 @@ func qualifiedTypeName(t *Type) string {
 	return base + "." + t.Name
 }
 
-func (m *Machine) attachValueRecv(t *Type) (bool, error) {
+// attachValueRecv fills T's value-receiver methods into its reserved synth
+// identity in place. The reserve gate (hasReservableMethods) is a superset of
+// the attach trigger (a method with a detectShape), so a type with shaped value
+// methods was always reserved at materialize; a missing reservation is an
+// internal invariant violation.
+func (m *Machine) attachValueRecv(t *Type) error {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
-		return false, nil
+		return nil
 	}
 	methods := toSynthMethods(m, t, specs)
-	// Reserve/fill path: t.Rtype is already the reserved synth identity; fill
-	// methods in place so composites that captured it need no patching.
-	if res := lookupReservation(t); res != nil && res.value != nil {
-		if err := stubs.FillMethods(res.value, methods); err != nil {
-			return false, err
-		}
-		return true, nil
+	res := lookupReservation(t)
+	if res == nil || res.value == nil {
+		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
 	}
-	// Fallback swap+cascade: reserve cannot yet reach two timing cases (an
-	// imported method-bearing type materialized eager during import, and a
-	// defined type over a named base, type Y X).
-	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath, methods)
-	if err != nil {
-		return false, err
-	}
-	cascadeHit("RefreshRtype-value", t)
-	RefreshRtype(t, newRT)
-	return true, nil
+	return stubs.FillMethods(res.value, methods)
 }
 
-// attachPtrRecv installs ptr-recv methods on *T.
-// elemReady reports whether t.Rtype is already a fresh synth elem we own.
-// If not, clone the original layout first so attachPtrType writes
-// PtrToThis into our own rtype rather than the layout shared with reflect's
-// caches (structLookupCache for struct, the canonical native rtype for
-// primitives/slices/arrays/maps).
-func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
+// attachPtrRecv fills *T's methods into its reserved synth pointer identity in
+// place. *T was reserved + wired (PtrToThis, AttachPtrDerived) at materialize.
+func (m *Machine) attachPtrRecv(t *Type) error {
 	specs := m.allSynthMethods(t, true)
 	if len(specs) == 0 {
 		return nil
 	}
 	methods := toSynthMethods(m, t, specs)
-	// Reserve/fill path: *T was reserved + wired (PtrToThis, AttachPtrDerived) at
-	// materialize; just fill its methods in place.
-	if res := lookupReservation(t); res != nil && res.ptr != nil {
-		return stubs.FillMethods(res.ptr, methods)
+	res := lookupReservation(t)
+	if res == nil || res.ptr == nil {
+		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
 	}
-	// Fallback swap+cascade for the residual reserve-timing cases above.
-	if !elemReady {
-		clone, err := runtype.Clone(t.Rtype, t.PkgPath)
-		if err != nil {
-			return err
-		}
-		cascadeHit("RefreshRtype-ptrclone", t)
-		RefreshRtype(t, clone)
-	}
-	newPtrRT, err := stubs.AttachPtrMethods(t.Rtype, "*"+qualifiedTypeName(t), t.PkgPath, methods)
-	if err != nil {
-		return err
-	}
-	// Propagate the *T-with-methods rtype to t's derived pointer so a later
-	// PointerTo(t) returns it rather than a fresh methodless *T.
-	AttachPtrDerived(t, newPtrRT)
-	return nil
+	return stubs.FillMethods(res.ptr, methods)
 }
 
 // synthMethodSpec describes a single method picked for synth attachment.
@@ -243,7 +213,7 @@ type synthMethodSpec struct {
 }
 
 // toSynthMethods materializes the slice of stubs.Method passed to
-// stubs.AttachMethods / AttachPtrMethods.
+// stubs.FillMethods.
 // Each method's handler closure is built per its shape, with recv dereferencing
 // driven by the method's own receiver kind (s.ptrRecv).
 func toSynthMethods(

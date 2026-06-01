@@ -21,7 +21,7 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 		return fmt.Sprintf("V=%d", v.V)
 	}
 
-	synthT, err := AttachStructMethods(
+	synthT, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -69,7 +69,7 @@ func TestAttachStructMethodsStringer(t *testing.T) {
 // struct's Name()/String() must reflect the caller-supplied name, not the
 // source layout's name (which is "" for reflect.StructOf-built layouts).
 func TestAttachStructMethodsName(t *testing.T) {
-	rt, err := AttachStructMethods(
+	rt, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
@@ -93,26 +93,10 @@ func TestAttachStructMethodsName(t *testing.T) {
 	}
 }
 
-func TestAttachStructMethodsRejectsNonStruct(t *testing.T) {
-	_, err := AttachStructMethods(
-		reflect.TypeOf(int(0)),
-		"badKind",
-		"test",
-		[]Method{{
-			Name:    "String",
-			Sig:     reflect.TypeOf((func() string)(nil)),
-			Handler: func(unsafe.Pointer) string { return "" },
-		}},
-	)
-	if err == nil {
-		t.Fatal("expected error for non-struct layout, got nil")
-	}
-}
-
 func TestSlotPoolDistinctSlots(t *testing.T) {
 	mk := func(tag string) (reflect.Type, *bool) {
 		called := new(bool)
-		rt, err := AttachStructMethods(
+		rt, err := mkSynth(
 			reflect.StructOf([]reflect.StructField{
 				{Name: "V", Type: reflect.TypeOf(int(0))},
 			}),
@@ -129,7 +113,7 @@ func TestSlotPoolDistinctSlots(t *testing.T) {
 			}},
 		)
 		if err != nil {
-			t.Fatalf("AttachStructMethods(%s): %v", tag, err)
+			t.Fatalf("mkSynth(%s): %v", tag, err)
 		}
 		return rt, called
 	}

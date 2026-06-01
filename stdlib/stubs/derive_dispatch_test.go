@@ -14,7 +14,7 @@ import (
 // Lives here, not runtype, because it needs the shape-stub dispatch pools.
 func TestDerivedFmtStringer(t *testing.T) {
 	called := new(bool)
-	elem, err := AttachStructMethods(
+	elem, err := mkSynth(
 		reflect.StructOf([]reflect.StructField{
 			{Name: "V", Type: reflect.TypeOf(int(0))},
 		}),
