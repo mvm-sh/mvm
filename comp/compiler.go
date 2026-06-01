@@ -1007,9 +1007,16 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			} else if h {
 				break
 			}
+			if err := c.errIfMismatch(t, left, right); err != nil {
+				return err
+			}
 			typ := arithmeticOpType(right, left)
-			c.emitConstConvert(t, right, typ, 0)
-			c.emitConstConvert(t, left, typ, 1)
+			// emitNumConvert (not emitConstConvert) so a numeric operand mvm
+			// models as typed but Go treats as untyped -- e.g. math.MaxUint64 --
+			// widens, matching the comparison paths. A genuine typed-var
+			// mismatch has already errored above.
+			c.emitNumConvert(t, typ, symbol.Vtype(right), 0)
+			c.emitNumConvert(t, typ, symbol.Vtype(left), 1)
 			push(&symbol.Symbol{Kind: constKind(right, left), Type: typ})
 			switch t.Tok {
 			case lang.Add:
@@ -1182,6 +1189,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			} else if h {
 				break
 			}
+			if err := c.errIfMismatch(t, s1, s2); err != nil {
+				return err
+			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
 			c.emitNumConvert(t, typ, s1.Type, 1)
@@ -1215,6 +1225,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			} else if h {
 				break
+			}
+			if err := c.errIfMismatch(t, s1, s2); err != nil {
+				return err
 			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
@@ -2007,6 +2020,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			} else if h {
 				break
+			}
+			if err := c.errIfMismatch(t, s1, s2); err != nil {
+				return err
 			}
 			typ := arithmeticOpType(s2, s1)
 			c.emitNumConvert(t, typ, s2.Type, 0)
@@ -2983,6 +2999,36 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		}
 	}
 	return err
+}
+
+// errIfMismatch enforces gc's rule that a binary numeric op needs identical
+// operand types unless one side is an untyped constant (Go spec, Operators).
+// It fires only between operands whose static type mvm tracks reliably (see
+// isVarKind), so it never rejects valid code that mixes a typed var with an
+// untyped stdlib constant (e.g. f >= math.MaxUint64), nor touches interface,
+// pointer, nil or string comparisons.
+func (c *Compiler) errIfMismatch(t goparser.Token, left, right *symbol.Symbol) error {
+	if !isVarKind(left) || !isVarKind(right) {
+		return nil
+	}
+	lt, rt := symbol.Vtype(left), symbol.Vtype(right)
+	if !isNumericConvType(lt) || !isNumericConvType(rt) || lt.Identical(rt) {
+		return nil
+	}
+	return c.errAt(t, "invalid operation: mismatched types %s and %s", lt, rt)
+}
+
+func isVarKind(s *symbol.Symbol) bool {
+	switch s.Kind {
+	case symbol.Var, symbol.LocalVar:
+		return true
+	case symbol.Value:
+		// An anonymous Value is a computed temporary with a reliable static
+		// type; a named Value is a package binding that may be an untyped
+		// constant mvm models as typed, so leave it lenient.
+		return s.Name == ""
+	}
+	return false
 }
 
 func arithmeticOpType(right, left *symbol.Symbol) *vm.Type {

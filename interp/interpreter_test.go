@@ -164,6 +164,17 @@ func TestNumericWidening(t *testing.T) {
 		{n: "float64_eq_int_const", src: `var v float64 = 10.0; v == 10`, res: "true"},
 		{n: "float64_neq_int_const", src: `var v float64 = 11.0; v != 10`, res: "true"},
 
+		{n: "int_var_div_float_var", src: `a := 10; b := 12.5; a / b`, err: "mismatched types int and float64"},
+		{n: "int_var_add_float_var", src: `a := 10; b := 12.5; a + b`, err: "mismatched types int and float64"},
+		{n: "float_var_lt_int_var", src: `a := 10; b := 12.5; b < a`, err: "mismatched types float64 and int"},
+		{n: "int_var_eq_float_var", src: `a := 10; b := 12.5; a == b`, err: "mismatched types int and float64"},
+		{n: "named_int_add_int_var", src: `type I int; var x I = 1; y := 2; x + y`, err: "mismatched types main.I and int"},
+		{n: "computed_int_div_float_var", src: `a := 3; b := 1.5; (a*2) / b`, err: "mismatched types int and float64"},
+		{n: "float_ge_maxuint64_const", src: `import "math"; var f float64 = 42; f >= math.MaxUint64`, res: "false"},
+		// The same untyped const must widen in arithmetic too, not have its uint64
+		// bits read as a float (that gave NaN; x == x is false only for NaN).
+		{n: "float_add_maxuint64_const", src: `import "math"; var f float64 = 42; x := f + math.MaxUint64; x == x`, res: "true"},
+
 		// Float equality must follow IEEE, not raw bit equality: NaN != NaN and
 		// +0.0 == -0.0 (cmp's TestLess/TestCompare via isNaN's `x != x`).
 		{n: "nan_not_equal_self", src: `import "math"; x := math.NaN(); x != x`, res: "true"},
@@ -2889,7 +2900,7 @@ f()`, res: "xy"},
 func TestMethod(t *testing.T) {
 	run(t, []etest{
 		// Value receiver, direct call.
-		{n: "#00", src: `type I int; func(i I) F(a int) int { return a+i }; var i I = 1; i.F(2)`, res: "3"},
+		{n: "#00", src: `type I int; func(i I) F(a int) int { return a+int(i) }; var i I = 1; i.F(2)`, res: "3"},
 		// Multiple params.
 		{n: "#01", src: `type I int; func(i I) Add(a, b int) int { return a + b }; var i I = 0; i.Add(3, 4)`, res: "7"},
 
@@ -2901,11 +2912,11 @@ func TestMethod(t *testing.T) {
 		{n: "#04", src: `type T struct{a, b int}; func(t T) Sum() int { return t.a + t.b }; x := T{2, 3}; x.Sum()`, res: "5"},
 
 		// Store method value, call later.
-		{n: "#05", src: `type I int; func(i I) F(a int) int { return a+i }; var i I = 2; f := i.F; f(3)`, res: "5"},
+		{n: "#05", src: `type I int; func(i I) F(a int) int { return a+int(i) }; var i I = 2; f := i.F; f(3)`, res: "5"},
 		// Two independent method values from different receivers.
 		{n: "#06", src: `type I int; func(i I) Val() I { return i }; var a I = 1; var b I = 2; fa := a.Val; fb := b.Val; fa() + fb()`, res: "3"},
 		// Pass method value to higher-order function.
-		{n: "#07", src: `type I int; func(i I) F(a int) int { return a+i }; apply := func(f func(int) int, n int) int { return f(n) }; var i I = 5; apply(i.F, 3)`, res: "8"},
+		{n: "#07", src: `type I int; func(i I) F(a int) int { return a+int(i) }; apply := func(f func(int) int, n int) int { return f(n) }; var i I = 5; apply(i.F, 3)`, res: "8"},
 		// Method value on struct receiver.
 		{n: "#08", src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; x := T{3}; f := x.Add; f(4)`, res: "7"},
 
