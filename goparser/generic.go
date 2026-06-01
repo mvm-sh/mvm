@@ -862,6 +862,17 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 
 	switch {
 	case id == lang.Period:
+		// Package-qualified value `pkg.Name` (not a call): type it so a bare
+		// reference like sha256.New can be unified in generic inference.
+		if l >= 1 && in[l-1].Tok == lang.Ident {
+			if ps := p.Symbols[in[l-1].Str]; ps != nil && ps.Kind == symbol.Pkg {
+				member := t.Str[1:] // strip leading "."
+				if mt := p.pkgMemberType(ps.PkgPath, member); mt != nil {
+					return mt, 2
+				}
+				return nil, 0
+			}
+		}
 		// Field selector: result type is the field type.
 		leftTyp, ln := p.postfixType(in[:l])
 		if leftTyp == nil {
@@ -999,22 +1010,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				break
 			}
 			member := fnTok.Str[1:] // strip leading "."
-			var ft *vm.Type
-			if pkg := p.Packages[ps.PkgPath]; pkg != nil {
-				if v, ok := pkg.Values[member]; ok {
-					if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
-						ft = &vm.Type{Rtype: rv.Type()}
-					}
-				}
-			}
-			if ft == nil {
-				if qs, ok := p.Symbols[ps.PkgPath+"."+member]; ok && qs.Kind != symbol.Generic {
-					if t := symbol.Vtype(qs); t.IsFunc() {
-						ft = t
-					}
-				}
-			}
-			if ft != nil {
+			if ft := p.pkgMemberType(ps.PkgPath, member); ft != nil && ft.IsFunc() {
 				totalLen++ // account for the package ident token
 				return funcReturnType(ft), totalLen
 			}
@@ -1082,4 +1078,21 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		return nil, 1
 	}
 	return nil, 0
+}
+
+// pkgMemberType resolves the type of pkgPath.member, from the bridged reflect
+// value or the canonical symbol. Generic members return nil: typing a nested
+// generic call's result reaches bad codegen (a known hang).
+func (p *Parser) pkgMemberType(pkgPath, member string) *vm.Type {
+	if pkg := p.Packages[pkgPath]; pkg != nil {
+		if v, ok := pkg.Values[member]; ok {
+			if rv := v.Reflect(); rv.IsValid() {
+				return &vm.Type{Rtype: rv.Type()}
+			}
+		}
+	}
+	if qs, ok := p.Symbols[pkgPath+"."+member]; ok && qs.Kind != symbol.Generic {
+		return symbol.Vtype(qs)
+	}
+	return nil
 }

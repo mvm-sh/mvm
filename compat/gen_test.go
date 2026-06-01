@@ -44,6 +44,12 @@ func TestClassify(t *testing.T) {
 			tier: "red", class: "compile", pass: 0, fail: 0,
 		},
 		{
+			name: "generic-only stub unsupported",
+			exit: 0,
+			out:  "mvm test: crypto/hkdf: unsupported (generic-only stdlib package; all exports are generic, so there is no reflect bridge or interpreted source)\n",
+			tier: "gray", pass: 0, fail: 0,
+		},
+		{
 			name: "panic",
 			exit: 2,
 			out:  "panic: runtime error: index out of range [-1]\n\ngoroutine 1 [running]:\n",

@@ -15,3 +15,12 @@ func TestSkipReason(t *testing.T) {
 		t.Errorf("unknown pkg should not match, got %q", got)
 	}
 }
+
+func TestIsGenericOnly(t *testing.T) {
+	if !IsGenericOnly("crypto/hkdf") {
+		t.Error("crypto/hkdf should be a generic-only stub")
+	}
+	if IsGenericOnly("crypto/hmac") {
+		t.Error("crypto/hmac is bridged, not a generic-only stub")
+	}
+}

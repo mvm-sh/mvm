@@ -153,6 +153,12 @@ func testCmd(arg []string) error {
 				fmt.Fprintf(os.Stderr, "mvm test: %s: tests not loaded (%v)\n", target, err)
 				return runTestDriver(src, target, func() {})
 			}
+			// Generic-only stub: nothing to load by design. Report it clearly
+			// and exit 0 so the compat matrix marks it gray, not red.
+			if stdlib.IsGenericOnly(target) {
+				fmt.Fprintf(os.Stderr, "mvm test: %s: unsupported (generic-only stdlib package; all exports are generic, so there is no reflect bridge or interpreted source)\n", target)
+				return nil
+			}
 			return fmt.Errorf("loading %q: %w", target, err)
 		}
 		// modfs serves the package from memory, so tests using testdata-relative

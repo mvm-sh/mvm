@@ -54,6 +54,19 @@ var Incompat = map[string]map[string]string{
 	},
 }
 
+// GenericOnly lists stdlib packages with an all-generic API: no reflect bridge
+// (cmd/extract emits an empty stub) and no interpreted mirror, so mvm cannot
+// load them. Keep in sync with the stub note in gen.go.
+var GenericOnly = map[string]bool{
+	"crypto/hkdf":   true,
+	"crypto/pbkdf2": true,
+	"unique":        true,
+	"weak":          true,
+}
+
+// IsGenericOnly reports whether pkgPath is a generic-only stub package.
+func IsGenericOnly(pkgPath string) bool { return GenericOnly[pkgPath] }
+
 // SkipReason returns the recorded reason for skipping testName when running
 // `mvm test pkgPath`, or "" if the test should run normally.
 func SkipReason(pkgPath, testName string) string {
