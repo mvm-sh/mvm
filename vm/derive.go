@@ -513,67 +513,11 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 	return d.ptr
 }
 
-// ArrayOf returns the canonical [length]t type, memoized.
-func ArrayOf(length int, t *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(t)
-	if d.array == nil {
-		d.array = map[int]*mtype.Type{}
-	} else if a := d.array[length]; a != nil {
-		return a
-	}
-	a := &mtype.Type{Rtype: deriveArrayOf(length, t.Rtype), ElemType: t, ArrayLen: length}
-	d.array[length] = a
-	return a
-}
-
-// SliceOf returns the canonical []t type, memoized.
-func SliceOf(t *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(t)
-	if d.slice != nil {
-		return d.slice
-	}
-	d.slice = &mtype.Type{Rtype: deriveSliceOf(t.Rtype), ElemType: t}
-	return d.slice
-}
-
-// MapOf returns the canonical map[k]e type, memoized on the key, indexed by elem.
-func MapOf(k, e *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(k)
-	if d.maps == nil {
-		d.maps = map[*mtype.Type]*mtype.Type{}
-	} else if m := d.maps[e]; m != nil {
-		return m
-	}
-	m := &mtype.Type{Rtype: deriveMapOf(k.Rtype, e.Rtype), ElemType: e, KeyType: k}
-	d.maps[e] = m
-	return m
-}
-
-// ChanOf returns the canonical chan-elem type with the given direction, memoized.
-func ChanOf(dir reflect.ChanDir, elem *mtype.Type) *mtype.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	d := ensureDerived(elem)
-	if d.chans == nil {
-		d.chans = map[reflect.ChanDir]*mtype.Type{}
-	} else if c := d.chans[dir]; c != nil {
-		return c
-	}
-	c := &mtype.Type{Rtype: deriveChanOf(dir, elem.Rtype), ElemType: elem, ChanDir: dir}
-	d.chans[dir] = c
-	return c
-}
-
-// derivePointerTo and its SliceOf/ArrayOf/ChanOf/MapOf siblings build a derived
-// rtype: runtype.* for synth elems (reflect.*Of crashes on them via
-// resolveNameOff), reflect.* otherwise to keep native identity. PointerTo uses
-// reflect.PointerTo when a synth elem's PtrToThis is wired (unifies *T identity).
+// derivePointerTo and its deriveSliceOf/deriveArrayOf/deriveChanOf/deriveMapOf
+// siblings build a derived rtype: runtype.* for synth elems (reflect.*Of crashes
+// on them via resolveNameOff), reflect.* otherwise to keep native identity.
+// derivePointerTo uses reflect.PointerTo when a synth elem's PtrToThis is wired
+// (unifies *T identity).
 func derivePointerTo(elem reflect.Type) reflect.Type {
 	if runtype.IsSynth(elem) && !runtype.HasPtrToThis(elem) {
 		return runtype.PointerTo(elem)

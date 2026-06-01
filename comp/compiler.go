@@ -4043,8 +4043,8 @@ func (c *Compiler) compileBuiltin(
 // and a composite all patch the same Fnew.
 // Keyed on *vm.Type pointer identity; convergence between the type-ident
 // emitter (compiler.go:1926) and the composite-literal length patcher
-// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SliceOf
-// / vm.PointerTo / vm.MapOf / etc. returning the same instance per shape.
+// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SymSlice
+// / vm.SymPtr / vm.SymMap / etc. returning the same instance per shape.
 // Distinct from typeSym, which allocates a type-DESCRIPTOR slot (make-elem/key,
 // TypeAssert, etc.).
 func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {

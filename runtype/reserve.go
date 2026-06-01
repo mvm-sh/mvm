@@ -73,7 +73,7 @@ func reserveStruct(layout reflect.Type, name, pkgPath string) (*Reservation, err
 	b.st = *src
 	stampHeader(&b.st.abiType, name)
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.st.abiType, &src.abiType)
 	return &Reservation{rt: asReflectType(&b.st.abiType), u: &b.u, m: b.m[:]}, nil
 }
@@ -84,7 +84,7 @@ func reservePrimitive(layout reflect.Type, name, pkgPath string) (*Reservation, 
 	b.t = *src
 	stampHeader(&b.t, name)
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.t, src)
 	return &Reservation{rt: asReflectType(&b.t), u: &b.u, m: b.m[:]}, nil
 }
@@ -95,7 +95,7 @@ func reserveSlice(layout reflect.Type, name, pkgPath string) (*Reservation, erro
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.t.abiType, &src.abiType)
 	return &Reservation{rt: asReflectType(&b.t.abiType), u: &b.u, m: b.m[:]}, nil
 }
@@ -106,7 +106,7 @@ func reserveArray(layout reflect.Type, name, pkgPath string) (*Reservation, erro
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.t.abiType, &src.abiType)
 	return &Reservation{rt: asReflectType(&b.t.abiType), u: &b.u, m: b.m[:]}, nil
 }
@@ -117,7 +117,7 @@ func reserveMap(layout reflect.Type, name, pkgPath string) (*Reservation, error)
 	b.t = *src
 	stampHeader(&b.t.abiType, name)
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.t.abiType, &src.abiType)
 	return &Reservation{rt: asReflectType(&b.t.abiType), u: &b.u, m: b.m[:]}, nil
 }
@@ -138,7 +138,7 @@ func reserveFunc(layout reflect.Type, name, pkgPath string) (*Reservation, error
 		b.io[nin+i] = (*abiType)(unsafe.Pointer(rtypePtr(layout.Out(i))))
 	}
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	registerLayout(&b.t.abiType, &src.abiType)
 	return &Reservation{rt: asReflectType(&b.t.abiType), u: &b.u, m: b.m[:]}, nil
 }
@@ -168,7 +168,7 @@ func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, e
 		PtrToThis:  0,
 	}
 	moff := unsafe.Offsetof(b.m) - unsafe.Offsetof(b.u)
-	b.u = makeUncommon(pkgPath, nil, uint32(moff))
+	b.u = makeUncommon(pkgPath, uint32(moff))
 	elemRT.PtrToThis = addReflectOff(unsafe.Pointer(&b.t))
 	registerLayout(&b.t, intPtrRT)
 	return &Reservation{rt: asReflectType(&b.t), u: &b.u, m: b.m[:]}, nil

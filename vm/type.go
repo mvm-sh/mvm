@@ -3,7 +3,7 @@ package vm
 import "github.com/mvm-sh/mvm/mtype"
 
 // The symbolic Type layer now lives in package mtype. The aliases below are
-// transitional: they keep existing vm.Type / vm.SliceOf / ... call sites
+// transitional: they keep existing vm.Type / vm.TypeOf / ... call sites
 // compiling while callers migrate to reference mtype directly.
 
 // Type is the symbolic type representation, re-exported from mtype.
@@ -25,9 +25,9 @@ type TypeElem = mtype.TypeElem
 var AnyRtype = mtype.AnyRtype
 
 // Symbolic type constructors re-exported from mtype. The derived-type
-// constructors and reserve/fill helpers (PointerTo, SliceOf, MapOf, ArrayOf,
-// ChanOf, CanonicalType, AttachPtrDerived, ...) are runtime materialization and
-// live in vm (derive.go), not mtype.
+// constructors and reserve/fill helpers (SymPtr/SymSlice/..., PointerTo,
+// CanonicalType, AttachPtrDerived, ...) are runtime materialization and live in
+// vm (derive.go), not mtype.
 var (
 	TypeOf        = mtype.TypeOf
 	FuncOf        = mtype.FuncOf

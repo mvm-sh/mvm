@@ -583,15 +583,6 @@ var (
 	structTypes   = map[string]*Type{}
 )
 
-// WithStructTypesLock runs fn holding the StructOf memoization lock, so a
-// caller patching a cached struct rtype's fields in place is serialized against
-// reflect.StructOf reads on the shared rtype.
-func WithStructTypesLock(fn func()) {
-	structTypesMu.Lock()
-	defer structTypesMu.Unlock()
-	fn()
-}
-
 // StructOf returns the canonical struct type for the given fields/embedded/tags,
 // memoized on a structural key (Name+PkgPath+Base-or-self pointer per field) so
 // equivalent shapes parsed separately converge despite per-call field clones.

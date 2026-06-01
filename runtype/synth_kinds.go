@@ -20,19 +20,14 @@ func stampHeader(t *abiType, name string) {
 	t.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-func makeUncommon(pkgPath string, methods []MethodSpec, moff uint32) abiUncommon {
-	xcount := 0
-	for _, m := range methods {
-		if m.Exported {
-			xcount++
-		}
-	}
+// makeUncommon builds the uncommon header for a reserved rtype: Mcount/Xcount
+// stay 0 (the method table is empty until Fill installs methods and publishes
+// the counts).
+func makeUncommon(pkgPath string, moff uint32) abiUncommon {
 	return abiUncommon{
 		PkgPath: uint32(addReflectOff(unsafe.Pointer(
 			encodeName(pkgPath, false).Bytes))),
-		Mcount: uint16(len(methods)),
-		Xcount: uint16(xcount),
-		Moff:   moff,
+		Moff: moff,
 	}
 }
 
