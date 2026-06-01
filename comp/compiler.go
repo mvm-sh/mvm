@@ -194,6 +194,7 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
 // Compile and CompileFiles.
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	c.allocGlobalSlots()
+	c.preregisterMethods()
 	var rest []goparser.DeferredDecl
 	for _, decl := range remaining {
 		if len(decl.Toks) > 0 && decl.Toks[0].Tok == lang.Var {
@@ -211,6 +212,47 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	}
 	c.propagateEmbeddedMethods()
 	return nil
+}
+
+// preregisterMethods records every method onto its receiver type's Methods
+// table before Phase-2 body compile materializes any type. Phase 1 registers
+// methods only as symbols keyed "<typeKey>.<M>" (or "*<typeKey>.<M>" for pointer
+// receivers); the slot on the receiver *Type is otherwise filled lazily when the
+// method's label is emitted, which can land after the type was already
+// materialized -- too late for the reserve gate (vm.maybeReserve) to see it.
+// Index stays -1 (the code address is unknown until the body compiles); the real
+// registration overwrites the same slot in place, leaving any reservation (keyed
+// on the stable *Type) intact. Keys are walked in sorted order so method-ID
+// assignment is deterministic.
+func (c *Compiler) preregisterMethods() {
+	keys := make([]string, 0, len(c.Symbols))
+	for key := range c.Symbols {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		s := c.Symbols[key]
+		if s.Kind != symbol.Func || s.Type == nil || s.Type.Kind() != reflect.Func ||
+			strings.ContainsRune(key, '#') {
+			continue
+		}
+		body := strings.TrimPrefix(key, "*")
+		dot := strings.LastIndex(body, ".")
+		if dot < 0 {
+			continue // free function: no receiver
+		}
+		ts, ok := c.Symbols[body[:dot]]
+		if !ok || ts.Kind != symbol.Type || ts.Type == nil {
+			continue // typeKey is a package or unknown, not a receiver type
+		}
+		id := c.methodID(body[dot+1:])
+		for len(ts.Type.Methods) <= id {
+			ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
+		}
+		if m := &ts.Type.Methods[id]; !m.IsResolved() && m.Sig == nil {
+			*m = vm.Method{Index: -1, PtrRecv: strings.HasPrefix(key, "*"), Sig: s.Type}
+		}
+	}
 }
 
 func (c *Compiler) compileDeferred(dd goparser.DeferredDecl) error {

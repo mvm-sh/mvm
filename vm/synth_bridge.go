@@ -40,9 +40,7 @@ func (m *Machine) AttachSynthMethods(t *Type) error {
 	}
 	// An unnamed type carries only promoted methods (Go forbids methods on an
 	// anonymous type, e.g. struct{io.Reader}); those dispatch through the embedded
-	// field's own rtype, so the container needs no synth attach. Skipping keeps its
-	// identity stable -- attaching would swap it (RefreshRtype) and force the
-	// cascade to re-emit every composite that captured it.
+	// field's own rtype, so the container needs no synth attach.
 	if t.Name == "" {
 		return nil
 	}
@@ -184,6 +182,9 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 		}
 		return true, nil
 	}
+	// Fallback swap+cascade: reserve cannot yet reach a few timing cases (an
+	// imported method-bearing type materialized eager during import, a defined
+	// type over a named base, an embedded-interface promotion).
 	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath, methods)
 	if err != nil {
 		return false, err
@@ -210,6 +211,7 @@ func (m *Machine) attachPtrRecv(t *Type, elemReady bool) error {
 	if res := lookupReservation(t); res != nil && res.ptr != nil {
 		return stubs.FillMethods(res.ptr, methods)
 	}
+	// Fallback swap+cascade for the residual reserve-timing cases above.
 	if !elemReady {
 		clone, err := runtype.Clone(t.Rtype, t.PkgPath)
 		if err != nil {

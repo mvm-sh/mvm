@@ -42,6 +42,19 @@ type sharedStructKey struct {
 
 var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
 
+// hasReservableMethods reports whether t carries any method worth reserving an
+// identity for. The method pre-pass (comp.preregisterMethods) populates a slot's
+// Sig before the body compiles, so a slot counts when it is either resolved (a
+// compiled code address / embedded dispatch) or carries a symbolic Sig.
+func hasReservableMethods(t *mtype.Type) bool {
+	for i := range t.Methods {
+		if t.Methods[i].IsResolved() || t.Methods[i].Sig != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // hasSynthTableMethods reports whether any method has a supported detectShape, so
 // attach installs a Machine-bound native stub (then the rtype can't be shared).
 // method.Rtype is often nil pre-attach; materialize Sig to read the shape.
@@ -149,13 +162,20 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	if isFieldClone(t) {
 		return MaterializeRtype(t.Base)
 	}
-	if len(t.Methods) == 0 {
+	if !hasReservableMethods(t) {
 		return layoutRT
 	}
+	return reserveValueAndPtr(t, layoutRT)
+}
+
+// reserveValueAndPtr reserves t's value identity over layoutRT and, when
+// possible, its *T identity, recording both and wiring *T via AttachPtrDerived.
+// The value rtype is reserved unconditionally: it gives T a writable, named
+// identity for ReservePtrMethods to wire *T into (PtrToThis on a shared/native
+// layout faults). Fill leaves it methodless when method-set(T) is empty. Returns
+// layoutRT unchanged if the value reservation itself fails.
+func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	name := qualifiedTypeName(t)
-	// Reserve the value rtype unconditionally: it gives T a writable, named
-	// identity for ReservePtrMethods to wire *T into (PtrToThis on a shared/native
-	// layout faults). Fill leaves it methodless when method-set(T) is empty.
 	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgPath)
 	if err != nil {
 		return layoutRT
@@ -170,6 +190,22 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	reservations[t] = res
 	derivedMu.Unlock()
 	return valueRT
+}
+
+// reserveDefinedOverBase reserves the identity of a defined type (`type T Base`)
+// over its already-materialized base layout. A defined type with its OWN methods
+// (e.g. `type ipNetValue net.IPNet`) reserves directly: maybeReserve skips
+// struct-kind layouts and treats a named base as a field clone, neither of which
+// fits a genuine defined type. A methodless or field-clone type defers to
+// maybeReserve unchanged (field clones carry no own methods, so the gate is safe).
+func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
+	if lookupReservation(t) != nil {
+		return t.Rtype
+	}
+	if reserveSynth && t.Name != "" && hasReservableMethods(t) {
+		return reserveValueAndPtr(t, base)
+	}
+	return maybeReserve(t, base)
 }
 
 // maybeReserveStruct reserves a named struct's identity over a provisional layout
@@ -193,7 +229,7 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 	}
 	res := lookupReservation(t)
 	if res == nil {
-		if len(t.Methods) == 0 {
+		if !hasReservableMethods(t) {
 			return nil, false // methodless struct: native identity is stable already
 		}
 		name := qualifiedTypeName(t)
@@ -312,8 +348,8 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	// defined-over-basic type (e.g. `type Confidence int` with methods) reserves
 	// over the base layout so attach fills in place; otherwise the swap path runs.
 	if definedOverBase(t) {
-		if rt := MaterializeRtype(t.Base); rt != nil {
-			rt = maybeReserve(t, rt)
+		if base := MaterializeRtype(t.Base); base != nil {
+			rt := reserveDefinedOverBase(t, base)
 			t.Rtype = rt
 			return rt
 		}
