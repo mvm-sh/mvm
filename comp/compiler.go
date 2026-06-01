@@ -195,6 +195,11 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	c.allocGlobalSlots()
 	c.preregisterMethods()
+	// Promote embedded-interface methods now (before any body-compile
+	// materialization) so a struct embedding an interface carries its promoted
+	// methods when the reserve gate runs; the post-body call below additionally
+	// promotes embedded value-type methods once their code addresses resolve.
+	c.propagateEmbeddedMethods()
 	var rest []goparser.DeferredDecl
 	for _, decl := range remaining {
 		if len(decl.Toks) > 0 && decl.Toks[0].Tok == lang.Var {

@@ -182,9 +182,9 @@ func (m *Machine) attachValueRecv(t *Type) (bool, error) {
 		}
 		return true, nil
 	}
-	// Fallback swap+cascade: reserve cannot yet reach a few timing cases (an
-	// imported method-bearing type materialized eager during import, a defined
-	// type over a named base, an embedded-interface promotion).
+	// Fallback swap+cascade: reserve cannot yet reach two timing cases (an
+	// imported method-bearing type materialized eager during import, and a
+	// defined type over a named base, type Y X).
 	newRT, err := stubs.AttachMethods(t.Rtype, qualifiedTypeName(t), t.PkgPath, methods)
 	if err != nil {
 		return false, err
