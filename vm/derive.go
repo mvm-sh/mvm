@@ -292,31 +292,31 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 		if elem == nil {
 			return nil
 		}
-		rt = derivePointerTo(elem)
+		rt = runtype.DerivePointerTo(elem)
 	case reflect.Slice:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveSliceOf(elem)
+		rt = runtype.DeriveSliceOf(elem)
 	case reflect.Array:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveArrayOf(t.ArrayLen, elem)
+		rt = runtype.DeriveArrayOf(t.ArrayLen, elem)
 	case reflect.Chan:
 		elem := MaterializeRtype(t.ElemType)
 		if elem == nil {
 			return nil
 		}
-		rt = deriveChanOf(t.ChanDir, elem)
+		rt = runtype.DeriveChanOf(t.ChanDir, elem)
 	case reflect.Map:
 		key, elem := MaterializeRtype(t.KeyType), MaterializeRtype(t.ElemType)
 		if key == nil || elem == nil {
 			return nil
 		}
-		rt = deriveMapOf(key, elem)
+		rt = runtype.DeriveMapOf(key, elem)
 	case reflect.Func:
 		in := make([]reflect.Type, len(t.Params))
 		for i, p := range t.Params {
@@ -509,48 +509,8 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 	if d.ptr != nil {
 		return d.ptr
 	}
-	d.ptr = &mtype.Type{Name: t.Name, Rtype: derivePointerTo(t.Rtype), ElemType: t}
+	d.ptr = &mtype.Type{Name: t.Name, Rtype: runtype.DerivePointerTo(t.Rtype), ElemType: t}
 	return d.ptr
-}
-
-// derivePointerTo and its deriveSliceOf/deriveArrayOf/deriveChanOf/deriveMapOf
-// siblings build a derived rtype: runtype.* for synth elems (reflect.*Of crashes
-// on them via resolveNameOff), reflect.* otherwise to keep native identity.
-// derivePointerTo uses reflect.PointerTo when a synth elem's PtrToThis is wired
-// (unifies *T identity).
-func derivePointerTo(elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) && !runtype.HasPtrToThis(elem) {
-		return runtype.PointerTo(elem)
-	}
-	return reflect.PointerTo(elem)
-}
-
-func deriveSliceOf(elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.SliceOf(elem)
-	}
-	return reflect.SliceOf(elem)
-}
-
-func deriveArrayOf(n int, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.ArrayOf(n, elem)
-	}
-	return reflect.ArrayOf(n, elem)
-}
-
-func deriveChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(elem) {
-		return runtype.ChanOf(dir, elem)
-	}
-	return reflect.ChanOf(dir, elem)
-}
-
-func deriveMapOf(key, elem reflect.Type) reflect.Type {
-	if runtype.IsSynth(key) || runtype.IsSynth(elem) {
-		return runtype.MapOf(key, elem)
-	}
-	return reflect.MapOf(key, elem)
 }
 
 // cachedSynthIface returns t's cached method-bearing synth interface rtype,

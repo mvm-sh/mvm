@@ -252,10 +252,10 @@ func StampName(t reflect.Type, name string) {
 	rt.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-// IsSynth reports whether t is a synth-built rtype (produced by any of the
-// Attach*, Clone*, or derive constructors in this package).
-// Callers route between reflect.*Of (native rtype identity preserved) and
-// the synth-safe constructors above based on this predicate.
+// IsSynth reports whether t is a synth-built rtype (produced by the Reserve* or
+// derive constructors in this package).
+// The Derive* helpers below route between reflect.*Of (native rtype identity
+// preserved) and the synth-safe constructors above based on this predicate.
 func IsSynth(t reflect.Type) bool {
 	if t == nil {
 		return false
@@ -270,9 +270,8 @@ func IsSynth(t reflect.Type) bool {
 // HasPtrToThis reports whether t's PtrToThis field is wired (i.e., a
 // ReservePtrMethods call has registered a *T-with-methods rtype reachable
 // via reflect.PointerTo(t)).
-// vm.PointerTo consults this to prefer reflect.PointerTo over runtype.PointerTo
-// when the wired *T exists, so the vm-side derived *T and the reflect-side
-// *T share identity.
+// DerivePointerTo consults this to prefer reflect.PointerTo over the synth
+// PointerTo when the wired *T exists, so the two *T identities coincide.
 func HasPtrToThis(t reflect.Type) bool {
 	if t == nil {
 		return false
@@ -282,6 +281,56 @@ func HasPtrToThis(t reflect.Type) bool {
 		return false
 	}
 	return rt.PtrToThis != 0
+}
+
+// DerivePointerTo, DeriveSliceOf, DeriveArrayOf, DeriveChanOf, DeriveMapOf return
+// the derived rtype for a possibly-synth element, choosing the right builder:
+// the synth-safe constructors above for synth components (reflect.*Of crashes on
+// them via resolveNameOff), reflect.* otherwise to keep the canonical native
+// identity. They are the entry points the materialization layer calls; callers
+// need not test IsSynth themselves.
+
+// DerivePointerTo returns *elem. For a synth elem whose PtrToThis is already
+// wired (a reserved *T-with-methods), reflect.PointerTo returns that wired *T, so
+// the synth and reflect sides share one *T identity; otherwise a synth elem gets
+// a fresh synth *T and a native elem its canonical reflect.PointerTo.
+func DerivePointerTo(elem reflect.Type) reflect.Type {
+	if IsSynth(elem) && !HasPtrToThis(elem) {
+		return PointerTo(elem)
+	}
+	return reflect.PointerTo(elem)
+}
+
+// DeriveSliceOf returns []elem.
+func DeriveSliceOf(elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return SliceOf(elem)
+	}
+	return reflect.SliceOf(elem)
+}
+
+// DeriveArrayOf returns [n]elem.
+func DeriveArrayOf(n int, elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return ArrayOf(n, elem)
+	}
+	return reflect.ArrayOf(n, elem)
+}
+
+// DeriveChanOf returns the chan-elem rtype with the given direction.
+func DeriveChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
+	if IsSynth(elem) {
+		return ChanOf(dir, elem)
+	}
+	return reflect.ChanOf(dir, elem)
+}
+
+// DeriveMapOf returns map[key]elem; synth if either component is synth.
+func DeriveMapOf(key, elem reflect.Type) reflect.Type {
+	if IsSynth(key) || IsSynth(elem) {
+		return MapOf(key, elem)
+	}
+	return reflect.MapOf(key, elem)
 }
 
 // registerLayout records the native-layout rtype for a synth rtype.

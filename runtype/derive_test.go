@@ -377,3 +377,32 @@ func TestStampName(t *testing.T) {
 		t.Errorf("field access broken after stamp")
 	}
 }
+
+// TestDeriveRoutesNativeVsSynth pins the Derive* routing policy: a native
+// component yields the canonical reflect identity (so e.g. two []int converge),
+// while a synth component yields a synth composite (reflect.*Of would crash).
+func TestDeriveRoutesNativeVsSynth(t *testing.T) {
+	if got := DeriveSliceOf(reflect.TypeOf(0)); got != reflect.TypeOf([]int(nil)) {
+		t.Errorf("DeriveSliceOf(int) = %v, want canonical []int", got)
+	}
+	if IsSynth(DeriveSliceOf(reflect.TypeOf(0))) {
+		t.Error("DeriveSliceOf(native) must not be synth")
+	}
+	if got := DerivePointerTo(reflect.TypeOf(0)); got != reflect.TypeOf((*int)(nil)) {
+		t.Errorf("DerivePointerTo(int) = %v, want canonical *int", got)
+	}
+	if got := DeriveMapOf(reflect.TypeOf(""), reflect.TypeOf(0)); got != reflect.TypeOf(map[string]int(nil)) {
+		t.Errorf("DeriveMapOf(string,int) = %v, want canonical map[string]int", got)
+	}
+
+	elem := synthStructForDerive(t, "DeriveRoute")
+	if !IsSynth(DeriveSliceOf(elem)) {
+		t.Error("DeriveSliceOf(synth) must be synth")
+	}
+	if !IsSynth(DerivePointerTo(elem)) {
+		t.Error("DerivePointerTo(synth without PtrToThis) must be synth")
+	}
+	if sl := DeriveSliceOf(elem); sl.Elem() != elem {
+		t.Errorf("DeriveSliceOf(synth).Elem() = %v, want the synth elem", sl.Elem())
+	}
+}
