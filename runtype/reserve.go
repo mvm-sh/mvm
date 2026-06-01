@@ -46,9 +46,9 @@ func (r *Reservation) Fill(methods []MethodSpec) error {
 	return nil
 }
 
-// ReserveMethods reserves a method-bearing identity for layout without yet
-// installing any method, mirroring AttachMethods' kind dispatch. Fill the
-// returned Reservation once the method stubs are known.
+// ReserveMethods reserves a method-bearing identity for layout (dispatching by
+// kind) without yet installing any method. Fill the returned Reservation once the
+// method stubs are known.
 func ReserveMethods(layout reflect.Type, name, pkgPath string) (*Reservation, error) {
 	switch k := layout.Kind(); {
 	case k == reflect.Struct:

@@ -237,8 +237,8 @@ func layoutFor(t reflect.Type) reflect.Type {
 // addReflectOff, points Str at it, sets tflagNamed, and clears
 // tflagExtraStar.
 // Layout is untouched (a type name is a label, not structure), so t's
-// identity, fields, methods, and any derived types stay valid -- no
-// cascade needed.  This is the safest possible synth mutation.
+// identity, fields, methods, and any derived types stay valid.
+// This is the safest possible synth mutation.
 // CALLER CONTRACT: t must be a heap rtype mvm owns (e.g. a
 // reflect.StructOf placeholder).  Stamping a shared canonical rtype
 // (int, a native struct like time.Time) would corrupt the name of every

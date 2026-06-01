@@ -49,7 +49,7 @@ type Compiler struct {
 	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index, for *Type-identity slot compares
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 
-	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots (MVM_DEFERSLOTS)
+	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 }
 
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
@@ -485,32 +485,18 @@ func (c *Compiler) typeIndex(typ *vm.Type) int {
 }
 
 // rtype is the single seam through which comp obtains a type's reflect.Type.
-// It materializes the rtype from the symbolic graph on first use (S1: goparser
-// builds types symbolically, comp materializes them), caching it on the *Type.
-// Identity today, since parse still sets Rtype.
+// goparser builds types symbolically; comp materializes the rtype from the
+// symbolic graph on first use, caching it on the *Type.
 func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
-	if freshRtypeLog && typ != nil && typ.Rtype == nil {
-		_, file, line, _ := runtime.Caller(1)
-		fmt.Fprintf(os.Stderr, "fresh rtype %s:%d %s\n", path.Base(file), line, typ.String())
-	}
 	return vm.MaterializeRtype(typ)
 }
 
-// freshRtypeLog gates Stage-0 instrumentation: it reports each c.rtype call that
-// materializes an interpreted type from scratch (nil Rtype) during generate.
-// Symbolizing those sites drives the count to zero so generate becomes reflect-free.
-var freshRtypeLog = os.Getenv("MVM_FRESHRTYPE") != ""
-
-// deferSlots makes generate emit no interpreted rtype: typeSlotValue defers it
-// to a post-attach FillTypeSlots pass. On by default; set MVM_DEFERSLOTS=0 to
-// fall back to eager materialization (kept until the cascade is dropped).
-var deferSlots = os.Getenv("MVM_DEFERSLOTS") != "0"
-
 // typeSlotValue returns the value for Data slot idx holding typ: a zero value
-// (descriptor=false) or a type descriptor (descriptor=true). When deferring an
-// un-materialized typ, it records the slot and returns an invalid placeholder.
+// (descriptor=false) or a type descriptor (descriptor=true). An un-materialized
+// typ is deferred -- the slot is recorded and FillTypeSlots settles it once the
+// type's reserved identity is filled, so the slot captures the final rtype.
 func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Value {
-	if deferSlots && typ != nil && typ.Rtype == nil {
+	if typ != nil && typ.Rtype == nil {
 		c.pendingTypeSlots = append(c.pendingTypeSlots, pendingSlot{idx: idx, typ: typ, descriptor: descriptor})
 		return vm.Value{}
 	}
@@ -3832,10 +3818,9 @@ func (c *Compiler) compileBuiltin(
 			elemIdx := c.typeSym(makeElemType(typeSym.Type)).Index
 			c.emit(t, vm.MkSlice, -(narg - 1), elemIdx)
 		case reflect.Map:
-			// Canonical key type: the cascade rebuilds t-as-key map rtypes, so
-			// the var slot becomes map[synthKey]V; FillTypeSlots keeps this
-			// in step. The value stays a detached snapshot: t-as-element maps are
-			// not rebuilt, so the slot keeps its placeholder value.
+			// Canonical key type: keying on the canonical *Type lets the var slot
+			// observe the reserved map[key]V identity via FillTypeSlots. The value
+			// stays a detached snapshot.
 			keyIdx := c.typeSym(makeKeyType(typeSym.Type)).Index
 			valIdx := c.typeSym(typeSym.Type.Elem()).Index
 			c.emit(t, vm.MkMap, keyIdx, valIdx)

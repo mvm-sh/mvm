@@ -433,8 +433,8 @@ func definedOverNativeComposite(t *vm.Type) bool {
 // (type flagVar []string) carrying its own symbolic structure that comp can
 // rebuild from ElemType/KeyType. Deferring it (Rtype nil) instead of keeping the
 // eager parse-time rtype lets the reserve path give a method-bearing one its own
-// identity, so composites capturing it need no swap/cascade. Structs (handled by
-// definedOverNativeComposite or the placeholder path) are intentionally excluded.
+// identity, so composites capturing it need no later patching. Structs (handled
+// by definedOverNativeComposite or the placeholder path) are intentionally excluded.
 func definedSymbolicComposite(t *vm.Type) bool {
 	switch t.Kind() {
 	case reflect.Slice, reflect.Array, reflect.Chan:
@@ -1169,7 +1169,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		}
 		// A struct defined over a NAMED base (type Y X) must stay symbolic too, so
 		// comp reserves Y its own method-bearing identity rather than keeping the
-		// eager rtype (which attach would have to swap). A fresh struct literal
+		// eager rtype (which attach could not fill in place). A fresh struct literal
 		// (Base.Name == "") keeps its eager rtype.
 		definedOverNamedStruct := nt.Kind() == reflect.Struct && nt.Base.Name != ""
 		if definedOverNativeComposite(&nt) || definedSymbolicComposite(&nt) || definedOverNamedStruct {

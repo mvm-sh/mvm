@@ -43,7 +43,7 @@ func TestPointerToOnSynthStruct(t *testing.T) {
 	v := reflect.New(elem)
 	if v.Type() != pt {
 		// reflect.New returns reflect.PointerTo(elem) which used elem.PtrToThis
-		// (set by an earlier AttachPtrMethods) if attached; for our naked elem
+		// (set by an earlier ReservePtrMethods) if reserved; for our naked elem
 		// PtrToThis is 0, so reflect builds its own *T. Our pt is a fresh
 		// synth *T independent of that.
 		// We tolerate the inequality and just verify pt is still usable.

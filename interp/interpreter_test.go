@@ -1547,8 +1547,8 @@ type T struct { Base; Y int }
 t := T{Base{7}, 0}; t.GetX()`, res: "7"},
 
 		// Func-local struct embedding a method-bearing struct: the embedded field
-		// clone must resolve to the canonical Base identity (under MVM_RESERVE the
-		// clone carries the method, so it must not reserve a distinct "Base" rtype).
+		// clone must resolve to the canonical Base identity (the clone carries the
+		// method, so it must not reserve a distinct "Base" rtype).
 		{n: "func_local_embed_method", src: `
 type Base struct { X int }
 func (b Base) GetX() int { return b.X }
@@ -2926,7 +2926,7 @@ func TestMethod(t *testing.T) {
 		// Method expression: value receiver.
 		{n: "mexpr_val", src: `type T struct{n int}; func(t T) Add(a int) int { return t.n + a }; T.Add(T{3}, 4)`, res: "7"},
 		// reflect.Value.NumMethod/Method on an interpreted FUNC-typed value: the
-		// synth rtype must carry the method (runtype.AttachFuncMethods).
+		// synth rtype must carry the method (reserve/fill over a func layout).
 		{n: "reflect_method_on_func_type", src: `import "reflect"; type Fn func() int; func(fn Fn) String() string { return "s" }; func f() int { var v Fn; return reflect.ValueOf(v).NumMethod() }; f()`, res: "1"},
 		// Method expression: pointer receiver.
 		{n: "mexpr_ptr", src: `type T struct{n int}; func(t *T) Get() int { return t.n }; (*T).Get(&T{n: 5})`, res: "5"},

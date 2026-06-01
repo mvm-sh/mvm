@@ -72,11 +72,11 @@ flowchart LR
 Key files: `abi.go` (the `internal/abi` mirror, validated by `abi_test.go`),
 `linkname.go` (`addReflectOff`, `rtypePtr`, `asReflectType`), `name.go`
 (`encodeName`, hand-rolled to avoid linknaming `reflect.newName`), `hash.go`,
-`funcpc.go`, `reserve.go` (Reserve*/Fill + the shared synth containers and
-helpers), `derive.go` (constructors + the `synthesized -> native layout` registry
-that lets derivations nest), `attach.go`/`attach_kinds.go`/`attach_ptr.go` (the
-synth containers + `stampHeader`/`makeUncommon`/`installMethods` helpers reserve
-uses), `interface.go`.
+`funcpc.go`, `reserve.go` (Reserve*/Fill), `derive.go` (constructors + the
+`synthesized -> native layout` registry that lets derivations nest),
+`synth.go`/`synth_kinds.go`/`synth_ptr.go` (the synth rtype containers +
+`stampHeader`/`makeUncommon`/`installMethods` helpers reserve uses),
+`interface.go`.
 
 Uncommon-type offset is per-kind (pointer/slice/chan use a 56-byte
 `PtrType+UncommonType` layout; primitives use 48) and must match the runtime's

@@ -38,7 +38,7 @@ var (
 // Symbolic (Rtype-nil) leaf/aggregate constructors goparser uses post-flip; comp
 // materializes the rtype later (see MaterializeRtype). The derived constructors
 // (SymPtr/SymSlice/SymArray/SymChan/SymMap) live in derive.go: they memoize and
-// register in the derived cache so the post-attach cascade can refresh them.
+// register the derived *Type in the cache, leaving Rtype nil for comp to fill.
 var (
 	SymFunc   = mtype.SymFunc
 	SymStruct = mtype.SymStruct

@@ -15,22 +15,17 @@ import (
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
-// AttachSynthMethods installs t's interpreted methods on a fresh synthesized
-// rtype (via runtype + stdlib/stubs) and replaces t.Rtype.
-// Native code that asserts the new rtype to an interface (fmt.Stringer,
-// error, json.Marshaler, json.Unmarshaler, etc.) then dispatches the
-// method directly, with no bridge proxy.
+// AttachSynthMethods fills t's interpreted methods into the synth rtype that was
+// reserved for t at materialize (via runtype + stdlib/stubs), in place -- t.Rtype
+// and any composite that captured it keep their identity.
+// Native code that asserts the rtype to an interface (fmt.Stringer, error,
+// json.Marshaler, json.Unmarshaler, etc.) then dispatches the method directly,
+// with no bridge proxy.
 //
-// Phase 2d: any combination of shapes S1 (func() string) / S2 (func()
-// ([]byte, error)) / S3 (func([]byte) error) on any supported kind, plus
-// pointer-receiver variants on *T via attachPtrType.
-// Up to synth's per-attach method cap (currently 16); excess methods of
-// the same receiver kind are silently dropped.
-//
-// Re-allocation of existing values is out of scope: global slots populated
-// before this call keep their old rtype.
-// New values allocated via vm.NewValue against t.Rtype after this call see
-// the synth rtype.
+// Handles any combination of the supported method shapes (see detectShape) on any
+// supported kind, plus pointer-receiver variants on *T via attachPtrRecv. Up to
+// synth's per-attach method cap (currently 16); excess methods of the same
+// receiver kind are silently dropped.
 func (m *Machine) AttachSynthMethods(t *Type) error {
 	if t == nil || t.Rtype == nil {
 		return nil
@@ -439,10 +434,9 @@ func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 // For value-recv methods, recv points at boxed T storage; the receiver Value
 // is reflect.NewAt(t.Rtype, recv).Elem().
 //
-// t.Rtype is read lazily inside the closure: the bridge replaces it with the
-// synth rtype after AttachMethods returns, so capturing it at construction
-// time would freeze the pre-synth layout identity and produce mismatched
-// reflect.Value vs ifcType.Rtype at dispatch.
+// t.Rtype is the reserved synth identity (stable: fill installs methods in place,
+// it does not swap), read through the *Type so the receiver Value's type matches
+// ifcType.Rtype at dispatch.
 func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS1 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {

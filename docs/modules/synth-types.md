@@ -140,10 +140,10 @@ it is first materialized:
 - **`comp.propagateEmbeddedMethods`** runs once before body compile (for embedded
   interfaces) and once after (for embedded value methods).
 
-Deferred compile-time slots (`MVM_DEFERSLOTS`) are the one thing settled post
-hoc: `Compiler.FillTypeSlots` (called from `interp/synth.go` after attach) writes
-each deferred `c.Data` slot to its type's now-final `Rtype`. No re-emit or rebuild
-is involved -- the rtype is already correct, the slot just had not been written.
+Deferred compile-time type slots are the one thing settled post hoc:
+`Compiler.FillTypeSlots` (called from `interp/synth.go` after attach) writes each
+deferred `c.Data` slot to its type's now-final `Rtype`. No re-emit or rebuild is
+involved -- the rtype is already correct, the slot just had not been written.
 
 A failure mode to avoid is an illegitimately *shared* `derived` cache across two
 distinct symbolic identities; a defined type is distinct from its underlying, so

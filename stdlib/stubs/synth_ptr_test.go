@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-func TestAttachPtrMethodsStringer(t *testing.T) {
+func TestSynthPtrStringer(t *testing.T) {
 	type layout struct {
 		V int
 	}
@@ -25,7 +25,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatalf("AttachStructMethods (T): %v", err)
+		t.Fatalf("mkSynth (T): %v", err)
 	}
 
 	called := false
@@ -41,7 +41,7 @@ func TestAttachPtrMethodsStringer(t *testing.T) {
 		Handler:  handler,
 	}})
 	if err != nil {
-		t.Fatalf("AttachPtrMethods: %v", err)
+		t.Fatalf("mkSynthPtr: %v", err)
 	}
 
 	if got, want := ptrT.Kind(), reflect.Pointer; got != want {

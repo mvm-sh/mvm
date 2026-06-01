@@ -25,7 +25,7 @@ func TestDerivedFmtStringer(t *testing.T) {
 		}},
 	)
 	if err != nil {
-		t.Fatalf("AttachStructMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	sl := runtype.SliceOf(elem)
 	v := reflect.MakeSlice(sl, 2, 2)

@@ -52,7 +52,7 @@ func stubHandler(called *bool, out string) HandlerS1 {
 	}
 }
 
-func TestAttachPrimitiveMethodsInt(t *testing.T) {
+func TestSynthPrimitiveInt(t *testing.T) {
 	called := false
 	rt, err := mkSynth(reflect.TypeOf(int(0)),
 		"MyInt", "test", []Method{{
@@ -60,7 +60,7 @@ func TestAttachPrimitiveMethodsInt(t *testing.T) {
 			Handler: stubHandler(&called, "myint"),
 		}})
 	if err != nil {
-		t.Fatalf("AttachPrimitiveMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Kind(), reflect.Int; got != want {
 		t.Errorf("Kind = %v, want %v", got, want)
@@ -86,7 +86,7 @@ func TestAttachPrimitiveMethodsInt(t *testing.T) {
 	}
 }
 
-func TestAttachPrimitiveMethodsString(t *testing.T) {
+func TestSynthPrimitiveString(t *testing.T) {
 	called := false
 	rt, err := mkSynth(reflect.TypeOf(""),
 		"MyStr", "test", []Method{{
@@ -94,7 +94,7 @@ func TestAttachPrimitiveMethodsString(t *testing.T) {
 			Handler: stubHandler(&called, "mystr"),
 		}})
 	if err != nil {
-		t.Fatalf("AttachPrimitiveMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if !rt.Implements(stringerT()) {
 		t.Fatal("not Stringer")
@@ -116,7 +116,7 @@ func TestAttachPrimitiveMethodsString(t *testing.T) {
 // reflect.Type.MethodByName (binary search) work correctly.
 // Without sorting, MethodByName misses entries past the binary-search
 // midpoint and Implements returns false for multi-method target ifaces.
-func TestAttachFuncMethods(t *testing.T) {
+func TestSynthFunc(t *testing.T) {
 	called := false
 	layout := reflect.TypeOf(func(int) string { return "" })
 	rt, err := mkSynth(layout, "MyFunc", "test", []Method{{
@@ -124,7 +124,7 @@ func TestAttachFuncMethods(t *testing.T) {
 		Handler: stubHandler(&called, "myfunc"),
 	}})
 	if err != nil {
-		t.Fatalf("AttachFuncMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Kind(), reflect.Func; got != want {
 		t.Errorf("Kind = %v, want %v", got, want)
@@ -164,7 +164,7 @@ func TestInstallMethodsSortedByName(t *testing.T) {
 	rt, err := mkSynth(
 		reflect.TypeOf(int(0)), "Multi", "test", methods)
 	if err != nil {
-		t.Fatalf("AttachPrimitiveMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.NumMethod(), 5; got != want {
 		t.Fatalf("NumMethod = %d, want %d", got, want)
@@ -212,7 +212,7 @@ func TestAcquireSlotsPartialRollback(t *testing.T) {
 	}
 }
 
-func TestAttachSliceMethods(t *testing.T) {
+func TestSynthSlice(t *testing.T) {
 	called := false
 	rt, err := mkSynth(reflect.TypeOf([]int(nil)),
 		"MySlice", "test", []Method{{
@@ -220,7 +220,7 @@ func TestAttachSliceMethods(t *testing.T) {
 			Handler: stubHandler(&called, "myslice"),
 		}})
 	if err != nil {
-		t.Fatalf("AttachSliceMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Kind(), reflect.Slice; got != want {
 		t.Errorf("Kind = %v, want %v", got, want)
@@ -242,7 +242,7 @@ func TestAttachSliceMethods(t *testing.T) {
 	}
 }
 
-func TestAttachArrayMethods(t *testing.T) {
+func TestSynthArray(t *testing.T) {
 	called := false
 	layout := reflect.ArrayOf(4, reflect.TypeOf(int(0)))
 	rt, err := mkSynth(layout, "MyArr", "test", []Method{{
@@ -250,7 +250,7 @@ func TestAttachArrayMethods(t *testing.T) {
 		Handler: stubHandler(&called, "myarr"),
 	}})
 	if err != nil {
-		t.Fatalf("AttachArrayMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Kind(), reflect.Array; got != want {
 		t.Errorf("Kind = %v, want %v", got, want)
@@ -272,7 +272,7 @@ func TestAttachArrayMethods(t *testing.T) {
 	}
 }
 
-func TestAttachMapMethods(t *testing.T) {
+func TestSynthMap(t *testing.T) {
 	called := false
 	layout := reflect.MapOf(reflect.TypeOf(""), reflect.TypeOf(int(0)))
 	rt, err := mkSynth(layout, "MyMap", "test", []Method{{
@@ -280,7 +280,7 @@ func TestAttachMapMethods(t *testing.T) {
 		Handler: stubHandler(&called, "mymap"),
 	}})
 	if err != nil {
-		t.Fatalf("AttachMapMethods: %v", err)
+		t.Fatalf("mkSynth: %v", err)
 	}
 	if got, want := rt.Kind(), reflect.Map; got != want {
 		t.Errorf("Kind = %v, want %v", got, want)

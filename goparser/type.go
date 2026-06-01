@@ -378,7 +378,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			// comp.materializeIfaceMethods after the method pre-pass. Materializing
 			// here would eagerly stamp a referenced named type (e.g. a struct in the
 			// signature) methodless before its method table is populated, so the
-			// reserve gate would miss it and attach would fall back to the swap.
+			// reserve gate would miss it and give it a methodless identity.
 			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType})
 		}
 		// Use any as underlying reflect type; method set is tracked in IfaceMethods.

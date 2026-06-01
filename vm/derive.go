@@ -1,13 +1,7 @@
 package vm
 
 import (
-	"fmt"
-	"os"
-	"path"
 	"reflect"
-	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"unsafe"
 
@@ -66,44 +60,6 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 	}
 	return false
 }
-
-// structMatProbe logs each named-struct materialization (MVM_STRUCTMAT=1) for the
-// reflect-free-struct-generate work: type, *Type identity, caller.
-var structMatProbe = func(*mtype.Type) {}
-
-func init() {
-	if os.Getenv("MVM_STRUCTMAT") == "" {
-		return
-	}
-	structMatProbe = func(t *mtype.Type) {
-		if t.Name == "" || t.Kind() != reflect.Struct {
-			return
-		}
-		var pcs [16]uintptr
-		n := runtime.Callers(2, pcs[:])
-		frames := runtime.CallersFrames(pcs[:n])
-		var caller string
-		for {
-			fr, more := frames.Next()
-			if !strings.Contains(fr.Function, "vm.MaterializeRtype") &&
-				!strings.Contains(fr.Function, "vm.structMatProbe") &&
-				!strings.Contains(fr.Function, "vm.deriv") {
-				caller = fr.Function + " " + path.Base(fr.File) + ":" + itoa(fr.Line)
-				break
-			}
-			if !more {
-				break
-			}
-		}
-		pre := "fresh"
-		if t.Rtype != nil {
-			pre = "preset"
-		}
-		fmt.Fprintf(os.Stderr, "structmat %s.%s id=%p %s <- %s\n", t.PkgPath, t.Name, t, pre, caller)
-	}
-}
-
-func itoa(i int) string { return strconv.Itoa(i) }
 
 func lookupReservation(t *mtype.Type) *synthReservation {
 	derivedMu.Lock()
@@ -190,7 +146,8 @@ func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
 
 // maybeReserveStruct reserves a named struct's identity over a provisional layout
 // (so a *T field cycle resolves to it), materializes fields, then fills the real
-// layout in place -- attach fills methods in place, so no cascade patching.
+// layout in place -- attach fills methods into the same identity, so composites
+// that captured it need no patching.
 // handled=false: methodless (native path); rt=nil: a field is not yet finalized,
 // retry later (reservation kept).
 func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
@@ -312,7 +269,6 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	if t == nil {
 		return nil
 	}
-	structMatProbe(t)
 	if t.Rtype != nil {
 		return t.Rtype
 	}
@@ -321,7 +277,7 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	}
 	// No own structure: materialize from the underlying. A method-bearing
 	// defined-over-basic type (e.g. `type Confidence int` with methods) reserves
-	// over the base layout so attach fills in place; otherwise the swap path runs.
+	// its identity over the base layout so attach fills methods in place.
 	if definedOverBase(t) {
 		if base := MaterializeRtype(t.Base); base != nil {
 			rt := reserveDefinedOverBase(t, base)
@@ -421,9 +377,8 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 		rt = mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
 	default:
 		// Basic kind with no rtype yet: materialize to the canonical native basic
-		// rtype (layout-correct). A named basic gets its method-bearing rtype from
-		// the synth attach + cascade; this is the underlying for composites built
-		// before attach.
+		// rtype (layout-correct). A named basic gets its method-bearing identity
+		// from maybeReserve below, which attach later fills in place.
 		if rt = basicRtype(t.Kind()); rt == nil {
 			return nil // genuinely un-materialized leaf
 		}
@@ -469,9 +424,9 @@ var basicRtypes = map[reflect.Kind]reflect.Type{
 }
 
 // The Sym* derived constructors are goparser's parse-time entry points: they
-// memoize and register the derived *Type in t's derived cache (so the post-attach
-// cascade can refresh it) but leave Rtype nil -- comp materializes it later via
-// MaterializeRtype. They are the lazy counterparts of PointerTo/SliceOf/... .
+// memoize and register the derived *Type in t's derived cache but leave Rtype
+// nil -- comp materializes it later via MaterializeRtype. They are the lazy
+// counterparts of PointerTo/SliceOf/... .
 
 // SymPtr returns the canonical *t, registered in t's derived cache, Rtype nil.
 func SymPtr(t *mtype.Type) *mtype.Type {
