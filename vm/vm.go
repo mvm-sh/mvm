@@ -1749,7 +1749,15 @@ func (m *Machine) Run() (err error) {
 			sp++
 			mem[sp] = NewValue(m.globals[int(c.A)].ref.Type().Elem(), int(c.B))
 		case Field:
-			fv := forceSettable(fieldByAB(reflect.Indirect(mem[sp].ref), int(c.A), int(c.B)))
+			rv := reflect.Indirect(mem[sp].ref)
+			if !rv.IsValid() {
+				// A nil pointer here is a nil-receiver field access like x.v.
+				// Raise a recoverable nil deref, not a raw reflect panic.
+				m.raiseNilDeref()
+				ip = m.stageUnwind(ip, fp, mem)
+				continue
+			}
+			fv := forceSettable(fieldByAB(rv, int(c.A), int(c.B)))
 			if isNum(fv.Kind()) {
 				// Preserve addressable ref for write-through on struct field mutations.
 				mem[sp] = Value{num: numBits(fv), ref: fv}

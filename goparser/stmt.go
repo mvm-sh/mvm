@@ -531,14 +531,20 @@ func (p *Parser) parseExprStmt(in Tokens) (Tokens, error) {
 	if err != nil {
 		return expr, err
 	}
-	// Discard unused return values from expression-statement calls inside function
-	// bodies or loops. At the top level outside loops, leave values for the REPL.
-	if len(expr) > 0 && expr[len(expr)-1].Tok == lang.Call && (p.funcDepth > 0 || p.loopDepth > 0) {
-		out := make(Tokens, 0, len(expr)+2)
-		out = append(out, newToken(lang.PopExpr, "", in[0].Pos, 0)) // mark start
-		out = append(out, expr...)
-		out = append(out, newToken(lang.PopExpr, "", in[0].Pos, 1)) // pop excess
-		return out, nil
+	// Discard unused values from expression statements inside function bodies or loops.
+	// At the top level outside loops, leave values for the REPL.
+	if len(expr) > 0 && (p.funcDepth > 0 || p.loopDepth > 0) {
+		switch expr[len(expr)-1].Tok {
+		case lang.Call:
+			out := make(Tokens, 0, len(expr)+2)
+			out = append(out, newToken(lang.PopExpr, "", in[0].Pos, 0)) // mark start
+			out = append(out, expr...)
+			out = append(out, newToken(lang.PopExpr, "", in[0].Pos, 1)) // pop excess
+			return out, nil
+		case lang.Arrow:
+			// Bare receive statement (<-ch): drop the discarded received value.
+			return append(expr, newDrop(in[0].Pos)), nil
+		}
 	}
 	return expr, nil
 }

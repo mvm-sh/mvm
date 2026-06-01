@@ -104,8 +104,9 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 		case lang.Mul:
 			if isUnaryCtx(i) {
 				if i+1 < lin && in[i+1].Tok == lang.Ident {
-					// Known non-type identifier after * is a dereference.
-					if s, _, ok := p.symGet(in[i+1].Str); ok && s.Kind != symbol.Type && s.Kind != symbol.Pkg {
+					// A known non-type, non-generic identifier after * is a dereference.
+					// A generic type is kind Generic, so *Box[int] stays a pointer type for parseTypeExpr.
+					if s, _, ok := p.symGet(in[i+1].Str); ok && s.Kind != symbol.Type && s.Kind != symbol.Pkg && s.Kind != symbol.Generic {
 						t.Tok = lang.Deref
 						addop(t)
 						break

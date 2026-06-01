@@ -100,7 +100,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		}
 		// Generic method: receiver has type params (e.g. Box[T]).
 		if baseName, ok := recvGenericBaseName(recvr); ok {
-			gs, _, gok := p.Symbols.Get(baseName, p.scope)
+			gs, _, gok := p.symGet(baseName) // symGet, not Symbols.Get: resolves the importingPkg-qualified key for a shim/imported generic type
 			if gok && gs.Kind == symbol.Generic {
 				tmpl := gs.Data.(*genericTemplate)
 				ptrRecv := false

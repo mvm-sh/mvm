@@ -574,6 +574,11 @@ func (p *Parser) ensureTypeInstantiated(tmpl *genericTemplate, bt scan.Token) (s
 	if instToks != nil {
 		savedScope := p.scope
 		p.scope = ""
+		// Resolve the body's package-qualified field types (e.g. unsafe.Pointer) against the template's owning package.
+		// The func-body path gets this via its deferred-decl PkgPath tag.
+		savedCompiling := p.CompilingPkg
+		p.CompilingPkg = tmpl.pkgPath
+		defer func() { p.CompilingPkg = savedCompiling }()
 		restore := p.bindTypeParams(tmpl.typeParams, typeArgs)
 		defer restore()
 		p.instDepth++
