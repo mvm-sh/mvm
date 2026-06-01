@@ -30,7 +30,7 @@ func (m *Machine) AttachSynthMethods(t *Type) error {
 	if t == nil || t.Rtype == nil {
 		return nil
 	}
-	if !synthSupportedKind(t.Rtype.Kind()) {
+	if !runtype.SupportedKind(t.Rtype.Kind()) {
 		return nil
 	}
 	// An unnamed type carries only promoted methods (Go forbids methods on an
@@ -128,22 +128,6 @@ func isExportedName(name string) bool {
 	}
 	r, _ := utf8.DecodeRuneInString(name)
 	return unicode.IsUpper(r)
-}
-
-func synthSupportedKind(k reflect.Kind) bool {
-	switch k {
-	case reflect.Struct,
-		reflect.Bool,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32, reflect.Float64,
-		reflect.Complex64, reflect.Complex128,
-		reflect.String,
-		reflect.Slice, reflect.Array, reflect.Map, reflect.Func:
-		return true
-	}
-	return false
 }
 
 // qualifiedTypeName returns the Str-form name stamped into the synth rtype:

@@ -79,6 +79,18 @@ func isPrimitiveKind(k reflect.Kind) bool {
 	return false
 }
 
+// SupportedKind reports whether a layout of kind k can be given a reserved
+// method-bearing identity -- the single source of truth for the reservable-kind
+// catalog, matching ReserveMethods' dispatch (a named primitive, struct, slice,
+// array, map, or func).
+func SupportedKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map, reflect.Func:
+		return true
+	}
+	return isPrimitiveKind(k)
+}
+
 var (
 	errFuncTooManyIO = errors.New("runtype: reserveFunc: too many in/out params")
 	errNoMethods     = errors.New("runtype: methods slice is empty")

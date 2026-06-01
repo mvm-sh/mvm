@@ -89,7 +89,7 @@ func isFieldClone(t *mtype.Type) bool {
 // unchanged when t is not reservable.
 func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	if layoutRT == nil || t.Name == "" ||
-		layoutRT.Kind() == reflect.Struct || !synthSupportedKind(layoutRT.Kind()) {
+		layoutRT.Kind() == reflect.Struct || !runtype.SupportedKind(layoutRT.Kind()) {
 		return layoutRT
 	}
 	if lookupReservation(t) != nil {
