@@ -30,10 +30,10 @@ func TestGoroutineFaultRecordFirstWins(t *testing.T) {
 	}
 }
 
-// TestWatchFaultGating checks channel waits only become fault-abortable once a
-// goroutine has spawned and the policy propagates.
+// TestWatchFaultGating checks channel waits become fault-abortable only on the
+// root machine, once a goroutine has spawned and the policy propagates.
 func TestWatchFaultGating(t *testing.T) {
-	m := &Machine{}
+	m := &Machine{isRoot: true}
 	if m.watchFault() {
 		t.Fatal("no sink: want false")
 	}
@@ -43,10 +43,19 @@ func TestWatchFaultGating(t *testing.T) {
 	}
 	m.fault.spawned.Store(true)
 	if !m.watchFault() {
-		t.Fatal("spawned + propagate: want true")
+		t.Fatal("root + spawned + propagate: want true")
 	}
 	m.fault.cont = true
 	if m.watchFault() {
 		t.Fatal("continue policy: want false")
+	}
+
+	// A non-root worker/runner shares the sink but never aborts -- the root's
+	// exit tears it down instead.
+	w := &Machine{fault: m.fault}
+	w.fault.cont = false
+	w.fault.spawned.Store(true)
+	if w.watchFault() {
+		t.Fatal("non-root machine: want false")
 	}
 }

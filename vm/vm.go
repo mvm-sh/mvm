@@ -396,6 +396,7 @@ type Machine struct {
 
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
 	faultContinue bool            // policy seed copied into fault when it is created
+	isRoot        bool            // the top-level machine; only it aborts channel waits on a fault
 
 	in       io.Reader // machine standard input (nil = os.Stdin)
 	out, err io.Writer // machine standard output and error

@@ -40,6 +40,7 @@ func newGoroutineFault(out io.Writer, cont bool) *goroutineFault {
 // EnableGoroutineFaults arms goroutine-panic capture on the root machine before
 // it runs, so runner machines and goroutine children share the sink. Idempotent.
 func (m *Machine) EnableGoroutineFaults() {
+	m.isRoot = true
 	if m.fault == nil {
 		m.fault = newGoroutineFault(m.err, m.faultContinue)
 	}
@@ -125,8 +126,11 @@ func (m *Machine) chanSend(ch, v reflect.Value) {
 	}
 }
 
-// watchFault reports whether channel waits should be fault-abortable: a goroutine
-// has spawned and the policy propagates faults.
+// watchFault reports whether this machine's channel waits should be
+// fault-abortable: only the root (main) machine, once a goroutine has spawned and
+// the policy propagates. The root wakes on any recorded fault and exits, which
+// tears down any worker still blocked on a plain channel op -- so workers need not
+// pay the reflect.Select cost.
 func (m *Machine) watchFault() bool {
-	return m.fault != nil && !m.fault.cont && m.fault.spawned.Load()
+	return m.isRoot && m.fault != nil && !m.fault.cont && m.fault.spawned.Load()
 }
