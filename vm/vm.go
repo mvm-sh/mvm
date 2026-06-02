@@ -2,6 +2,7 @@
 package vm
 
 import (
+	"errors"
 	"fmt" // for tracing only
 	"io"
 	"iter"
@@ -1999,9 +2000,23 @@ func (m *Machine) Run() (err error) {
 			meta := m.globals[int(c.A)].ref.Interface().(*SelectMeta)
 			ncase := int(c.B)
 			base := sp - meta.TotalPop + 1
-			cases := make([]reflect.SelectCase, ncase)
-			idx := base
+			// A blocking select (no default) can deadlock if a sender/receiver
+			// goroutine died; reserve a trailing slot to watch the fault and abort.
 			hasDefault := false
+			for _, ci := range meta.Cases {
+				if ci.Dir == reflect.SelectDefault {
+					hasDefault = true
+					break
+				}
+			}
+			abortIdx := -1
+			n := ncase
+			if !hasDefault && m.watchFault() {
+				abortIdx = ncase
+				n++
+			}
+			cases := make([]reflect.SelectCase, n)
+			idx := base
 			for i, ci := range meta.Cases {
 				switch ci.Dir {
 				case reflect.SelectRecv:
@@ -2013,15 +2028,10 @@ func (m *Machine) Run() (err error) {
 					idx += 2
 				case reflect.SelectDefault:
 					cases[i] = reflect.SelectCase{Dir: reflect.SelectDefault}
-					hasDefault = true
 				}
 			}
-			// A blocking select (no default) can deadlock if a sender/receiver
-			// goroutine died; watch the fault so it aborts instead.
-			abortIdx := -1
-			if !hasDefault && m.watchFault() {
-				abortIdx = len(cases)
-				cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.fault.abort)})
+			if abortIdx >= 0 {
+				cases[abortIdx] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.fault.abort)}
 			}
 			chosen, recv, recvOK := reflect.Select(cases)
 			if chosen == abortIdx {
@@ -3749,7 +3759,7 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		}
 		// A goroutine-fault abort is not a recoverable program panic; re-panic so
 		// it reaches Run's recoverPanic instead of becoming catchable here.
-		if r == ErrGoroutineFault {
+		if e, ok := r.(error); ok && errors.Is(e, ErrGoroutineFault) {
 			panic(r)
 		}
 		// Genuine native panic (runtime.Error, a plain error value, or a value

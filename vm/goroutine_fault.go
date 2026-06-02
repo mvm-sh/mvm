@@ -55,7 +55,7 @@ func (g *goroutineFault) record(err error) {
 		return
 	}
 	g.err = err
-	fmt.Fprintf(g.out, "panic in goroutine: %v\n", err)
+	_, _ = fmt.Fprintf(g.out, "panic in goroutine: %v\n", err)
 	close(g.abort)
 }
 
