@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
@@ -188,6 +189,7 @@ type synthMethodSpec struct {
 	name    string
 	method  Method
 	shape   stubs.Shape
+	wordKey string // non-empty => word-class path (shape ignored)
 	ptrRecv bool
 }
 
@@ -200,6 +202,16 @@ func toSynthMethods(
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
+		if s.wordKey != "" {
+			out[i] = stubs.Method{
+				Name:     s.name,
+				Exported: true,
+				Sig:      s.method.Rtype,
+				WordKey:  s.wordKey,
+				Core:     m.makeWordCore(t, s.method, s.name, s.ptrRecv),
+			}
+			continue
+		}
 		var handler any
 		switch s.shape {
 		case stubs.ShapeS1:
@@ -244,6 +256,8 @@ func toSynthMethods(
 			handler = makeHandlerS20(m, t, s.method, s.name, s.ptrRecv)
 		case stubs.ShapeS21:
 			handler = makeHandlerS21(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS22:
+			handler = makeHandlerS22(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -282,16 +296,22 @@ func (m *Machine) allSynthMethods(
 		if method.PtrRecv && !includePtr {
 			continue
 		}
-		shape, ok := detectShape(method.Rtype)
-		if !ok {
-			continue
-		}
-		specs = append(specs, synthMethodSpec{
+		spec := synthMethodSpec{
 			name:    m.MethodNames[i],
 			method:  method,
-			shape:   shape,
 			ptrRecv: method.PtrRecv,
-		})
+		}
+		// Prefer a typed shape (faster, special error semantics); fall back to the
+		// word-class path for any signature whose ABI words map to a generated
+		// pool. A method matching neither is dropped (same as before this fallback).
+		if shape, ok := detectShape(method.Rtype); ok {
+			spec.shape = shape
+		} else if key, ok := detectWordShape(method.Rtype); ok {
+			spec.wordKey = key
+		} else {
+			continue
+		}
+		specs = append(specs, spec)
 		if len(specs) == synthMaxMethods {
 			break
 		}
@@ -333,6 +353,8 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 		return stubs.ShapeS8, true
 	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Bool:
 		return stubs.ShapeS21, true
+	case nin == 0 && nout == 1 && sig.Out(0) == timeTimeType:
+		return stubs.ShapeS22, true
 	case nin == 0 && nout == 1 && isAnyType(sig.Out(0)):
 		return stubs.ShapeS12, true
 	case nin == 0 && nout == 2 &&
@@ -400,6 +422,7 @@ var (
 	xmlEncoderPtr     = reflect.TypeOf((*xml.Encoder)(nil))
 	xmlDecoderPtr     = reflect.TypeOf((*xml.Decoder)(nil))
 	xmlStartElem      = reflect.TypeOf(xml.StartElement{})
+	timeTimeType      = reflect.TypeOf(time.Time{})
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
@@ -761,6 +784,24 @@ func makeHandlerS21(m *Machine, t *Type, method Method, name string, ptrRecv boo
 			return false
 		}
 		return out[0].Bool()
+	}
+}
+
+// makeHandlerS22 bridges shape S22: (T).ModTime() time.Time.
+// Returns the concrete time.Time so the compiler emits its struct ABI.
+func makeHandlerS22(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS22 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) time.Time {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
+		if err != nil {
+			raiseMethodErr(err)
+		}
+		if len(out) != 1 {
+			return time.Time{}
+		}
+		tt, _ := Exportable(out[0]).Interface().(time.Time)
+		return tt
 	}
 }
 

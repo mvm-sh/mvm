@@ -98,6 +98,12 @@ const (
 	// ShapeS21 is func() bool.
 	// Covers flag.boolFlag.IsBoolFlag.
 	ShapeS21 Shape = 20
+
+	// ShapeS22 is func() time.Time.
+	// Covers fs.FileInfo.ModTime; a typed shape (returns the concrete struct so
+	// the compiler emits its ABI) until the word-class path flattens word-sized
+	// structs.
+	ShapeS22 Shape = 21
 )
 
 // Method describes one method to install on a synthesized type.
@@ -110,6 +116,12 @@ type Method struct {
 	Sig      reflect.Type
 	Shape    Shape
 	Handler  any
+
+	// WordKey, when non-empty, selects the word-class path: the slot comes from
+	// the generated word-shape pool named WordKey and Core (not Handler/Shape)
+	// does the marshaling.
+	WordKey string
+	Core    CoreFunc
 }
 
 var errInvalidHandlerType = errors.New("stubs: handler type does not match shape")
@@ -122,6 +134,9 @@ var errInvalidHandlerType = errors.New("stubs: handler type does not match shape
 // monotonic with no safe decrement under concurrent acquires.
 // Release is best-effort memory hygiene, not pool reclamation.
 func acquireSlot(m Method) (pc uintptr, release func(), err error) {
+	if m.WordKey != "" {
+		return acquireWordSlot(m.WordKey, m.Core)
+	}
 	switch m.Shape {
 	case ShapeS1:
 		h, ok := m.Handler.(HandlerS1)
@@ -249,6 +264,12 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS21(h)
+	case ShapeS22:
+		h, ok := m.Handler.(HandlerS22)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS22(h)
 	}
 	return 0, nil, fmt.Errorf("stubs: unknown shape %d", m.Shape)
 }
