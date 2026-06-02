@@ -29,3 +29,23 @@ func TestCoerceInterfaceArgsReadOnly(t *testing.T) {
 		t.Fatalf("arg value/type changed: got %v", in[0].Type())
 	}
 }
+
+// TestExportableReadOnlyFunc checks a read-only func value (from an unexported
+// field) is made callable, as the native-defer and go-native paths now require.
+func TestExportableReadOnlyFunc(t *testing.T) {
+	called := false
+	type holder struct{ fn func() }
+	ro := reflect.ValueOf(holder{fn: func() { called = true }}).Field(0)
+	if ro.CanInterface() {
+		t.Fatal("setup: func field should be read-only")
+	}
+
+	fn := Exportable(ro)
+	if !fn.CanInterface() {
+		t.Fatal("read-only func value not made exportable")
+	}
+	fn.Call(nil) // would panic if still read-only
+	if !called {
+		t.Fatal("exported func value did not run")
+	}
+}

@@ -159,9 +159,16 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 	if traceOp {
 		i.SetTraceOps(true)
 	}
+	i.EnableGoroutineFaults()
 	tRun := time.Now()
 	err = i.Run()
 	i.Stats.RunTime += time.Since(tRun)
+	// An unrecovered goroutine panic surfaces either as the channel-abort sentinel
+	// (main was blocked) or as a pending fault (main finished first). record()
+	// already logged it; exit non-zero like Go, which crashes on such a panic.
+	if errors.Is(err, vm.ErrGoroutineFault) || (err == nil && i.PendingGoroutineFault() != nil) {
+		err = &ExitError{Code: 2}
+	}
 	return i.Top().Reflect(), err
 }
 
