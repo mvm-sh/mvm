@@ -4380,6 +4380,12 @@ func paramTypeFor(funcType reflect.Type, i int) reflect.Type {
 // the function's expected parameter type.
 func coerceInterfaceArgs(in []reflect.Value, funcType reflect.Type) {
 	for i, rv := range in {
+		// Export a read-only arg (from an unexported field) so reflect.Value.Call
+		// can pack it into a native parameter instead of panicking.
+		if rv.IsValid() && !rv.CanInterface() {
+			rv = Exportable(rv)
+			in[i] = rv
+		}
 		paramType := paramTypeFor(funcType, i)
 		if paramType == nil {
 			continue

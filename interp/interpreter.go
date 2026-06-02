@@ -198,6 +198,9 @@ func (i *Interp) installExitVirtualization() {
 	}
 }
 
+// WordShapeDropReport forwards vm.WordShapeDropReport (MVM_WORDDROPS; see ADR-022).
+func WordShapeDropReport() string { return vm.WordShapeDropReport() }
+
 // FormatStats returns a multi-line summary of an Interp's accumulated work for the -stat CLI flag.
 func FormatStats(i *Interp) string {
 	totalLines, srcFiles := 0, 0

@@ -133,3 +133,7 @@ after editing the shape catalog in `gen_pools.go`.
 - The word path drops floats, complex, arrays, sub-word-packed structs, and
   signatures over six words per side, and is disabled on non-64-bit or big-endian
   targets (float `f`-class words are a deferred extension).
+- The word-shape catalog is hand-curated (full enumeration would explode), so
+  growing it is guided by telemetry: run with `MVM_WORDDROPS=1` and the process
+  reports, at exit, every signature `detectWordShape` dropped -- a "missing pools"
+  list of word-shapes to add, plus an "unsupported" list (floats / over budget).

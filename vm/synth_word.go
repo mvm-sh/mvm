@@ -118,6 +118,7 @@ func detectWordShape(sig reflect.Type) (key string, ok bool) {
 	for i := range sig.NumIn() {
 		c, ok := classifyType(sig.In(i))
 		if !ok {
+			recordWordDrop(&wordDropUnsup, "unclassifiable param/result", sig)
 			return "", false
 		}
 		params = append(params, c...)
@@ -125,15 +126,18 @@ func detectWordShape(sig reflect.Type) (key string, ok bool) {
 	for j := range sig.NumOut() {
 		c, ok := classifyType(sig.Out(j))
 		if !ok {
+			recordWordDrop(&wordDropUnsup, "unclassifiable param/result", sig)
 			return "", false
 		}
 		results = append(results, c...)
 	}
 	if len(params) > maxWordIO || len(results) > maxWordIO {
+		recordWordDrop(&wordDropUnsup, "over word budget", sig)
 		return "", false
 	}
 	key = string(params) + "_" + string(results)
 	if !stubs.HasWordShape(key) {
+		recordWordDrop(&wordDropPools, key, sig)
 		return "", false
 	}
 	return key, true
