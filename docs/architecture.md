@@ -172,6 +172,10 @@ See [vm](modules/vm.md#call-frame) for details.
     This replaced the per-call interface-bridge + argument-proxy mechanism and
     the mvm-native stdlib shadows. See
     [ADR-021](decisions/ADR-021-synthesized-rtypes.md).
+    Beyond the hand-written per-signature shapes, *word-class* shapes key on a
+    method's ABI register words so one generic stub serves many signatures (e.g.
+    the `io/fs` interface cluster). See
+    [ADR-022](decisions/ADR-022-word-class-dispatch.md).
 
 ## Closure and interface dispatch
 
