@@ -11,7 +11,14 @@ on:
 jobs:
 
   build:
-    runs-on: ubuntu-latest
+    # Run on both amd64 and arm64: the synth word-class dispatch
+    # (vm/synth_word.go) marshals method args/results through register words, an
+    # ABI-sensitive path that must be verified on each supported architecture.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
     - uses: actions/checkout@v6
 
