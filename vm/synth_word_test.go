@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -27,10 +28,22 @@ func TestClassifyType(t *testing.T) {
 		{reflect.TypeOf([]int(nil)), "pii", true},
 		{reflect.TypeOf((*any)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf((*error)(nil)).Elem(), "pp", true},
-		{reflect.TypeOf(float64(0)), "", false},           // stage 1 drops floats
-		{reflect.TypeOf(complex128(0)), "", false},        // and complex
-		{reflect.TypeOf(struct{ a, b int }{}), "", false}, // and structs
-		{reflect.TypeOf([2]int{}), "", false},             // and arrays
+		{reflect.TypeOf(float64(0)), "", false},    // floats dropped
+		{reflect.TypeOf(complex128(0)), "", false}, // and complex
+		{reflect.TypeOf([2]int{}), "", false},      // and arrays
+		// word-sized-leaf structs flatten to their leaves' words.
+		{reflect.TypeOf(struct{ a, b int }{}), "ii", true},
+		{reflect.TypeOf(struct {
+			s string
+			n int
+		}{}), "pii", true},
+		{reflect.TypeOf(time.Time{}), "iip", true}, // {wall uint64; ext int64; loc *Location}
+		// a sub-word leaf breaks word-striding -> dropped.
+		{reflect.TypeOf(struct{ a, b uint32 }{}), "", false},
+		{reflect.TypeOf(struct {
+			a bool
+			b *int
+		}{}), "", false},
 	}
 	for _, tc := range cases {
 		c, ok := classifyType(tc.rt)
@@ -50,10 +63,11 @@ func TestDetectWordShape(t *testing.T) {
 		{reflect.TypeOf((func() any)(nil)), "_pp", true},
 		{reflect.TypeOf((func(string) (any, error))(nil)), "pi_pppp", true},
 		{reflect.TypeOf((func(string) ([]int, error))(nil)), "pi_piipp", true},
+		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true}, // word-sized-leaf struct result
 		// no generated pool for this word-shape -> drop (not error).
 		{reflect.TypeOf((func() (int, int))(nil)), "", false},
-		// a struct result is unclassifiable -> drop.
-		{reflect.TypeOf((func() struct{ a int })(nil)), "", false},
+		// a struct with a sub-word leaf is unclassifiable -> drop.
+		{reflect.TypeOf((func() struct{ a, b uint32 })(nil)), "", false},
 		// over the register-word budget -> drop.
 		{reflect.TypeOf((func(*int, *int, *int, *int, *int, *int, *int))(nil)), "", false},
 		{nil, "", false},
@@ -82,6 +96,7 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		&n,
 		reflect.TypeOf(0), // a non-nil interface value
 		errors.New("boom"),
+		time.Date(2026, 6, 2, 10, 30, 0, 0, time.UTC), // word-sized-leaf struct
 	}
 	for _, v := range values {
 		rt := reflect.TypeOf(v)

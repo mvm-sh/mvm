@@ -2,12 +2,13 @@ package vm
 
 import (
 	"reflect"
+	"strings"
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
-// Word-class synth dispatch (stage 1, non-struct).
+// Word-class synth dispatch.
 //
 // A synth method-table stub must have a real text-segment PC whose ABI exactly
 // matches the method signature. The ABI is set by the register-word
@@ -18,15 +19,20 @@ import (
 // one generic dispatcher per word-shape; makeWordCore supplies the per-method
 // marshaling the dispatcher calls back into.
 //
-// Stage 1 deliberately drops structs, arrays, and floats (classifyType returns
-// !ok), so detectWordShape falls through to "drop" -- identical to the
-// pre-fallback behavior, never a misclassification. Stage 2 widens classifyType
-// to word-sized-leaf structs and floats.
+// classifyType drops floats and arrays (returns !ok), so detectWordShape falls
+// through to "drop" -- identical to the typed-shape behavior, never a
+// misclassification. Structs are flattened when every leaf is exactly one
+// register word (classifyStruct); a sub-word or float field drops the type.
+//
+// The path requires a 64-bit little-endian target (see wordShapesSupported); on
+// any other arch detectWordShape drops everything and only the typed shapes
+// (arch-independent) attach, so dispatch is always correct, just less capable.
 
 // classifyType returns t's ABI register words as a string over {p, i}, or
-// ok=false for a type stage 1 cannot prove register-safe (struct, array, float,
-// complex). Every classifiable type has 8-byte-strided words: a sub-word scalar
-// is a single i word; string is (p,i); slice is (p,i,i); interface is (p,p).
+// ok=false for a type that is not register-safe (float, complex, array, or a
+// struct with a sub-word/float leaf). Every classifiable type has 8-byte-strided
+// words: a top-level sub-word scalar is a single i word; string is (p,i); slice
+// is (p,i,i); interface is (p,p); a struct is its leaves flattened.
 func classifyType(t reflect.Type) (classes string, ok bool) {
 	switch t.Kind() {
 	case reflect.Bool,
@@ -42,8 +48,40 @@ func classifyType(t reflect.Type) (classes string, ok bool) {
 		return "pii", true
 	case reflect.Interface:
 		return "pp", true
+	case reflect.Struct:
+		return classifyStruct(t)
 	}
 	return "", false
+}
+
+// classifyStruct flattens a struct to its register words, accepting it only when
+// every field starts on a word boundary and occupies a whole number of register
+// words (so each leaf scalar is exactly one word). Under that condition the
+// register-word sequence equals the memory layout, which is what lets
+// writeWords/readWords reconstruct the value from words at k*wordSize. A sub-word
+// leaf (e.g. struct{a, b uint32}), a float field, an array, or trailing padding
+// fails the invariant and drops the type (= today's behavior, no regression).
+//
+// Example: time.Time{wall uint64; ext int64; loc *Location} -> "iip".
+func classifyStruct(t reflect.Type) (string, bool) {
+	var b strings.Builder
+	expect := uintptr(0)
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.Offset != expect {
+			return "", false // padding or sub-word packing
+		}
+		c, ok := classifyType(f.Type)
+		if !ok || uintptr(len(c))*wordSize != f.Type.Size() {
+			return "", false // unclassifiable, or a sub-word leaf (size < its words)
+		}
+		b.WriteString(c)
+		expect += uintptr(len(c)) * wordSize
+	}
+	if expect != t.Size() {
+		return "", false // trailing padding
+	}
+	return b.String(), true
 }
 
 // maxWordIO caps the register words on each side (params, results) of a
@@ -53,11 +91,27 @@ func classifyType(t reflect.Type) (classes string, ok bool) {
 // mis-marshaled.
 const maxWordIO = 6
 
+// wordShapesSupported gates the whole word-class path to a 64-bit little-endian
+// target: the classifier treats each scalar/pointer as one 8-byte register word
+// (wrong for multi-register int64/uint64 on 32-bit) and writeIntWord/readIntWord
+// pack bytes low-first (wrong on big-endian). The 8-byte check is a compile-time
+// constant, the endian check a one-time init probe, so this is true on amd64,
+// arm64, riscv64, ppc64le, etc. and false elsewhere. When false, detectWordShape
+// drops every method to the word path -- identical to the pre-word-class
+// behavior (the typed shapes S1-S21 stay arch-independent and keep working).
+var wordShapesSupported = unsafe.Sizeof(uintptr(0)) == 8 && nativeIsLittleEndian()
+
+func nativeIsLittleEndian() bool {
+	x := uint16(1)
+	return *(*byte)(unsafe.Pointer(&x)) == 1
+}
+
 // detectWordShape classifies sig into its word-shape key ("params_results"), or
-// ok=false if any param/result is unclassifiable, the words exceed maxWordIO, or
-// no generated pool exists for the key (so an attach never errors on it).
+// ok=false if the target is not 64-bit little-endian, any param/result is
+// unclassifiable, the words exceed maxWordIO, or no generated pool exists for the
+// key (so an attach never errors on it).
 func detectWordShape(sig reflect.Type) (key string, ok bool) {
-	if sig == nil || sig.Kind() != reflect.Func {
+	if !wordShapesSupported || sig == nil || sig.Kind() != reflect.Func {
 		return "", false
 	}
 	var params, results []byte

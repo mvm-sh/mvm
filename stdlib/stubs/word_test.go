@@ -76,3 +76,46 @@ func TestWordShapeStringParamIfaceResult(t *testing.T) {
 		t.Errorf("Open(\"hello\") = %v (%T), want \"got:hello\"", got, got)
 	}
 }
+
+// triple is a word-sized-leaf struct (like time.Time): three 8-byte fields, the
+// last a pointer. It flattens to word-shape "_iip".
+type triple struct {
+	a uint64
+	b int64
+	c *int
+}
+
+type tripler interface{ M() triple }
+
+// TestWordShapeStructResult routes a word-sized-leaf struct out through the
+// "_iip" result words (two integers + a pointer), then GCs to confirm the
+// pointer field travelled in a scanned slot.
+func TestWordShapeStructResult(t *testing.T) {
+	target := 99
+	want := triple{a: 0xAABBCCDD, b: -42, c: &target}
+	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, rpw []unsafe.Pointer, rsw []uint64) {
+		rsw[0] = want.a
+		rsw[1] = uint64(want.b)
+		rpw[0] = unsafe.Pointer(want.c)
+	}
+	rt, err := mkSynth(reflect.TypeOf(int(0)), "TripT", "test", []Method{{
+		Name: "M", Exported: true,
+		Sig:     reflect.TypeOf((func() triple)(nil)),
+		WordKey: "_iip", Core: core,
+	}})
+	if err != nil {
+		t.Fatalf("mkSynth: %v", err)
+	}
+	tr, ok := reflect.New(rt).Elem().Interface().(tripler)
+	if !ok {
+		t.Fatal("synth type does not satisfy tripler")
+	}
+	got := tr.M()
+	for range 4 {
+		_ = make([]byte, 1<<16)
+	}
+	runtime.GC()
+	if got.a != want.a || got.b != want.b || got.c == nil || *got.c != target {
+		t.Errorf("M() = %+v (*c=%v), want a=%#x b=%d *c=%d", got, got.c, want.a, want.b, target)
+	}
+}

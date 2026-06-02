@@ -98,12 +98,6 @@ const (
 	// ShapeS21 is func() bool.
 	// Covers flag.boolFlag.IsBoolFlag.
 	ShapeS21 Shape = 20
-
-	// ShapeS22 is func() time.Time.
-	// Covers fs.FileInfo.ModTime; a typed shape (returns the concrete struct so
-	// the compiler emits its ABI) until the word-class path flattens word-sized
-	// structs.
-	ShapeS22 Shape = 21
 )
 
 // Method describes one method to install on a synthesized type.
@@ -264,12 +258,6 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS21(h)
-	case ShapeS22:
-		h, ok := m.Handler.(HandlerS22)
-		if !ok {
-			return 0, nil, errInvalidHandlerType
-		}
-		return acquireSlotS22(h)
 	}
 	return 0, nil, fmt.Errorf("stubs: unknown shape %d", m.Shape)
 }

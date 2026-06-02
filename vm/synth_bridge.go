@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
@@ -256,8 +255,6 @@ func toSynthMethods(
 			handler = makeHandlerS20(m, t, s.method, s.name, s.ptrRecv)
 		case stubs.ShapeS21:
 			handler = makeHandlerS21(m, t, s.method, s.name, s.ptrRecv)
-		case stubs.ShapeS22:
-			handler = makeHandlerS22(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -353,8 +350,6 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 		return stubs.ShapeS8, true
 	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Bool:
 		return stubs.ShapeS21, true
-	case nin == 0 && nout == 1 && sig.Out(0) == timeTimeType:
-		return stubs.ShapeS22, true
 	case nin == 0 && nout == 1 && isAnyType(sig.Out(0)):
 		return stubs.ShapeS12, true
 	case nin == 0 && nout == 2 &&
@@ -422,7 +417,6 @@ var (
 	xmlEncoderPtr     = reflect.TypeOf((*xml.Encoder)(nil))
 	xmlDecoderPtr     = reflect.TypeOf((*xml.Decoder)(nil))
 	xmlStartElem      = reflect.TypeOf(xml.StartElement{})
-	timeTimeType      = reflect.TypeOf(time.Time{})
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
@@ -784,24 +778,6 @@ func makeHandlerS21(m *Machine, t *Type, method Method, name string, ptrRecv boo
 			return false
 		}
 		return out[0].Bool()
-	}
-}
-
-// makeHandlerS22 bridges shape S22: (T).ModTime() time.Time.
-// Returns the concrete time.Time so the compiler emits its struct ABI.
-func makeHandlerS22(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS22 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer) time.Time {
-		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
-		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
-		if err != nil {
-			raiseMethodErr(err)
-		}
-		if len(out) != 1 {
-			return time.Time{}
-		}
-		tt, _ := Exportable(out[0]).Interface().(time.Time)
-		return tt
 	}
 }
 

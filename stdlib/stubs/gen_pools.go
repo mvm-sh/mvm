@@ -69,9 +69,6 @@ var shapes = []shape{
 	{ID: "S19", Params: ", st fmt.ScanState, verb rune", ArgList: ", st, verb", Results: "error", Imports: []string{"fmt"}},
 	{ID: "S20", Params: ", value string", ArgList: ", value", Results: "error"}, // flag.Value.Set
 	{ID: "S21", Results: "bool"}, // flag.boolFlag.IsBoolFlag
-	// fs.FileInfo.ModTime; a typed shape (returns the concrete struct so the
-	// compiler emits its ABI) until the word-class path flattens word-sized structs.
-	{ID: "S22", Results: "time.Time", Imports: []string{"time"}},
 }
 
 // wordShapes are the ABI word-class shapes (see word.go): each method param and
@@ -87,6 +84,7 @@ var shapes = []shape{
 //	"pi_pppp"  func(string) (iface, iface)           fs.FS.Open (File, error)
 //	"pi_piipp" func(string) (slice, iface)           fs.ReadDirFS.ReadDir, GlobFS.Glob, ReadFileFS.ReadFile
 //	"i_piipp"  func(int) (slice, iface)              fs.ReadDirFile.ReadDir ([]DirEntry, error)
+//	"_iip"     func() <word-sized-leaf struct>       fs.FileInfo.ModTime (time.Time = {uint64,int64,*Location})
 var wordShapes = []wordShape{
 	{Params: "", Results: "i"},
 	{Params: "", Results: "pp"},
@@ -94,6 +92,7 @@ var wordShapes = []wordShape{
 	{Params: "pi", Results: "pppp"},
 	{Params: "pi", Results: "piipp"},
 	{Params: "i", Results: "piipp"},
+	{Params: "", Results: "iip"},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
