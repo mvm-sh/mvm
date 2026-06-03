@@ -44,9 +44,10 @@ const schemaVersion = 1
 
 // extraStdlib lists packages that are part of mvm's stdlib coverage but are not
 // emitted as "-stdlib" directives in stdlib/gen.go because they are bound as
-// interpreted source rather than reflect bindings (their APIs are generic).
-// They still have runnable $GOROOT external tests, so the matrix includes them.
-var extraStdlib = []string{"cmp", "iter", "maps", "slices"}
+// interpreted source rather than reflect bindings (generic APIs, or log, which
+// is interpreted so runtime.Caller reports the user's call site). They still
+// have runnable tests, so the matrix includes them.
+var extraStdlib = []string{"cmp", "iter", "maps", "slices", "log"}
 
 // pkgRef is one package to test, tagged with its matrix category.
 type pkgRef struct {
