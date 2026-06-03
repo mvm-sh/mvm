@@ -3766,13 +3766,16 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		// like the string from strings.Builder.Grow); make it catchable by
 		// interpreted recover().
 		m.panicking = true
-		m.panicVal = FromReflect(reflect.ValueOf(r))
+		m.panicVal = FromReflect(reflect.ValueOf(describeNativePanic(rv, in, r)))
 		panicked = true
 	}()
 	switch {
 	case hook != nil && !spread:
 		return hook(m, hookRecv, in), false
 	case spread:
+		if err := checkNativeCall(rv, in, true); err != nil {
+			panic(err)
+		}
 		// For spread calls (f(s...)), unwrap Iface values inside the variadic
 		// slice and use CallSlice.
 		last := in[len(in)-1]
@@ -3790,8 +3793,47 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		in[len(in)-1] = last
 		return rv.CallSlice(in), false
 	default:
+		if err := checkNativeCall(rv, in, false); err != nil {
+			panic(err)
+		}
 		return rv.Call(in), false
 	}
+}
+
+// checkNativeCall turns the mismatches reflect.Call panics on into a clear mvm error.
+func checkNativeCall(rv reflect.Value, in []reflect.Value, slice bool) error {
+	if rv.Kind() != reflect.Func {
+		return fmt.Errorf("call of non-function value of kind %s", rv.Kind())
+	}
+	ft := rv.Type()
+	want, variadic := ft.NumIn(), ft.IsVariadic()
+	switch {
+	case variadic && !slice:
+		if len(in) < want-1 {
+			return fmt.Errorf("call to %v: got %d arguments, want at least %d", ft, len(in), want-1)
+		}
+	default:
+		if len(in) != want {
+			return fmt.Errorf("call to %v: got %d arguments, want %d", ft, len(in), want)
+		}
+	}
+	return nil
+}
+
+func describeNativePanic(rv reflect.Value, in []reflect.Value, r any) any {
+	s, ok := r.(string)
+	if !ok || !strings.HasPrefix(s, "reflect") || rv.Kind() != reflect.Func {
+		return r
+	}
+	args := make([]string, len(in))
+	for i, a := range in {
+		if a.IsValid() {
+			args[i] = a.Type().String()
+		} else {
+			args[i] = "<invalid>"
+		}
+	}
+	return fmt.Sprintf("%s (calling %v with args [%s])", s, rv.Type(), strings.Join(args, ", "))
 }
 
 // makeCallFunc wraps a mvm function value in a reflect.MakeFunc adapter
