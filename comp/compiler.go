@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"maps"
 	"os"
 	"path"
 	"reflect"
@@ -159,7 +160,17 @@ func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 
 // Compile parses src and generates code and data, or returns a non-nil error.
 // Code and data are added incrementally in c.Code and C.Data.
-func (c *Compiler) Compile(name, src string) error {
+func (c *Compiler) Compile(name, src string) (err error) {
+	// On failure, roll back to the pre-compile state so a half-compiled unit
+	// can't corrupt the next compile on this reused Compiler.
+	snap := c.SnapshotUnit()
+	cg := c.snapshotCodegen()
+	defer func() {
+		if err != nil {
+			c.RestoreUnit(snap)
+			c.restoreCodegen(cg)
+		}
+	}()
 	// Directory-mode load with a package-path target (e.g. `mvm test
 	// golang.org/x/text/language`): mirror importSrc's importingPkg setup so
 	// the target's own top-level symbols use canonical pkg-qualified keys
@@ -168,7 +179,6 @@ func (c *Compiler) Compile(name, src string) error {
 	// (compileDeferred) sees the same empty importingPkg it does for any
 	// other transitive import, with CompilingPkg driving the lookups.
 	var remaining []goparser.DeferredDecl
-	var err error
 	if src == "" && looksLikePkgPath(name) {
 		restore := c.WithImportingPkg(name)
 		remaining, err = c.ParseAll(name, src)
@@ -189,12 +199,68 @@ func (c *Compiler) Compile(name, src string) error {
 // unit (Phase 1 across all files, then Phase 2 code-gen), so top-level symbols
 // declared in one file are visible to the others regardless of file or
 // declaration order. Backs `mvm run f1.go f2.go ...`.
-func (c *Compiler) CompileFiles(sources []goparser.PackageSource) error {
-	remaining, err := c.ParseAllFiles(sources)
+func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
+	snap := c.SnapshotUnit()
+	cg := c.snapshotCodegen()
+	defer func() {
+		if err != nil {
+			c.RestoreUnit(snap)
+			c.restoreCodegen(cg)
+		}
+	}()
+	var remaining []goparser.DeferredDecl
+	remaining, err = c.ParseAllFiles(sources)
 	if err != nil {
 		return err
 	}
 	return c.finishCompile(remaining)
+}
+
+// codegenSnap records the Compiler's Phase-2 output and dedup caches for
+// rollback: slices revert by length, caches by restore. The index-keyed caches
+// (strings, zeroSlotType, labelAtPos) must be restored since the next unit
+// reuses those Code/Data indices; the rest are restored for uniformity.
+type codegenSnap struct {
+	code, data, funcRanges, pendingSlots, entry int
+	strings                                     map[string]int
+	methodIDs                                   map[string]int
+	methodRtype                                 map[int]reflect.Type
+	typeIdxs                                    map[*vm.Type]int
+	typeSyms                                    map[*vm.Type]*symbol.Symbol
+	zeroTypeIdxs                                map[*vm.Type]int
+	zeroSlotType                                map[int]*vm.Type
+	labelAtPos                                  map[int]bool
+}
+
+func (c *Compiler) snapshotCodegen() codegenSnap {
+	return codegenSnap{
+		code: len(c.Code), data: len(c.Data), funcRanges: len(c.FuncRanges),
+		pendingSlots: len(c.pendingTypeSlots), entry: c.Entry,
+		strings:      maps.Clone(c.strings),
+		methodIDs:    maps.Clone(c.methodIDs),
+		methodRtype:  maps.Clone(c.methodRtype),
+		typeIdxs:     maps.Clone(c.typeIdxs),
+		typeSyms:     maps.Clone(c.typeSyms),
+		zeroTypeIdxs: maps.Clone(c.zeroTypeIdxs),
+		zeroSlotType: maps.Clone(c.zeroSlotType),
+		labelAtPos:   maps.Clone(c.labelAtPos),
+	}
+}
+
+func (c *Compiler) restoreCodegen(s codegenSnap) {
+	c.Code = c.Code[:s.code]
+	c.Data = c.Data[:s.data]
+	c.FuncRanges = c.FuncRanges[:s.funcRanges]
+	c.pendingTypeSlots = c.pendingTypeSlots[:s.pendingSlots]
+	c.Entry = s.entry
+	c.strings = s.strings
+	c.methodIDs = s.methodIDs
+	c.methodRtype = s.methodRtype
+	c.typeIdxs = s.typeIdxs
+	c.typeSyms = s.typeSyms
+	c.zeroTypeIdxs = s.zeroTypeIdxs
+	c.zeroSlotType = s.zeroSlotType
+	c.labelAtPos = s.labelAtPos
 }
 
 // finishCompile runs Phase 2 over the deferred declarations: allocate global

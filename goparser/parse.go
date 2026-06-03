@@ -421,6 +421,67 @@ func (p *Parser) TakeInstanceDecls() []DeferredDecl {
 	return d
 }
 
+// UnitState is an opaque pre-compile snapshot for SnapshotUnit/RestoreUnit.
+type UnitState struct {
+	syms  map[string]*symbol.Symbol
+	pkgs  map[string]*symbol.Package
+	insts map[*genericTemplate]int // per pre-existing generic template: len(instances)
+	inits int
+}
+
+// SnapshotUnit captures the symbol-table state before a top-level compile.
+func (p *Parser) SnapshotUnit() UnitState {
+	syms := make(map[string]*symbol.Symbol, len(p.Symbols))
+	insts := map[*genericTemplate]int{}
+	for k, v := range p.Symbols {
+		syms[k] = v
+		// A pre-existing generic template grows its instances slice in place;
+		// record the length so a failed instantiation can be truncated back.
+		if v.Kind == symbol.Generic {
+			if t, ok := v.Data.(*genericTemplate); ok {
+				insts[t] = len(t.instances)
+			}
+		}
+	}
+	pkgs := make(map[string]*symbol.Package, len(p.Packages))
+	for k, v := range p.Packages {
+		pkgs[k] = v
+	}
+	return UnitState{syms: syms, pkgs: pkgs, insts: insts, inits: len(p.InitFuncs)}
+}
+
+// RestoreUnit reverts a failed compile to s: deletes added symbol keys/packages,
+// restores replaced ones, truncates template instances/InitFuncs, and clears the
+// instance/import queues. In-place mutation of pre-existing symbols is not undone
+// (shared pointers), but a failed unit's own new declarations are.
+func (p *Parser) RestoreUnit(s UnitState) {
+	for k := range p.Symbols {
+		if _, ok := s.syms[k]; !ok {
+			delete(p.Symbols, k)
+		}
+	}
+	for k, v := range s.syms {
+		if p.Symbols[k] != v {
+			p.Symbols[k] = v // mvm:symkey-ok: restores snapshot keys verbatim, not a new binding
+		}
+	}
+	for k := range p.Packages {
+		if _, ok := s.pkgs[k]; !ok {
+			delete(p.Packages, k)
+		}
+	}
+	for t, n := range s.insts {
+		if len(t.instances) > n {
+			t.instances = t.instances[:n]
+		}
+	}
+	if len(p.InitFuncs) > s.inits {
+		p.InitFuncs = p.InitFuncs[:s.inits]
+	}
+	p.instanceDecls = nil
+	p.importRemaining = nil
+}
+
 // ParseDecl resolves a declaration's symbols (Phase 1) without emitting code.
 // Returns handled=true if fully resolved, false if code generation is needed.
 func (p *Parser) ParseDecl(toks Tokens) (handled bool, err error) {
