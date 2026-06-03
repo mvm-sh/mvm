@@ -117,7 +117,6 @@ package stdlib
 //go:generate go run ../cmd/extract -stdlib io $GOROOT/src/io
 //go:generate go run ../cmd/extract -stdlib io/fs $GOROOT/src/io/fs
 //go:generate go run ../cmd/extract -stdlib io/ioutil $GOROOT/src/io/ioutil
-//go:generate go run ../cmd/extract -stdlib log $GOROOT/src/log
 //go:generate go run ../cmd/extract -stdlib log/slog $GOROOT/src/log/slog
 //go:generate go run ../cmd/extract -stdlib log/syslog $GOROOT/src/log/syslog
 //go:generate go run ../cmd/extract -stdlib math $GOROOT/src/math

@@ -1,10 +1,7 @@
 package interp_test
 
 import (
-	"bytes"
 	"errors"
-	"log"
-	"strings"
 	"testing"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -27,13 +24,12 @@ func TestOsExitReturnsExitError(t *testing.T) {
 }
 
 func TestLogFatalReturnsExitError(t *testing.T) {
-	var buf bytes.Buffer
-	prev := log.Writer()
-	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(prev) })
-
+	// log is interpreted (source-only), so it needs an explicit import and writes
+	// via its own os.Stderr, not the test's native log -- discard that output and
+	// assert the exit behavior: log.Fatal -> os.Exit(1) -> ExitError (os.Exit is
+	// virtualized). The message formatting is covered by `mvm test log` examples.
 	i := newAutoImportInterp(t)
-	_, err := i.Eval("fatal", `log.Fatal("boom")`)
+	_, err := i.Eval("fatal", `import ("io"; "log"); log.SetOutput(io.Discard); log.Fatal("boom")`)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -43,9 +39,6 @@ func TestLogFatalReturnsExitError(t *testing.T) {
 	}
 	if ee.Code != 1 {
 		t.Errorf("Code = %d, want 1", ee.Code)
-	}
-	if !strings.Contains(buf.String(), "boom") {
-		t.Errorf("log output missing %q:\n%s", "boom", buf.String())
 	}
 }
 

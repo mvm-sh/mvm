@@ -81,6 +81,10 @@ func main() {
 // typeByRtype so the compiled value-receiver method dispatches; before the fix
 // the call target resolved to nilFuncAddr and panicked with a nil deref.
 func TestGobInterfaceRewrap(t *testing.T) {
+	// Use a type name distinct from _samples/gob_interface.go's Point: gob's
+	// registry is process-global, and each Eval's interpreted type is a distinct
+	// synth rtype, so two tests registering the same name in one test binary
+	// collide ("duplicate types for main.Point").
 	src := `package main
 
 import (
@@ -91,11 +95,11 @@ import (
 	"math"
 )
 
-type Point struct {
+type RewrapPoint struct {
 	X, Y int
 }
 
-func (p Point) Hypotenuse() float64 {
+func (p RewrapPoint) Hypotenuse() float64 {
 	return math.Hypot(float64(p.X), float64(p.Y))
 }
 
@@ -119,10 +123,10 @@ func interfaceDecode(dec *gob.Decoder) Pythagoras {
 
 func main() {
 	var network bytes.Buffer
-	gob.Register(Point{})
+	gob.Register(RewrapPoint{})
 	enc := gob.NewEncoder(&network)
 	for i := 1; i <= 3; i++ {
-		interfaceEncode(enc, Point{3 * i, 4 * i})
+		interfaceEncode(enc, RewrapPoint{3 * i, 4 * i})
 	}
 	dec := gob.NewDecoder(&network)
 	for i := 1; i <= 3; i++ {

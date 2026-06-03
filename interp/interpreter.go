@@ -4,7 +4,6 @@ package interp
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"reflect"
@@ -189,20 +188,8 @@ func (i *Interp) installExitVirtualization() {
 			panic(&ExitError{Code: code})
 		}))
 	}
-	if pkg, ok := i.Packages["log"]; ok {
-		pkg.Values["Fatal"] = vm.FromReflect(reflect.ValueOf(func(a ...any) {
-			log.Print(a...)
-			panic(&ExitError{Code: 1})
-		}))
-		pkg.Values["Fatalf"] = vm.FromReflect(reflect.ValueOf(func(format string, a ...any) {
-			log.Printf(format, a...)
-			panic(&ExitError{Code: 1})
-		}))
-		pkg.Values["Fatalln"] = vm.FromReflect(reflect.ValueOf(func(a ...any) {
-			log.Println(a...)
-			panic(&ExitError{Code: 1})
-		}))
-	}
+	// log is interpreted, so log.Fatal* need no bridge override: they call the
+	// interpreted os.Exit, virtualized above to panic an ExitError.
 }
 
 // FormatStats returns a multi-line summary of an Interp's accumulated work for the -stat CLI flag.
