@@ -469,10 +469,16 @@ func runTestDriver(i *interp.Interp, pkgPath string, flushStats func()) error {
 			e.name, e.name, e.output, e.unordered)
 	}
 	driver.WriteString("})")
+	// Continue the suite on an unrecovered goroutine panic (log it, keep running
+	// the other tests) instead of aborting the whole run; fail the run afterward.
+	i.SetGoroutineFaultContinue(true)
 	_, err := i.Eval("_testmain", driver.String())
 	flushStats()
 	if err != nil {
 		return err
+	}
+	if exitCode == 0 && i.GoroutineFault() != nil {
+		exitCode = 2 // a goroutine panicked during the suite (already logged)
 	}
 	if exitCode != 0 {
 		return &interp.ExitError{Code: exitCode}

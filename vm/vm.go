@@ -2,6 +2,7 @@
 package vm
 
 import (
+	"errors"
 	"fmt" // for tracing only
 	"io"
 	"iter"
@@ -393,6 +394,10 @@ type Machine struct {
 
 	funcFields   *funcFieldsTable // see funcFieldsTable doc
 	typesByRtype *typesIndex      // see typesIndex doc
+
+	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
+	faultContinue bool            // policy seed copied into fault when it is created
+	isRoot        bool            // the top-level machine; only it aborts channel waits on a fault
 
 	in       io.Reader // machine standard input (nil = os.Stdin)
 	out, err io.Writer // machine standard output and error
@@ -1972,12 +1977,12 @@ func (m *Machine) Run() (err error) {
 
 		case ChanSend:
 			ch := mem[sp-1].ref
-			ch.Send(m.reflectForSend(mem[sp], ch.Type().Elem()))
+			m.chanSend(ch, m.reflectForSend(mem[sp], ch.Type().Elem()))
 			sp -= 2
 
 		case ChanRecv:
 			ch := mem[sp]
-			v, ok := ch.ref.Recv()
+			v, ok := m.chanRecv(ch.ref)
 			mem[sp] = FromReflect(v)
 			if int(c.A) == 1 {
 				if sp+1 >= len(mem) {
@@ -1995,7 +2000,22 @@ func (m *Machine) Run() (err error) {
 			meta := m.globals[int(c.A)].ref.Interface().(*SelectMeta)
 			ncase := int(c.B)
 			base := sp - meta.TotalPop + 1
-			cases := make([]reflect.SelectCase, ncase)
+			// A blocking select (no default) can deadlock if a sender/receiver
+			// goroutine died; reserve a trailing slot to watch the fault and abort.
+			hasDefault := false
+			for _, ci := range meta.Cases {
+				if ci.Dir == reflect.SelectDefault {
+					hasDefault = true
+					break
+				}
+			}
+			abortIdx := -1
+			n := ncase
+			if !hasDefault && m.watchFault() {
+				abortIdx = ncase
+				n++
+			}
+			cases := make([]reflect.SelectCase, n)
 			idx := base
 			for i, ci := range meta.Cases {
 				switch ci.Dir {
@@ -2010,7 +2030,13 @@ func (m *Machine) Run() (err error) {
 					cases[i] = reflect.SelectCase{Dir: reflect.SelectDefault}
 				}
 			}
+			if abortIdx >= 0 {
+				cases[abortIdx] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.fault.abort)}
+			}
 			chosen, recv, recvOK := reflect.Select(cases)
+			if chosen == abortIdx {
+				panic(ErrGoroutineFault)
+			}
 			sp = base
 			ci := meta.Cases[chosen]
 			if ci.Dir == reflect.SelectRecv {
@@ -2183,7 +2209,7 @@ func (m *Machine) Run() (err error) {
 				}
 				if isX == 1 {
 					// Native function: call via reflect, discard results.
-					rv := unwrapIface(funcVal.ref)
+					rv := Exportable(unwrapIface(funcVal.ref))
 					rin := make([]reflect.Value, narg)
 					for i := range rin {
 						rin[i] = mem[dh-narg-2+i].Reflect()
@@ -3116,7 +3142,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		}
 		if isX == 1 {
 			// Native defer: call via reflect, discard results.
-			rv := unwrapIface(funcVal.ref)
+			rv := Exportable(unwrapIface(funcVal.ref))
 			rin := make([]reflect.Value, narg)
 			for i := range rin {
 				rin[i] = (*mem)[dh-narg-2+i].Reflect()
@@ -3619,7 +3645,9 @@ type runnerState struct {
 	funcFields      *funcFieldsTable // parent-owned; pointer-shared with runner
 	typesByRtype    *typesIndex      // parent-owned; pointer-shared with runner
 	debugInfoFn     func() *DebugInfo
-	pool            *sync.Pool // shared pool on the parent Machine
+	pool            *sync.Pool      // shared pool on the parent Machine
+	fault           *goroutineFault // shared goroutine-panic sink
+	faultContinue   bool
 }
 
 // ensureSharedTables lazy-allocates the parent-owned funcFields and
@@ -3649,6 +3677,8 @@ func (m *Machine) captureRunnerState() *runnerState {
 		typesByRtype:    m.typesByRtype,
 		debugInfoFn:     m.debugInfoFn,
 		pool:            &m.runnerPool,
+		fault:           m.fault,
+		faultContinue:   m.faultContinue,
 	}
 }
 
@@ -3671,6 +3701,8 @@ func (rs *runnerState) acquireRunner() *Machine {
 	m.funcFields = rs.funcFields
 	m.typesByRtype = rs.typesByRtype
 	m.debugInfoFn = rs.debugInfoFn
+	m.fault = rs.fault
+	m.faultContinue = rs.faultContinue
 	return m
 }
 
@@ -3725,17 +3757,25 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		if _, ok := r.(CleanExit); ok {
 			panic(r)
 		}
+		// A goroutine-fault abort is not a recoverable program panic; re-panic so
+		// it reaches Run's recoverPanic instead of becoming catchable here.
+		if e, ok := r.(error); ok && errors.Is(e, ErrGoroutineFault) {
+			panic(r)
+		}
 		// Genuine native panic (runtime.Error, a plain error value, or a value
 		// like the string from strings.Builder.Grow); make it catchable by
 		// interpreted recover().
 		m.panicking = true
-		m.panicVal = FromReflect(reflect.ValueOf(r))
+		m.panicVal = FromReflect(reflect.ValueOf(describeNativePanic(rv, in, r)))
 		panicked = true
 	}()
 	switch {
 	case hook != nil && !spread:
 		return hook(m, hookRecv, in), false
 	case spread:
+		if err := checkNativeCall(rv, in, true); err != nil {
+			panic(err)
+		}
 		// For spread calls (f(s...)), unwrap Iface values inside the variadic
 		// slice and use CallSlice.
 		last := in[len(in)-1]
@@ -3753,8 +3793,47 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		in[len(in)-1] = last
 		return rv.CallSlice(in), false
 	default:
+		if err := checkNativeCall(rv, in, false); err != nil {
+			panic(err)
+		}
 		return rv.Call(in), false
 	}
+}
+
+// checkNativeCall turns the mismatches reflect.Call panics on into a clear mvm error.
+func checkNativeCall(rv reflect.Value, in []reflect.Value, slice bool) error {
+	if rv.Kind() != reflect.Func {
+		return fmt.Errorf("call of non-function value of kind %s", rv.Kind())
+	}
+	ft := rv.Type()
+	want, variadic := ft.NumIn(), ft.IsVariadic()
+	switch {
+	case variadic && !slice:
+		if len(in) < want-1 {
+			return fmt.Errorf("call to %v: got %d arguments, want at least %d", ft, len(in), want-1)
+		}
+	default:
+		if len(in) != want {
+			return fmt.Errorf("call to %v: got %d arguments, want %d", ft, len(in), want)
+		}
+	}
+	return nil
+}
+
+func describeNativePanic(rv reflect.Value, in []reflect.Value, r any) any {
+	s, ok := r.(string)
+	if !ok || !strings.HasPrefix(s, "reflect") || rv.Kind() != reflect.Func {
+		return r
+	}
+	args := make([]string, len(in))
+	for i, a := range in {
+		if a.IsValid() {
+			args[i] = a.Type().String()
+		} else {
+			args[i] = "<invalid>"
+		}
+	}
+	return fmt.Sprintf("%s (calling %v with args [%s])", s, rv.Type(), strings.Join(args, ", "))
 }
 
 // makeCallFunc wraps a mvm function value in a reflect.MakeFunc adapter
@@ -3964,6 +4043,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value) (panicked bool) {
 	}
 	if rv.Kind() == reflect.Func {
 		// Native Go function: call via reflection in a plain goroutine.
+		rv = Exportable(rv)
 		in := make([]reflect.Value, len(args))
 		for i, a := range args {
 			in[i] = a.Reflect()
@@ -4006,6 +4086,12 @@ func (m *Machine) newGoroutine(fval Value, args []Value) (panicked bool) {
 	mem[narg+3] = Value{num: 0} // prevFP = 0
 
 	m.ensureSharedTables()
+	// Arm the sink if EnableGoroutineFaults didn't (raw vm.Machine.Run); flag that
+	// a goroutine now exists so channel waits start watching for a fault.
+	if m.fault == nil {
+		m.fault = newGoroutineFault(m.err, m.faultContinue)
+	}
+	m.fault.spawned.Store(true)
 	child := &Machine{
 		globals:         m.globals,
 		code:            m.code[:m.baseCodeLen:m.baseCodeLen],
@@ -4023,8 +4109,16 @@ func (m *Machine) newGoroutine(fval Value, args []Value) (panicked bool) {
 		MethodFuncTypes: m.MethodFuncTypes,
 		funcFields:      m.funcFields,
 		typesByRtype:    m.typesByRtype,
+		fault:           m.fault,
 	}
-	go func() { _ = child.Run() }()
+	go func() {
+		// An unrecovered panic in an interpreted goroutine returns from Run as an
+		// error. Go would crash the process; record it so main surfaces it (a
+		// non-zero exit) instead of silently dropping it.
+		if err := child.Run(); err != nil && m.fault != nil {
+			m.fault.record(err)
+		}
+	}()
 	return false
 }
 
@@ -4380,6 +4474,12 @@ func paramTypeFor(funcType reflect.Type, i int) reflect.Type {
 // the function's expected parameter type.
 func coerceInterfaceArgs(in []reflect.Value, funcType reflect.Type) {
 	for i, rv := range in {
+		// Export a read-only arg (from an unexported field) so reflect.Value.Call
+		// can pack it into a native parameter instead of panicking.
+		if rv.IsValid() && !rv.CanInterface() {
+			rv = Exportable(rv)
+			in[i] = rv
+		}
 		paramType := paramTypeFor(funcType, i)
 		if paramType == nil {
 			continue

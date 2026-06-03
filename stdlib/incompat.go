@@ -17,6 +17,12 @@ var Incompat = map[string]map[string]string{
 		// interpreted signer stays methodless and fails reflect.Call.
 		"TestSignMessage": "interpreted type can't satisfy native crypto.Signer via reflect.Call (synth attaches only fixed method shapes)",
 	},
+	"io": {
+		// TestPipeAllocations asserts Pipe() stays within 4 allocations via
+		// testing.AllocsPerRun; the interpreter's call/marshal overhead allocates
+		// more (same alloc-count gap as fmt's AllocsPerRun tests).
+		"TestPipeAllocations": "testing.AllocsPerRun: interpreter call/marshal allocates more than native Pipe()'s 4",
+	},
 	"flag": {
 		// flag.isZeroValue builds reflect.New(BridgeFlagValue).String() to
 		// compare against DefValue; the freshly-zeroed bridge has nil func
