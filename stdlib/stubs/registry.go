@@ -98,6 +98,27 @@ const (
 	// ShapeS21 is func() bool.
 	// Covers flag.boolFlag.IsBoolFlag.
 	ShapeS21 Shape = 20
+
+	// ShapeS22 is func() int64. Covers fs.FileInfo.Size.
+	ShapeS22 Shape = 21
+	// ShapeS23 is func() fs.FileMode. Covers fs.FileInfo.Mode and fs.DirEntry.Type.
+	ShapeS23 Shape = 22
+	// ShapeS24 is func() time.Time. Covers fs.FileInfo.ModTime.
+	ShapeS24 Shape = 23
+	// ShapeS25 is func() (fs.FileInfo, error). Covers fs.DirEntry.Info and fs.File.Stat.
+	ShapeS25 Shape = 24
+	// ShapeS26 is func(string) (fs.File, error). Covers fs.FS.Open.
+	ShapeS26 Shape = 25
+	// ShapeS27 is func(string) (fs.FileInfo, error). Covers fs.StatFS.Stat.
+	ShapeS27 Shape = 26
+	// ShapeS28 is func(string) (fs.FS, error). Covers fs.SubFS.Sub.
+	ShapeS28 Shape = 27
+	// ShapeS29 is func(string) ([]string, error). Covers fs.GlobFS.Glob.
+	ShapeS29 Shape = 28
+	// ShapeS30 is func(string) ([]fs.DirEntry, error). Covers fs.ReadDirFS.ReadDir.
+	ShapeS30 Shape = 29
+	// ShapeS31 is func(string) ([]byte, error). Covers fs.ReadFileFS.ReadFile.
+	ShapeS31 Shape = 30
 )
 
 // Method describes one method to install on a synthesized type.
@@ -249,6 +270,66 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS21(h)
+	case ShapeS22:
+		h, ok := m.Handler.(HandlerS22)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS22(h)
+	case ShapeS23:
+		h, ok := m.Handler.(HandlerS23)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS23(h)
+	case ShapeS24:
+		h, ok := m.Handler.(HandlerS24)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS24(h)
+	case ShapeS25:
+		h, ok := m.Handler.(HandlerS25)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS25(h)
+	case ShapeS26:
+		h, ok := m.Handler.(HandlerS26)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS26(h)
+	case ShapeS27:
+		h, ok := m.Handler.(HandlerS27)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS27(h)
+	case ShapeS28:
+		h, ok := m.Handler.(HandlerS28)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS28(h)
+	case ShapeS29:
+		h, ok := m.Handler.(HandlerS29)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS29(h)
+	case ShapeS30:
+		h, ok := m.Handler.(HandlerS30)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS30(h)
+	case ShapeS31:
+		h, ok := m.Handler.(HandlerS31)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS31(h)
 	}
 	return 0, nil, fmt.Errorf("stubs: unknown shape %d", m.Shape)
 }

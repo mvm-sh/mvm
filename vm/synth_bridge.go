@@ -4,9 +4,11 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io/fs"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
@@ -244,6 +246,26 @@ func toSynthMethods(
 			handler = makeHandlerS20(m, t, s.method, s.name, s.ptrRecv)
 		case stubs.ShapeS21:
 			handler = makeHandlerS21(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS22:
+			handler = makeHandlerS22(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS23:
+			handler = makeHandlerS23(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS24:
+			handler = makeHandlerS24(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS25:
+			handler = makeHandlerS25(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS26:
+			handler = makeHandlerS26(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS27:
+			handler = makeHandlerS27(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS28:
+			handler = makeHandlerS28(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS29:
+			handler = makeHandlerS29(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS30:
+			handler = makeHandlerS30(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS31:
+			handler = makeHandlerS31(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -380,6 +402,31 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 	case nin == 2 && nout == 1 && sig.In(0) == fmtScanStateIface &&
 		sig.In(1).Kind() == reflect.Int32 && isErrorType(sig.Out(0)):
 		return stubs.ShapeS19, true
+
+	// io/fs cluster.
+	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Int64:
+		return stubs.ShapeS22, true
+	case nin == 0 && nout == 1 && sig.Out(0) == fsFileModeType:
+		return stubs.ShapeS23, true
+	case nin == 0 && nout == 1 && sig.Out(0) == timeTimeType:
+		return stubs.ShapeS24, true
+	case nin == 0 && nout == 2 && sig.Out(0) == fsFileInfoIface && isErrorType(sig.Out(1)):
+		return stubs.ShapeS25, true
+	case nin == 1 && nout == 2 && sig.In(0).Kind() == reflect.String && isErrorType(sig.Out(1)):
+		switch sig.Out(0) {
+		case fsFileIface:
+			return stubs.ShapeS26, true
+		case fsFileInfoIface:
+			return stubs.ShapeS27, true
+		case fsFSIface:
+			return stubs.ShapeS28, true
+		case stringSliceType:
+			return stubs.ShapeS29, true
+		case dirEntrySliceType:
+			return stubs.ShapeS30, true
+		case byteSliceType:
+			return stubs.ShapeS31, true
+		}
 	}
 	return 0, false
 }
@@ -400,6 +447,15 @@ var (
 	xmlEncoderPtr     = reflect.TypeOf((*xml.Encoder)(nil))
 	xmlDecoderPtr     = reflect.TypeOf((*xml.Decoder)(nil))
 	xmlStartElem      = reflect.TypeOf(xml.StartElement{})
+
+	// io/fs cluster.
+	fsFileModeType    = reflect.TypeOf(fs.FileMode(0))
+	timeTimeType      = reflect.TypeOf(time.Time{})
+	fsFileInfoIface   = reflect.TypeOf((*fs.FileInfo)(nil)).Elem()
+	fsFileIface       = reflect.TypeOf((*fs.File)(nil)).Elem()
+	fsFSIface         = reflect.TypeOf((*fs.FS)(nil)).Elem()
+	stringSliceType   = reflect.TypeOf([]string(nil))
+	dirEntrySliceType = reflect.TypeOf([]fs.DirEntry(nil))
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }

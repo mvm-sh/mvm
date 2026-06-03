@@ -68,6 +68,17 @@ var shapes = []shape{
 	{ID: "S19", Params: ", st fmt.ScanState, verb rune", ArgList: ", st, verb", Results: "error", Imports: []string{"fmt"}},
 	{ID: "S20", Params: ", value string", ArgList: ", value", Results: "error"}, // flag.Value.Set
 	{ID: "S21", Results: "bool"}, // flag.boolFlag.IsBoolFlag
+	// io/fs cluster.
+	{ID: "S22", Results: "int64"},                                                                                          // fs.FileInfo.Size
+	{ID: "S23", Results: "fs.FileMode", Imports: []string{"io/fs"}},                                                        // fs.FileInfo.Mode, fs.DirEntry.Type
+	{ID: "S24", Results: "time.Time", Imports: []string{"time"}},                                                           // fs.FileInfo.ModTime
+	{ID: "S25", Results: "(fs.FileInfo, error)", Imports: []string{"io/fs"}},                                               // fs.DirEntry.Info, fs.File.Stat
+	{ID: "S26", Params: ", name string", ArgList: ", name", Results: "(fs.File, error)", Imports: []string{"io/fs"}},       // fs.FS.Open
+	{ID: "S27", Params: ", name string", ArgList: ", name", Results: "(fs.FileInfo, error)", Imports: []string{"io/fs"}},   // fs.StatFS.Stat
+	{ID: "S28", Params: ", dir string", ArgList: ", dir", Results: "(fs.FS, error)", Imports: []string{"io/fs"}},           // fs.SubFS.Sub
+	{ID: "S29", Params: ", pattern string", ArgList: ", pattern", Results: "([]string, error)"},                            // fs.GlobFS.Glob
+	{ID: "S30", Params: ", name string", ArgList: ", name", Results: "([]fs.DirEntry, error)", Imports: []string{"io/fs"}}, // fs.ReadDirFS.ReadDir
+	{ID: "S31", Params: ", name string", ArgList: ", name", Results: "([]byte, error)"},                                    // fs.ReadFileFS.ReadFile
 }
 
 func main() {

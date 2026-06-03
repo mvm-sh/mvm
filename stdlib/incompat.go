@@ -23,6 +23,14 @@ var Incompat = map[string]map[string]string{
 		// more (same alloc-count gap as fmt's AllocsPerRun tests).
 		"TestPipeAllocations": "testing.AllocsPerRun: interpreter call/marshal allocates more than native Pipe()'s 4",
 	},
+	"io/fs": {
+		// struct{ FS }{fsys} is an anonymous struct embedding the method-bearing
+		// FS interface; mvm builds that struct type at runtime via reflect.StructOf,
+		// which (unlike the Go compiler) cannot synthesize the promoted-interface
+		// wrapper methods. Independent of method-attach.
+		"TestReadDirPath":  "reflect.StructOf cannot build struct{FS} (promoted methods of embedded interfaces); mvm types the anon struct at runtime",
+		"TestReadFilePath": "reflect.StructOf cannot build struct{FS} (promoted methods of embedded interfaces); mvm types the anon struct at runtime",
+	},
 	"flag": {
 		// flag.isZeroValue builds reflect.New(BridgeFlagValue).String() to
 		// compare against DefValue; the freshly-zeroed bridge has nil func
