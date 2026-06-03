@@ -37,29 +37,29 @@ type Parser struct {
 	CompilingPkg    string          // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
 	importingPkg    string          // while parseSrc is running for an imported package: its full import path; "" outside any import. Used by pkgKey to qualify top-level Type/Func/Method/Generic symbol keys at definition time (Path B); also probed as a fallback in symGet for Phase-1 lookups.
 
-	funcScope         string
-	framelen          map[string]int // length of function frames indexed by funcScope
-	labelCount        map[string]int
-	breakLabel        string
-	continueLabel     string
-	pendingLabel      string               // user label preceding the current for/switch statement
-	labeledJump       map[string][2]string // maps user label to [continueLabel, breakLabel]
-	ctrlStack         []ctrlFrame          // active for/switch/select frames (for labeled break/continue range unwind)
-	clonum            int                  // closure instance number, package-global counter
-	funcN             int                  // anonymous-function counter within the current outer function
-	initNum           int                  // init function instance counter
-	InitFuncs         []string             // ordered list of init function internal names
-	blankSeq          int                  // counter for unique blank identifier names
-	namedOut          []string             // scoped names of named return vars for current function
-	symTracker        []string             // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
-	batchFuncDecls    map[string]bool      // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
-	pendingMethodDefs Tokens               // generic method+func instance defs, drained into output at statement end (survives inference's discarded parseExpr buffers)
-	typeOnly          bool                 // when true, addSymVar is a no-op (Phase 1 signature-only parse)
-	inForInit         bool                 // true while parsing for-init or range clause (marks LoopVar)
-	funcDepth         int                  // nesting depth of function bodies (>0 means inside a function)
-	loopDepth         int                  // nesting depth of for loops (>0 means inside a loop)
-	instDepth         int                  // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
-	buildCtx          *buildContext        // build constraint context for file filtering
+	funcScope      string
+	framelen       map[string]int // length of function frames indexed by funcScope
+	labelCount     map[string]int
+	breakLabel     string
+	continueLabel  string
+	pendingLabel   string               // user label preceding the current for/switch statement
+	labeledJump    map[string][2]string // maps user label to [continueLabel, breakLabel]
+	ctrlStack      []ctrlFrame          // active for/switch/select frames (for labeled break/continue range unwind)
+	clonum         int                  // closure instance number, package-global counter
+	funcN          int                  // anonymous-function counter within the current outer function
+	initNum        int                  // init function instance counter
+	InitFuncs      []string             // ordered list of init function internal names
+	blankSeq       int                  // counter for unique blank identifier names
+	namedOut       []string             // scoped names of named return vars for current function
+	symTracker     []string             // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
+	batchFuncDecls map[string]bool      // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
+	instanceDecls  []DeferredDecl       // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
+	typeOnly       bool                 // when true, addSymVar is a no-op (Phase 1 signature-only parse)
+	inForInit      bool                 // true while parsing for-init or range clause (marks LoopVar)
+	funcDepth      int                  // nesting depth of function bodies (>0 means inside a function)
+	loopDepth      int                  // nesting depth of for loops (>0 means inside a loop)
+	instDepth      int                  // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
+	buildCtx       *buildContext        // build constraint context for file filtering
 }
 
 // SymSet inserts sym at key in the symbol table, recording the key for potential rollback.
@@ -386,7 +386,6 @@ func (p *Parser) parseStmts(in Tokens) (out Tokens, err error) {
 			return out, err
 		}
 		out = append(out, o...)
-		p.drainPendingMethods(&out)
 		in = in[end+1:]
 	}
 	return out, err
@@ -412,16 +411,14 @@ func (p *Parser) scanDecls(src string) ([]Tokens, error) {
 
 // ParseOneStmt parses a single pre-scanned statement token slice.
 func (p *Parser) ParseOneStmt(toks Tokens) (Tokens, error) {
-	out, err := p.parseStmt(toks)
-	p.drainPendingMethods(&out)
-	return out, err
+	return p.parseStmt(toks)
 }
 
-func (p *Parser) drainPendingMethods(out *Tokens) {
-	if len(p.pendingMethodDefs) > 0 {
-		*out = append(*out, p.pendingMethodDefs...)
-		p.pendingMethodDefs = p.pendingMethodDefs[:0]
-	}
+// TakeInstanceDecls returns and clears the queued generic-instance bodies.
+func (p *Parser) TakeInstanceDecls() []DeferredDecl {
+	d := p.instanceDecls
+	p.instanceDecls = nil
+	return d
 }
 
 // ParseDecl resolves a declaration's symbols (Phase 1) without emitting code.

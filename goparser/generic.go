@@ -543,10 +543,10 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 	return out, mname, nil
 }
 
-// emitInstantiatedMethod instantiates methTmpl for the given type args
-// and, if it produced fresh tokens, registers and parses the method,
-// pushing the resulting tokens into p.pendingMethodDefs. Returns true if
-// a new method was emitted. The caller must have cleared p.scope.
+// emitInstantiatedMethod instantiates methTmpl for typeArgs and queues its body
+// on p.instanceDecls (tagged with the template's package). Returns true if a new
+// method was emitted. The caller must have cleared p.scope and set p.CompilingPkg
+// to the template's package.
 func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArgs []*vm.Type) (bool, error) {
 	methToks, err := p.instantiateMethod(tmpl, methTmpl, typeArgs)
 	if err != nil || methToks == nil {
@@ -561,7 +561,7 @@ func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArg
 	if err != nil {
 		return false, err
 	}
-	p.pendingMethodDefs = append(p.pendingMethodDefs, fout...)
+	p.instanceDecls = append(p.instanceDecls, DeferredDecl{PkgPath: tmpl.pkgPath, Toks: fout})
 	return true, nil
 }
 

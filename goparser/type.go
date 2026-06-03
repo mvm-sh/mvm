@@ -107,15 +107,23 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.T
 	// to pkg.Values would synthesize a stripped Type{Name, Rtype} that loses
 	// method reachability for source-defined types whose Rtype is the
 	// underlying primitive (e.g. UUID's Rtype is [16]uint8 with no .Name()).
-	if sym, ok := p.Symbols[s.PkgPath+"."+name]; ok && sym.Kind == symbol.Type && sym.Type != nil {
-		return sym.Type, nil
+	if sym, ok := p.Symbols[s.PkgPath+"."+name]; ok {
+		if sym.Kind == symbol.Type && sym.Type != nil {
+			return sym.Type, nil
+		}
+		if sym.Kind != symbol.Type {
+			// A non-type member (func/var/const) is not a type expression; fail
+			// cleanly so e.g. `*pkg.Fn()` parses as a deref, not a (*T)(...) conv.
+			// (Its value slot may also be an unfilled zero Value here.)
+			return nil, p.undef(s.Name+"."+name, tok)
+		}
 	}
 	pkg, ok := p.Packages[s.PkgPath]
 	if !ok {
 		return nil, fmt.Errorf("package not found: %s", s.PkgPath)
 	}
 	v, ok := pkg.Values[name]
-	if !ok {
+	if !ok || !v.IsValid() {
 		if pkg.Bin {
 			return &vm.Type{Name: name, Rtype: vm.OpaqueRtype}, nil
 		}

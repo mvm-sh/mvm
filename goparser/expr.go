@@ -364,7 +364,6 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						if err != nil {
 							return out, err
 						}
-						p.drainPendingMethods(&out)
 						ctype = mname
 						out = append(out, newIdent(mname, t.Pos))
 					}
@@ -407,7 +406,6 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 								if err != nil {
 									return out, err
 								}
-								p.drainPendingMethods(&out)
 								ctype = mname
 								out = append(out, newIdent(mname, t.Pos))
 							}
@@ -612,15 +610,21 @@ func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname s
 	}
 	fid := fout[1]
 	fid.Tok = lang.Ident
-	// Route the instance body through pendingMethodDefs (drained at statement
-	// end) rather than appending it inline. inferExprType discards its parseExpr
-	// output, so a body emitted inline there would be lost while the instance
-	// symbol stays registered - leaving an empty func slot that nil-derefs at
-	// runtime when a generic call is an argument to another generic call (e.g.
-	// cmp.Or(cmp.Compare(...))). The reference (fid) still goes inline.
-	p.pendingMethodDefs = append(p.pendingMethodDefs, fout...)
+	// Queue the body for comp.finishCompile to compile under the template's
+	// package; inline it would bind its refs to the instantiation site's package
+	// (and inferExprType discards its parseExpr output, losing the body). The
+	// reference (fid) still goes inline.
+	p.instanceDecls = append(p.instanceDecls, DeferredDecl{PkgPath: tmplPkgPath(tmpl), Toks: fout})
 	*out = append(*out, fid)
 	return nil
+}
+
+// tmplPkgPath returns tmpl's package, or "" for a nil template.
+func tmplPkgPath(tmpl *genericTemplate) string {
+	if tmpl == nil {
+		return ""
+	}
+	return tmpl.pkgPath
 }
 
 func (p *Parser) parseBlock(t Token, typ string) (result Tokens, err error) {

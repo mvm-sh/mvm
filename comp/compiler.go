@@ -228,8 +228,29 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 			return err
 		}
 	}
+	// Drain generic-instance bodies queued above, looping since one can trigger more.
+	// Each compiles under its template's package (the decl's PkgPath).
+	for {
+		insts := c.TakeInstanceDecls()
+		if len(insts) == 0 {
+			break
+		}
+		for _, dd := range insts {
+			if err := c.compileInstance(dd); err != nil {
+				return err
+			}
+		}
+	}
 	c.propagateEmbeddedMethods()
 	return nil
+}
+
+// compileInstance code-gens one already-parsed generic-instance body in its own
+// generate call under its template's package, so labels resolve consistently.
+func (c *Compiler) compileInstance(dd goparser.DeferredDecl) error {
+	c.CompilingPkg = dd.PkgPath
+	defer func() { c.CompilingPkg = "" }()
+	return c.generate(dd.Toks)
 }
 
 // preregisterMethods records every method onto its receiver type's Methods
