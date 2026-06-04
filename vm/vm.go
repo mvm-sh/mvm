@@ -4352,6 +4352,12 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 	if fv.Kind() == reflect.Interface && src.Kind() == reflect.Interface && src.Type() != fv.Type() {
 		src = interfaceToInterface(src, fv.Type())
 	}
+	// Named field set from its unnamed (untyped-const) value:
+	// reflect.Set wants identical types, so convert when only the name differs.
+	if src.IsValid() && src.Kind() == fv.Kind() && src.Type() != fv.Type() &&
+		!src.Type().AssignableTo(fv.Type()) && src.Type().ConvertibleTo(fv.Type()) {
+		src = src.Convert(fv.Type())
+	}
 	fv.Set(src)
 }
 
