@@ -509,7 +509,12 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 			variadic = true
 			t = t[1:]
 		}
+		// typeOnly: a func-typed param's result names must not leak into the
+		// enclosing function's p.namedOut.
+		save := p.typeOnly
+		p.typeOnly = true
 		typ, _, err := p.parseTypeExpr(t)
+		p.typeOnly = save
 		if err != nil {
 			return nil, nil, false, err
 		}

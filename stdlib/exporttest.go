@@ -7,25 +7,14 @@ import (
 )
 
 // TestValues holds faithful stand-ins for symbols that a stdlib package's own
-// export_test.go injects into the package under test. Bridged stdlib packages
-// are native, so those internal-only symbols don't exist on the bridge; here
-// we reproduce the ones that can be built from exported API (or self-contained
-// ported source) so external *_test.go files using them can run.
+// export_test.go injects into the package under test.
 //
 // Merged over Values ONLY by `mvm test` (see TestOverlay); `mvm run` never
 // sees these, so the real package surface stays clean.
 //
-// Only faithfully-reproducible symbols belong here. Ones that read a package's
-// unexported state -- e.g. (*strings.Replacer).Replacer()/PrintTrie(), which
-// return the internal algorithm value/trie -- cannot be reproduced (and would
-// need a method attached to a native type, which mvm can't dispatch), so they
-// are left to `mvm test`'s drop-on-compile-error retry.
+// Only faithfully-reproducible symbols belong here.
 var TestValues = map[string]map[string]reflect.Value{
 	"math": {
-		// export_test.go exposes the pure-Go implementations and the
-		// Payne-Hanek threshold/reducer. The first four are identical to the
-		// native exported funcs here (mvm has no asm variant), so map to those;
-		// the last two have no exported equivalent and are ported below.
 		"ExpGo":           reflect.ValueOf(math.Exp),
 		"Exp2Go":          reflect.ValueOf(math.Exp2),
 		"HypotGo":         reflect.ValueOf(math.Hypot),
@@ -33,18 +22,17 @@ var TestValues = map[string]map[string]reflect.Value{
 		"TrigReduce":      reflect.ValueOf(trigReduce),
 		"ReduceThreshold": reflect.ValueOf(float64(reduceThreshold)),
 	},
+	"math/bits": {
+		"DeBruijn64": reflect.ValueOf(uint64(0x03f79d71b4ca8b09)),
+	},
 	"fmt": {
-		// export_test.go: IsSpace = isSpace, Parsenum = parsenum.
 		"IsSpace":  reflect.ValueOf(fmtIsSpace),
 		"Parsenum": reflect.ValueOf(fmtParsenum),
 	},
 	"strings": {
-		// export_test.go: StringFind(pattern, text) == Index(text, pattern).
 		"StringFind": reflect.ValueOf(func(pattern, text string) int {
 			return strings.Index(text, pattern)
 		}),
-		// export_test.go returns makeStringFinder's Boyer-Moore skip tables;
-		// no exported API yields them, so the finder is ported below.
 		"DumpTables": reflect.ValueOf(func(pattern string) ([]int, []int) {
 			f := makeStringFinder(pattern)
 			return f.badCharSkip[:], f.goodSuffixSkip
