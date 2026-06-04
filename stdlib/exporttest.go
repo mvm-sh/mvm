@@ -1,6 +1,7 @@
 package stdlib
 
 import (
+	"go/token"
 	"math"
 	"reflect"
 	"strings"
@@ -57,6 +58,11 @@ var TestValues = map[string]map[string]reflect.Value{
 			f := makeStringFinder(pattern)
 			return f.badCharSkip[:], f.goodSuffixSkip
 		}),
+	},
+	"go/types": {
+		// util_test.go (internal test file) exports CmpPos so external tests
+		// reach it via the test-augmented package; the bridge lacks it.
+		"CmpPos": reflect.ValueOf(func(p, q token.Pos) int { return int(p - q) }),
 	},
 }
 

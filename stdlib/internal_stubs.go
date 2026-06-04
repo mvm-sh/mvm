@@ -28,6 +28,11 @@ func init() {
 		"Enabled": reflect.ValueOf(false),
 		"Errors":  reflect.ValueOf(func() int { return 0 }),
 	}
+	// internal/goversion.Version: the in-development Go 1.x minor. go/types
+	// api_test.go reads it to format a version string. Track GOROOT's value.
+	Values["internal/goversion"] = map[string]reflect.Value{
+		"Version": reflect.ValueOf(26),
+	}
 	Values["internal/sysinfo"] = map[string]reflect.Value{
 		"CPUName": reflect.ValueOf(func() string { return "" }),
 	}

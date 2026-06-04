@@ -144,19 +144,26 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 	return params, nil
 }
 
-func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type) error {
+func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, callPos int) error {
 	for i, tp := range tmpl.typeParams {
-		if err := p.checkConstraint(tp.constraint, typeArgs[i], typeArgs); err != nil {
+		if err := p.checkConstraint(tp.constraint, typeArgs[i], typeArgs, callPos); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (p *Parser) constraintError(c tpConstraint, arg *vm.Type) error {
+// constraintError reports the failure at the instantiation callsite (callPos)
+// when known, so the diagnostic and `mvm test`'s drop-failing-file retry point
+// at the offending call rather than the template's constraint declaration.
+func (p *Parser) constraintError(c tpConstraint, arg *vm.Type, callPos int) error {
+	pos := callPos
+	if pos == 0 {
+		pos = c.pos
+	}
 	return &constraintErr{
-		loc: p.Sources.FormatPos(c.pos),
-		pos: c.pos,
+		loc: p.Sources.FormatPos(pos),
+		pos: pos,
 		msg: fmt.Sprintf("type %s does not satisfy constraint", typeArgName(arg)),
 	}
 }
@@ -181,7 +188,7 @@ func (e *constraintErr) ErrPos() int { return e.pos }
 // checkConstraint passes if any element in c.elems matches arg. typeArgs
 // carries the full set of concrete type arguments for the current
 // instantiation so that a TypeParamRef element can resolve to its target.
-func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type) error {
+func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type, callPos int) error {
 	for _, e := range c.elems {
 		// Interface elements (e.g. the `error` in `[E error]`) need a
 		// method-set check that sees interpreted methods, which live in
@@ -198,7 +205,7 @@ func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Ty
 			return nil
 		}
 	}
-	return p.constraintError(c, arg)
+	return p.constraintError(c, arg, callPos)
 }
 
 // argImplementsIface reports whether type argument arg satisfies the interface
@@ -514,7 +521,7 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 		return nil, "", p.wrapAt(pos, ErrSyntax, "instantiation cycle: %s", tmpl.name)
 	}
 
-	if err := p.checkConstraints(tmpl, typeArgs); err != nil {
+	if err := p.checkConstraints(tmpl, typeArgs, pos.Pos); err != nil {
 		return nil, "", err
 	}
 
