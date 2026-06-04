@@ -79,6 +79,17 @@ var Incompat = map[string]map[string]string{
 		"ExampleTime_Format": "expects local zone America/Los_Angeles; time's internal ForceUSPacificForTesting init cannot run against the bridge",
 		"ExampleParse":       "expects local zone America/Los_Angeles; time's internal ForceUSPacificForTesting init cannot run against the bridge",
 	},
+	"runtime": {
+		// //go:linkname runtime.heapObjectsCanMove; body-less func stays nil and
+		// calling it nil-derefs (mvm does not parse linkname directives).
+		"TestHeapObjectsCanMove": "uses //go:linkname to reach private runtime.heapObjectsCanMove; mvm does not parse linkname directives",
+		// Reads runtime/metrics + GODEBUG=panicnil; the metrics/godebug plumbing
+		// is native-runtime-only, so the bridge hits a zero reflect.Value.
+		"TestPanicNil": "depends on runtime/metrics + GODEBUG panicnil semantics not modeled by the bridge",
+		// float32(uint64) double-rounds via float64 (Go issue 48807); mvm has no
+		// direct uint64->float32 rounding, so the direct/two-step results match.
+		"TestIssue48807": "float32(uint64) double-rounds via float64; mvm lacks direct uint64->float32 rounding (Go issue 48807)",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge

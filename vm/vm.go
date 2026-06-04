@@ -3406,6 +3406,13 @@ func minMax(mem []Value, sp, n int, kind reflect.Kind, isMax bool) int {
 				best = i
 			case !isMax && fi < fb:
 				best = i
+			case fi == fb:
+				// +0 and -0 compare equal under </>; Go's max prefers +0, min -0.
+				if isMax && math.Signbit(fb) && !math.Signbit(fi) {
+					best = i
+				} else if !isMax && !math.Signbit(fb) && math.Signbit(fi) {
+					best = i
+				}
 			}
 		}
 	case kind == reflect.String:

@@ -3767,6 +3767,12 @@ func TestBuiltin(t *testing.T) {
 		{n: "max_int1", src: `max(42)`, res: "42"},
 		{n: "max_string", src: `max("b", "a", "c")`, res: "c"},
 		{n: "max_float", src: `max(3.0, 1.5)`, res: "3"},
+		// Float min/max signed-zero/NaN per Go spec: max prefers +0, min prefers
+		// -0 (they compare equal under </>), and any NaN operand yields NaN.
+		{n: "max_signed_zero", src: `import "math"; math.Signbit(max(math.Copysign(0, -1), 0.0))`, res: "false"},
+		{n: "min_signed_zero", src: `import "math"; math.Signbit(min(0.0, math.Copysign(0, -1)))`, res: "true"},
+		{n: "min_nan", src: `import "math"; math.IsNaN(min(math.NaN(), 1.0))`, res: "true"},
+		{n: "max_nan", src: `import "math"; math.IsNaN(max(1.0, math.NaN()))`, res: "true"},
 
 		// complex
 		{n: "complex64", src: `complex(float32(12),float32(34))`, res: "(12+34i)"},
@@ -3792,6 +3798,9 @@ func TestBuiltin(t *testing.T) {
 		{n: "complex64_conv_int", src: `complex64(7)`, res: "(7+0i)"},
 		{n: "complex128_conv_float", src: `var a complex128 = 2.5; a`, res: "(2.5+0i)"},
 		{n: "complex64_slice_lit", src: `[]complex64{1, 2, 3}`, res: "[(1+0i) (2+0i) (3+0i)]"},
+		// Runtime (non-const) complex +-*/ has no opcode; expect a clean compile
+		// error, not a numericOp panic ("non-numeric kind complex128").
+		{n: "complex128_runtime_mul_unsupported", src: `var a complex128 = 2; var b complex128 = 3; a * b`, err: "complex arithmetic on non-constant operands is not supported"},
 
 		// An interpreted String/GoString/Format that panics propagates to fmt's
 		// catchPanic (synth dispatch re-raises the original value via raiseMethodErr).

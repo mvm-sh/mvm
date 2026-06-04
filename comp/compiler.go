@@ -1099,6 +1099,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			}
 			typ := arithmeticOpType(right, left)
+			// Runtime complex +-*/ has no opcode yet (folded const complex is fine);
+			// error cleanly instead of panicking in numericOp. See #17.
+			if typ != nil {
+				if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
+					return c.errAt(t, "complex arithmetic on non-constant operands is not supported")
+				}
+			}
 			c.convertOperand(t, right, rightStart, typ, 0)
 			c.convertOperand(t, left, leftStart, typ, 1)
 			push(&symbol.Symbol{Kind: constKind(right, left), Type: typ})
