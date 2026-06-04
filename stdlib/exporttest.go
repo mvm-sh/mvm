@@ -25,6 +25,26 @@ var TestValues = map[string]map[string]reflect.Value{
 	"math/bits": {
 		"DeBruijn64": reflect.ValueOf(uint64(0x03f79d71b4ca8b09)),
 	},
+	"reflect": {
+		// export_test.go: MapGroupOf = groupAndSlotOf's group type, built from
+		// public reflect API + abi constants (MapGroupSlots=8, MapMax*Bytes=128).
+		"MapGroupOf": reflect.ValueOf(func(x, y reflect.Type) reflect.Type {
+			if x.Size() > 128 {
+				x = reflect.PointerTo(x)
+			}
+			if y.Size() > 128 {
+				y = reflect.PointerTo(y)
+			}
+			slot := reflect.StructOf([]reflect.StructField{
+				{Name: "Key", Type: x},
+				{Name: "Elem", Type: y},
+			})
+			return reflect.StructOf([]reflect.StructField{
+				{Name: "Ctrl", Type: reflect.TypeOf(uint64(0))},
+				{Name: "Slots", Type: reflect.ArrayOf(8, slot)},
+			})
+		}),
+	},
 	"fmt": {
 		"IsSpace":  reflect.ValueOf(fmtIsSpace),
 		"Parsenum": reflect.ValueOf(fmtParsenum),

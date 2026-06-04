@@ -3506,15 +3506,20 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 			return gf
 		}
 	}
-	// Restore a named basic type the value lost in an arithmetic op (e.g.
-	// 300*time.Millisecond yields a bare int64); ifc.Typ still records it.
-	if ifc.Typ != nil && val.IsValid() {
-		if rt := ifc.Typ.Rtype; rt != nil {
-			if k := rt.Kind(); k == val.Kind() && (isNum(k) || k == reflect.String) &&
-				val.Type() != rt && val.Type().ConvertibleTo(rt) {
-				return val.Convert(rt)
-			}
-		}
+	if ifc.Typ == nil {
+		return val
+	}
+	// A numeric value's bits live in ifc.Val.num and its real type in ifc.Typ;
+	// the ref can collapse to a generic int (int8 const via Push, named type
+	// after arithmetic). Rebuild from num so the native side sees the real type.
+	if rt := ifc.Typ.Rtype; rt != nil && isNum(rt.Kind()) && isNum(ifc.Val.ref.Kind()) {
+		return numReflect(rt, ifc.Val)
+	}
+	// Restore a named string type the value lost the same way.
+	if rt := ifc.Typ.Rtype; rt != nil && val.IsValid() &&
+		rt.Kind() == reflect.String && val.Kind() == reflect.String &&
+		val.Type() != rt && val.Type().ConvertibleTo(rt) {
+		return val.Convert(rt)
 	}
 	return val
 }
