@@ -644,6 +644,11 @@ func TestGenericInfer(t *testing.T) {
 		// follow-up.
 		{n: "define_append_composite_arg", skip: true, src: `func g[S ~[]E, E any](x S) int { return len(x) }; func f() int { x := append([]int{1}, 2, 3); return g(x) }; f()`, res: "3"},
 
+		// postfixType under-counted a method call on a non-pkg receiver (recv.M())
+		// by its receiver token, misaligning the binary-op split -> wrong generic
+		// arg type. From go/types api_test.go:1401.
+		{n: "method_call_in_concat_generic_arg", src: `import ("slices"; "strings"); type R struct{}; func (R) Names() []string { return []string{"x"} }; func f() bool { var r R; d := "k" + ":" + strings.Join(r.Names(), " "); return slices.Contains([]string{"k:x"}, d) }; f()`, res: "true"},
+
 		// Load guard (NOT skipped): keep slices/maps package source compilable.
 		// References the rotateRight-using funcs (Insert/Replace) so a regression
 		// that breaks their compilation surfaces here, not silently in `mvm test`.

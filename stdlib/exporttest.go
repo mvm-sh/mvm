@@ -60,8 +60,7 @@ var TestValues = map[string]map[string]reflect.Value{
 		}),
 	},
 	"go/types": {
-		// util_test.go (internal test file) exports CmpPos so external tests
-		// reach it via the test-augmented package; the bridge lacks it.
+		// Exported by util_test.go (internal) for external tests; absent on the bridge.
 		"CmpPos": reflect.ValueOf(func(p, q token.Pos) int { return int(p - q) }),
 	},
 }

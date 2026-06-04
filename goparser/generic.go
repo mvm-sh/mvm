@@ -153,9 +153,9 @@ func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, ca
 	return nil
 }
 
-// constraintError reports the failure at the instantiation callsite (callPos)
-// when known, so the diagnostic and `mvm test`'s drop-failing-file retry point
-// at the offending call rather than the template's constraint declaration.
+// constraintError reports at the instantiation callsite (callPos) when known,
+// so the diagnostic and the drop-failing-file retry point at the offending call,
+// not the template's constraint decl.
 func (p *Parser) constraintError(c tpConstraint, arg *vm.Type, callPos int) error {
 	pos := callPos
 	if pos == 0 {
@@ -1011,24 +1011,39 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				return funcReturnType(s.Type), totalLen
 			}
 		case lang.Period:
-			// pkg-qualified callee `pkg.Func(...)`: the package ident precedes
-			// the Period selector. Resolve the func's return type so inference
-			// can type an arg like `Or(strings.Compare(a, b))`. Generic members
-			// are intentionally NOT resolved here: typing a nested generic
-			// call's result lets inference wrongly succeed and reach bad
-			// nested-generic codegen (a known hang). Mirrors callFuncType.
-			if len(rest) < 2 || rest[len(rest)-2].Tok != lang.Ident {
-				break
-			}
-			ps := p.Symbols[rest[len(rest)-2].Str]
-			if ps == nil || ps.Kind != symbol.Pkg {
+			// Count the receiver/pkg-qualifier token before the selector, else the
+			// enclosing operand split misaligns and binds a wrong type. See callFuncType.
+			if len(rest) < 2 {
 				break
 			}
 			member := fnTok.Str[1:] // strip leading "."
-			if ft := p.pkgMemberType(ps.PkgPath, member); ft != nil && ft.IsFunc() {
-				totalLen++ // account for the package ident token
-				return funcReturnType(ft), totalLen
+			if pre := rest[len(rest)-2]; pre.Tok == lang.Ident {
+				if ps := p.Symbols[pre.Str]; ps != nil && ps.Kind == symbol.Pkg {
+					totalLen++ // the package ident token
+					// Generic members stay unresolved: typing a nested generic
+					// result mis-succeeds inference -> bad codegen / hang.
+					if ft := p.pkgMemberType(ps.PkgPath, member); ft != nil && ft.IsFunc() {
+						return funcReturnType(ft), totalLen
+					}
+					return nil, totalLen
+				}
 			}
+			// Method call: count the receiver expr; resolve its return type if known.
+			recvTyp, rl := p.postfixType(rest[:len(rest)-1])
+			if rl == 0 {
+				break
+			}
+			totalLen += rl
+			if recvTyp != nil {
+				st := recvTyp
+				if st.Kind() == reflect.Pointer {
+					st = st.Elem()
+				}
+				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member); ms != nil && ms.Type != nil {
+					return funcReturnType(ms.Type), totalLen
+				}
+			}
+			return nil, totalLen
 		}
 		return nil, totalLen
 
