@@ -314,6 +314,13 @@ func methodLookup(sm SymMap, typName, method string) *Symbol {
 // promotedMethod searches for a method promoted through embedded fields recorded in typ.Embedded.
 // It returns the method symbol and the field index path to reach the embedded receiver.
 func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol, []int) {
+	return sm.promotedMethodSeen(typ, name, path, nil)
+}
+
+// promotedMethodSeen is promotedMethod with a visited set guarding against
+// self-referential embedding (legal in Go, e.g. `type A struct{ *A }`), which
+// would otherwise recurse until the stack overflows.
+func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen map[*vm.Type]bool) (*Symbol, []int) {
 	if typ == nil {
 		return nil, nil
 	}
@@ -322,6 +329,13 @@ func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol,
 	if typ.IsPtr() && typ.ElemType != nil {
 		typ = typ.ElemType
 	}
+	if seen[typ] {
+		return nil, nil
+	}
+	if seen == nil {
+		seen = map[*vm.Type]bool{}
+	}
+	seen[typ] = true
 	for _, emb := range typ.Embedded {
 		embType := emb.Type
 		if embType == nil {
@@ -340,7 +354,7 @@ func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol,
 				return m, fieldPath
 			}
 		}
-		if m, p := sm.promotedMethod(embType, name, fieldPath); m != nil {
+		if m, p := sm.promotedMethodSeen(embType, name, fieldPath, seen); m != nil {
 			return m, p
 		}
 	}
