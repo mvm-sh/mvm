@@ -290,6 +290,30 @@ func TestProbeFindsModule(t *testing.T) {
 	}
 }
 
+func TestMajorVersionSuffix(t *testing.T) {
+	// The v1-era module path also answers 200 but lacks the "v4" sub-path,
+	// so probing must skip it and resolve the v4 module instead.
+	p := &fakeProxy{
+		t: t,
+		latest: map[string]string{
+			"github.com/blang/semver":    "v2.2.0+incompatible",
+			"github.com/blang/semver/v4": "v4.0.0",
+		},
+		modules: map[string]map[string]string{
+			"github.com/blang/semver@v2.2.0+incompatible": {"semver.go": "package semver\n"},
+			"github.com/blang/semver/v4@v4.0.0":           {"semver.go": "package semver\n// v4\n"},
+		},
+	}
+	f := newTestFS(t, p)
+	data, err := fs.ReadFile(f, "github.com/blang/semver/v4/semver.go")
+	if err != nil {
+		t.Fatalf("read semver/v4: %v", err)
+	}
+	if !strings.Contains(string(data), "// v4") {
+		t.Errorf("resolved wrong module; got %q", data)
+	}
+}
+
 func TestEscapePath(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"github.com/foo/bar", "github.com/foo/bar"},

@@ -189,10 +189,11 @@ func (f *FS) locate(importPath string) (*module, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Probe shortest-first with at least 2 path components (a module path
-	// must contain a slash). The first prefix the proxy answers 200 for
-	// is taken as the module path; misses are negative-cached so repeated
-	// lookups never reprobe.
+	// Probe shortest-first (a module path has >=2 components). Take the first
+	// prefix the proxy answers 200 for AND that owns the sub-path; misses are
+	// negative-cached. The sub-path check handles semantic import versioning:
+	// "github.com/blang/semver" also answers 200 for ".../semver/v4", so
+	// without it we would pick the v1 module and miss the v4 subdir.
 	parts := strings.Split(importPath, "/")
 	for i := 2; i <= len(parts); i++ {
 		cand := strings.Join(parts[:i], "/")
@@ -204,9 +205,27 @@ func (f *FS) locate(importPath string) (*module, string, error) {
 			f.missing[cand] = struct{}{}
 			continue
 		}
-		return m, strings.TrimPrefix(strings.TrimPrefix(importPath, cand), "/"), nil
+		sub := strings.TrimPrefix(strings.TrimPrefix(importPath, cand), "/")
+		if !m.has(sub) {
+			// Real module, wrong one for this import: try a longer prefix.
+			// Not negative-cached, since the module itself exists.
+			continue
+		}
+		return m, sub, nil
 	}
 	return nil, "", fs.ErrNotExist
+}
+
+// has reports whether the module contains sub as a file or dir ("" = root).
+func (m *module) has(sub string) bool {
+	if sub == "" {
+		return true
+	}
+	if _, ok := m.files[sub]; ok {
+		return true
+	}
+	_, ok := m.dirEntries[sub]
+	return ok
 }
 
 func (f *FS) fetchModulePath(modPath string) (*module, error) {
