@@ -113,10 +113,10 @@ func testCmd(arg []string) error {
 	// Try target as a local directory first; fall back to import-path
 	// resolution (modfs / stdlibfs / pkgfs) on miss.
 	if absDir, aerr := filepath.Abs(target); aerr == nil {
-		if entries, rerr := os.ReadDir(absDir); rerr == nil {
+		if _, rerr := os.ReadDir(absDir); rerr == nil {
 			i, mfs := newTestInterp(trace)
 			flushStats := setupStats(i, mfs, stat)
-			if err := evalLocalDir(i, absDir, entries); err != nil {
+			if err := evalLocalDir(i, absDir); err != nil {
 				flushStats()
 				return err
 			}
@@ -335,31 +335,25 @@ func materializePkgDir(fsys fs.FS, importPath string) (string, func(), error) {
 	return tmp, cleanup, nil
 }
 
-func evalLocalDir(i *interp.Interp, absDir string, entries []os.DirEntry) error {
-	var paths []string
+func evalLocalDir(i *interp.Interp, absDir string) error {
+	// One unit, build-tag filtered: cross-file refs resolve and constraint-excluded
+	// files (//go:build ignore, !go1.18 siblings) stay out, like `go test`.
+	sources, err := i.LoadLocalPackageSources(absDir)
+	if err != nil {
+		return err
+	}
 	hasTest := false
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-			continue
-		}
-		paths = append(paths, filepath.Join(absDir, e.Name()))
-		if strings.HasSuffix(e.Name(), "_test.go") {
+	for _, s := range sources {
+		if strings.HasSuffix(s.Name, "_test.go") {
 			hasTest = true
+			break
 		}
 	}
 	if !hasTest {
 		return fmt.Errorf("no *_test.go files found in %s", absDir)
 	}
-	for _, p := range paths {
-		buf, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if _, err := i.Eval(p, string(buf)); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err = i.EvalFiles(sources)
+	return err
 }
 
 // filterTopLevelTests applies the user's -test.run / -test.skip patterns to

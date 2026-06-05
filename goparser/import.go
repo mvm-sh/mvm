@@ -59,7 +59,17 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("%s: not a package directory", importPath)
 	}
-	entries, err := fs.ReadDir(fsys, importPath)
+	return p.collectPackageSources(fsys, importPath, importPath, includeTests)
+}
+
+// LoadLocalPackageSources is LoadPackageSources for `mvm test <dir>`: a package
+// rooted at a local OS directory rather than an import path in the FS chain.
+func (p *Parser) LoadLocalPackageSources(absDir string) ([]PackageSource, error) {
+	return p.collectPackageSources(os.DirFS(absDir), ".", "", true)
+}
+
+func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, includeTests bool) ([]PackageSource, error) {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -75,16 +85,13 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 		if !includeTests && strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
-		// Honor the test-skip set (mvm test's drop-failing-test-file retry) for
-		// source-loaded packages too, not just bridged $GOROOT tests -- so a test
-		// file with an interpretation gap can be dropped and the rest still run.
 		if p.testSkipFiles[e.Name()] {
 			continue
 		}
 		if !MatchFileName(e.Name(), p.buildCtx) {
 			continue
 		}
-		buf, err := fs.ReadFile(fsys, importPath+"/"+e.Name())
+		buf, err := fs.ReadFile(fsys, path.Join(dir, e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +127,7 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 					continue
 				}
 				if bad := p.firstUnresolvableImport(p.extractImports(s.Content)); bad != "" {
-					p.noteUnresolvableSkip(importPath, s.Name, bad)
+					p.noteUnresolvableSkip(dir, s.Name, bad)
 					continue
 				}
 				external = append(external, s)
@@ -129,13 +136,11 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 				return external, nil
 			}
 		}
-		// Else fall back to testSrcFS ($GOROOT) for bridge-only / tests-stripped pkgs.
-		if p.testSrcFS != nil && !sawTestFile {
+		if importPath != "" && p.testSrcFS != nil && !sawTestFile {
 			if ext, terr := p.loadBridgedTestSources(importPath); terr == nil && len(ext) > 0 {
 				return ext, nil
 			}
 		}
-		// Else keep internal tests in-unit; drop external stragglers.
 		if mainPkg != "" {
 			filtered := out[:0]
 			for i, s := range out {
@@ -149,21 +154,6 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 	return out, nil
 }
 
-// loadBridgedTestSources serves *_test.go files for a bridge-only stdlib
-// package from testSrcFS, keeping only files whose package clause is the
-// external test package (`<last>_test`). Internal `package <last>` test
-// files are skipped: they reference unexported symbols the bridge does
-// not expose, so they cannot compile against the reflect bindings.
-//
-// Files importing paths that mvm cannot resolve (notably `internal/asan`,
-// `internal/testenv`, ...) are also skipped, with a one-line notice on
-// stderr. Without that filter a single unresolvable file would fatal the
-// whole package load via importSrc; per-file skipping lets whatever does
-// load still run.
-//
-// The returned files form a self-contained compilation unit with
-// pkgName="<last>_test"; their `import "<importPath>"` clauses resolve
-// to the existing native bridge.
 func (p *Parser) loadBridgedTestSources(importPath string) ([]PackageSource, error) {
 	fi, err := fs.Stat(p.testSrcFS, importPath)
 	if err != nil {
@@ -208,8 +198,6 @@ func (p *Parser) loadBridgedTestSources(importPath string) ([]PackageSource, err
 	return out, nil
 }
 
-// noteUnresolvableSkip reports a dropped test file once, recording it in
-// testSkipFiles so mvm test's reload-per-retry does not re-report it.
 func (p *Parser) noteUnresolvableSkip(importPath, file, badImport string) {
 	if p.testSkipFiles == nil {
 		p.testSkipFiles = map[string]bool{}
@@ -308,10 +296,6 @@ func extractPackageName(src string) string {
 }
 
 func (p *Parser) importSrc(pkgPath string) (err error) {
-	// Save and restore parser state so the imported package's
-	// "package" declaration does not conflict with the current one,
-	// and so includeTests stays local to the top-level test target
-	// rather than leaking into transitive imports.
 	savedPkgName := p.pkgName
 	savedIncludeTests := p.includeTests
 	savedImportingPkg := p.importingPkg
@@ -324,11 +308,6 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 		p.importingPkg = savedImportingPkg
 	}()
 
-	// Snapshot existing symbol pointers so we can identify bindings
-	// added or replaced by this import. A later import that redefines an
-	// exported name (e.g. `Equal` in both `maps` and `slices`) swaps the
-	// pointer at p.Symbols[k]; key-only tracking would miss the rebind
-	// and fail to create the qualified alias for the second package.
 	existing := make(map[string]*symbol.Symbol, len(p.Symbols))
 	for k, s := range p.Symbols {
 		existing[k] = s
@@ -339,16 +318,8 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 		return fmt.Errorf("while importing %q: %w", pkgPath, err)
 	}
 
-	// Store remaining declarations (func bodies, var initializers)
-	// for code generation by the outer ParseAll / Compile. They are already
-	// tagged with their originating package path by ParseAll.
 	p.importRemaining = append(p.importRemaining, remaining...)
 
-	// Collect exported symbols into a Package entry (the package's public
-	// surface) and create package-qualified aliases for *every* top-level
-	// symbol this import added or replaced -- exported or not -- so that
-	// Phase-2 code from this package can resolve its own names even after a
-	// sibling import shadows a bare key in the symbol table (see DeferredDecl).
 	pkg := &symbol.Package{
 		Path:   pkgPath,
 		Values: map[string]vm.Value{},
@@ -359,14 +330,6 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 		if existing[k] == s {
 			continue
 		}
-		// Type writers in Path B step 1 register at the canonical pkgKey form
-		// "<pkgPath>.<name>" directly (see pkgKey, parseTypeLine,
-		// preRegisterTypes, registerType). For those entries we still publish
-		// the short-name in pkg.Values (for cross-pkg `pkg.Member` resolution
-		// that falls back to `pkg.Values`), but we skip the qualified-alias
-		// SymSet below: aliasing again would yield "<pkgPath>.<pkgPath>.<name>".
-		// Checked BEFORE isScopedKey because the qualified key contains '/'
-		// inside its pkg-path prefix.
 		if strings.HasPrefix(k, qualifiedPrefix) {
 			short := k[len(qualifiedPrefix):]
 			if isScopedKey(short) {
@@ -377,9 +340,6 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 			}
 			continue
 		}
-		// Skip scoped keys (param placeholders, locals) AND foreign pkg's
-		// qualified aliases ("other.pkg/path.name" registered by a transitive
-		// import); only top-level names registered by THIS pkg need aliasing.
 		if isScopedKey(k) {
 			continue
 		}
@@ -391,11 +351,6 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	// Create qualified aliases after the loop to avoid mutating p.Symbols during iteration.
 	for _, k := range newKeys {
 		s := p.Symbols[k]
-		// A type's Symbol is mutated in place when a sibling import re-declares
-		// the same bare name (parseTypeLine reuses the existing symbol and resets
-		// its .Type). Alias to a shallow copy so this package's qualified entry
-		// keeps pointing at the right *vm.Type; everything else can share the
-		// live symbol.
 		if s.Kind == symbol.Type {
 			cp := *s
 			s = &cp
@@ -409,9 +364,7 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 
 // ParseAll parses code and its dependencies, and returns the still-to-be-
 // code-generated declarations (func bodies, var initializers), each tagged
-// with its originating package path, or an error. When src == "" the source
-// is loaded from the package directory `name`, so its decls are tagged with
-// `name`; otherwise (main package / REPL) they are tagged with "".
+// with its originating package path, or an error.
 func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 	var decls []Tokens
 
@@ -446,11 +399,7 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 }
 
 // ParseAllFiles parses a set of in-memory source files as a SINGLE compile unit
-// (one package) and returns the still-to-be-code-generated declarations. Used by
-// `mvm run f1.go f2.go ...`, where several local files form the main package and
-// must see each other's top-level symbols regardless of file or declaration
-// order. Each source's Name labels its origin for diagnostics. Decls are tagged
-// for the main package (bare keys), matching a single-file main Eval.
+// (one package) and returns the still-to-be-code-generated declarations.
 func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err error) {
 	var decls []Tokens
 	for _, s := range sources {
@@ -464,34 +413,16 @@ func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err
 	return p.resolveDecls(decls, "")
 }
 
-// resolveDecls runs Phase 1 (declaration resolution + generic-method expansion
-// fixpoint) over decls and returns the deferred code-gen declarations, each
-// tagged with pkgTag. Shared by ParseAll and ParseAllFiles so a multi-file unit
-// resolves cross-file references exactly as a single-source one does.
 func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl, err error) {
-	// Each compilation unit (package, or `mvm run` file set) gets its own
-	// redeclaration scope: a second top-level func/method of the same name within
-	// it is an error. Save/restore so a nested import compile (importSrc ->
-	// ParseAll -> resolveDecls during this unit's Phase 1) does not clobber it.
 	savedBatch := p.batchFuncDecls
 	p.batchFuncDecls = map[string]bool{}
 	defer func() { p.batchFuncDecls = savedBatch }()
 
-	// Pre-register struct and interface type placeholders so that forward,
-	// mutual, and self-references can resolve during parsing. Placeholders
-	// land under this pkg's pkgKey ("<importingPkg>.<name>"), so a transitive
-	// sub-import (e.g. language -> internal/language) writing its OWN
-	// `type Foo uint16` at <innerPkg>.Foo doesn't collide. Placeholders are
-	// untracked: they survive the retry loop cleanup.
 	p.preRegisterTypes(decls)
 	p.preRegisterGenericFuncs(decls)
 
 	// Phase 1: resolve all declarations and expand generic methods in a
-	// single fixed-point loop. Each pass (a) retries decls that failed with
-	// ErrUndefined, then (b) emits any pending (instance x method) pair for
-	// registered generic types. The loop terminates when neither pass makes
-	// progress; interleaving the two lets a deferred decl be resolved by a
-	// symbol produced by method emission (and vice versa).
+	// single fixed-point loop.
 	var remaining []Tokens // decls needing full parse + generate
 	pending := decls
 	for {
@@ -615,12 +546,6 @@ func (p *Parser) preRegisterTypes(decls []Tokens) {
 	}
 }
 
-// preRegisterGenericFuncs records each top-level generic function by name (type
-// params only, signature unparsed) before the Phase-1 loop, so a call to one
-// whose own signature is still deferred behind a forward reference is still seen
-// as generic (and defers) rather than compiling a bare ref to a codeless template.
-// Untracked so it survives the retry-loop rollback; registerFunc fills the
-// signature when the decl parses.
 func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
 	for _, decl := range decls {
 		if len(decl) < 4 || decl[0].Tok != lang.Func ||
@@ -644,14 +569,6 @@ func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
 }
 
 func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
-	// Only reuse an existing binding if it is genuinely a struct placeholder
-	// awaiting SetFields. Bare type names are not package-qualified while a
-	// package's source is parsed, so `key` may currently hold an unrelated type
-	// from another import (e.g. a `type X uint16` whose Rtype is the shared,
-	// read-only reflect.TypeOf(uint16(0))). Patching that in SetFields would
-	// memcpy onto read-only memory and crash; shadow it with a fresh placeholder
-	// instead. (Same guard also avoids re-patching an already-finalized struct,
-	// which would corrupt the other package's type.)
 	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
 		s.Type != nil &&
 		s.Type.Kind() == reflect.Struct && s.Type.Placeholder {
@@ -664,15 +581,6 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 }
 
 func (p *Parser) registerInterfacePlaceholder(key, short string) *vm.Type {
-	// Only reuse an existing binding if it is genuinely an interface placeholder
-	// awaiting finalization (parseTypeLine fills in IfaceMethods/TypeElems and
-	// clears Placeholder). Otherwise the bare name may currently hold either an
-	// unrelated kind from a sibling package (e.g. internal/language's `type
-	// ValueError struct{...}` while parsing language's `type ValueError
-	// interface{...}`) or that sibling's already-finalized interface; reusing
-	// either would flip its kind / overwrite its method set and corrupt the
-	// other package's qualified alias. Shadow the bare key with a fresh
-	// placeholder instead.
 	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
 		s.Type != nil && s.Type.Rtype != nil &&
 		s.Type.Kind() == reflect.Interface && s.Type.Placeholder {
