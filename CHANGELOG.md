@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-05
+
 ### Added
 
 - Compatibility matrix.
@@ -30,13 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   map keyed by full import path for any package, not just the standard
   library.
 - Cross-language benchmarks under `bench/` compare mvm against Go, Lua,
-  Python, and Node on `fib` and `sieve`.
+  and Python on `fib` and `sieve`.
 - `errors.Is` and `errors.As` on interpreted interface types, including
-  multi-error chains (`Unwrap() []error`), through reworked native
-  bridges in `errorsx`.
+  multi-error chains (`Unwrap() []error`).
 - `reflect.TypeAssert[T]` generic shim.
-- `fmtx` package fixes `%T` verbs to report the interpreted type name
-  instead of the bridge wrapper.
+- `%T` reports the interpreted type name instead of a bridge wrapper.
 - Stubs for `testing` package so `flag` and similar tests run end-to-end.
 - `stdlib.Incompat` skiplist: known architectural mismatches in stdlib
   tests are rewritten to `mvmtest.SkipFn(reason)` so they show `SKIP`
@@ -48,6 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Native method dispatch now synthesizes a real Go `reflect` type that
+  carries the interpreted method set, attached to every compiled type.
+  This replaces the per-call interface-bridge and argument-proxy layer
+  (ADR-009, ADR-012) and the hand-written shadow packages, so an
+  interpreted type can satisfy several native interfaces at once (e.g.
+  `Stringer` and `json.Marshaler`) and reflect-walking native code sees
+  interpreted methods on nested struct fields.
+  Synthesized rtypes run at native speed where the old bridges allocated.
+  See [ADR-021](docs/decisions/ADR-021-synthesized-rtypes.md).
+- Stdlib and external test coverage expanded markedly: 90 of 169 bridged
+  packages and 16 of 50 curated external modules now pass their full
+  upstream suite, with many more passing a majority.
+  Newly green this cycle include `errors`, `text/tabwriter`,
+  `log`/`log/slog`, `html/template`, `io/fs`, `runtime/debug`, and
+  `go/types`.
 - `slices` and `maps` standard-library packages are now fully
   interpreted rather than bridged.
   `testing/quick` is also interpreted now; its `_test.go` ships in the
@@ -111,6 +126,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   through a native pointer are visible.
 - Interface bridges: improved coverage of stdlib interface conversions
   in both directions.
+- The zero value of a map or slice variable is now nil, matching Go.
+  A bare `var m map[K]V` or `var s []T` is a nil container, while a
+  composite literal or `make` stays non-nil even when empty, and writing
+  to a nil map raises a recoverable panic.
+  Two same-type composite literals in one function each get their own
+  container (a regression where the first stayed nil is fixed).
+- Remote modules with a major-version suffix (`v2+`) resolve correctly.
+  Probing now verifies the candidate module owns the import sub-path, so
+  semantic-import-versioning paths such as `github.com/blang/semver/v4`
+  no longer mis-resolve to the v1-era module.
 
 ### Performance
 
@@ -125,6 +150,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
+- The hand-written interface-bridge shadow packages
+  (`errorsx`, `fmtx`, `jsonx`, `xmlx`, `gobx`), superseded by
+  synthesized rtypes (ADR-021).
 - `substituteTokens` and its helpers from the generics-inference
   pipeline (replaced by symbol-table identity binding).
 - `typeArgSources` source-tracking subsystem.
