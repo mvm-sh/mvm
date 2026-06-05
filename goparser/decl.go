@@ -1156,6 +1156,14 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		}
 	}
 
+	// Stamp PkgPath before the body parse so a self-referential field type
+	// (e.g. children items[*node[T]]) mangles this instance consistently; set
+	// afterwards it drifts (items#_node#int vs items#_btree_node#int) into a
+	// duplicate instance.
+	if placeholder != nil && placeholder.PkgPath == "" {
+		placeholder.PkgPath = p.pkgName
+	}
+
 	typ, _, err := p.parseTypeExpr(toks)
 	if err != nil {
 		return out, err

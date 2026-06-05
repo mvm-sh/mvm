@@ -105,3 +105,55 @@ func main() {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// A generic method body (Tree.Min) calls a generic free function (leftmost) whose
+// own signature forward-references a type (ctx) declared later. leftmost's
+// registration defers, but a defined type (ItemTree) eagerly parses Min's body
+// first, so the call used to compile to a bare ref to the codeless template -> nil
+// func panic at run time. This is the google/btree shape (BTreeG.Min -> min(t.root),
+// copyOnWriteContext declared after node).
+func TestGenericForwardRefFreeFuncInMethod(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Item interface{ Less(o Item) bool }
+
+type node[T any] struct {
+	items    []T
+	children []*node[T]
+	cow      *ctx[T] // forward ref to ctx, declared below
+}
+
+func leftmost[T any](n *node[T]) (_ T, ok bool) {
+	if n == nil {
+		return
+	}
+	return n.items[0], true
+}
+
+type Tree[T any] struct {
+	root *node[T]
+	cow  *ctx[T]
+}
+
+func (t *Tree[T]) Min() (_ T, _ bool) { return leftmost(t.root) }
+
+func NewG[T any]() *Tree[T] { return &Tree[T]{cow: &ctx[T]{}} }
+
+type ctx[T any] struct{ less func(a, b T) bool }
+
+type ItemTree Tree[Item]
+
+func New() *ItemTree { return (*ItemTree)(NewG[Item]()) }
+
+func main() {
+	t := New()
+	mn, ok := (*Tree[Item])(t).Min()
+	fmt.Println(mn, ok)
+}
+`
+	if got, want := runMain(t, "fwdref_freefunc.go", src), "<nil> false\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

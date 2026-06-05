@@ -484,6 +484,7 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 	// `type Foo uint16` at <innerPkg>.Foo doesn't collide. Placeholders are
 	// untracked: they survive the retry loop cleanup.
 	p.preRegisterTypes(decls)
+	p.preRegisterGenericFuncs(decls)
 
 	// Phase 1: resolve all declarations and expand generic methods in a
 	// single fixed-point loop. Each pass (a) retries decls that failed with
@@ -540,10 +541,18 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 
 		methodProgress, mErr := p.instantiatePendingMethods()
 		if mErr != nil {
-			return out, mErr
+			// A forward reference deferred a method body (ErrUndefined): retryable,
+			// like a deferred decl. Anything else is a hard compile error.
+			var eu ErrUndefined
+			if !errors.As(mErr, &eu) {
+				return out, mErr
+			}
+			if firstErr == nil {
+				firstErr = mErr
+			}
 		}
 
-		if len(pending) == 0 && !methodProgress {
+		if len(pending) == 0 && !methodProgress && mErr == nil {
 			break
 		}
 		if !declProgress && !methodProgress {
@@ -603,6 +612,34 @@ func (p *Parser) preRegisterTypes(decls []Tokens) {
 				p.registerInterfacePlaceholder(p.pkgKey(n), n)
 			}
 		}
+	}
+}
+
+// preRegisterGenericFuncs records each top-level generic function by name (type
+// params only, signature unparsed) before the Phase-1 loop, so a call to one
+// whose own signature is still deferred behind a forward reference is still seen
+// as generic (and defers) rather than compiling a bare ref to a codeless template.
+// Untracked so it survives the retry-loop rollback; registerFunc fills the
+// signature when the decl parses.
+func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
+	for _, decl := range decls {
+		if len(decl) < 4 || decl[0].Tok != lang.Func ||
+			decl[1].Tok != lang.Ident || decl[2].Tok != lang.BracketBlock {
+			continue
+		}
+		name := decl[1].Str
+		if name == "_" || name == "init" {
+			continue
+		}
+		key := p.pkgKey(name)
+		if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Generic {
+			continue // already registered (real decl parsed, or a duplicate pre-pass)
+		}
+		params, err := p.parseTypeParamList(decl[2].Token)
+		if err != nil {
+			continue // let registerFunc surface the error during the loop
+		}
+		p.SymSet(key, p.genericFuncSymbol(name, params, decl, nil))
 	}
 }
 

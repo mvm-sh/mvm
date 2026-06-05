@@ -56,6 +56,7 @@ type Parser struct {
 	batchFuncDecls map[string]bool       // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
 	instanceDecls  []DeferredDecl        // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
 	funcInstArgs   map[string][]*vm.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
+	instantiating  map[string]bool       // generic-type instances whose body is parsing now; self-refs reuse the mid-build placeholder, a failed-instantiation leftover is rebuilt on retry
 	typeOnly       bool                  // when true, addSymVar is a no-op (Phase 1 signature-only parse)
 	inForInit      bool                  // true while parsing for-init or range clause (marks LoopVar)
 	funcDepth      int                   // nesting depth of function bodies (>0 means inside a function)

@@ -1,6 +1,7 @@
 package goparser
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -61,6 +62,25 @@ type genericTemplate struct {
 type genericInstance struct {
 	typeArgs []*vm.Type
 	mname    string // mangled symbol name used for instance type registration
+}
+
+// genericFuncSymbol builds a generic-function symbol-table entry. genType is the
+// parsed signature, or nil when only pre-registering the name (see
+// preRegisterGenericFuncs). registerFunc and the pre-pass share it.
+func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Tokens, genType *vm.Type) *symbol.Symbol {
+	return &symbol.Symbol{
+		Kind: symbol.Generic,
+		Name: name,
+		Used: true,
+		Type: genType,
+		Data: &genericTemplate{
+			name:       name,
+			typeParams: params,
+			rawTokens:  rawToks,
+			isFunc:     true,
+			pkgPath:    p.importingPkg,
+		},
+	}
 }
 
 func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
@@ -563,7 +583,12 @@ func (p *Parser) instanceName(tmpl *genericTemplate, typeArgs []*vm.Type) (name 
 		// Generic types keep the plain name; instantiateMethod recomputes it
 		// without a suffix, so a suffix here would orphan attached methods.
 		if s, _, ok := p.Symbols.Get(base, ""); ok && s.Type != nil {
-			return base, true
+			// Reuse a finalized instance, or a still-placeholder one only while
+			// its own body parses (self-ref). A placeholder left by a FAILED
+			// instantiation must be rebuilt on retry, not reused.
+			if !s.Type.Placeholder || p.instantiating[base] {
+				return base, true
+			}
 		}
 		return base, false
 	}
@@ -645,6 +670,10 @@ func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArg
 	}
 	fout, err := p.parseFunc(methToks)
 	if err != nil {
+		// Body parse failed (a deferred forward ref), but registerFunc already
+		// published the symbol instantiateMethod's guard keys on. Drop it so the
+		// retry re-parses; else the guard skips it forever -> method has no code.
+		delete(p.Symbols, methodInstanceKey(mTypeName, methTmpl))
 		return false, err
 	}
 	p.instanceDecls = append(p.instanceDecls, DeferredDecl{PkgPath: tmpl.pkgPath, Toks: fout})
@@ -677,6 +706,13 @@ func (p *Parser) ensureTypeInstantiated(tmpl *genericTemplate, bt scan.Token) (s
 		defer restore()
 		p.instDepth++
 		defer func() { p.instDepth-- }()
+		// Mark in-progress so a self-ref in the body reuses the placeholder; see
+		// instanceName.
+		if p.instantiating == nil {
+			p.instantiating = map[string]bool{}
+		}
+		p.instantiating[mname] = true
+		defer delete(p.instantiating, mname)
 		_, err = p.parseTypeLine(instToks)
 		if err != nil {
 			p.scope = savedScope
@@ -708,9 +744,18 @@ func (p *Parser) instantiatePendingMethods() (progress bool, err error) {
 		}
 		for _, inst := range tmpl.instances {
 			for _, methTmpl := range tmpl.methods {
-				emitted, err := p.emitInstantiatedMethod(tmpl, methTmpl, inst.typeArgs, inst.mname)
-				if err != nil {
-					return progress, err
+				emitted, merr := p.emitInstantiatedMethod(tmpl, methTmpl, inst.typeArgs, inst.mname)
+				if merr != nil {
+					// A forward ref (ErrUndefined) is retryable: keep emitting other
+					// pairs this pass, retry on the next. Other errors abort.
+					var eu ErrUndefined
+					if errors.As(merr, &eu) {
+						if err == nil {
+							err = merr
+						}
+						continue
+					}
+					return progress, merr
 				}
 				if emitted {
 					progress = true
@@ -721,16 +766,20 @@ func (p *Parser) instantiatePendingMethods() (progress bool, err error) {
 	return progress, nil
 }
 
-func (p *Parser) instantiateMethod(typeTmpl, methTmpl *genericTemplate, mTypeName string) (Tokens, error) {
-	methFullName := mTypeName + "." + methTmpl.name
-	// Pointer-receiver methods are stored by registerFunc under "*T.method";
-	// align the guard key so the instance is not re-emitted forever.
+// methodInstanceKey is the symbol key registerFunc stores a generic-method
+// instance under: "<mTypeName>.<method>", "*"-prefixed for a pointer receiver.
+// instantiateMethod's guard and emitInstantiatedMethod's rollback share it.
+func methodInstanceKey(mTypeName string, methTmpl *genericTemplate) string {
+	key := mTypeName + "." + methTmpl.name
 	if methTmpl.ptrRecv {
-		methFullName = "*" + methFullName
+		key = "*" + key
 	}
+	return key
+}
 
+func (p *Parser) instantiateMethod(typeTmpl, methTmpl *genericTemplate, mTypeName string) (Tokens, error) {
 	// Guard: already instantiated.
-	if _, _, ok := p.Symbols.Get(methFullName, ""); ok {
+	if _, _, ok := p.Symbols.Get(methodInstanceKey(mTypeName, methTmpl), ""); ok {
 		return nil, nil
 	}
 
@@ -797,7 +846,10 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	}
 
 	if genSym.Type == nil {
-		return nil, posErr("cannot infer type parameters for %s: signature unresolved", tmpl.name)
+		// Pre-registered by name (preRegisterGenericFuncs) but its signature is not
+		// parsed yet. Defer via ErrUndefined so the call retries once it is, rather
+		// than compiling a bare reference to the codeless template.
+		return nil, p.undef(tmpl.name, Token{Token: callArgs})
 	}
 
 	params := genSym.Type.Params

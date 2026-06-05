@@ -82,6 +82,16 @@ var Incompat = map[string]map[string]string{
 		"TestSetGCPercent": "asserts host GC-pacer NextGC thresholds and forced-GC timing; interpreted allocation does not drive the pacer like native code (flaky even natively, SkipFlaky #20076)",
 		"TestStack":        "debug.Stack reads the native goroutine stack; an interpreted method runs via reflect.MakeFunc, so frames show reflect/VM internals instead of the runtime/debug_test source the test greps for",
 	},
+
+	// btree's stress tests hardcode a 10000-key tree with no testing.Short() path,
+	// so -short can't scale them down -- minutes under the interpreter. The 100-key
+	// traversal tests and the examples run normally over the same code.
+	"github.com/google/btree": {
+		"TestBTreeG":                     "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
+		"TestBTree":                      "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
+		"TestCloneConcurrentOperationsG": "stress test: 10000-key concurrent-clone workload; minutes under the interpreter (no testing.Short path)",
+		"TestCloneConcurrentOperations":  "stress test: 10000-key concurrent-clone workload; minutes under the interpreter (no testing.Short path)",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge

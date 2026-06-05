@@ -76,19 +76,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			if errors.As(gerr, &eu) {
 				return false, gerr
 			}
-			p.SymSet(p.pkgKey(fname), &symbol.Symbol{
-				Kind: symbol.Generic,
-				Name: fname,
-				Used: true,
-				Type: genType,
-				Data: &genericTemplate{
-					name:       fname,
-					typeParams: params,
-					rawTokens:  toks,
-					isFunc:     true,
-					pkgPath:    p.importingPkg,
-				},
-			})
+			p.SymSet(p.pkgKey(fname), p.genericFuncSymbol(fname, params, toks, genType))
 			return true, nil
 		}
 		if bi > 0 {
