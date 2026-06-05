@@ -77,6 +77,11 @@ var Incompat = map[string]map[string]string{
 		"TestPanicNil":           "depends on runtime/metrics + GODEBUG panicnil semantics not modeled by the bridge",
 		"TestIssue48807":         "float32(uint64) double-rounds via float64; mvm lacks direct uint64->float32 rounding (Go issue 48807)",
 	},
+	"runtime/debug": {
+		"TestPanicOnFault": "interpreted recover() cannot catch a SetPanicOnFault hardware fault: it surfaces as a raw Go panic from a reflect-driven store, caught by Run's recoverPanic, not routed through the interpreted defer/recover machinery",
+		"TestSetGCPercent": "asserts host GC-pacer NextGC thresholds and forced-GC timing; interpreted allocation does not drive the pacer like native code (flaky even natively, SkipFlaky #20076)",
+		"TestStack":        "debug.Stack reads the native goroutine stack; an interpreted method runs via reflect.MakeFunc, so frames show reflect/VM internals instead of the runtime/debug_test source the test greps for",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge

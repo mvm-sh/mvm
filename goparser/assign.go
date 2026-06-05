@@ -194,14 +194,25 @@ func appendSingleAssign(out Tokens, src Token, pos int) Tokens {
 	return out
 }
 
+func isBareNil(e Tokens) bool {
+	return len(e) == 1 && e[0].Tok == lang.Ident && e[0].Str == "nil"
+}
+
 func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, define bool) (out Tokens, err error) {
 	// Non-define multi-RHS assignment (e.g. a, b = b, a) capture every RHS value into
 	// a temporary first, then assign the temporaries to the LHS.
 	if !define && len(rhs) > 1 {
 		pos := in[aindex].Pos
-		// Phase 1: evaluate each RHS into a temporary variable.
+		// Phase 1: evaluate each RHS into a temporary variable. A bare nil aliases
+		// no LHS and has no type to define a temp from (`_swap_i_ := nil` is
+		// untyped), so skip it here and assign it straight to the LHS in phase 2.
 		tmpNames := make([]string, len(rhs))
+		bareNil := make([]bool, len(rhs))
 		for i, e := range rhs {
+			if isBareNil(e) {
+				bareNil[i] = true
+				continue
+			}
 			tmpNames[i] = p.addTempVar(fmt.Sprintf("_swap_%d_", i))
 			toks, err := p.parseExpr(e, "")
 			if err != nil {
@@ -211,14 +222,18 @@ func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, d
 			out = append(out, toks...)
 			out = append(out, newToken(lang.Define, "", pos, 1))
 		}
-		// Phase 2: assign from temporaries to LHS.
+		// Phase 2: assign from temporaries (or a bare nil) to LHS.
 		for i := range lhs {
 			toks, err := p.parseExpr(lhs[i], "")
 			if err != nil {
 				return out, err
 			}
 			out = append(out, toks...)
-			out = appendSingleAssign(out, newToken(lang.Ident, tmpNames[i], pos, 0), pos)
+			src := newToken(lang.Ident, tmpNames[i], pos, 0)
+			if bareNil[i] {
+				src = newToken(lang.Ident, "nil", rhs[i][0].Pos, 0)
+			}
+			out = appendSingleAssign(out, src, pos)
 		}
 		return out, err
 	}

@@ -290,9 +290,11 @@ func TestAssign(t *testing.T) {
 		{n: "#31_string_swap", src: `func f() string { s, t := "a", "b"; s, t = t, s; return s+t }; f()`, res: "ba"},
 		{n: "#32_map_swap", src: `func f() int { m, n := map[string]int{"x":1}, map[string]int{"x":2}; m, n = n, m; return m["x"]*10+n["x"] }; f()`, res: "21"},
 		{n: "#33_iface_swap", src: "func f() int { var x, y interface{} = 1, 2; x, y = y, x; return x.(int)*10+y.(int) }; f()", res: "21"},
-		// Multi-assign with bare nil RHS: the swap-temp rewrite emits `_swap_0_ := nil`,
-		// which has no type to infer, so the temp is undefined.
-		{n: "multi_assign_bare_nil", skip: true, src: "func f() int { var a, b []int; a, b = nil, nil; return len(a)+len(b) }; f()", res: "0"},
+		// Multi-assign with a bare nil RHS: a bare nil aliases no LHS and has no type
+		// to define a swap temp from, so it is assigned directly (not via `_swap_i_ := nil`).
+		{n: "multi_assign_bare_nil", src: "func f() int { var a, b []int; a = []int{1}; b = []int{2}; a, b = nil, nil; return len(a)+len(b) }; f()", res: "0"},
+		{n: "multi_assign_nil_mixed", src: "func f() int { var a, b []int; a, b = nil, []int{7,8}; return len(a)+len(b) }; f()", res: "2"},
+		{n: "multi_assign_nil_aliases_lhs", src: "func f() bool { p := 5; var a, b *int = &p, nil; a, b = nil, a; return a == nil && b == &p }; f()", res: "true"},
 		// Stdlib package interface-typed vars (e.g. crypto/rand.Reader) must keep
 		// their declared interface type when inferred via :=, otherwise the runtime
 		// assignment panics with "io.Reader is not assignable to rand.reader".
