@@ -1815,21 +1815,28 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 
 		case lang.Composite:
 			sliceLen := t.Arg[0].(int)
-			// Patch this literal's slice/map Fnew (emitted with B=-1, nil) to
-			// its element count, making it non-nil; empty/map literals
-			// (sliceLen 0) included. Match the type's canonical zero-value slot.
+			// Patch this literal's nil slice/map Fnew (B=-1) to its length,
+			// making it non-nil. Match the most recent still-nil Fnew whose
+			// slot type matches -- not an exact slot index, which fails when
+			// two same-type literals land on different slots. B!=-1 (already
+			// patched) is skipped so nested literals patch their own Fnew.
 			{
 				sym := c.Symbols[t.Str]
-				var idx int32
-				if sym != nil && sym.Type != nil {
-					idx = int32(c.zeroTypeSlot(sym.Type))
-				} else if sym != nil {
-					idx = int32(sym.Index)
+				var typ *vm.Type
+				idx := int32(-1)
+				if sym != nil {
+					typ, idx = sym.Type, int32(sym.Index)
 				}
-				// B != -1 marks an Fnew already patched by a nested composite;
-				// skip it so `[]E{x, &T{Errors: []E{y}}}` patches the outer one.
 				for i := len(c.Code) - 1; i >= 0; i-- {
-					if c.Code[i].Op == vm.Fnew && c.Code[i].A == idx && c.Code[i].B == -1 {
+					in := c.Code[i]
+					if in.Op != vm.Fnew || in.B != -1 {
+						continue
+					}
+					match := in.A == idx
+					if typ != nil {
+						match = c.slotMatchesType(int(in.A), typ)
+					}
+					if match {
 						c.Code[i].B = int32(sliceLen)
 						break
 					}

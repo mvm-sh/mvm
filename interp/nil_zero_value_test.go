@@ -71,3 +71,43 @@ func main() {
 		t.Errorf("stdout:\n got %q\nwant %q", got, want)
 	}
 }
+
+// Two composite literals of the same map/slice type in one function must each
+// produce their own non-nil container; the non-nil patch once matched a single
+// canonical slot, leaving the other literal nil. Reduced from go-difflib chainB.
+func TestNilZeroValueDuplicateLiterals(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func main() {
+	// Two empty map[K]struct{} literals: writing to the first must not panic.
+	a := map[string]struct{}{}
+	a["x"] = struct{}{}
+	b := map[string]struct{}{}
+	b["y"] = struct{}{}
+	fmt.Println(len(a), len(b)) // 1 1
+
+	// Same for slices: both must be non-nil and independently appendable.
+	p := []int{}
+	p = append(p, 1)
+	q := []int{}
+	q = append(q, 2, 3)
+	fmt.Println(len(p), len(q), p == nil, q == nil) // 1 2 false false
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("dup_literals.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	want := "1 1\n" +
+		"1 2 false false\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("stdout:\n got %q\nwant %q", got, want)
+	}
+}

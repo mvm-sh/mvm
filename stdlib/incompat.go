@@ -123,6 +123,9 @@ func SkipReason(pkgPath, testName string) string {
 var ShortByDefault = map[string]bool{
 	"sync/atomic":   true,
 	"crypto/subtle": true,
+	// ~55s otherwise (a stress loop honoring testing.Short); -short keeps 126
+	// tests and runs sub-second, so the compat run no longer flakes to timeout.
+	"github.com/gofrs/uuid": true,
 }
 
 // ForceShort reports whether pkgPath's tests should default to -short.
