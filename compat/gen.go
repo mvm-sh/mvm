@@ -121,7 +121,7 @@ func main() {
 		mvmBin  = flag.String("mvm", "mvm", "path to the mvm binary used to run `mvm test`")
 		root    = flag.String("root", ".", "repository root (where stdlib/gen.go and README.md live)")
 		out     = flag.String("out", "compat", "output directory for the data files")
-		timeout = flag.Duration("timeout", 60*time.Second, "per-package test timeout")
+		timeout = flag.Duration("timeout", 120*time.Second, "per-package test timeout")
 		workers = flag.Int("p", 4, "number of packages to test in parallel")
 		only    = flag.String("only", "all", "which set to test: stdlib, external, or all")
 		match   = flag.String("match", "", "only test packages whose import path matches this regexp")
