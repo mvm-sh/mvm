@@ -18,7 +18,7 @@ import (
 // module under the same path.
 const (
 	ModulePath = "github.com/mvm-sh/std"
-	Version    = "v0.0.2"
+	Version    = "v0.0.3"
 )
 
 // Resolve returns the active std module path and version, applying any

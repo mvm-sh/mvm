@@ -32,7 +32,7 @@ const (
 	srcEnv        = "MVMSTD_SRC"
 	zipPath       = "src.zip"
 	modulePath    = "github.com/mvm-sh/std"
-	moduleVer     = "v0.0.2"
+	moduleVer     = "v0.0.3"
 )
 
 // skipTop names top-level entries of the std repo that are repo
