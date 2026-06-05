@@ -393,6 +393,7 @@ type Machine struct {
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
 	funcFields   *funcFieldsTable // see funcFieldsTable doc
+	funcWrappers *funcWrapTable   // see funcWrapTable doc
 	typesByRtype *typesIndex      // see typesIndex doc
 
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
@@ -3693,6 +3694,68 @@ func (t *funcFieldsTable) set(p uintptr, v Value) {
 	t.mu.Unlock()
 }
 
+// funcWrapTable memoises the MakeFunc wrapper for a heap-less mvm func, keyed by
+// code address + func type, so repeated bridges share one *funcval and compare
+// equal (reflect.ValueOf(f) == reflect.ValueOf(f)). Shared like funcFields.
+type funcWrapTable struct {
+	mu sync.RWMutex
+	m  map[funcWrapKey]reflect.Value
+}
+
+type funcWrapKey struct {
+	code  int
+	rtype reflect.Type
+}
+
+func newFuncWrapTable() *funcWrapTable {
+	return &funcWrapTable{m: make(map[funcWrapKey]reflect.Value)}
+}
+
+// getOrBuild returns the cached wrapper for k, or builds it under the write lock.
+// Double-checked so racing first-bridges share one wrapper. build must not touch
+// t.mu.
+func (t *funcWrapTable) getOrBuild(k funcWrapKey, build func() reflect.Value) reflect.Value {
+	t.mu.RLock()
+	v, ok := t.m[k]
+	t.mu.RUnlock()
+	if ok {
+		return v
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if v, ok := t.m[k]; ok {
+		return v
+	}
+	v = build()
+	t.m[k] = v
+	return v
+}
+
+// staticFuncCode returns the code address of a heap-less mvm func (top-level or
+// non-capturing closure) and true; a capturing closure has per-instance identity,
+// so it is not cacheable. Reads the same forms as resolveIPAndHeap, no m.heap side
+// effect.
+func staticFuncCode(val Value) (int, bool) {
+	if !val.ref.IsValid() {
+		return 0, false
+	}
+	if isNum(val.ref.Kind()) {
+		return int(val.num), true
+	}
+	if !val.ref.CanInterface() {
+		return 0, false
+	}
+	switch f := val.ref.Interface().(type) {
+	case Closure:
+		if len(f.Heap) == 0 {
+			return f.Code, true
+		}
+	case int:
+		return f, true
+	}
+	return 0, false
+}
+
 // typesIndex memoises a reflect.Type -> *Type lookup over a Machine's
 // globals. Populated once on first lookup under sync.Once (which provides
 // happens-before for all later readers) and immutable afterward, so the
@@ -3778,6 +3841,7 @@ type runnerState struct {
 	methodNames     []string
 	methodFuncTypes []reflect.Type
 	funcFields      *funcFieldsTable // parent-owned; pointer-shared with runner
+	funcWrappers    *funcWrapTable   // parent-owned; pointer-shared with runner
 	typesByRtype    *typesIndex      // parent-owned; pointer-shared with runner
 	debugInfoFn     func() *DebugInfo
 	pool            *sync.Pool      // shared pool on the parent Machine
@@ -3792,6 +3856,9 @@ type runnerState struct {
 func (m *Machine) ensureSharedTables() {
 	if m.funcFields == nil {
 		m.funcFields = newFuncFieldsTable()
+	}
+	if m.funcWrappers == nil {
+		m.funcWrappers = newFuncWrapTable()
 	}
 	if m.typesByRtype == nil {
 		m.typesByRtype = &typesIndex{}
@@ -3809,6 +3876,7 @@ func (m *Machine) captureRunnerState() *runnerState {
 		methodNames:     m.MethodNames,
 		methodFuncTypes: m.MethodFuncTypes,
 		funcFields:      m.funcFields,
+		funcWrappers:    m.funcWrappers,
 		typesByRtype:    m.typesByRtype,
 		debugInfoFn:     m.debugInfoFn,
 		pool:            &m.runnerPool,
@@ -3834,6 +3902,7 @@ func (rs *runnerState) acquireRunner() *Machine {
 	m.MethodNames = rs.methodNames
 	m.MethodFuncTypes = rs.methodFuncTypes
 	m.funcFields = rs.funcFields
+	m.funcWrappers = rs.funcWrappers
 	m.typesByRtype = rs.typesByRtype
 	m.debugInfoFn = rs.debugInfoFn
 	m.fault = rs.fault
@@ -3980,13 +4049,22 @@ func describeNativePanic(rv reflect.Value, in []reflect.Value, r any) any {
 	return fmt.Sprintf("%s (calling %v with args [%s])", s, rv.Type(), strings.Join(args, ", "))
 }
 
-// makeCallFunc wraps a mvm function value in a reflect.MakeFunc adapter
-// that runs the function on a pooled runner Machine for re-entrant
-// execution. The pool amortizes the per-callback Machine allocation and
-// the mem/code backing-array reallocations across high-fanout native
-// callbacks (sort comparators, fmt formatters, iterator callbacks).
-// Captures rs (not m) to avoid data races with goroutines.
+// makeCallFunc wraps a mvm func in a reflect.MakeFunc adapter, caching the
+// wrapper for a heap-less func so repeated bridges keep reflect.Value identity.
 func (m *Machine) makeCallFunc(fval Value, fnType reflect.Type) reflect.Value {
+	if code, ok := staticFuncCode(fval); ok {
+		m.ensureSharedTables()
+		return m.funcWrappers.getOrBuild(funcWrapKey{code: code, rtype: fnType},
+			func() reflect.Value { return m.buildCallFunc(fval, fnType) })
+	}
+	return m.buildCallFunc(fval, fnType)
+}
+
+// buildCallFunc mints a fresh adapter (no caching) that runs fval on a pooled
+// runner Machine. The pool amortizes per-callback Machine/backing-array allocation
+// across high-fanout native callbacks (sort/fmt/iterator). Captures rs, not m, to
+// avoid goroutine data races.
+func (m *Machine) buildCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 	rs := m.captureRunnerState()
 	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
 		runner := rs.acquireRunner()
@@ -4261,6 +4339,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		MethodNames:     m.MethodNames,
 		MethodFuncTypes: m.MethodFuncTypes,
 		funcFields:      m.funcFields,
+		funcWrappers:    m.funcWrappers,
 		typesByRtype:    m.typesByRtype,
 		fault:           m.fault,
 	}
