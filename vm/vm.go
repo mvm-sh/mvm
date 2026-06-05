@@ -4310,11 +4310,15 @@ func snapshotArg(v Value) Value {
 }
 
 // detachByValueArgs copies struct/array args into fresh addressable storage so
-// callee field/index writes don't leak to the caller's slot.
+// callee field/index writes don't leak to the caller's slot, and so the callee
+// can take the address of its by-value param at all. The latter matters for
+// args that arrive unaddressable -- a native callback's reflect.Call value, or a
+// map-index result -- where field/index assignment would otherwise panic; Go
+// makes every parameter an addressable local.
 func detachByValueArgs(args []Value) {
 	for i := range args {
 		r := args[i].ref
-		if !r.IsValid() || !r.CanAddr() {
+		if !r.IsValid() {
 			continue
 		}
 		k := r.Kind()
@@ -4322,7 +4326,7 @@ func detachByValueArgs(args []Value) {
 			continue
 		}
 		nv := reflect.New(r.Type()).Elem()
-		nv.Set(r)
+		nv.Set(Exportable(r))
 		args[i].ref = nv
 	}
 }

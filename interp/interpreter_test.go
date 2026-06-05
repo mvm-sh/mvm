@@ -913,6 +913,10 @@ len(buf{}.data)`, res: "32"},
 		{n: "grouped_pkg_value", src: `import "time"; const (a = 300 * time.Millisecond; b = 30 * time.Millisecond); int(b)`, res: "30000000"},
 		{n: "pkg_value_call", src: `import "time"; const d = 100 * time.Millisecond; time.Sleep(d); "ok"`, res: "ok"},
 
+		// Conversion of an untyped constant to an imported named type, folded at compile time.
+		{n: "pkg_type_conv", src: `import "time"; const d = time.Duration(5); int64(d)`, res: "5"},
+		{n: "pkg_type_conv_expr", src: `import "time"; const d = time.Duration(3) * time.Second; d.String()`, res: "3s"},
+
 		{n: "uint64_complement", src: `const a = ^uint64(0); a`, res: "18446744073709551615"},
 		{n: "uint64_maxint", src: `const a = int64(^uint64(0) >> 1); a`, res: "9223372036854775807"},
 		{n: "uint8_complement", src: `import "fmt"; const a = ^uint8(0); fmt.Sprintf("%T %v", a, a)`, res: "uint8 255"},
@@ -1260,6 +1264,24 @@ func (t T) Hello() string { return "hi" }
 type Speaker interface{ Hello() string }
 func f() string { x := reflect.ValueOf(T{5}).Interface(); s, ok := x.(Speaker); if !ok { return "no" }; return s.Hello() }
 f()`, res: "hi"},
+
+		// A by-value struct param must be addressable for a field assignment even
+		// when the argument itself is unaddressable (here, a map-index result).
+		{n: "unaddressable_struct_arg_field_set", src: `
+type Attr struct{ Key string; Val int }
+func g(a Attr) Attr { a.Key = "sev"; a.Val++; return a }
+m := map[string]Attr{"k": {Key: "level", Val: 41}}
+r := g(m["k"]); r.Key`, res: "sev"},
+
+		// A closure invoked from native code (reflect.Call) must get an
+		// addressable struct param so it can assign to a field of its by-value arg.
+		{n: "reflect_call_struct_param_field_set", src: `
+import ("fmt"; "reflect")
+type Attr struct{ Key string; Val int }
+f := func(a Attr) Attr { a.Key = "sev"; a.Val++; return a }
+out := reflect.ValueOf(f).Call([]reflect.Value{reflect.ValueOf(Attr{Key: "level", Val: 41})})
+r := out[0].Interface().(Attr)
+fmt.Sprintf("%s:%d", r.Key, r.Val)`, res: "sev:42"},
 
 		{n: "reflect_assert_iface_panicform", src: `
 import "reflect"

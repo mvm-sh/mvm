@@ -378,6 +378,21 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 				return constant.MakeUint64(uint64(val)), p.Symbols["uintptr"].Type, totalLen + 2 /* Ident + Period */, nil
 			}
 		}
+		// Package-qualified type conversion: pkg.Type(arg), e.g. slog.Level(12).
+		if len(rest) >= 2 && rest[len(rest)-1].Tok == lang.Period && rest[len(rest)-2].Tok == lang.Ident {
+			pkgTok := rest[len(rest)-2]
+			s, _, ok := p.Symbols.Get(pkgTok.Str, p.scope)
+			if as, _, aok := p.pkgAlias(pkgTok.Str, pkgTok.Pos); aok {
+				s, ok = as, true
+			}
+			if ok && s.Kind == symbol.Pkg {
+				ctyp, terr := p.resolvePkgType(s, rest[len(rest)-1].Str[1:], rest[len(rest)-1])
+				if terr != nil {
+					return nil, nil, 0, terr
+				}
+				return p.constTypeConv(args[0], ctyp, narg, totalLen+2, in[l]) // Ident + Period
+			}
+		}
 		if len(rest) == 0 || rest[len(rest)-1].Tok != lang.Ident {
 			return nil, nil, 0, errors.New("unsupported constant call expression")
 		}
@@ -394,13 +409,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			return nil, nil, 0, errors.New("len: unsupported constant argument type")
 		}
 		if s, _, ok := p.symGet(fname); ok && s.Kind == symbol.Type {
-			if narg != 1 {
-				return nil, nil, 0, errors.New("type conversion requires exactly one argument")
-			}
-			if OverflowsType(args[0], s.Type) {
-				return nil, nil, 0, p.overflowErr(args[0], s.Type, in[l])
-			}
-			return constConvert(args[0], s.Type), s.Type, totalLen, nil
+			return p.constTypeConv(args[0], s.Type, narg, totalLen, in[l])
 		}
 		return nil, nil, 0, fmt.Errorf("unsupported constant call: %s", fname)
 
@@ -727,6 +736,18 @@ func asComplex128(v any) complex128 {
 		return x
 	}
 	return 0
+}
+
+// constTypeConv folds a one-argument type conversion `Type(arg)` at compile
+// time; length/loc describe the conversion expression's token span and source.
+func (p *Parser) constTypeConv(arg constant.Value, typ *vm.Type, narg, length int, loc Token) (constant.Value, *vm.Type, int, error) {
+	if narg != 1 {
+		return nil, nil, 0, errors.New("type conversion requires exactly one argument")
+	}
+	if OverflowsType(arg, typ) {
+		return nil, nil, 0, p.overflowErr(arg, typ, loc)
+	}
+	return constConvert(arg, typ), typ, length, nil
 }
 
 func constConvert(cv constant.Value, typ *vm.Type) constant.Value {
