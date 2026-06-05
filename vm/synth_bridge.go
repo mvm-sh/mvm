@@ -501,7 +501,7 @@ func makeHandlerS1(m *Machine, t *Type, method Method, name string, ptrRecv bool
 func raiseMethodErr(err error) {
 	var pe *PanicError
 	if errors.As(err, &pe) {
-		panic(pe.Raw)
+		panic(reraisedPanic{pe})
 	}
 	panic(err)
 }
@@ -684,7 +684,7 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, ptrRecv boo
 			// invokeNative's recover re-establishes it as an mvm panic.
 			var pe *PanicError
 			if errors.As(err, &pe) {
-				panic(pe)
+				panic(reraisedPanic{pe})
 			}
 			return 0, err
 		}

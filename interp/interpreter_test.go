@@ -3707,6 +3707,21 @@ func TestPanic(t *testing.T) {
 			}
 			f()
 			s`, res: "bytes.Buffer: reader returned negative count from Read"},
+		{n: "native_recover_sees_raw_panic", src: `
+			// Native code recovering an interpreted panic and reformatting %v sees
+			// the raw value, not mvm's decorated stack (tabwriter: "during X (<raw>)").
+			import ("strings"; "text/tabwriter")
+			type pw struct{}
+			func (pw) Write([]byte) (int, error) { panic("boom") }
+			got := "no panic"
+			func() {
+				defer func() { if e := recover(); e != nil { got = e.(string) } }()
+				w := new(tabwriter.Writer)
+				w.Init(pw{}, 0, 0, 1, ' ', 0)
+				w.Write([]byte("x\ty\n"))
+				w.Flush()
+			}()
+			strings.Contains(got, "(boom)") && !strings.Contains(got, "mvm stack")`, res: "true"},
 	})
 }
 

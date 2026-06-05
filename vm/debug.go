@@ -203,6 +203,24 @@ type PanicError struct {
 	DI     *DebugInfo   // captured DebugInfo for formatting; may be nil
 }
 
+// reraisedPanic carries a PanicError across a native frame but renders as the
+// raw value, so a native recover()+%v sees what the interpreted code panicked
+// with while mvm's recover points still get the PanicError for stack stitching.
+type reraisedPanic struct{ pe *PanicError }
+
+func (r reraisedPanic) Error() string { return fmt.Sprintf("%v", r.pe.Raw) }
+
+// asPanicError unwraps a recovered value to its *PanicError (through a reraisedPanic).
+func asPanicError(r any) (*PanicError, bool) {
+	switch v := r.(type) {
+	case *PanicError:
+		return v, true
+	case reraisedPanic:
+		return v.pe, true
+	}
+	return nil, false
+}
+
 // Error renders the verbose layout (header + snippet + mvm stack) using the
 // DebugInfo captured at panic time. Falls back to "panic: <raw>" if no
 // DebugInfo was captured.

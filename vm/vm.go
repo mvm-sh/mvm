@@ -839,7 +839,7 @@ func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int,
 
 func (m *Machine) recoverPanic(err *error) {
 	if r := recover(); r != nil {
-		if pe, ok := r.(*PanicError); ok {
+		if pe, ok := asPanicError(r); ok {
 			*err = pe
 			return
 		}
@@ -3888,7 +3888,7 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		// An mvm panic that escaped a nested re-entrant Run via a native
 		// callback (e.g. a sort.Slice comparator panicked): re-establish it
 		// with its original value so an outer interpreted recover() sees it.
-		if pe, ok := r.(*PanicError); ok {
+		if pe, ok := asPanicError(r); ok {
 			m.panicking = true
 			m.panicVal = FromReflect(reflect.ValueOf(pe.Raw))
 			// Stitch this parent's frames onto the inner run's snapshot across
@@ -3988,6 +3988,10 @@ func (m *Machine) makeCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 		defer rs.releaseRunner(runner)
 		out, err := runner.callPooled(fval, fnType, args)
 		if err != nil {
+			var pe *PanicError
+			if errors.As(err, &pe) {
+				panic(reraisedPanic{pe}) // raw value for native recover; see reraisedPanic
+			}
 			panic(err)
 		}
 		return out
