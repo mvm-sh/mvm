@@ -1,5 +1,10 @@
 package stdlib
 
+import (
+	"sort"
+	"strings"
+)
+
 // Incompat lists per-package tests that mvm cannot pass for reasons rooted in
 // the bridge/interpreter design rather than a fixable bug in mvm's compiler.
 // `mvm test` rewrites their entry to a t.Skip(reason) shim so they show as
@@ -92,6 +97,13 @@ var Incompat = map[string]map[string]string{
 		"TestCloneConcurrentOperationsG": "stress test: 10000-key concurrent-clone workload; minutes under the interpreter (no testing.Short path)",
 		"TestCloneConcurrentOperations":  "stress test: 10000-key concurrent-clone workload; minutes under the interpreter (no testing.Short path)",
 	},
+
+	// Subtest-path keys (containing '/') skip only that subtest via testing's
+	// -skip, so the sibling cases under the same top-level test still run.
+	"github.com/google/go-cmp/cmp": {
+		"TestOptionPanic/Comparer#03":     "func(...) myBool accepted as a comparer: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
+		"TestOptionPanic/FilterValues#03": "func(...) myBool accepted as a values filter: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge
@@ -119,12 +131,31 @@ var Untestable = map[string]string{
 func UntestableReason(pkgPath string) string { return Untestable[pkgPath] }
 
 // SkipReason returns the recorded reason for skipping testName when running
-// `mvm test pkgPath`, or "" if the test should run normally.
+// `mvm test pkgPath`, or "" if the test should run normally. Subtest-path
+// entries (names containing '/') are handled separately by SubtestSkips, so a
+// top-level testName never matches one here.
 func SkipReason(pkgPath, testName string) string {
 	if m, ok := Incompat[pkgPath]; ok {
 		return m[testName]
 	}
 	return ""
+}
+
+// SubtestSkip pairs a subtest path with its skip reason.
+type SubtestSkip struct{ Name, Reason string }
+
+// SubtestSkips returns pkgPath's Incompat entries whose name is a subtest path
+// (contains '/', e.g. "TestX/Sub#03"), sorted by name. The driver skips these via
+// testing's -skip so sibling subtests still run.
+func SubtestSkips(pkgPath string) []SubtestSkip {
+	var out []SubtestSkip
+	for name, reason := range Incompat[pkgPath] {
+		if strings.Contains(name, "/") {
+			out = append(out, SubtestSkip{name, reason})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // ShortByDefault lists import paths `mvm test` forces -short on (unless the

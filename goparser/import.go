@@ -120,21 +120,12 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 				break
 			}
 		}
-		if mainPkg != "" && !hasInternal {
-			var external []PackageSource
-			for i, s := range out {
-				if !strings.HasSuffix(s.Name, "_test.go") || names[i] != mainPkg+"_test" {
-					continue
-				}
-				if bad := p.firstUnresolvableImport(p.extractImports(s.Content)); bad != "" {
-					p.noteUnresolvableSkip(dir, s.Name, bad)
-					continue
-				}
-				external = append(external, s)
-			}
-			if len(external) > 0 {
-				return external, nil
-			}
+		var external []PackageSource
+		if mainPkg != "" {
+			external = p.externalTestFiles(out, names, mainPkg, dir)
+		}
+		if !hasInternal && len(external) > 0 {
+			return external, nil
 		}
 		if importPath != "" && p.testSrcFS != nil && !sawTestFile {
 			if ext, terr := p.loadBridgedTestSources(importPath); terr == nil && len(ext) > 0 {
@@ -142,6 +133,9 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 			}
 		}
 		if mainPkg != "" {
+			// Return the internal-augmented unit; stash the external files for
+			// `mvm test` to load as a second unit (see ExternalTestSources).
+			p.externalTests = external
 			filtered := out[:0]
 			for i, s := range out {
 				if !strings.HasSuffix(s.Name, "_test.go") || names[i] == mainPkg {
@@ -153,6 +147,25 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 	}
 	return out, nil
 }
+
+func (p *Parser) externalTestFiles(out []PackageSource, names []string, mainPkg, dir string) []PackageSource {
+	var external []PackageSource
+	for i, s := range out {
+		if !strings.HasSuffix(s.Name, "_test.go") || names[i] != mainPkg+"_test" {
+			continue
+		}
+		if bad := p.firstUnresolvableImport(p.extractImports(s.Content)); bad != "" {
+			p.noteUnresolvableSkip(dir, s.Name, bad)
+			continue
+		}
+		external = append(external, s)
+	}
+	return external
+}
+
+// ExternalTestSources returns the external `package X_test` files set aside by the
+// last test-mode load, for `mvm test` to load as a second unit.
+func (p *Parser) ExternalTestSources() []PackageSource { return p.externalTests }
 
 func (p *Parser) loadBridgedTestSources(importPath string) ([]PackageSource, error) {
 	fi, err := fs.Stat(p.testSrcFS, importPath)
@@ -196,6 +209,35 @@ func (p *Parser) loadBridgedTestSources(importPath string) ([]PackageSource, err
 		out = append(out, PackageSource{Name: e.Name(), Content: src})
 	}
 	return out, nil
+}
+
+// PublishCompiledPackage registers the just-compiled target as p.Packages[pkgPath]
+// so a later unit importing it (an external `package X_test`) reuses these symbols
+// instead of re-importing the source (which would clobber them). No-op if known.
+func (p *Parser) PublishCompiledPackage(pkgPath string) {
+	if _, ok := p.Packages[pkgPath]; ok {
+		return
+	}
+	pkg := &symbol.Package{Path: pkgPath, Values: map[string]vm.Value{}}
+	qualifiedPrefix := pkgPath + "."
+	for k, s := range p.Symbols {
+		if !strings.HasPrefix(k, qualifiedPrefix) {
+			continue
+		}
+		short := k[len(qualifiedPrefix):]
+		if strings.ContainsAny(short, "./*") {
+			continue // method or nested key
+		}
+		publishValue(pkg.Values, short, s)
+	}
+	p.Packages[pkgPath] = pkg
+}
+
+func publishValue(values map[string]vm.Value, name string, s *symbol.Symbol) {
+	if isScopedKey(name) || s.Kind == symbol.Generic || !IsExported(name) {
+		return
+	}
+	values[name] = s.Value
 }
 
 func (p *Parser) noteUnresolvableSkip(importPath, file, badImport string) {
@@ -331,22 +373,14 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 			continue
 		}
 		if strings.HasPrefix(k, qualifiedPrefix) {
-			short := k[len(qualifiedPrefix):]
-			if isScopedKey(short) {
-				continue
-			}
-			if s.Kind != symbol.Generic && IsExported(short) {
-				pkg.Values[short] = s.Value
-			}
+			publishValue(pkg.Values, k[len(qualifiedPrefix):], s)
 			continue
 		}
 		if isScopedKey(k) {
 			continue
 		}
 		newKeys = append(newKeys, k)
-		if s.Kind != symbol.Generic && IsExported(k) {
-			pkg.Values[k] = s.Value
-		}
+		publishValue(pkg.Values, k, s)
 	}
 	// Create qualified aliases after the loop to avoid mutating p.Symbols during iteration.
 	for _, k := range newKeys {

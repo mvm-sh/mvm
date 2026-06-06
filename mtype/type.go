@@ -583,6 +583,25 @@ var (
 	structTypes   = map[string]*Type{}
 )
 
+// embedFieldHasMethods reports whether an embedded field has methods, which
+// reflect.StructOf rejects on an embedded pointer in a multi-field struct. Also
+// walks the mvm graph since synth methods attach after StructOf (rtype empty then).
+func embedFieldHasMethods(f *Type, rt reflect.Type) bool {
+	if rt != nil && rt.NumMethod() > 0 {
+		return true
+	}
+	e := f
+	if e != nil && e.IsPtr() && e.ElemType != nil {
+		e = e.ElemType
+	}
+	for ; e != nil; e = e.Base {
+		if len(e.Methods) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // StructOf returns the canonical struct type for the given fields/embedded/tags,
 // memoized on a structural key (Name+PkgPath+Base-or-self pointer per field) so
 // equivalent shapes parsed separately converge despite per-call field clones.
@@ -634,8 +653,8 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}
-		case embSet[i] && len(rf) > 1 && rf[i].Type.NumMethod() > 0:
-			// Cannot set Anonymous: reflect.StructOf would panic.
+		case embSet[i] && len(rf) > 1 && embedFieldHasMethods(f, rf[i].Type):
+			// Leave Anonymous unset: StructOf panics on such an embed in a multi-field struct.
 		default:
 			rf[i].Anonymous = embSet[i]
 		}
@@ -697,6 +716,13 @@ type symField struct {
 	typ   *Type
 }
 
+func (t *Type) structView() *Type {
+	for t != nil && len(t.Fields) == 0 && t.Base != nil && t.Base != t {
+		t = t.Base
+	}
+	return t
+}
+
 // symVisibleFields walks t's symbolic Fields/Embedded graph (no Rtype) and
 // returns visible fields with promotion: shallowest depth wins, names that are
 // ambiguous at their shallowest depth are excluded (matching reflect.VisibleFields).
@@ -734,6 +760,7 @@ func (t *Type) symVisibleFields() []symField {
 					if ft != nil && ft.Kind() == reflect.Pointer {
 						ft = ft.ElemType
 					}
+					ft = ft.structView()
 					if ft != nil && !seen[ft] {
 						seen[ft] = true
 						next = append(next, item{ft, idx})
@@ -866,6 +893,7 @@ func (t *Type) resolveFieldByPath(path []int) *Type {
 	if next.IsPtr() && next.ElemType != nil {
 		next = next.ElemType
 	}
+	next = next.structView()
 	return next.resolveFieldByPath(rest)
 }
 

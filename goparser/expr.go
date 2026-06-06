@@ -56,8 +56,20 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			out = append(out, t)
 
 		case lang.Func:
-			// Function as value (i.e closure).
+			// A body-less func is a type expression (e.g. the `(func(int,int) bool)`
+			// of a conversion): emit it as a type ident so the next ParenBlock is the call.
 			bi := in[i:].LastIndex(lang.BraceBlock)
+			if bi < 0 {
+				typ, n, terr := p.parseTypeExpr(in[i:])
+				if terr != nil {
+					return out, terr
+				}
+				p.registerType(typ, t.Pos, &out)
+				out[len(out)-1].MarkNoFnew()
+				i += n - 1 // loop's i++ advances past the final type token
+				continue
+			}
+			// Function as value (i.e closure).
 			prevOut := out
 			if out, err = p.parseFunc(in[i:]); err != nil {
 				return out, err

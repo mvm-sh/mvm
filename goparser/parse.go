@@ -33,6 +33,7 @@ type Parser struct {
 	testSrcFS       fs.FS                             // test-only fs for bridged-stdlib *_test.go sources ($GOROOT/src); never consulted by ordinary import resolution
 	testSkipFiles   map[string]bool                   // basenames of bridged-stdlib test files to skip (drop-on-compile-error retry); see SetTestSkipFiles
 	includeTests    bool                              // include _test.go files when loading package sources
+	externalTests   []PackageSource                   // external `package X_test` files for `mvm test` to load as a second unit (see ExternalTestSources)
 	importRemaining []DeferredDecl                    // code-gen declarations from imported source packages, tagged with their origin package
 	CompilingPkg    string                            // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
 	importingPkg    string                            // while parseSrc is running for an imported package: its full import path; "" outside any import. Used by pkgKey to qualify top-level Type/Func/Method/Generic symbol keys at definition time (Path B); also probed as a fallback in symGet for Phase-1 lookups.

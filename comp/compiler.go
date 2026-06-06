@@ -52,6 +52,10 @@ type Compiler struct {
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
+
+	// LenientCompile turns a codegen panic into a (rolled-back) error instead of
+	// crashing. Off by default; `mvm test` enables it for the external-test unit.
+	LenientCompile bool
 }
 
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
@@ -75,12 +79,6 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		zeroSlotType: map[int]*vm.Type{},
 		labelAtPos:   map[int]bool{},
 	}
-}
-
-// looksLikePkgPath reports whether name resembles a Go import path: contains
-// a slash and isn't a `.go` file (the two name shapes Compile is called with).
-func looksLikePkgPath(name string) bool {
-	return strings.ContainsRune(name, '/') && !strings.HasSuffix(name, ".go")
 }
 
 func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
@@ -172,15 +170,11 @@ func (c *Compiler) Compile(name, src string) (err error) {
 			c.restoreCodegen(cg)
 		}
 	}()
-	// Directory-mode load with a package-path target (e.g. `mvm test
-	// golang.org/x/text/language`): mirror importSrc's importingPkg setup so
-	// the target's own top-level symbols use canonical pkg-qualified keys
-	// rather than bare keys -- otherwise lookups from the target's deferred
-	// bodies miss and surface as ErrUndefined. Scoped to ParseAll so Phase 2
-	// (compileDeferred) sees the same empty importingPkg it does for any
-	// other transitive import, with CompilingPkg driving the lookups.
+	// An empty src means a package-path target (`mvm run`/`mvm test <path>`):
+	// qualify the target's top-level symbols at pkg-qualified keys (like importSrc)
+	// so deferred bodies and external test units resolve members like maps.Clone.
 	var remaining []goparser.DeferredDecl
-	if src == "" && looksLikePkgPath(name) {
+	if src == "" {
 		restore := c.WithImportingPkg(name)
 		remaining, err = c.ParseAll(name, src)
 		restore()
@@ -204,6 +198,12 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 	snap := c.SnapshotUnit()
 	cg := c.snapshotCodegen()
 	defer func() {
+		// Recover only when lenient; else a real bug crashes with its own stack.
+		if c.LenientCompile {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("compile panic: %v", r)
+			}
+		}
 		if err != nil {
 			c.RestoreUnit(snap)
 			c.restoreCodegen(cg)
@@ -904,6 +904,17 @@ func (c *Compiler) emitTypeOrGlobal(t goparser.Token, sym *symbol.Symbol, index 
 
 // generate generates vm code and data from parsed tokens, or returns an error.
 func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
+	// In lenient mode, turn a codegen panic into a located error (at the current
+	// token) so the external-test loader can drop the file; else crash loudly.
+	var cur goparser.Token
+	defer func() {
+		if !c.LenientCompile {
+			return
+		}
+		if r := recover(); r != nil {
+			err = c.errAt(cur, "internal compile error: %v", r)
+		}
+	}()
 	fixList := goparser.Tokens{}  // list of tokens to fix after all necessary information is gathered
 	stack := []*symbol.Symbol{}   // for symbolic evaluation and type checking
 	codeStarts := []int{}         // parallel to stack: c.Code index where each operand's load began, for const-fold retraction
@@ -1031,6 +1042,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	}
 
 	for _, t := range tokens {
+		cur = t
 		switch t.Tok {
 		case lang.Int:
 			n64, err := strconv.ParseInt(t.Str, 0, 64)
@@ -2653,6 +2665,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// reflect-based dispatch at runtime.
 				methodName := t.Str[1:]
 				rtype := c.rtype(s.Type)
+				if rtype == nil {
+					// Unmaterialized receiver (e.g. forward-declared field): located error, not a nil deref.
+					return c.errUndef(t, methodName)
+				}
 				rm, ok := rtype.MethodByName(methodName)
 				needAddr := false
 				if !ok && rtype.Kind() != reflect.Pointer {

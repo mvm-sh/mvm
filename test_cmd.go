@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/modfs"
@@ -147,7 +148,7 @@ func testCmd(arg []string) error {
 		if _, err := i.Eval(target, ""); err != nil {
 			if f := failingTestFile(err, target); f != "" && !skip[f] {
 				skip[f] = true
-				fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, f, err)
+				noteSkippedTestFile(target, f, err)
 				continue
 			}
 			flushStats()
@@ -166,6 +167,8 @@ func testCmd(arg []string) error {
 			}
 			return fmt.Errorf("loading %q: %w", target, err)
 		}
+		// Also run the target's external `package X_test` tests as a second unit.
+		loadExternalTests(i, target)
 		// modfs serves the package from memory, so tests using testdata-relative
 		// paths see whatever cwd mvm was launched from. Spill the subtree to a
 		// temp dir and chdir there to mirror `go test`'s setup.
@@ -190,10 +193,6 @@ func testCmd(arg []string) error {
 	}
 }
 
-// newTestInterp builds a fresh interpreter configured for `mvm test`:
-// stdlib bridges imported, FS chain wired, and the $GOROOT test-source FS
-// installed for bridged-stdlib external tests. Returns the modfs so callers
-// can materialize testdata subtrees.
 func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	// Install bridges, then layer in test-only export_test stand-ins (e.g.
@@ -220,17 +219,10 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	if trace.op {
 		i.SetTraceOps(true)
 	}
-	// Route the interpreter's stdout through liveStdout so fmt.Print* (which
-	// patchFmtBindings binds to the interpreter writer) follows testing's
-	// per-example os.Stdout redirection -- otherwise Example output written via
-	// fmt escapes the capture while output written via the bridged os.Stdout
-	// (e.g. io.Copy(os.Stdout, ...)) does not, interleaving them wrongly.
 	i.SetIO(os.Stdin, liveStdout{}, os.Stderr)
 	return i, mfs
 }
 
-// sourceLoadsWithoutTests reports whether target's source compiles with tests
-// excluded, returning the loaded interpreter on success.
 func sourceLoadsWithoutTests(trace traceFlag, target string) (*interp.Interp, bool) {
 	src, _ := newTestInterp(trace)
 	src.SetIncludeTests(false)
@@ -240,9 +232,84 @@ func sourceLoadsWithoutTests(trace traceFlag, target string) (*interp.Interp, bo
 	return src, true
 }
 
+func loadExternalTests(i *interp.Interp, target string) {
+	ext := i.ExternalTestSources()
+	if len(ext) == 0 {
+		return
+	}
+	// Publish the target so the external unit reuses it instead of re-importing.
+	i.PublishCompiledPackage(target)
+	// Best-effort: recover a codegen panic so one bad file doesn't sink the run.
+	i.LenientCompile = true
+	defer func() { i.LenientCompile = false }()
+
+	if loadExternalUnit(i, target, ext) {
+		return
+	}
+	// The unit failed without naming a droppable file (a recovered panic has no
+	// position); load each file alone so self-contained ones still load.
+	for _, s := range ext {
+		if _, err := i.EvalFiles([]goparser.PackageSource{s}); err != nil {
+			noteSkippedTestFile(target, s.Name, err)
+		}
+	}
+}
+
+func noteSkippedTestFile(target, name string, err error) {
+	fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, name, err)
+}
+
+func loadExternalUnit(i *interp.Interp, target string, files []goparser.PackageSource) bool {
+	skip := map[string]bool{}
+	for {
+		var srcs []goparser.PackageSource
+		for _, s := range files {
+			if !skip[s.Name] {
+				srcs = append(srcs, s)
+			}
+		}
+		if len(srcs) == 0 {
+			return true
+		}
+		_, err := i.EvalFiles(srcs)
+		if err == nil {
+			return true
+		}
+		f := externalFailingFile(err, srcs)
+		if f == "" {
+			return false
+		}
+		skip[f] = true
+		noteSkippedTestFile(target, f, err)
+	}
+}
+
+func externalFailingFile(err error, files []goparser.PackageSource) string {
+	msg := err.Error()
+	for _, s := range files {
+		needle := s.Name + ":"
+		for from := 0; from <= len(msg)-len(needle); {
+			i := strings.Index(msg[from:], needle)
+			if i < 0 {
+				break
+			}
+			at := from + i
+			if at == 0 || !isFilenameByte(msg[at-1]) {
+				return s.Name
+			}
+			from = at + 1
+		}
+	}
+	return ""
+}
+
+func isFilenameByte(b byte) bool {
+	return b == '_' || b == '.' || b == '-' || b == '/' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
 // liveStdout forwards each write to the current os.Stdout rather than capturing
-// it once, so writes track reassignments of os.Stdout (testing redirects it
-// around every example to capture output).
+// it once, so writes track reassignments of os.Stdout.
 type liveStdout struct{}
 
 func (liveStdout) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
@@ -391,6 +458,40 @@ func excludeTestMain(names []string) []string {
 	return out
 }
 
+// subtestSkipPattern turns "TestX/Sub#03" into the testing -skip arm
+// "^TestX$/^Sub#03$" (each '/'-component anchored+quoted). It fully matches the
+// subtest but only partially matches the parent, so the parent still runs.
+func subtestSkipPattern(path string) string {
+	parts := strings.Split(path, "/")
+	for i, c := range parts {
+		parts[i] = "^" + regexp.QuoteMeta(c) + "$"
+	}
+	return strings.Join(parts, "/")
+}
+
+// mergeTestSkip OR-combines pat into the -test.skip flag within args, appending
+// the flag if absent. testing reads -test.skip from os.Args, so this is how the
+// subtest skiplist reaches its matcher alongside any user-supplied skip.
+func mergeTestSkip(args []string, pat string) []string {
+	orJoin := func(a string) string {
+		if a == "" {
+			return pat
+		}
+		return a + "|" + pat
+	}
+	for i, a := range args {
+		switch {
+		case a == "-test.skip" && i+1 < len(args):
+			args[i+1] = orJoin(args[i+1])
+			return args
+		case strings.HasPrefix(a, "-test.skip="):
+			args[i] = "-test.skip=" + orJoin(a[len("-test.skip="):])
+			return args
+		}
+	}
+	return append(args, "-test.skip="+pat)
+}
+
 // compileTestFilters extracts -test.run / -test.skip patterns from args and
 // compiles their first path segment to a *regexp.Regexp. A nil result means
 // "no filter for that side". Compile errors yield nil (we mirror testing's
@@ -440,6 +541,17 @@ func runTestDriver(i *interp.Interp, pkgPath string, flushStats func()) error {
 	if len(testNames)+len(benchNames)+len(examples) == 0 {
 		fmt.Fprintln(os.Stderr, "testing: warning: no tests to run")
 		return nil
+	}
+
+	// Route subtest-path Incompat entries through testing's -skip (after
+	// filterTopLevelTests, so the partial-matching parent test isn't dropped).
+	if subs := stdlib.SubtestSkips(pkgPath); len(subs) > 0 {
+		pats := make([]string, len(subs))
+		for n, s := range subs {
+			pats[n] = subtestSkipPattern(s.Name)
+			fmt.Fprintf(os.Stderr, "--- SKIP: %s (mvm: %s)\n", s.Name, s.Reason)
+		}
+		os.Args = mergeTestSkip(os.Args, strings.Join(pats, "|"))
 	}
 
 	var exitCode int

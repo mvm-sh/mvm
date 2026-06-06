@@ -153,6 +153,13 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				return m, nil
 			}
 		}
+		// Probe pkg-qualified method keys too, so a composite-literal receiver
+		// like `pkg.T{}.M()` resolves, not just a variable of that type.
+		if sym.Type != nil && sym.Type.Name != "" {
+			if m := sm.qualifiedMethodLookup(sym.Type, sym.Type.Name, name); m != nil {
+				return m, nil
+			}
+		}
 		return sm.promotedMethod(sym.Type, name, nil)
 	case Var, LocalVar, Value, Const:
 		// A typed constant has the method set of its named type, just like a

@@ -477,10 +477,8 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 			t = t[1:]
 			if len(t) == 0 {
 				if len(types) == 0 {
-					// No type seen from the right yet. For output params, a lone ident
-					// that is not in the symbol table might be a forward-declared type;
-					// return ErrUndefined so the lazy fixpoint can retry.
-					if flag == parseTypeOut {
+					// In a func signature (param/result) a lone undefined ident is a forward-declared type.
+					if flag == parseTypeOut || flag == parseTypeIn {
 						if _, _, ok := p.symGet(origName); !ok {
 							return nil, nil, false, p.undef(origName, list[i][0])
 						}
@@ -767,6 +765,13 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			lt = lt[:len(lt)-1]
 		}
 		if f, origType := p.parseEmbeddedField(lt); f != nil {
+			// A non-pointer embedded struct still a placeholder has no fields yet, so
+			// defer until it is finalized. Pointer embeds need only a pointer's size
+			// (and self-refs like *A must not defer).
+			if f.Kind() != reflect.Pointer && origType != nil &&
+				origType.Kind() == reflect.Struct && origType.Placeholder {
+				return nil, p.undef(origType.Name, lt[0])
+			}
 			embedded = append(embedded, vm.EmbeddedField{FieldIdx: len(fields), Type: origType})
 			fields = append(fields, f)
 			tags = append(tags, tag)
