@@ -2947,7 +2947,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			case symbol.Type:
 				return c.errAt(t, "cannot defer a type conversion")
 			case symbol.Value:
-				isX = 1
+				// A value of func type can be either a native Go func or a VM closure.
+				// DeferPush detects native at runtime, same as for `go`.
 			case symbol.Builtin:
 				// Builtin functions have no VM-callable representation.
 				// Push the opcode number as funcVal then use isX=2 so

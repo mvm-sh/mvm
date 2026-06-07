@@ -3533,6 +3533,22 @@ s`, res: "24"},
 func _() { panic("never") }
 func _() { panic("never either") }
 42`, res: "42"},
+		{n: "defer_call_result_vm", src: `
+// defer <call>(): the func expression is itself a call returning a VM
+// closure. The closure is evaluated now and deferred; it must dispatch
+// as a VM func, not via reflect (it is not native). See go-homedir.
+r := 0
+func makeFn() func() { return func() { r = 7 } }
+func f() { defer makeFn()() }
+f()
+r`, res: "7"},
+		{n: "defer_slice_elem_vm", src: `
+// A VM closure reached via a slice index (symbol.Value) must also
+// dispatch as a VM func.
+r := 0
+func f() { fns := []func(){func() { r = 9 }}; defer fns[0]() }
+f()
+r`, res: "9"},
 	})
 }
 
