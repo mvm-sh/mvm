@@ -102,7 +102,9 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 		// All data must be copied to the VM the first time only (re-entrance).
 		dataOffset = len(i.Data)
 	}
-	i.PopExit() // Remove last exit from previous run (re-entrance).
+	// Drop the previous Eval's leftover init/main call shims so m.code
+	// stays index-aligned with the compiler's Code.
+	i.TrimCode(codeOffset)
 	initsBefore := len(i.InitFuncs)
 
 	if !i.stdlibPatched {

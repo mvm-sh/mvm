@@ -4433,6 +4433,13 @@ func (m *Machine) PopExit() {
 	}
 }
 
+// TrimCode drops m.code back to length n (a no-op if it is already <= n).
+func (m *Machine) TrimCode(n int) {
+	if n >= 0 && n < len(m.code) {
+		m.code = m.code[:n]
+	}
+}
+
 // Vstring returns the string representation of a list of values.
 func Vstring(lv []Value) string {
 	var sb strings.Builder
