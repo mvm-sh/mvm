@@ -346,6 +346,19 @@ walk:
 	if first < 0 {
 		return false
 	}
+	// A leftmost BracketBlock is a slice/array type prefix (the `[]` in
+	// `[]byte{}`) only at the start of the expression or after a token where a
+	// type may begin. When it instead follows an operand -- a literal or a
+	// parenthesized/call result -- it is a postfix index, e.g. `"script"[i]{`
+	// or `f()[i]{`, so the brace is a statement body, not a composite literal.
+	// (An Ident operand like `flags[i]` is already consumed by the walk above,
+	// which then settles on the Ident and returns false.)
+	if toks[first].Tok == lang.BracketBlock && first > 0 {
+		switch toks[first-1].Tok {
+		case lang.Char, lang.Float, lang.Imag, lang.Int, lang.String, lang.ParenBlock:
+			return false
+		}
+	}
 	switch toks[first].Tok {
 	case lang.BracketBlock, lang.Map, lang.Struct, lang.Interface:
 		return true
