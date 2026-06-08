@@ -47,11 +47,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 				return false, err
 			}
 			// Parse the function signature so type params are resolved.
-			savedTP := make(map[string]*symbol.Symbol, len(params))
-			for _, tp := range params {
-				savedTP[tp.name] = p.Symbols[tp.name]
-				p.Symbols[tp.name] = &symbol.Symbol{Kind: symbol.Type, Name: tp.name, Type: &vm.Type{Name: tp.name, Rtype: vm.AnyRtype}} // mvm:symkey-ok: transient type-param placeholder, restored below
-			}
+			restore := p.bindTypeParamPlaceholders(params)
 			sigEnd := bi
 			if sigEnd <= 0 {
 				sigEnd = len(toks)
@@ -60,13 +56,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			sigToks = append(sigToks, toks[:2]...)       // func Name
 			sigToks = append(sigToks, toks[3:sigEnd]...) // (params) rettype (skip BracketBlock)
 			genType, _, _, gerr := p.parseFuncSig(sigToks)
-			for _, tp := range params {
-				if prev := savedTP[tp.name]; prev != nil {
-					p.Symbols[tp.name] = prev // mvm:symkey-ok: restoring the saved symbol
-				} else {
-					delete(p.Symbols, tp.name)
-				}
-			}
+			restore()
 			// Forward reference in the signature (e.g. return type names a
 			// not-yet-declared generic): defer via ErrUndefined so the retry
 			// loop re-registers this template once the referenced type exists.

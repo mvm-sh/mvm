@@ -65,9 +65,8 @@ type genericInstance struct {
 	mname    string // mangled symbol name used for instance type registration
 }
 
-// genericFuncSymbol builds a generic-function symbol-table entry. genType is the
-// parsed signature, or nil when only pre-registering the name (see
-// preRegisterGenericFuncs). registerFunc and the pre-pass share it.
+// genericFuncSymbol builds a generic-function symbol-table entry; genType is nil
+// when only pre-registering the name (preRegisterGenericFuncs).
 func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Tokens, genType *vm.Type) *symbol.Symbol {
 	return &symbol.Symbol{
 		Kind: symbol.Generic,
@@ -136,33 +135,21 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 	}
 
 	// Temporarily install placeholders for each type-param name so that
-	// parseTypeExpr can resolve references to them inside composite
-	// constraints like "~[]E". Restore the prior symbol on exit.
-	saved := make(map[string]*symbol.Symbol, len(raws))
-	for _, r := range raws {
-		saved[r.name] = p.Symbols[r.name]
-		p.Symbols[r.name] = &symbol.Symbol{ // mvm:symkey-ok: transient type-param placeholder, restored in defer below
-			Kind: symbol.Type, Name: r.name,
-			Type: &vm.Type{Name: r.name, Rtype: vm.AnyRtype},
-		}
-	}
-	defer func() {
-		for k, v := range saved {
-			if v == nil {
-				delete(p.Symbols, k)
-			} else {
-				p.Symbols[k] = v // mvm:symkey-ok: restoring the saved symbol
-			}
-		}
-	}()
-
+	// parseTypeExpr can resolve references to them inside composite constraints
+	// like "~[]E" -- including when a name collides with a package-level symbol
+	// (see bindTypeParamPlaceholders). Restore the prior symbols on exit.
 	params := make([]typeParam, len(raws))
+	for i, r := range raws {
+		params[i].name = r.name
+	}
+	defer p.bindTypeParamPlaceholders(params)()
+
 	for i, r := range raws {
 		c, err := p.resolveConstraint(r.ctoks, tpIdx)
 		if err != nil {
 			return nil, err
 		}
-		params[i] = typeParam{name: r.name, constraint: c}
+		params[i].constraint = c
 	}
 	return params, nil
 }
@@ -450,20 +437,20 @@ func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, error) {
 	return types, nil
 }
 
-// bindTypeParams installs a transient Type symbol mapping each type-parameter
-// name to its concrete type argument, returning a restore func the caller defers.
-// The instantiated body keeps the type-param names (it is re-scanned from block
-// text), so every type-position reference resolves to the concrete type and
-// carries its identity to the compiler.
+// bindTypeParamSyms installs the symbol mk returns for each type parameter at
+// its bare name AND the CompilingPkg/importingPkg-qualified keys, returning a
+// restore func the caller invokes (often via defer). mk returning nil skips that
+// parameter.
 //
-// A type param shadows a package-level type of the same name (Go scoping: it is
-// local to the generic body). symGet, under CompilingPkg/importingPkg, prefers a
-// canonical "<pkg>.<name>" type over a bare binding, so the binding is installed
-// at the bare name AND at those qualified keys; otherwise an instance of e.g.
-// slices' MinFunc[S ~[]E] would resolve S to a test's `type S struct` instead of
-// the concrete slice. Save/restore nests safely under recursive instantiation: an
-// inner restore re-exposes the outer instance's binding.
-func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() {
+// A type param shadows a package-level symbol of the same name (Go scoping: it
+// is local to the generic). symGet, under CompilingPkg/importingPkg, prefers a
+// canonical "<pkg>.<name>" over a bare binding, so installing only the bare key
+// would let a type param colliding with a package symbol -- e.g. lo's
+// Must2[T1, T2 any] next to a package func T2, or the E in Min[S ~[]E, E int]
+// next to a package func E -- resolve to that symbol instead of the parameter.
+// Save/restore nests safely under recursive instantiation: an inner restore
+// re-exposes the outer binding.
+func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typeParam) *symbol.Symbol) func() {
 	type saved struct {
 		key string
 		sym *symbol.Symbol
@@ -476,23 +463,9 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 		p.Symbols[key] = sym // mvm:symkey-ok: transient type-param binding, restored by the returned func
 	}
 	for i, tp := range params {
-		if i >= len(typeArgs) {
-			break
-		}
-		ta := typeArgs[i]
-		if ta == nil {
-			continue // unresolved type arg: leave the name to resolve (or error) normally
-		}
-		if ta.Rtype == nil {
-			vm.MaterializeRtype(ta) // post-flip inferred args are symbolic; materialize so the binding is usable
-		}
-		sym := &symbol.Symbol{
-			Kind:  symbol.Type,
-			Name:  tp.name,
-			Index: symbol.UnsetAddr,
-			Type:  ta,
-			Value: typeTokenValue(ta),
-			Used:  true,
+		sym := mk(i, tp)
+		if sym == nil {
+			continue
 		}
 		set(tp.name, sym)
 		if p.CompilingPkg != "" {
@@ -511,6 +484,39 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 			}
 		}
 	}
+}
+
+// bindTypeParams maps each type-parameter name to its concrete type argument
+// while an instantiated body is parsed. The body keeps the type-param names (it
+// is re-scanned from block text), so every type-position reference resolves to
+// the concrete type and carries its identity to the compiler.
+func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() {
+	return p.bindTypeParamSyms(params, func(i int, tp typeParam) *symbol.Symbol {
+		if i >= len(typeArgs) || typeArgs[i] == nil {
+			return nil // missing/unresolved type arg: leave the name to resolve (or error) normally
+		}
+		ta := typeArgs[i]
+		if ta.Rtype == nil {
+			vm.MaterializeRtype(ta) // post-flip inferred args are symbolic; materialize so the binding is usable
+		}
+		return &symbol.Symbol{
+			Kind:  symbol.Type,
+			Name:  tp.name,
+			Index: symbol.UnsetAddr,
+			Type:  ta,
+			Value: typeTokenValue(ta),
+			Used:  true,
+		}
+	})
+}
+
+// bindTypeParamPlaceholders maps each type-parameter name to an any-typed
+// placeholder while a generic signature or constraint is parsed (the concrete
+// arguments are not yet known).
+func (p *Parser) bindTypeParamPlaceholders(params []typeParam) func() {
+	return p.bindTypeParamSyms(params, func(_ int, tp typeParam) *symbol.Symbol {
+		return &symbol.Symbol{Kind: symbol.Type, Name: tp.name, Type: &vm.Type{Name: tp.name, Rtype: vm.AnyRtype}}
+	})
 }
 
 // maxInstDepth bounds the nesting depth of in-progress instantiations. Same-type
