@@ -329,6 +329,10 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				if sym.Type.Kind() == reflect.Map && i+1 < lin && in[i+1].Tok == lang.Colon {
 					inner = sym.Type.Key()
 				}
+				// An elided `{...}` for a *T element (e.g. []*T{{...}}) denotes &T{...}.
+				if inner != nil && inner.IsPtr() {
+					inner = inner.Elem()
+				}
 				ctype = p.registerType(inner, t.Pos, &out)
 			}
 			toks, sliceLen, err := p.parseComposite(t.Block(), ctype, t.Pos+t.Beg)
