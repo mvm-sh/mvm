@@ -88,9 +88,6 @@ var Incompat = map[string]map[string]string{
 		"TestStack":        "debug.Stack reads the native goroutine stack; an interpreted method runs via reflect.MakeFunc, so frames show reflect/VM internals instead of the runtime/debug_test source the test greps for",
 	},
 
-	// btree's stress tests hardcode a 10000-key tree with no testing.Short() path,
-	// so -short can't scale them down -- minutes under the interpreter. The 100-key
-	// traversal tests and the examples run normally over the same code.
 	"github.com/google/btree": {
 		"TestBTreeG":                     "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
 		"TestBTree":                      "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
@@ -98,8 +95,13 @@ var Incompat = map[string]map[string]string{
 		"TestCloneConcurrentOperations":  "stress test: 10000-key concurrent-clone workload; minutes under the interpreter (no testing.Short path)",
 	},
 
-	// Subtest-path keys (containing '/') skip only that subtest via testing's
-	// -skip, so the sibling cases under the same top-level test still run.
+	"github.com/oklog/ulid/v2": {
+		"TestLexicographicalOrder": "stress test: quick.Check MaxCount 1e6 (~286s); hardcoded count ignores -short/-quickchecks",
+		"TestCompare":              "stress test: quick.CheckEqual MaxCount 1e5 (~42s); hardcoded count ignores -short/-quickchecks",
+		"TestRoundTrips":           "stress test: quick.Check MaxCount 1e5 (~25s); hardcoded count ignores -short/-quickchecks",
+		"TestEncoding":             "stress test: quick.Check MaxCount 1e5 (~23s); hardcoded count ignores -short/-quickchecks",
+	},
+
 	"github.com/google/go-cmp/cmp": {
 		"TestOptionPanic/Comparer#03":     "func(...) myBool accepted as a comparer: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
 		"TestOptionPanic/FilterValues#03": "func(...) myBool accepted as a values filter: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
