@@ -28,14 +28,6 @@ func TestFuncFieldWeakNoRetain(t *testing.T) {
 
 	ws := weak.Make(sentinel)
 
-	// Drop every strong reference to the wrapper and the func value. The only
-	// thing left referring to the captured sentinel is the weak funcFields
-	// entry, so it must become collectable.
-	w = reflect.Value{}
-	fval = Value{}
-	cl = Closure{}
-	sentinel = nil
-
 	collected := false
 	for range 10 {
 		runtime.GC()
