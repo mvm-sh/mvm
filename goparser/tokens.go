@@ -1,6 +1,7 @@
 package goparser
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,8 +50,8 @@ func (toks Tokens) Index(tok lang.Token) int {
 
 // LastIndex returns the index in toks of the last matching tok, or -1.
 func (toks Tokens) LastIndex(tok lang.Token) int {
-	for i := len(toks) - 1; i >= 0; i-- {
-		if toks[i].Tok == tok {
+	for i, v := range slices.Backward(toks) {
+		if v.Tok == tok {
 			return i
 		}
 	}

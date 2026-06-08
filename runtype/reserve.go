@@ -153,7 +153,7 @@ func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, e
 	}
 	b := new(synthPtr)
 	b.elem = elemRT
-	intPtrRT := rtypePtr(reflect.TypeOf((*int)(nil)))
+	intPtrRT := rtypePtr(reflect.TypeFor[*int]())
 	b.t = abiType{
 		Size:       unsafe.Sizeof(uintptr(0)),
 		PtrBytes:   unsafe.Sizeof(uintptr(0)),
@@ -195,7 +195,7 @@ func FillStructLayout(reserved, realLayout reflect.Type) {
 	d := rtypePtr(reserved)
 	keep := d.TFlag & (tflagUncommon | tflagNamed)
 	dp, sp := unsafe.Pointer(d), unsafe.Pointer(rtypePtr(realLayout))
-	for i := uintptr(0); i < 40; i++ {
+	for i := range uintptr(40) {
 		*(*byte)(unsafe.Add(dp, i)) = *(*byte)(unsafe.Add(sp, i))
 	}
 	for i := uintptr(48); i < abiStructTypeSize; i++ {

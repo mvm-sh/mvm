@@ -33,7 +33,7 @@ type Opaque struct{}
 // OpaqueRtype is the reflect.Type for Opaque.
 var OpaqueRtype = reflect.TypeFor[Opaque]()
 
-var ifaceRtype = reflect.TypeOf(Iface{})
+var ifaceRtype = reflect.TypeFor[Iface]()
 
 // MvmFunc bundles a mvm func value with its native Go reflect.MakeFunc wrapper.
 // Stored when a mvm func is assigned to a struct field of func type:
@@ -56,7 +56,7 @@ type boundHookCall struct {
 	Recv     reflect.Value
 }
 
-var boundHookCallRtype = reflect.TypeOf(boundHookCall{})
+var boundHookCallRtype = reflect.TypeFor[boundHookCall]()
 
 // Value is the VM runtime value.
 // Numeric types (bool, int*, uint*, float*) store their value inline in num.
@@ -96,20 +96,20 @@ func init() {
 
 // Pre-computed zero reflect.Values for all numeric types (zero allocation).
 var (
-	zbool    = reflect.Zero(reflect.TypeOf(false))
-	zint     = reflect.Zero(reflect.TypeOf(int(0)))
-	zint8    = reflect.Zero(reflect.TypeOf(int8(0)))
-	zint16   = reflect.Zero(reflect.TypeOf(int16(0)))
-	zint32   = reflect.Zero(reflect.TypeOf(int32(0)))
-	zint64   = reflect.Zero(reflect.TypeOf(int64(0)))
-	zuint    = reflect.Zero(reflect.TypeOf(uint(0)))
-	zuint8   = reflect.Zero(reflect.TypeOf(uint8(0)))
-	zuint16  = reflect.Zero(reflect.TypeOf(uint16(0)))
-	zuint32  = reflect.Zero(reflect.TypeOf(uint32(0)))
-	zuint64  = reflect.Zero(reflect.TypeOf(uint64(0)))
-	zuintptr = reflect.Zero(reflect.TypeOf(uintptr(0)))
-	zfloat32 = reflect.Zero(reflect.TypeOf(float32(0)))
-	zfloat64 = reflect.Zero(reflect.TypeOf(float64(0)))
+	zbool    = reflect.Zero(reflect.TypeFor[bool]())
+	zint     = reflect.Zero(reflect.TypeFor[int]())
+	zint8    = reflect.Zero(reflect.TypeFor[int8]())
+	zint16   = reflect.Zero(reflect.TypeFor[int16]())
+	zint32   = reflect.Zero(reflect.TypeFor[int32]())
+	zint64   = reflect.Zero(reflect.TypeFor[int64]())
+	zuint    = reflect.Zero(reflect.TypeFor[uint]())
+	zuint8   = reflect.Zero(reflect.TypeFor[uint8]())
+	zuint16  = reflect.Zero(reflect.TypeFor[uint16]())
+	zuint32  = reflect.Zero(reflect.TypeFor[uint32]())
+	zuint64  = reflect.Zero(reflect.TypeFor[uint64]())
+	zuintptr = reflect.Zero(reflect.TypeFor[uintptr]())
+	zfloat32 = reflect.Zero(reflect.TypeFor[float32]())
+	zfloat64 = reflect.Zero(reflect.TypeFor[float64]())
 )
 
 func isNum(k reflect.Kind) bool { return k >= reflect.Bool && k <= reflect.Float64 }
@@ -458,7 +458,7 @@ func (v Value) Equal(u Value) bool {
 	// value.
 	if v.ref.Kind() == reflect.Struct && u.ref.Kind() == reflect.Struct && v.ref.Type() == u.ref.Type() {
 		nf := v.ref.NumField()
-		for i := 0; i < nf; i++ {
+		for i := range nf {
 			fv := FromReflect(Exportable(v.ref.Field(i)))
 			fu := FromReflect(Exportable(u.ref.Field(i)))
 			if !fv.Equal(fu) {

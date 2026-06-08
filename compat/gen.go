@@ -262,7 +262,7 @@ func runAll(refs []pkgRef, mvmBin string, timeout time.Duration, workers int) []
 	}
 	results := make([]Pkg, len(refs))
 	jobs := make(chan int)
-	var done int64
+	var done atomic.Int64
 	var wg sync.WaitGroup
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
@@ -270,7 +270,7 @@ func runAll(refs []pkgRef, mvmBin string, timeout time.Duration, workers int) []
 			defer wg.Done()
 			for i := range jobs {
 				results[i] = runOne(refs[i], mvmBin, timeout)
-				n := atomic.AddInt64(&done, 1)
+				n := done.Add(1)
 				r := results[i]
 				fmt.Fprintf(os.Stderr, "[%3d/%d] %-7s %-40s %-6s %d/%d (%dms) %s\n",
 					n, len(refs), r.Category, r.Path, r.Tier, r.Pass, r.Total, r.DurationMs, r.ErrorClass)

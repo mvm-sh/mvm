@@ -584,7 +584,7 @@ func scanImports(src string) []string {
 	var imports []string
 	inBlock := false
 
-	for _, line := range strings.Split(src, "\n") {
+	for line := range strings.SplitSeq(src, "\n") {
 		line = strings.TrimSpace(line)
 
 		if inBlock {

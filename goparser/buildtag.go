@@ -30,11 +30,11 @@ func MatchFileName(name string, ctx *buildContext) bool {
 	}
 	name = strings.TrimSuffix(name, ".go")
 
-	i := strings.Index(name, "_")
-	if i < 0 {
+	_, after, ok := strings.Cut(name, "_")
+	if !ok {
 		return true // no underscore, no constraint
 	}
-	tags := strings.Split(name[i+1:], "_")
+	tags := strings.Split(after, "_")
 	// Mirror go/build goodOSArchFile: a trailing "test" element is the _test.go
 	// marker, not a constraint, so drop it before reading the GOOS/GOARCH suffix
 	// (e.g. arith_s390x_test.go is s390x-only, like arith_s390x.go).
@@ -59,8 +59,8 @@ func matchBuildDirective(src string, ctx *buildContext) bool {
 	var plusExpr constraint.Expr // AND-combined // +build lines
 	for src != "" {
 		var line string
-		if i := strings.IndexByte(src, '\n'); i >= 0 {
-			line, src = src[:i], src[i+1:]
+		if before, after, ok := strings.Cut(src, "\n"); ok {
+			line, src = before, after
 		} else {
 			line, src = src, ""
 		}

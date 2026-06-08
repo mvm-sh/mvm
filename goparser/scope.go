@@ -2,6 +2,7 @@ package goparser
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -162,8 +163,8 @@ func (p *Parser) markRangeStop(stop Token) {
 
 // ctrlIndexByLabel finds the active frame with the given label, or -1.
 func (p *Parser) ctrlIndexByLabel(key string) int {
-	for i := len(p.ctrlStack) - 1; i >= 0; i-- {
-		if p.ctrlStack[i].userLabel == key {
+	for i, v := range slices.Backward(p.ctrlStack) {
+		if v.userLabel == key {
 			return i
 		}
 	}
@@ -172,8 +173,8 @@ func (p *Parser) ctrlIndexByLabel(key string) int {
 
 // innermostContinueIndex returns the innermost for-loop frame, or -1.
 func (p *Parser) innermostContinueIndex() int {
-	for i := len(p.ctrlStack) - 1; i >= 0; i-- {
-		if p.ctrlStack[i].hasContinue {
+	for i, v := range slices.Backward(p.ctrlStack) {
+		if v.hasContinue {
 			return i
 		}
 	}

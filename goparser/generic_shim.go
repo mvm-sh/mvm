@@ -2,6 +2,7 @@ package goparser
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/mvm-sh/mvm/symbol"
@@ -47,9 +48,7 @@ func RegisterGenericShim(pkg, source string, nativeRefs []string) {
 func (p *Parser) installGenericShims() error {
 	shimMu.Lock()
 	snapshot := make(map[string][]genericShim, len(shimRegistry))
-	for k, v := range shimRegistry {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, shimRegistry)
 	shimMu.Unlock()
 
 	for pkgPath, shims := range snapshot {

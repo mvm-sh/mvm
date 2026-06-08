@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -72,8 +73,8 @@ func splitTestArgs(arg []string) (mvmFlags []string, target string, testFlags []
 // splitFlag returns a flag token's name (sans dashes) and whether it has an attached =value.
 func splitFlag(a string) (name string, hasValue bool) {
 	name = strings.TrimLeft(a, "-")
-	if eq := strings.IndexByte(name, '='); eq >= 0 {
-		return name[:eq], true
+	if before, _, ok := strings.Cut(name, "="); ok {
+		return before, true
 	}
 	return name, false
 }
@@ -239,12 +240,8 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	// strings.StringFind) so external stdlib tests that use them resolve. The
 	// overlay is test-runner-only, so `mvm run` never sees these symbols.
 	vals := make(map[string]map[string]reflect.Value, len(stdlib.Values))
-	for k, v := range stdlib.Values {
-		vals[k] = v
-	}
-	for pkg, merged := range stdlib.TestOverlay() {
-		vals[pkg] = merged
-	}
+	maps.Copy(vals, stdlib.Values)
+	maps.Copy(vals, stdlib.TestOverlay())
 	i.ImportPackageValues(vals)
 	i.ImportPackageConsts(stdlib.ConstValues)
 	mfs := wireFS(i)

@@ -106,7 +106,7 @@ func ActiveMachine() *Machine {
 }
 
 // runtimeFuncPtrType is *runtime.Func, used to detect intercepted receivers.
-var runtimeFuncPtrType = reflect.TypeOf((*runtime.Func)(nil))
+var runtimeFuncPtrType = reflect.TypeFor[*runtime.Func]()
 
 // runtimeFuncSentinel embeds runtime.Func together with padding so each
 // allocation gets a unique address. runtime.Func itself is a zero-sized
@@ -188,7 +188,7 @@ func LookupRuntimeFuncByPC(pc uintptr) (*runtime.Func, *RuntimeFuncInfo) {
 }
 
 // reflectValueRtype is the reflect.Type for reflect.Value itself.
-var reflectValueRtype = reflect.TypeOf(reflect.Value{})
+var reflectValueRtype = reflect.TypeFor[reflect.Value]()
 
 // Shim MakeFunc signatures, hoisted to avoid re-creating the reflect.Type on
 // every shim invocation.

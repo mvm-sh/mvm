@@ -60,10 +60,7 @@ func mvmCaller(m *vm.Machine, skip int) (pc uintptr, file string, line int, ok b
 	if di == nil {
 		return 0, "", 0, false
 	}
-	drop := skip
-	if drop < 0 {
-		drop = 0
-	}
+	drop := max(skip, 0)
 	m.WalkCallStack(func(f vm.StackFrame) bool {
 		if drop > 0 {
 			drop--
@@ -125,10 +122,7 @@ func mvmCallers(m *vm.Machine, skip int, pcs []uintptr) int {
 	if di == nil {
 		return 0
 	}
-	drop := skip - 1
-	if drop < 0 {
-		drop = 0
-	}
+	drop := max(skip-1, 0)
 	n := 0
 	m.WalkCallStack(func(f vm.StackFrame) bool {
 		if drop > 0 {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"reflect"
@@ -311,8 +312,8 @@ func extractPackageName(src string) string {
 	// `package` directly after build tags, so this is sufficient in practice).
 	for src != "" {
 		var line string
-		if i := strings.IndexByte(src, '\n'); i >= 0 {
-			line, src = src[:i], src[i+1:]
+		if before, after, ok0 := strings.Cut(src, "\n"); ok0 {
+			line, src = before, after
 		} else {
 			line, src = src, ""
 		}
@@ -351,9 +352,7 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	}()
 
 	existing := make(map[string]*symbol.Symbol, len(p.Symbols))
-	for k, s := range p.Symbols {
-		existing[k] = s
-	}
+	maps.Copy(existing, p.Symbols)
 
 	remaining, err := p.ParseAll(pkgPath, "")
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -502,8 +503,8 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 		}
 	}
 	return func() {
-		for i := len(prev) - 1; i >= 0; i-- {
-			if s := prev[i]; s.had {
+		for _, s := range slices.Backward(prev) {
+			if s.had {
 				p.Symbols[s.key] = s.sym // mvm:symkey-ok: restoring the saved symbol
 			} else {
 				delete(p.Symbols, s.key)

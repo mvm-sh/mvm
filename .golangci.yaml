@@ -1,4 +1,8 @@
 version: "2"
+run:
+  # Skip *_test.go entirely: test files deliberately use non-idiomatic patterns
+  # (classic for loops, dead stores for GC tests, sort.Slice, etc.).
+  tests: false
 linters:
   enable:
     - copyloopvar
@@ -12,7 +16,7 @@ linters:
     - ineffassign
     - makezero
     - misspell
-#    - modernize
+    - modernize
     - nolintlint
     - perfsprint
     - prealloc

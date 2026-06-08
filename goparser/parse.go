@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/constant"
 	"io/fs"
+	"maps"
 	"os"
 	"reflect"
 	"strings"
@@ -455,9 +456,7 @@ func (p *Parser) SnapshotUnit() UnitState {
 		}
 	}
 	pkgs := make(map[string]*symbol.Package, len(p.Packages))
-	for k, v := range p.Packages {
-		pkgs[k] = v
-	}
+	maps.Copy(pkgs, p.Packages)
 	return UnitState{syms: syms, pkgs: pkgs, insts: insts, inits: len(p.InitFuncs)}
 }
 

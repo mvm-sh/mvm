@@ -3,6 +3,7 @@ package goparser
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -231,12 +232,12 @@ func isMethodDecl(toks Tokens) bool {
 
 func recvTypeName(recvr Tokens) string {
 	// Walk backwards: last Ident is the type name, preceded by * for pointer receivers.
-	for i := len(recvr) - 1; i >= 0; i-- {
-		if recvr[i].Tok == lang.Ident {
+	for i, v := range slices.Backward(recvr) {
+		if v.Tok == lang.Ident {
 			if i > 0 && recvr[i-1].Tok == lang.Mul {
-				return "*" + recvr[i].Str
+				return "*" + v.Str
 			}
-			return recvr[i].Str
+			return v.Str
 		}
 	}
 	return ""
@@ -251,8 +252,7 @@ func (p *Parser) registerParamsFromSym(s *symbol.Symbol) {
 		p.addSymVar(i, nparams, p.scopedName(name), s.Type.Params[i], parseTypeIn)
 	}
 	// Reverse order to match frame slot assignment in parseParamTypes.
-	for i := len(s.OutNames) - 1; i >= 0; i-- {
-		name := s.OutNames[i]
+	for i, name := range slices.Backward(s.OutNames) {
 		if name == "" {
 			continue
 		}

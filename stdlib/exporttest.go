@@ -2,6 +2,7 @@ package stdlib
 
 import (
 	"go/token"
+	"maps"
 	"math"
 	"reflect"
 	"strings"
@@ -41,7 +42,7 @@ var TestValues = map[string]map[string]reflect.Value{
 				{Name: "Elem", Type: y},
 			})
 			return reflect.StructOf([]reflect.StructField{
-				{Name: "Ctrl", Type: reflect.TypeOf(uint64(0))},
+				{Name: "Ctrl", Type: reflect.TypeFor[uint64]()},
 				{Name: "Slots", Type: reflect.ArrayOf(8, slot)},
 			})
 		}),
@@ -72,12 +73,8 @@ func TestOverlay() map[string]map[string]reflect.Value {
 	out := make(map[string]map[string]reflect.Value, len(TestValues))
 	for pkg, syms := range TestValues {
 		m := make(map[string]reflect.Value, len(Values[pkg])+len(syms))
-		for k, v := range Values[pkg] {
-			m[k] = v
-		}
-		for k, v := range syms {
-			m[k] = v
-		}
+		maps.Copy(m, Values[pkg])
+		maps.Copy(m, syms)
 		out[pkg] = m
 	}
 	return out
@@ -104,7 +101,7 @@ func makeStringFinder(pattern string) *stringFinder {
 	for i := range f.badCharSkip {
 		f.badCharSkip[i] = len(pattern)
 	}
-	for i := 0; i < last; i++ {
+	for i := range last {
 		f.badCharSkip[pattern[i]] = last - i
 	}
 
@@ -117,7 +114,7 @@ func makeStringFinder(pattern string) *stringFinder {
 		f.goodSuffixSkip[i] = lastPrefix + last - i
 	}
 	// Second pass: repeats of the suffix starting from the front.
-	for i := 0; i < last; i++ {
+	for i := range last {
 		lenSuffix := longestCommonSuffix(pattern, pattern[1:i+1])
 		if pattern[i-lenSuffix] != pattern[last-lenSuffix] {
 			f.goodSuffixSkip[last-lenSuffix] = lenSuffix + last - i

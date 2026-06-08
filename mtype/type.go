@@ -97,7 +97,7 @@ type TypeElem struct {
 }
 
 // AnyRtype is the reflect.Type for the empty interface (any).
-var AnyRtype = reflect.TypeOf((*any)(nil)).Elem()
+var AnyRtype = reflect.TypeFor[any]()
 
 // IsInterface reports whether t represents an interface type.
 func (t *Type) IsInterface() bool {

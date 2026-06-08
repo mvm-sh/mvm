@@ -3,6 +3,7 @@ package goparser
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -805,8 +806,8 @@ func (p *Parser) parseReturn(in Tokens) (out Tokens, err error) {
 			in = Tokens{newReturn(0)} // Implicit return in functions with no return parameters.
 		}
 		// Bare return: push named return vars in declaration order (reverse of namedOut).
-		for i := len(p.namedOut) - 1; i >= 0; i-- {
-			out = append(out, newIdent(p.namedOut[i], in[0].Pos))
+		for _, v := range slices.Backward(p.namedOut) {
+			out = append(out, newIdent(v, in[0].Pos))
 		}
 	}
 

@@ -810,7 +810,7 @@ func finalizeReturns(mem []Value, ofp, newBase, nret int) {
 	} else {
 		ret = make([]Value, nret)
 	}
-	for i := 0; i < nret; i++ {
+	for i := range nret {
 		ret[i] = derefCell(mem[ofp+nret-1-i])
 	}
 	copy(mem[newBase:newBase+nret], ret)
@@ -2283,7 +2283,7 @@ func (m *Machine) Run() (err error) {
 						rv.Call(rin)
 					}
 					// Move return values (at dh+1..dh+nret) down over the defer entry.
-					for i := 0; i < nret; i++ {
+					for i := range nret {
 						mem[retBase+i] = mem[dh+1+i]
 					}
 					clear(mem[retBase+nret : sp+1])
@@ -2728,7 +2728,7 @@ func (m *Machine) Run() (err error) {
 			sp -= 2
 		case SetS:
 			n := int(c.A)
-			for i := 0; i < n; i++ {
+			for i := range n {
 				m.assignSlot(&mem[sp-2*n+1+i], mem[sp-n+1+i])
 			}
 			sp -= 2 * n
@@ -3440,7 +3440,7 @@ func (m *Machine) escapeErr() error {
 	return fmt.Errorf("panic: %v", m.panicVal.Interface())
 }
 
-var typePtrRtype = reflect.TypeOf((*Type)(nil))
+var typePtrRtype = reflect.TypeFor[*Type]()
 
 func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 	if m.typesByRtype == nil {

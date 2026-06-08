@@ -89,8 +89,8 @@ func IsStdlibImport(name string) bool {
 		return false
 	}
 	first := name
-	if i := strings.IndexByte(name, '/'); i >= 0 {
-		first = name[:i]
+	if before, _, ok := strings.Cut(name, "/"); ok {
+		first = before
 	}
 	return !strings.ContainsRune(first, '.')
 }

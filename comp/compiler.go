@@ -1012,7 +1012,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	// t is the current token; its position is attached to the error so the user
 	// sees file:line:col rather than a bare "undefined: X".
 	checkTopN := func(t goparser.Token, n int) error {
-		for j := 0; j < n; j++ {
+		for j := range n {
 			if i := len(stack) - 1 - j; i >= 0 && stack[i].Kind == symbol.Unset && stack[i].Name != "" {
 				return c.errUndef(t, stack[i].Name)
 			}
@@ -1558,7 +1558,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				typ := s.Type
 				nret := typ.NumOut()
-				for i := 0; i < nret; i++ {
+				for i := range nret {
 					push(&symbol.Symbol{Kind: symbol.Value, Type: typ.ReturnType(i)})
 				}
 				c.emit(t, vm.Call, methodNarg, nret)
@@ -1614,7 +1614,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					pop()
 				}
 				nret := typ.NumOut()
-				for i := 0; i < nret; i++ {
+				for i := range nret {
 					push(&symbol.Symbol{Kind: symbol.Value, Type: typ.ReturnType(i)})
 				}
 				callNarg := narg
@@ -1849,7 +1849,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if sym != nil {
 					typ, idx = sym.Type, int32(sym.Index)
 				}
-				for i := len(c.Code) - 1; i >= 0; i-- {
+				for i := range slices.Backward(c.Code) {
 					in := c.Code[i]
 					if in.Op != vm.Fnew || in.B != -1 {
 						continue
@@ -2362,8 +2362,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 				}
 			} else {
-				if strings.HasSuffix(t.Str, "_end") {
-					base := strings.TrimSuffix(t.Str, "_end")
+				if before, ok0 := strings.CutSuffix(t.Str, "_end"); ok0 {
+					base := before
 					endKey := base
 					if qk := c.qualifyLabel(base); qk != base {
 						if _, ok := c.Symbols[qk]; ok {
@@ -2963,7 +2963,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			callNarg, packed := c.emitVariadicPack(t, s, narg, spread, stack)
 			pop() // function
-			for i := 0; i < narg; i++ {
+			for range narg {
 				pop()
 			}
 			deferB := isX
@@ -2981,7 +2981,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			callNarg, packed := c.emitVariadicPack(t, s, narg, spread, stack)
 			pop() // function
-			for i := 0; i < narg; i++ {
+			for range narg {
 				pop()
 			}
 			if s.Kind == symbol.Func && len(s.FreeVars) == 0 && c.removeGetGlobal(s.Index) {
@@ -3015,7 +3015,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Wrap concrete return values in Iface when the function return type is an interface.
 			// Skip if the stack doesn't have enough values (unreachable return after panic, etc.).
 			if funcType, ok := t.Arg[1].(*vm.Type); ok && len(stack) >= numOut {
-				for i := 0; i < numOut; i++ {
+				for i := range numOut {
 					stackSym := stack[len(stack)-numOut+i]
 					c.emitIfaceWrapAt(t, funcType.ReturnType(i), stackSym.Type, numOut-1-i)
 				}
@@ -3103,8 +3103,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			// Pop stack entries in reverse (LIFO) to collect channel element types.
 			chanTypes := make([]*vm.Type, len(descs))
-			for i := len(descs) - 1; i >= 0; i-- {
-				switch descs[i].Dir {
+			for i, v := range slices.Backward(descs) {
+				switch v.Dir {
 				case reflect.SelectSend:
 					pop() // value
 					pop() // channel
@@ -3837,7 +3837,7 @@ func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
 	if typ == nil || typ.Kind() != reflect.Pointer {
 		return
 	}
-	for i := len(c.Code) - 1; i >= 0; i-- {
+	for i := range slices.Backward(c.Code) {
 		if c.Code[i].Op == vm.FnewE {
 			di := int(c.Code[i].A)
 			if di == index || c.slotMatchesType(di, typ) {
@@ -3859,7 +3859,7 @@ func (c *Compiler) slotMatchesType(di int, typ *vm.Type) bool {
 }
 
 func (c *Compiler) removeFnew(index int) {
-	for i := len(c.Code) - 1; i >= 0; i-- {
+	for i := range slices.Backward(c.Code) {
 		op := c.Code[i].Op
 		if (op == vm.Fnew || op == vm.FnewE) && int(c.Code[i].A) == index {
 			c.Code[i] = vm.Instruction{Op: vm.Nop}
@@ -3869,7 +3869,7 @@ func (c *Compiler) removeFnew(index int) {
 }
 
 func (c *Compiler) removeGetLocal(index int) {
-	for i := len(c.Code) - 1; i >= 0; i-- {
+	for i := range slices.Backward(c.Code) {
 		op := c.Code[i].Op
 		if (op == vm.GetLocal || op == vm.CellGet) && int(c.Code[i].A) == index {
 			c.Code[i] = vm.Instruction{Op: vm.Nop}
@@ -3886,7 +3886,7 @@ func (c *Compiler) removeGetLocal(index int) {
 }
 
 func (c *Compiler) removeGetGlobal(index int) bool {
-	for i := len(c.Code) - 1; i >= 0; i-- {
+	for i := range slices.Backward(c.Code) {
 		if c.Code[i].Op == vm.GetGlobal && int(c.Code[i].A) == index {
 			// Skip if followed by Swap (method dispatch: GetGlobal + Swap + MkClosure).
 			if i+1 < len(c.Code) && c.Code[i+1].Op == vm.Swap {
@@ -4489,7 +4489,7 @@ func (c *Compiler) compileIntrinsic(
 	rv := s.Value.Reflect()
 	if rv.IsValid() && rv.Type().Kind() == reflect.Func {
 		funcType := rv.Type()
-		for k := 0; k < narg; k++ {
+		for k := range narg {
 			argSym := stack[len(stack)-narg+k]
 			paramType := funcType.In(k)
 			if argSym.Type == nil || (argSym.Type.Rtype != nil && argSym.Type.Rtype == paramType) {
@@ -4499,7 +4499,7 @@ func (c *Compiler) compileIntrinsic(
 		}
 	}
 	// Pop function symbol and argument symbols, push return type.
-	for i := 0; i < narg; i++ {
+	for range narg {
 		pop()
 	}
 	pop() // function symbol

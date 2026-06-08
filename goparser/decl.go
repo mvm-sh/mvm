@@ -933,9 +933,9 @@ func ConstFromExact(s string) constant.Value {
 		neg, s = true, s[1:]
 	}
 	var cv constant.Value
-	if i := strings.IndexByte(s, '/'); i >= 0 {
-		num := constant.MakeFromLiteral(s[:i], token.INT, 0)
-		den := constant.MakeFromLiteral(s[i+1:], token.INT, 0)
+	if before, after, ok := strings.Cut(s, "/"); ok {
+		num := constant.MakeFromLiteral(before, token.INT, 0)
+		den := constant.MakeFromLiteral(after, token.INT, 0)
 		if num.Kind() == constant.Unknown || den.Kind() == constant.Unknown {
 			return nil
 		}

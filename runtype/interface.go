@@ -25,10 +25,10 @@ type Imethod struct {
 // An empty method set yields any; name is stamped into Str; result is anonymous.
 func InterfaceOf(name, pkgPath string, methods []Imethod) reflect.Type {
 	if len(methods) == 0 {
-		return reflect.TypeOf((*any)(nil)).Elem()
+		return reflect.TypeFor[any]()
 	}
 	// error: a non-empty interface, correct layout/GCData/Equal for the 2-word iface.
-	proto := rtypePtr(reflect.TypeOf((*error)(nil)).Elem())
+	proto := rtypePtr(reflect.TypeFor[error]())
 
 	b := new(synthIface)
 	b.t.abiType = *proto

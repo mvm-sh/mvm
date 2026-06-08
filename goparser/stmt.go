@@ -2,6 +2,7 @@ package goparser
 
 import (
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -375,8 +376,7 @@ func (p *Parser) parseVarDecl(toks Tokens) (handled bool, err error) {
 			// Right-to-left so a trailing type applies to all names (Go grammar: "a, b int").
 			parts := decl.Split(lang.Comma)
 			var lastTyp *vm.Type
-			for i := len(parts) - 1; i >= 0; i-- {
-				ct := parts[i]
+			for _, ct := range slices.Backward(parts) {
 				if len(ct) == 0 {
 					continue
 				}

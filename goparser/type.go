@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/constant"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
@@ -444,8 +445,8 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 	// UUID is defined in another file not yet parsed).
 	sawTypeOnly := false
 	sawNamed := false
-	for i := len(list) - 1; i >= 0; i-- {
-		t := list[i]
+	for i, v := range slices.Backward(list) {
+		t := v
 		if len(t) == 0 {
 			continue
 		}
@@ -480,7 +481,7 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 					// In a func signature (param/result) a lone undefined ident is a forward-declared type.
 					if flag == parseTypeOut || flag == parseTypeIn {
 						if _, _, ok := p.symGet(origName); !ok {
-							return nil, nil, false, p.undef(origName, list[i][0])
+							return nil, nil, false, p.undef(origName, v[0])
 						}
 					}
 					return nil, nil, false, ErrMissingType
@@ -490,10 +491,10 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 				// param name to inherit the right-side type.
 				if sawTypeOnly {
 					if _, _, ok := p.Symbols.Get(origName, p.scope); !ok {
-						return nil, nil, false, p.undef(origName, list[i][0])
+						return nil, nil, false, p.undef(origName, v[0])
 					}
 					// Restore the full token and treat it as a type expression below.
-					t = list[i]
+					t = v
 					param = ""
 				} else {
 					// Type was omitted, apply the previous one from the right.

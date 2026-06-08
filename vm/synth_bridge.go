@@ -438,24 +438,24 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 // identity, so accepting aliases here would burn slot-pool entries on
 // types that never satisfy the target interface.
 var (
-	errorIface        = reflect.TypeOf((*error)(nil)).Elem()
-	byteSliceType     = reflect.TypeOf([]byte(nil))
-	anyIface          = reflect.TypeOf((*any)(nil)).Elem()
-	errorSliceType    = reflect.TypeOf([]error(nil))
-	fmtStateIface     = reflect.TypeOf((*fmt.State)(nil)).Elem()
-	fmtScanStateIface = reflect.TypeOf((*fmt.ScanState)(nil)).Elem()
-	xmlEncoderPtr     = reflect.TypeOf((*xml.Encoder)(nil))
-	xmlDecoderPtr     = reflect.TypeOf((*xml.Decoder)(nil))
-	xmlStartElem      = reflect.TypeOf(xml.StartElement{})
+	errorIface        = reflect.TypeFor[error]()
+	byteSliceType     = reflect.TypeFor[[]byte]()
+	anyIface          = reflect.TypeFor[any]()
+	errorSliceType    = reflect.TypeFor[[]error]()
+	fmtStateIface     = reflect.TypeFor[fmt.State]()
+	fmtScanStateIface = reflect.TypeFor[fmt.ScanState]()
+	xmlEncoderPtr     = reflect.TypeFor[*xml.Encoder]()
+	xmlDecoderPtr     = reflect.TypeFor[*xml.Decoder]()
+	xmlStartElem      = reflect.TypeFor[xml.StartElement]()
 
 	// io/fs cluster.
-	fsFileModeType    = reflect.TypeOf(fs.FileMode(0))
-	timeTimeType      = reflect.TypeOf(time.Time{})
-	fsFileInfoIface   = reflect.TypeOf((*fs.FileInfo)(nil)).Elem()
-	fsFileIface       = reflect.TypeOf((*fs.File)(nil)).Elem()
-	fsFSIface         = reflect.TypeOf((*fs.FS)(nil)).Elem()
-	stringSliceType   = reflect.TypeOf([]string(nil))
-	dirEntrySliceType = reflect.TypeOf([]fs.DirEntry(nil))
+	fsFileModeType    = reflect.TypeFor[fs.FileMode]()
+	timeTimeType      = reflect.TypeFor[time.Time]()
+	fsFileInfoIface   = reflect.TypeFor[fs.FileInfo]()
+	fsFileIface       = reflect.TypeFor[fs.File]()
+	fsFSIface         = reflect.TypeFor[fs.FS]()
+	stringSliceType   = reflect.TypeFor[[]string]()
+	dirEntrySliceType = reflect.TypeFor[[]fs.DirEntry]()
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }

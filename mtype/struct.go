@@ -17,7 +17,7 @@ var (
 	// Byte size of reflect's internal structType, probed at init.
 	structTypeSize uintptr
 
-	intRtype = reflect.TypeOf(0)
+	intRtype = reflect.TypeFor[int]()
 
 	// Pins every source rtype whose internal arrays patchRtype aliases by pointer
 	// (the raw copy bypasses the GC write barrier), so the collector can't free
@@ -64,7 +64,7 @@ func patchRtype(dst, src reflect.Type) {
 
 	d := rtypeData(dst)
 	s := rtypeData(src)
-	for i := uintptr(0); i < 40; i++ {
+	for i := range uintptr(40) {
 		*(*byte)(unsafe.Add(d, i)) = *(*byte)(unsafe.Add(s, i))
 	}
 	for i := uintptr(48); i < structTypeSize; i++ {

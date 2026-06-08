@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -50,10 +51,8 @@ func pickPreferredPath(name string, paths []string) string {
 		return paths[0]
 	}
 	if p, ok := autoImportPreferred[name]; ok {
-		for _, cand := range paths {
-			if cand == p {
-				return p
-			}
+		if slices.Contains(paths, p) {
+			return p
 		}
 	}
 	sort.Slice(paths, func(a, b int) bool {

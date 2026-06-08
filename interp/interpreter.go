@@ -45,7 +45,7 @@ var (
 // line tracing; "op" or "bytecode" enable bytecode tracing; "all" enables
 // both. Unknown or empty tokens are ignored.
 func ParseTraceModes(s string) (line, op bool) {
-	for _, t := range strings.Split(s, ",") {
+	for t := range strings.SplitSeq(s, ",") {
 		switch strings.TrimSpace(t) {
 		case "1", "line":
 			line = true

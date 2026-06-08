@@ -68,7 +68,7 @@ func PointerTo(elem reflect.Type) reflect.Type {
 }
 
 func buildPointerTo(elem reflect.Type, elemRT *abiType) reflect.Type {
-	intPtrRT := (*abiPtrType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((*int)(nil)))))
+	intPtrRT := (*abiPtrType)(unsafe.Pointer(rtypePtr(reflect.TypeFor[*int]())))
 
 	b := new(abiPtrType)
 	b.abiType = intPtrRT.abiType
@@ -79,7 +79,7 @@ func buildPointerTo(elem reflect.Type, elemRT *abiType) reflect.Type {
 		encodeName("*"+elem.String(), false).Bytes))
 	b.Elem = elemRT
 
-	intRT := rtypePtr(reflect.TypeOf((*int)(nil)))
+	intRT := rtypePtr(reflect.TypeFor[*int]())
 	registerLayout(&b.abiType, intRT)
 	return asReflectType(&b.abiType)
 }
@@ -98,7 +98,7 @@ func SliceOf(elem reflect.Type) reflect.Type {
 }
 
 func buildSliceOf(elem reflect.Type, elemRT *abiType) reflect.Type {
-	intSliceRT := (*abiSliceType)(unsafe.Pointer(rtypePtr(reflect.TypeOf([]int(nil)))))
+	intSliceRT := (*abiSliceType)(unsafe.Pointer(rtypePtr(reflect.TypeFor[[]int]())))
 
 	b := new(abiSliceType)
 	b.abiType = intSliceRT.abiType
@@ -109,7 +109,7 @@ func buildSliceOf(elem reflect.Type, elemRT *abiType) reflect.Type {
 		encodeName("[]"+elem.String(), false).Bytes))
 	b.Elem = elemRT
 
-	layoutRT := rtypePtr(reflect.TypeOf([]int(nil)))
+	layoutRT := rtypePtr(reflect.TypeFor[[]int]())
 	registerLayout(&b.abiType, layoutRT)
 	return asReflectType(&b.abiType)
 }
@@ -128,7 +128,7 @@ func ChanOf(dir reflect.ChanDir, elem reflect.Type) reflect.Type {
 }
 
 func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflect.Type {
-	intChanRT := (*abiChanType)(unsafe.Pointer(rtypePtr(reflect.TypeOf((chan int)(nil)))))
+	intChanRT := (*abiChanType)(unsafe.Pointer(rtypePtr(reflect.TypeFor[chan int]())))
 
 	var prefix string
 	switch dir {
@@ -150,7 +150,7 @@ func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflec
 	b.Elem = elemRT
 	b.Dir = uintptr(dir)
 
-	layoutRT := rtypePtr(reflect.TypeOf((chan int)(nil)))
+	layoutRT := rtypePtr(reflect.TypeFor[chan int]())
 	registerLayout(&b.abiType, layoutRT)
 	return asReflectType(&b.abiType)
 }
