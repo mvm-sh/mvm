@@ -2113,7 +2113,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Iface for native types so reflect-based code sees raw values.
 				c.emit(t, vm.FieldRefSet)
 			} else {
-				c.emit(t, vm.SetS, n)
+				// SetGlobal writes m.globals[idx] directly; SetS would mutate only
+				// the LHS stack copy, losing a resolveFuncField reassign. Pop drops
+				// that copy (as multi-assign does).
+				c.emit(t, vm.SetGlobal, lhs.Index, 0)
+				c.emit(t, vm.Pop, 1)
 			}
 
 		case lang.DerefAssign:
