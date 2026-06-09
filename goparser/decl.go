@@ -263,7 +263,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		// bypass the generic arg loop and read the type and field from the
 		// token pattern directly.
 		if narg == 1 && l >= 5 &&
-			in[l-5].Tok == lang.Ident && in[l-5].Str == "unsafe" &&
+			p.isUnsafePkgIdent(in[l-5]) &&
 			in[l-4].Tok == lang.Period && in[l-4].Str == ".Offsetof" &&
 			in[l-2].Tok == lang.Composite &&
 			in[l-1].Tok == lang.Period {
@@ -357,8 +357,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 
 		// unsafe.Sizeof / unsafe.Alignof: constant when the argument's type is known at compile time (Go spec).
 		if narg == 1 && len(rest) >= 2 &&
-			rest[len(rest)-1].Tok == lang.Period && rest[len(rest)-2].Tok == lang.Ident &&
-			rest[len(rest)-2].Str == "unsafe" {
+			rest[len(rest)-1].Tok == lang.Period && p.isUnsafePkgIdent(rest[len(rest)-2]) {
 			fname := rest[len(rest)-1].Str[1:]
 			if fname == "Sizeof" || fname == "Alignof" {
 				argTyp := arg0Type
@@ -517,6 +516,21 @@ func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 	return constant.Compare(i, token.LSS, loBound) || constant.Compare(i, token.GTR, hiBound)
 }
 
+// isUnsafePkgIdent reports whether t names the "unsafe" package. File-scoped
+// imports rewrite the ident to an alias key ("unsafe@34"), so check PkgPath too.
+func (p *Parser) isUnsafePkgIdent(t Token) bool {
+	if t.Tok != lang.Ident {
+		return false
+	}
+	if t.Str == "unsafe" {
+		return true
+	}
+	if s := p.Symbols[t.Str]; s != nil {
+		return s.Kind == symbol.Pkg && s.PkgPath == "unsafe"
+	}
+	return false
+}
+
 // unsafeSizeArg recognizes postfix forms of unsafe.Sizeof / unsafe.Alignof
 // whose argument isn't const-evaluable but has a compile-time type:
 //
@@ -531,10 +545,10 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) 
 	// Locate [unsafe][.Sizeof|.Alignof] ending at either l-3 or l-4.
 	var opIdx int
 	switch {
-	case l >= 4 && in[l-4].Tok == lang.Ident && in[l-4].Str == "unsafe" &&
+	case l >= 4 && p.isUnsafePkgIdent(in[l-4]) &&
 		in[l-3].Tok == lang.Period && (in[l-3].Str == ".Sizeof" || in[l-3].Str == ".Alignof"):
 		opIdx = l - 3
-	case l >= 3 && in[l-3].Tok == lang.Ident && in[l-3].Str == "unsafe" &&
+	case l >= 3 && p.isUnsafePkgIdent(in[l-3]) &&
 		in[l-2].Tok == lang.Period && (in[l-2].Str == ".Sizeof" || in[l-2].Str == ".Alignof"):
 		opIdx = l - 2
 	default:
@@ -1003,7 +1017,14 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 	}
 	n := in[0].Str
 	if l == 1 {
-		n = PackageName(pp)
+		// Unaliased import binds the declared name, which can differ from the
+		// path base (go-isatty declares `package isatty`). Bridged pkgs have no
+		// pkg.Name, so fall back to the path base.
+		if pkg != nil && pkg.Name != "" {
+			n = pkg.Name
+		} else {
+			n = PackageName(pp)
+		}
 	}
 	if n == "." {
 		// Import package symbols in the current scope.

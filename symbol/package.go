@@ -9,7 +9,10 @@ import (
 
 // Package is a package struct containing source or binary values.
 type Package struct {
-	Path   string
+	Path string
+	// Name is the declared package name, which can differ from the path base
+	// (go-isatty declares `package isatty`). Empty for bridged packages.
+	Name   string
 	Bin    bool
 	Values map[string]vm.Value
 	// Cvals holds the arbitrary-precision constant value of bridged constants

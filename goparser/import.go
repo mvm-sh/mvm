@@ -102,6 +102,9 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 		}
 		out = append(out, PackageSource{Name: e.Name(), Content: src})
 	}
+	// Append overlays before the test handling, so the external-only unit
+	// (built from _test.go files) never picks up a package-name mismatch.
+	out = append(out, sourceOverlay(importPath)...)
 	// External test files must compile as a standalone unit.
 	if includeTests {
 		names := make([]string, len(out))
@@ -363,6 +366,7 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 
 	pkg := &symbol.Package{
 		Path:   pkgPath,
+		Name:   p.pkgName, // declared name, set by parsePackageDecl during ParseAll
 		Values: map[string]vm.Value{},
 	}
 	var newKeys []string
