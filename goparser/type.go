@@ -689,15 +689,11 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	ft := *typ
 	ft.Name = name
 	// The clone is a field reference, not a forward declaration: clear Placeholder
-	// (inherited from the source if it was still a placeholder when embedded) so
-	// MaterializeRtype resolves the field via its Base instead of bailing.
+	// so MaterializeRtype resolves the field via its Base instead of bailing.
 	ft.Placeholder = false
 	ft.Defined = false // a field clone resolves to Base, unlike a defined type
 	// reflect.StructField.PkgPath must be empty for exported fields and the
-	// owning package's path for unexported ones. The cloned type may carry
-	// its own PkgPath (e.g. "errors" on a defined named type); reset to the
-	// field-level value so reflect.StructOf does not reject an embedded
-	// exported field as "anonymous but has PkgPath set".
+	// owning package's path for unexported ones.
 	if IsExported(name) {
 		ft.PkgPath = ""
 	} else {
@@ -752,6 +748,21 @@ func (p *Parser) hasFirstParam(in Tokens) bool {
 	return false
 }
 
+// placeholderStructElem returns the forward placeholder struct t is, or is an
+// array (possibly nested) of, else nil.
+func placeholderStructElem(t *vm.Type) *vm.Type {
+	for t != nil {
+		if t.Kind() == reflect.Struct && t.Placeholder {
+			return t
+		}
+		if t.Kind() != reflect.Array {
+			return nil
+		}
+		t = t.ElemType
+	}
+	return nil
+}
+
 func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 	if len(in) < 2 || in[1].Tok != lang.BraceBlock {
 		return nil, fmt.Errorf("%w: %v", ErrSyntax, in)
@@ -774,13 +785,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			lt = lt[:len(lt)-1]
 		}
 		if f, origType := p.parseEmbeddedField(lt); f != nil {
-			// A non-pointer embedded struct still a placeholder has no fields yet, so
-			// defer until it is finalized. Pointer embeds need only a pointer's size
-			// (and self-refs like *A must not defer).
-			if f.Kind() != reflect.Pointer && origType != nil &&
-				origType.Kind() == reflect.Struct && origType.Placeholder {
-				return nil, p.undef(origType.Name, lt[0])
-			}
+			// Keep a by-value embedded forward placeholder symbolically; don't defer.
 			embedded = append(embedded, vm.EmbeddedField{FieldIdx: len(fields), Type: origType})
 			fields = append(fields, f)
 			tags = append(tags, tag)
@@ -788,9 +793,8 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 		}
 		types, names, _, err := p.parseParamTypes(lt, parseTypeType)
 		if err != nil {
-			// A lone ident that failed embedded-field lookup and param-type
-			// parsing is likely a forward-declared type. Return ErrUndefined
-			// so the lazy fixpoint loop can retry after the type is defined.
+			// A lone ident that failed lookup and param-type parsing is likely a forward-declared type.
+			// Return ErrUndefined so the lazy fixpoint loop can retry after the type is defined.
 			if errors.Is(err, ErrMissingType) && len(lt) == 1 && lt[0].Tok == lang.Ident {
 				return nil, p.undef(lt[0].Str, lt[0])
 			}
@@ -804,11 +808,10 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			if !IsExported(name) {
 				pkgPath = p.pkgName
 			}
-			// A struct field whose type is a placeholder (not yet finalized via SetFields)
-			// means the containing struct's size cannot be computed yet. Return ErrUndefined
-			// so the retry loop defers this declaration until the placeholder is finalized.
-			if types[i].Kind() == reflect.Struct && types[i].Placeholder {
-				return nil, p.undef(types[i].Name, lt[0])
+			// A placeholder struct field (or an array of one) lacks a final layout,
+			// so the struct's size is unknown: defer via ErrUndefined and retry.
+			if ph := placeholderStructElem(types[i]); ph != nil {
+				return nil, p.undef(ph.Name, lt[0])
 			}
 			if name == "" {
 				// Unnamed field: likely an embedded type not yet defined.

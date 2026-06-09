@@ -1,18 +1,10 @@
 package main
 
-// Known bug (pre-existing, not from the issue #18 fix): an array/slice/map field
-// whose element is a forward-referenced struct sibling finalizes against the
-// placeholder's dummy layout. vm.ArrayOf/SliceOf/MapOf snapshot the element's
-// placeholder rtype eagerly and do not propagate the Placeholder flag, so the
-// forward-ref deferral guard in goparser/type.go (which only checks for a direct
-// struct-VALUE field) never fires. As a result Sizeof([3]B) reports 24 instead
-// of 48 and Sizeof(A) reports 32 instead of 56 -- a silent wrong layout, a
-// latent memory-safety hazard for reflect/copy/memmove paths.
-//
-// Reproduces only when the element struct (B) is declared AFTER the user (A) in
-// the same group; declaring B first gives the correct layout. The fix belongs in
-// the type.go deferral guard (recurse through composite element types) or in
-// ArrayOf/SliceOf/MapOf (mark the result Placeholder when its element is one).
+// An array of a forward-referenced struct sibling once finalized against the
+// placeholder's dummy layout (Sizeof([3]B) was 24 not 48, Sizeof(A) 32 not 56):
+// the deferral guard checked only a direct struct-value field. placeholderStructElem
+// now walks array elements, so the decl defers until B is finalized.
+// Only triggers when B is declared after A.
 
 import (
 	"fmt"
@@ -31,4 +23,5 @@ func main() {
 	fmt.Println(unsafe.Sizeof([3]B{}), unsafe.Sizeof(A{}))
 }
 
-// skip: array element of a forward-declared struct sibling uses placeholder layout (Sizeof 24/32, want 48/56)
+// Output:
+// 48 56
