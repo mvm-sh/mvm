@@ -6,6 +6,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-09
+
+### Added
+
+- External test units. `mvm test` now compiles and runs a package's external
+  `package X_test` suite as a second unit alongside the internal `package X`
+  tests, matching `go test`'s internal/external split.
+
+### Changed
+
+- `stdlib.Incompat` now also lists long-running stress tests that ignore
+  `-short`: the `golang.org/x/text/unicode/norm` `Writer`/`Reader` suites
+  (which re-run the corpus across 16 buffer sizes) and several
+  `github.com/oklog/ulid/v2` quick-checks now show `SKIP`, so the
+  compatibility matrix no longer times out.
+- Generic instantiation mangling simplified.
+- Type-switch and `test`-command handling refined, with richer
+  `file:line:col` diagnostics on parse errors.
+- Compatibility matrix refreshed.
+
+### Fixed
+
+- `make(map[K]V, n)` with a size hint, assigned to a package-level variable,
+  no longer yields a nil map.
+  The hint was left on the stack and the store wrote it in place of the map.
+- Slicing an array whose element is a method-bearing named struct (`arr[:]`)
+  preserves the named element type instead of degrading to the anonymous
+  struct layout.
+- A pointer-receiver method auto-addressing a local of a named scalar type now
+  mutates the local in place rather than a detached copy.
+- A legal mutual struct cycle broken by a pointer no longer exhausts memory
+  while its reflect layout is materialized.
+- Self-referential types: names on self-referential fields, promoted methods
+  on recursive structs, and related layout issues.
+- Generics: forward-reference instantiation, inference through a named generic
+  instance, a type parameter colliding with a package symbol, and parameter
+  handling in func-type declarations.
+- Parser: a pointer in a literal composite, postfix index expressions,
+  `switch`/`select` case clauses, and forward-declaration placeholders.
+- Top-level redeclarations are detected and no longer clobber existing symbols.
+- Iterator frames no longer leak memory.
+- `defer` on an expression call; an `Eval` re-entrance issue.
+- A value read from an unexported struct field is writable where Go allows.
+- Channel send correctness, plus improved goroutine-panic diagnostics.
+- Interpreted functions keep a stable `reflect.Value` identity across calls.
+- Typed numeric conversions.
+- File-by-file compilation and build-constraint handling in the test harness.
+
 ## [0.4.0] - 2026-06-05
 
 ### Added
