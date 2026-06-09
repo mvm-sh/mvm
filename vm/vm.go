@@ -3960,28 +3960,23 @@ func unwrapVariadicIface(last reflect.Value) reflect.Value {
 	return last
 }
 
-// invokeNative runs a native func/method call (a hook, CallSlice, or Call),
-// recovering any Go panic. On a recoverable panic it sets the machine's panic
-// state (so the caller jumps to panicAddr and an interpreted recover() can
-// catch it) and returns panicked=true. A clean-exit signal -- an error that is
-// not a runtime.Error, e.g. *interp.ExitError from a virtualized os.Exit -- is
-// re-panicked so Run's recoverPanic terminates the program rather than letting
-// recover() swallow it.
+// invokeNative runs a native func/method call, recovering any Go panic.
+// On a recoverable panic it sets the machine's panic state and returns panicked=true.
+// A clean-exit signal is re-panicked so Run's recoverPanic terminates the program.
 func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value, in []reflect.Value, spread bool) (out []reflect.Value, panicked bool) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			return
 		}
-		// An mvm panic that escaped a nested re-entrant Run via a native
-		// callback (e.g. a sort.Slice comparator panicked): re-establish it
-		// with its original value so an outer interpreted recover() sees it.
+		// An mvm panic that escaped a nested re-entrant Run via a native callback:
+		// re-establish it with its original value so an outer interpreted recover() sees it.
 		if pe, ok := asPanicError(r); ok {
 			m.panicking = true
 			m.panicVal = FromReflect(reflect.ValueOf(pe.Raw))
 			// Stitch this parent's frames onto the inner run's snapshot across
-			// the native boundary, so the mvm stack spans interp -> native ->
-			// interp. Composes across nesting: each invokeNative level on the
+			// the native boundary, so the mvm stack spans interp -> native -> interp.
+			// Composes across nesting: each invokeNative level on the
 			// unwind path appends its own segment.
 			m.stitchBoundary(pe, rv)
 			m.panicInfo = pe // keep the inner run's source pos + mvm stack
@@ -3989,23 +3984,18 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 			panicked = true
 			return
 		}
-		// Clean-exit signal (e.g. a virtualized os.Exit) must not be
-		// interceptable by recover(); re-panic so it propagates to Run's
-		// recoverPanic. A genuine native panic(err) -- e.g. bytes.Buffer's
-		// errNegativeRead -- is NOT a clean exit and must stay catchable.
+		// Clean-exit signal must not be interceptable by recover(); re-panic.
+		// A genuine native panic(err) is NOT a clean exit and must stay catchable.
 		if _, ok := r.(CleanExit); ok {
 			panic(r)
 		}
-		// A goroutine-fault abort is not a recoverable program panic; re-panic so
-		// it reaches Run's recoverPanic instead of becoming catchable here.
+		// A goroutine-fault abort is not a recoverable; re-panic so it reaches Run's recoverPanic.
 		if e, ok := r.(error); ok && errors.Is(e, ErrGoroutineFault) {
 			panic(r)
 		}
-		// Genuine native panic (runtime.Error, a plain error value, or a value
-		// like the string from strings.Builder.Grow); make it catchable by
-		// interpreted recover().
+		// Genuine native panic; make it catchable by interpreted recover().
 		m.panicking = true
-		m.panicVal = FromReflect(reflect.ValueOf(describeNativePanic(rv, in, r)))
+		m.panicVal = FromReflect(reflect.ValueOf(m.nativePanicValue(rv, in, r)))
 		panicked = true
 	}()
 	switch {
@@ -4015,8 +4005,7 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		if err := checkNativeCall(rv, in, true); err != nil {
 			panic(err)
 		}
-		// For spread calls (f(s...)), unwrap Iface values inside the variadic
-		// slice and use CallSlice.
+		// For spread calls (f(s...)), unwrap Iface values inside the variadic slice and use CallSlice.
 		in[len(in)-1] = unwrapVariadicIface(in[len(in)-1])
 		return rv.CallSlice(in), false
 	default:
@@ -4060,6 +4049,20 @@ func describeNativePanic(rv reflect.Value, in []reflect.Value, r any) any {
 		}
 	}
 	return fmt.Sprintf("%s (calling %v with args [%s])", s, rv.Type(), strings.Join(args, ", "))
+}
+
+func (m *Machine) nativePanicValue(rv reflect.Value, in []reflect.Value, r any) any {
+	desc := describeNativePanic(rv, in, r)
+	s, ok := r.(string)
+	if !ok || !strings.HasPrefix(s, "reflect") {
+		return desc
+	}
+	ds, _ := desc.(string)
+	var pos Pos
+	if i := m.ip - 1; i >= 0 && i < len(m.code) { // m.ip was advanced past the call opcode
+		pos = m.code[i].Pos
+	}
+	return m.posPrefix(pos) + ds
 }
 
 func (m *Machine) makeCallFunc(fval Value, fnType reflect.Type) reflect.Value {

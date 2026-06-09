@@ -1712,11 +1712,25 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					push(&symbol.Symbol{Kind: symbol.Value, Type: retType})
 				}
 			}
+			callNarg := narg
 			callNret := nret
-			if spread && rtyp != nil && rtyp.IsVariadic() {
+			if rtyp != nil && rtyp.IsVariadic() {
+				if !spread {
+					// Pack trailing args into the variadic slice, matching the
+					// caller-packs convention used for declared variadic funcs.
+					nFixed := rtyp.NumIn() - 1
+					var elemTyp *vm.Type
+					if s.Type != nil {
+						elemTyp = s.Type.ParamType(nFixed).Elem()
+					} else {
+						elemTyp = &vm.Type{Rtype: rtyp.In(nFixed).Elem()}
+					}
+					c.emit(t, vm.MkSlice, narg-nFixed, c.typeSym(elemTyp).Index)
+					callNarg = nFixed + 1
+				}
 				callNret |= int(vm.CallSpreadFlag)
 			}
-			c.emit(t, vm.Call, narg, callNret)
+			c.emit(t, vm.Call, callNarg, callNret)
 
 		case lang.Colon:
 			// Struct field key: field name is in Arg[0], only the value is on the stack.
