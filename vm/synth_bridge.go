@@ -297,6 +297,7 @@ func (m *Machine) allSynthMethods(
 ) []synthMethodSpec {
 	const synthMaxMethods = 16 // matches runtype.maxMethods
 	var specs []synthMethodSpec
+	seen := map[string]bool{}
 	for i, method := range t.Methods {
 		if !method.IsResolved() || i >= len(m.MethodNames) {
 			continue
@@ -314,11 +315,102 @@ func (m *Machine) allSynthMethods(
 			shape:   shape,
 			ptrRecv: method.PtrRecv,
 		})
+		seen[m.MethodNames[i]] = true
+		if len(specs) == synthMaxMethods {
+			return specs
+		}
+	}
+	// Methods promoted from embedded fields are absent from t.Methods and
+	// reflect.StructOf generates no promotion wrappers, so attach them explicitly.
+	for _, spec := range m.promotedSynthMethods(t, includePtr, seen) {
+		specs = append(specs, spec)
 		if len(specs) == synthMaxMethods {
 			break
 		}
 	}
 	return specs
+}
+
+func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string]bool) []synthMethodSpec {
+	// A direct-iface struct value-boxed into a native interface passes the synth
+	// stub the data word, so makeRecvValue's NewAt mis-reconstructs the receiver and dispatch faults.
+	// Skip the value set for such types (the *T pointer set is fine); the value then fails iface
+	// assignment gracefully instead of crashing.
+	if !includePtr && isDirectIface(t.Rtype) {
+		return nil
+	}
+	var specs []synthMethodSpec
+	for _, emb := range t.Embedded {
+		if emb.FieldIdx < 0 || emb.FieldIdx >= t.Rtype.NumField() {
+			continue
+		}
+		ft := t.Rtype.Field(emb.FieldIdx).Type
+		// Embedded interface methods are promoted by reflect.StructOf itself and
+		// dispatched via the EmbedIface path; skip them here (and their method
+		// types carry no receiver to strip).
+		if ft.Kind() == reflect.Interface {
+			continue
+		}
+		// The promotable method set: a pointer embed contributes all of the
+		// pointee's methods to both T and *T; a value embed contributes value-
+		// receiver methods to T and value+pointer methods to *T.
+		setType := ft
+		if includePtr && ft.Kind() != reflect.Pointer {
+			setType = reflect.PointerTo(ft)
+		}
+		for i := 0; i < setType.NumMethod(); i++ {
+			meth := setType.Method(i)
+			if !meth.IsExported() || seen[meth.Name] {
+				continue
+			}
+			sig := stripRecvType(meth.Type)
+			shape, ok := detectShape(sig)
+			if !ok {
+				continue
+			}
+			seen[meth.Name] = true
+			specs = append(specs, synthMethodSpec{
+				name:    meth.Name,
+				method:  Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
+				shape:   shape,
+				ptrRecv: includePtr,
+			})
+		}
+	}
+	return specs
+}
+
+// isDirectIface reports whether a value of rt is stored directly in an interface
+// word (Go's kindDirectIface): a pointer-shaped type, or a struct/array reducing
+// to one such element.
+func isDirectIface(rt reflect.Type) bool {
+	switch rt.Kind() {
+	case reflect.Pointer, reflect.Chan, reflect.Map, reflect.Func, reflect.UnsafePointer:
+		return true
+	case reflect.Struct:
+		return rt.NumField() == 1 && isDirectIface(rt.Field(0).Type)
+	case reflect.Array:
+		return rt.Len() == 1 && isDirectIface(rt.Elem())
+	default:
+		return false
+	}
+}
+
+// stripRecvType returns a method's signature with the leading receiver param
+// removed, matching the receiver-elided form detectShape expects.
+func stripRecvType(mt reflect.Type) reflect.Type {
+	if mt.NumIn() == 0 {
+		return mt
+	}
+	in := make([]reflect.Type, 0, mt.NumIn()-1)
+	for i := 1; i < mt.NumIn(); i++ {
+		in = append(in, mt.In(i))
+	}
+	out := make([]reflect.Type, mt.NumOut())
+	for i := range out {
+		out[i] = mt.Out(i)
+	}
+	return reflect.FuncOf(in, out, mt.IsVariadic())
 }
 
 // detectShape inspects a method signature (receiver elided) and returns the
@@ -871,8 +963,57 @@ func callMethod(
 	if method.EmbedIface {
 		return m.callEmbedIface(ifc, method, name, methodSig, args)
 	}
+	if method.Index < 0 && method.Path != nil {
+		return m.callPromotedConcrete(rv, name, method.Path, methodSig, args)
+	}
 	fval := m.MakeMethodCallable(ifc, method)
 	return m.CallFunc(fval, methodSig, args)
+}
+
+// callPromotedConcrete dispatches a method promoted from an embedded concrete
+// field (synthesized with Index<0 and a Path; see promotedSynthMethods): it
+// navigates Path to the embedded value, then calls the named method -- natively
+// via reflect for a native embed, or through the interpreter for an interpreted one.
+func (m *Machine) callPromotedConcrete(
+	rv reflect.Value, name string, path []int, methodSig reflect.Type, args []reflect.Value,
+) ([]reflect.Value, error) {
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	for _, fi := range path {
+		rv = rv.Field(fi)
+	}
+	rv = Exportable(rv)
+	embedded := FromReflect(rv)
+	if embedded.IsIface() {
+		ic := embedded.IfaceVal()
+		if mid := m.methodID(name); mid >= 0 && mid < len(ic.Typ.Methods) {
+			return callMethod(m, ic.Typ, name, ic.Val.Reflect(), ic.Typ.Methods[mid], methodSig, args)
+		}
+		return nil, fmt.Errorf("synth: promoted method %q unresolved", name)
+	}
+	if isNilReceiver(rv) {
+		return nil, errors.New("synth: nil promoted receiver")
+	}
+	if mv := nativeMethodLookup(m, rv, name); mv.IsValid() {
+		return mv.Call(args), nil
+	}
+	if et := m.typeByRtype(rv.Type()); et != nil {
+		if mid := m.methodID(name); mid >= 0 && mid < len(et.Methods) {
+			return callMethod(m, et, name, rv, et.Methods[mid], methodSig, args)
+		}
+	}
+	return nil, fmt.Errorf("synth: promoted method %q not found", name)
+}
+
+// methodID returns the global method ID for name, or -1.
+func (m *Machine) methodID(name string) int {
+	for id, n := range m.MethodNames {
+		if n == name {
+			return id
+		}
+	}
+	return -1
 }
 
 // callEmbedIface dispatches a method promoted from an embedded interface field

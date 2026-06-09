@@ -193,6 +193,43 @@ func hasReservableMethods(t *mtype.Type) bool {
 	return false
 }
 
+func hasPromotedShapedMethods(t *mtype.Type) bool {
+	for _, emb := range t.Embedded {
+		ft := embeddedFieldRtype(t, emb)
+		if ft == nil || ft.Kind() == reflect.Interface {
+			continue // reflect.StructOf already promotes embedded-interface methods
+		}
+		sets := []reflect.Type{ft}
+		if ft.Kind() != reflect.Pointer {
+			sets = append(sets, reflect.PointerTo(ft))
+		}
+		for _, st := range sets {
+			for i := 0; i < st.NumMethod(); i++ {
+				meth := st.Method(i)
+				if !meth.IsExported() {
+					continue
+				}
+				if _, ok := detectShape(stripRecvType(meth.Type)); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func embeddedFieldRtype(t *mtype.Type, emb mtype.EmbeddedField) reflect.Type {
+	if emb.FieldIdx >= 0 && emb.FieldIdx < len(t.Fields) {
+		if f := t.Fields[emb.FieldIdx]; f != nil && f.Rtype != nil {
+			return f.Rtype
+		}
+	}
+	if emb.Type != nil {
+		return emb.Type.Rtype
+	}
+	return nil
+}
+
 func hasSynthTableMethods(t *mtype.Type) bool {
 	for _, method := range t.Methods {
 		sig := method.Rtype
@@ -297,7 +334,7 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 	}
 	res := lookupReservation(t)
 	if res == nil {
-		if !hasReservableMethods(t) {
+		if !hasReservableMethods(t) && !hasPromotedShapedMethods(t) {
 			return nil, false // methodless struct: native identity is stable already
 		}
 		name := qualifiedTypeName(t)
