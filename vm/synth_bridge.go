@@ -998,6 +998,13 @@ func (m *Machine) callPromotedConcrete(
 	if mv := nativeMethodLookup(m, rv, name); mv.IsValid() {
 		return mv.Call(args), nil
 	}
+	// A pointer-receiver method promoted from a value embed lives in *E's method
+	// set, not E's; retry on the addressable field's address.
+	if rv.CanAddr() {
+		if mv := nativeMethodLookup(m, rv.Addr(), name); mv.IsValid() {
+			return mv.Call(args), nil
+		}
+	}
 	if et := m.typeByRtype(rv.Type()); et != nil {
 		if mid := m.methodID(name); mid >= 0 && mid < len(et.Methods) {
 			return callMethod(m, et, name, rv, et.Methods[mid], methodSig, args)
