@@ -156,21 +156,23 @@ func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflec
 }
 
 // ArrayOf returns the [n]elem rtype.
-// The cloned array's Slice field is left pointing at the shadow []layoutElem;
-// reflect.Value.Slice on a synth array therefore yields the shadow slice
-// type, which is acceptable since the use case for these constructors is
-// type identity, not full Value-API parity.
+// The cloned array's Slice field is repointed at the synth []elem so
+// reflect.Value.Slice on a synth array (e.g. arr[:]) yields []elem, not the
+// methodless shadow []layoutElem.
 func ArrayOf(n int, elem reflect.Type) reflect.Type {
 	elemRT := rtypePtr(elem)
 	if elemRT == nil {
 		return nil
 	}
+	// SliceOf before cachedDerive: it re-enters cachedDerive, whose lock is held
+	// for the whole build callback (non-reentrant).
+	sliceRT := rtypePtr(SliceOf(elem))
 	return cachedDerive(deriveKey{kind: 4, elem: ptrID(elemRT), n: n}, func() reflect.Type {
-		return buildArrayOf(n, elem, elemRT)
+		return buildArrayOf(n, elem, elemRT, sliceRT)
 	})
 }
 
-func buildArrayOf(n int, elem reflect.Type, elemRT *abiType) reflect.Type {
+func buildArrayOf(n int, elem reflect.Type, elemRT, sliceRT *abiType) reflect.Type {
 	layoutArr := reflect.ArrayOf(n, layoutFor(elem))
 	src := (*abiArrayType)(unsafe.Pointer(rtypePtr(layoutArr)))
 
@@ -182,6 +184,7 @@ func buildArrayOf(n int, elem reflect.Type, elemRT *abiType) reflect.Type {
 	b.Str = addReflectOff(unsafe.Pointer(
 		encodeName("["+strconv.Itoa(n)+"]"+elem.String(), false).Bytes))
 	b.Elem = elemRT
+	b.Slice = sliceRT
 
 	registerLayout(&b.abiType, rtypePtr(layoutArr))
 	return asReflectType(&b.abiType)

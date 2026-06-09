@@ -933,6 +933,20 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	// seen by subsequent num-based reads. Reset on function entry/exit.
 	addressedSlots := []map[int]bool{}
 
+	// markAddressed records that a local-frame slot has had its address taken in
+	// this function; future GetLocals on it emit GetLocalSync (see lang.Ident).
+	markAddressed := func(slot int) {
+		if len(addressedSlots) == 0 {
+			return
+		}
+		m := addressedSlots[len(addressedSlots)-1]
+		if m == nil {
+			m = map[int]bool{}
+			addressedSlots[len(addressedSlots)-1] = m
+		}
+		m[slot] = true
+	}
+
 	// pushAt appends a compile-stack entry recording the c.Code index where its
 	// load sequence began (used by the const folder to retract operand loads).
 	pushAt := func(s *symbol.Symbol, start int) {
@@ -1185,20 +1199,6 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// yield a *interface{} (handled by the Addr opcode's Iface branch).
 			concrete := srcType != nil && !srcType.IsInterface()
 			n := len(c.Code)
-			// markAddressed records that the local-frame slot has had its
-			// address taken in this function; future GetLocals on it emit
-			// GetLocalSync (see lang.Ident handling below).
-			markAddressed := func(slot int) {
-				if len(addressedSlots) == 0 {
-					return
-				}
-				m := addressedSlots[len(addressedSlots)-1]
-				if m == nil {
-					m = map[int]bool{}
-					addressedSlots[len(addressedSlots)-1] = m
-				}
-				m[slot] = true
-			}
 			// Func slots are interface{} boxes; pass the func type (+1; 0=none)
 			// so AddrLocal retypes the slot, making &f a *func(...).
 			funcRetypeOp := 0
@@ -2587,7 +2587,26 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 					switch {
 					case methodWantsPtr && !recvIsPtr:
-						c.emit(t, vm.Addr)
+						// A bare local receiver (no field path) must be addressed via
+						// AddrLocal so the pointer aliases the slot; plain Addr on a
+						// numeric local boxes a detached copy and the method's
+						// mutation is lost. Mark the slot so later reads re-sync.
+						n := len(c.Code)
+						switch {
+						case n > 0 && c.Code[n-1].Op == vm.GetLocal:
+							c.Code[n-1].Op = vm.AddrLocal
+							c.Code[n-1].B = 0
+							markAddressed(int(c.Code[n-1].A))
+						case n > 0 && c.Code[n-1].Op == vm.GetLocal2:
+							// Receiver is the second (top) fused load; split it off.
+							idx := int(c.Code[n-1].B)
+							c.Code[n-1].Op = vm.GetLocal
+							c.Code[n-1].B = 0
+							c.emit(t, vm.AddrLocal, idx, 0)
+							markAddressed(idx)
+						default:
+							c.emit(t, vm.Addr)
+						}
 					case !methodWantsPtr && recvIsPtr:
 						c.emit(t, vm.Deref)
 					}
@@ -4075,6 +4094,11 @@ func (c *Compiler) compileBuiltin(
 			// stays a detached snapshot.
 			keyIdx := c.typeSym(makeKeyType(typeSym.Type)).Index
 			valIdx := c.typeSym(typeSym.Type.Elem()).Index
+			if narg >= 2 {
+				// make(map, size): a size hint sits on the stack. Signal MkMap to
+				// consume it by negating the key index (always >= 0 otherwise).
+				keyIdx = -(keyIdx + 1)
+			}
 			c.emit(t, vm.MkMap, keyIdx, valIdx)
 		case reflect.Chan:
 			elemIdx := c.typeSym(typeSym.Type.ElemType).Index

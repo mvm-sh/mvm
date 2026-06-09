@@ -94,7 +94,7 @@ const (
 	MapIndexOk             // a i -- v ok ; v, ok = a[i]
 	MapSet                 // a i v -- a; a[i] = v
 	MkClosure              // code [&c0..&cn-1] -- clo ; clo = Closure{code, heap}
-	MkMap                  // -- map ; create map[K]V, key type at mem[$0], val type at mem[$1]
+	MkMap                  // (size?) -- map ; create map[K]V, key type at mem[$0], val type at mem[$1]; $0<0 (= -key-1) pops a size hint
 	MkSlice                // [v0..vn-1] -- slice ; collect $0 values into []T, elem type at mem[$1]
 	New                    // -- x; mem[fp+$1] = new mem[$2]
 	Next                   // -- ; iterator next, set K
@@ -2620,14 +2620,21 @@ func (m *Machine) Run() (err error) {
 				sp -= n - 1
 			}
 		case MkMap:
-			keyType := m.globals[int(c.A)].ref.Type()
+			keyIdx, size := int(c.A), 0
+			if keyIdx < 0 {
+				// make(map, size): negated key index flags a size hint on the stack.
+				keyIdx = -keyIdx - 1
+				size = int(mem[sp].num)
+				sp--
+			}
+			keyType := m.globals[keyIdx].ref.Type()
 			valType := m.globals[int(c.B)].ref.Type()
 			mapType := reflect.MapOf(keyType, valType)
 			if sp+1 >= len(mem) {
 				mem = growStack(mem, sp, 1)
 			}
 			sp++
-			mem[sp] = Value{ref: reflect.MakeMap(mapType)}
+			mem[sp] = Value{ref: reflect.MakeMapWithSize(mapType, size)}
 		case Append:
 			n := int(c.A)
 			m.appendValues(mem, sp, n)
