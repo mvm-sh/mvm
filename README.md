@@ -36,7 +36,7 @@ Each package gets a tier (all tests pass, some pass, fails to load, or no
 runnable tests) and a tests-passing ratio, with an aggregate trend over time.
 
 <!-- compat:start -->
-Stdlib: 90/169 packages fully pass; external: 24/50 fully pass (as of 2026-06-09).
+Stdlib: 89/169 packages fully pass; external: 23/50 fully pass (as of 2026-06-09).
 See the full matrix at https://mvm.sh/compat.
 <!-- compat:end -->
 
