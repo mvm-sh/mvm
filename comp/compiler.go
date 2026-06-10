@@ -2373,11 +2373,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Prefer this pkg's qualified Symbol when both exist.
 			labelKey := t.Str
 			if qk := c.qualifyLabel(t.Str); qk != t.Str {
-				if _, ok := c.Symbols[qk]; ok {
+				if _, ok := c.labelSym(qk); ok {
 					labelKey = qk
 				}
 			}
-			if s, ok := c.Symbols[labelKey]; ok {
+			if s, ok := c.labelSym(labelKey); ok {
 				s.Value = vm.ValueOf(lc)
 				if s.Kind == symbol.Func {
 					// Label is a function entry point, update its code address in data.
@@ -3229,9 +3229,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 
 	// Finally we fix unresolved labels for jump destinations.
 	for _, t := range fixList {
-		s, ok := c.Symbols[c.qualifyLabel(t.Str)]
+		s, ok := c.labelSym(c.qualifyLabel(t.Str))
 		if !ok {
-			s, ok = c.Symbols[t.Str]
+			s, ok = c.labelSym(t.Str)
 		}
 		if !ok {
 			return fmt.Errorf("label not found: %q", t.Str)
@@ -3757,11 +3757,21 @@ func (c *Compiler) emitComparisonOp(t goparser.Token, s2 *symbol.Symbol, typ *vm
 	}
 }
 
+// labelSym returns the symbol at a label key only if it is a jump target
+// (a label or a function entry); other kinds never are.
+func (c *Compiler) labelSym(key string) (*symbol.Symbol, bool) {
+	s, ok := c.Symbols[key]
+	if !ok || (s.Kind != symbol.Label && s.Kind != symbol.Func) {
+		return nil, false
+	}
+	return s, true
+}
+
 func (c *Compiler) resolveLabel(t goparser.Token, fixList *goparser.Tokens) int {
-	if s, ok := c.Symbols[c.qualifyLabel(t.Str)]; ok {
+	if s, ok := c.labelSym(c.qualifyLabel(t.Str)); ok {
 		return int(s.Value.Int()) - len(c.Code)
 	}
-	if s, ok := c.Symbols[t.Str]; ok {
+	if s, ok := c.labelSym(t.Str); ok {
 		return int(s.Value.Int()) - len(c.Code)
 	}
 	t.Arg = []any{len(c.Code)}

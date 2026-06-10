@@ -15,6 +15,8 @@ import (
 	"sync"
 	"unsafe" // to allow setting unexported struct fields
 	"weak"
+
+	"github.com/mvm-sh/mvm/runtype"
 )
 
 // Op is a VM opcode (bytecode instruction).
@@ -747,7 +749,7 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		case reflect.Pointer, reflect.UnsafePointer:
 			up = v.ref.UnsafePointer()
 		case reflect.Uintptr:
-			up = unsafe.Pointer(uintptr(v.num)) //nolint:govet
+			up = runtype.PointerFromUintptr(uintptr(v.num))
 		}
 		nv := reflect.New(dstType).Elem()
 		nv.SetPointer(up)

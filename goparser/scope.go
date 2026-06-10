@@ -77,12 +77,16 @@ func (p *Parser) takePendingLabel() string {
 	return l
 }
 
+// synthLabel returns a synthetic jump-label key; the "#" keeps it disjoint
+// from variable keys, as in labelName.
+func synthLabel(scope, suffix string) string { return scope + "#" + suffix }
+
 func caseLabel(scope string, index, sub int) string {
-	return fmt.Sprintf("%sc%d.%d", scope, index, sub)
+	return synthLabel(scope, fmt.Sprintf("c%d.%d", index, sub))
 }
 
 func caseBodyLabel(scope string, index int) string {
-	return fmt.Sprintf("%sc%d_body", scope, index)
+	return synthLabel(scope, fmt.Sprintf("c%d_body", index))
 }
 
 // propagateCapture appends name to FreeVars of every enclosing function scope
@@ -139,9 +143,9 @@ func (p *Parser) pushBreakScope(prefix, pendingLabel string, hasContinue bool) f
 	p.labelCount[p.scope]++
 	savedBreak, savedContinue := p.breakLabel, p.continueLabel
 	p.pushScope(label)
-	p.breakLabel = p.scope + "e"
+	p.breakLabel = synthLabel(p.scope, "e")
 	if hasContinue {
-		p.continueLabel = p.scope + "b"
+		p.continueLabel = synthLabel(p.scope, "b")
 	}
 	if pendingLabel != "" {
 		cont := ""

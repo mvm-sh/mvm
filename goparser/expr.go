@@ -150,15 +150,15 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			addop(t)
 			xp := strconv.Itoa(p.labelCount[p.scope])
 			p.labelCount[p.scope]++
-			out = append(out, newJumpSetFalse(p.scope+"x"+xp, t.Pos))
-			ops[len(ops)-1].Str = p.scope + "x" + xp
+			out = append(out, newJumpSetFalse(synthLabel(p.scope, "x"+xp), t.Pos))
+			ops[len(ops)-1].Str = synthLabel(p.scope, "x"+xp)
 
 		case lang.Lor:
 			addop(t)
 			xp := strconv.Itoa(p.labelCount[p.scope])
 			p.labelCount[p.scope]++
-			out = append(out, newJumpSetTrue(p.scope+"x"+xp, t.Pos))
-			ops[len(ops)-1].Str = p.scope + "x" + xp
+			out = append(out, newJumpSetTrue(synthLabel(p.scope, "x"+xp), t.Pos))
+			ops[len(ops)-1].Str = synthLabel(p.scope, "x"+xp)
 
 		case lang.Ident:
 			s, sc, ok := p.Symbols.Get(t.Str, p.scope)

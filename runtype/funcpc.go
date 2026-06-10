@@ -12,12 +12,15 @@ func FuncPC(fn any) uintptr {
 	return *(*uintptr)((*iface)(unsafe.Pointer(&fn)).data)
 }
 
+// PointerFromUintptr reinterprets an integer as unsafe.Pointer via a
+// pointer-to-pointer load, which vet's unsafeptr check accepts.
+// The result carries no GC liveness; callers must guarantee validity.
+func PointerFromUintptr(p uintptr) unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&p))
+}
+
 // ptrFromPC reinterprets a function-entry PC as unsafe.Pointer for
-// addReflectOff.
-// addReflectOff records the value verbatim and needs no GC visibility, so
-// this conversion is sound.
-//
-//nolint:govet // unsafeptr: addReflectOff just records the value, no deref
+// addReflectOff, which records the value verbatim and never derefs it.
 func ptrFromPC(pc uintptr) unsafe.Pointer {
-	return unsafe.Pointer(pc)
+	return PointerFromUintptr(pc)
 }

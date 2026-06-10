@@ -169,7 +169,7 @@ func (p *Parser) parseFor(in Tokens) (out Tokens, err error) {
 	// for with a non-empty post clause, continueLabel instead points at a
 	// dedicated post label so that continue runs the post statement before
 	// re-checking the condition.
-	condLabel := p.scope + "b"
+	condLabel := synthLabel(p.scope, "b")
 	var rangeAssign Tokens
 	switch len(pre) {
 	case 1:
@@ -208,7 +208,7 @@ func (p *Parser) parseFor(in Tokens) (out Tokens, err error) {
 		// The post label is only emitted when there is a post clause; with an
 		// empty one, continue falls back to condLabel.
 		if len(post) > 0 {
-			p.continueLabel = p.scope + "p"
+			p.continueLabel = synthLabel(p.scope, "p")
 		}
 	default:
 		return nil, errFor
@@ -259,7 +259,7 @@ func (p *Parser) parseIf(in Tokens) (out Tokens, err error) {
 	p.labelCount[p.scope]++
 	p.pushScope(label)
 	defer p.popScope()
-	endLabel := p.scope + "e0"
+	endLabel := synthLabel(p.scope, "e0")
 	elseCount := 1 // counter for intermediate else-branch labels: "e1", "e2", ...
 
 	// Parse the if-else chain forward. Init is parsed before the body so that
@@ -308,7 +308,7 @@ func (p *Parser) parseIf(in Tokens) (out Tokens, err error) {
 		// Emit conditional jump to the next else clause or to the end.
 		elseLabel := endLabel
 		if hasMore {
-			elseLabel = p.scope + "e" + strconv.Itoa(elseCount)
+			elseLabel = synthLabel(p.scope, "e"+strconv.Itoa(elseCount))
 		}
 		if hasCondition {
 			out = append(out, newJumpFalse(elseLabel, in[bodyIdx].Pos))
@@ -398,7 +398,7 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 	}
 	endPos := in[len(in)-1].Pos
 	if needDrop {
-		out = append(out, newLabel(p.scope+"d", endPos))
+		out = append(out, newLabel(synthLabel(p.scope, "d"), endPos))
 		out = append(out, newDrop(endPos))
 	}
 	out = append(out, newLabel(p.breakLabel, endPos))
@@ -583,13 +583,13 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 	lcond := conds.Split(lang.Comma)
 	isMulti := len(lcond) > 1
 	bodyLabel := caseBodyLabel(p.scope, index)
-	miss := p.scope + "e"
+	miss := synthLabel(p.scope, "e")
 	if index < maximum {
 		miss = caseLabel(p.scope, index+1, 0)
 	} else if needDrop {
 		// Last case of a default-less condSwitch: the no-match exit still
 		// holds the operand; route it through the switch's drop label.
-		miss = p.scope + "d"
+		miss = synthLabel(p.scope, "d")
 	}
 	for i, cond := range lcond {
 		if cond, err = p.parseExpr(cond, ""); err != nil {
@@ -620,7 +620,7 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 		out = append(out, newGoto(caseBodyLabel(p.scope, index+1), pos))
 	} else if index != maximum || needDrop {
 		// needDrop: the drop section follows the last body; jump over it.
-		out = append(out, newGoto(p.scope+"e", 0))
+		out = append(out, newGoto(synthLabel(p.scope, "e"), 0))
 	}
 	return out, hasFallthrough, err
 }
