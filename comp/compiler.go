@@ -1372,6 +1372,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			} else if h {
 				break
 			}
+			if err := c.errIfMismatch(t, left, right); err != nil {
+				return err
+			}
 			typ := arithmeticOpType(right, left)
 			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
 			switch t.Tok {
@@ -1394,9 +1397,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			left := pop()  // left operand
 			// A shift of two constants is itself a constant. Folding it gives the
 			// exact arbitrary-precision value, and emitFoldedConst widens a result
-			// past int64 to uint64 (e.g. 1<<63) or float64 (e.g. 1<<120) -- the
-			// only valid non-complex contexts -- which a runtime int64 shift would
-			// silently overflow.
+			// past int64 to uint64 (e.g. 1<<63) or float64 (e.g. 1<<120).
 			if h, err := foldBinaryConst(t, left, shift, leftStart); err != nil {
 				return err
 			} else if h {
@@ -1404,7 +1405,16 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			leftTyp := shiftLeftType(left, c.Symbols["int"].Type)
 			c.emitConstConvert(t, left, leftTyp, 1)
-			push(&symbol.Symbol{Kind: constKind(left, shift), Type: leftTyp})
+			kind := constKind(left, shift)
+			// An untyped-const left operand of a non-constant shift assumes the
+			// type of its context (spec: Operators), not its default type.
+			// Keep the result Const-kinded (Cval nil, so no fold applies) so binary-op
+			// contexts adopt the other operand's type and retype via Convert.
+			// A nil-Cval Const left is itself such a marker (chained shifts).
+			if left.Kind == symbol.Const {
+				kind = symbol.Const
+			}
+			push(&symbol.Symbol{Kind: kind, Type: leftTyp})
 			if t.Tok == lang.Shl {
 				c.emit(t, vm.BitShl)
 			} else {

@@ -107,6 +107,11 @@ var Incompat = map[string]map[string]string{
 		"TestOptionPanic/FilterValues#03": "func(...) myBool accepted as a values filter: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
 	},
 
+	"github.com/shopspring/decimal": {
+		"TestDecimal_QuoRem2":   "stress test: ~1e6 combinatorial QuoRem cases (createDivTestCases); ~30s under the interpreter (no testing.Short path)",
+		"TestDecimal_DivRound2": "stress test: ~1e6 combinatorial DivRound cases (createDivTestCases); ~44s under the interpreter (no testing.Short path)",
+	},
+
 	"golang.org/x/text/unicode/norm": {
 		"TestWriter": "stress test: streams the static normTests corpus through Form.Writer across all 16 bufSizes x4 forms; ~150s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",
 		"TestReader": "stress test: streams the static normTests corpus through Form.Reader across all 16 bufSizes x4 forms; ~14s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",

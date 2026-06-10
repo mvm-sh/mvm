@@ -181,6 +181,14 @@ func TestNumericWidening(t *testing.T) {
 		{n: "int_var_eq_float_var", src: `a := 10; b := 12.5; a == b`, err: "mismatched types int and float64"},
 		{n: "named_int_add_int_var", src: `type I int; var x I = 1; y := 2; x + y`, err: "mismatched types main.I and int"},
 		{n: "computed_int_div_float_var", src: `a := 3; b := 1.5; (a*2) / b`, err: "mismatched types int and float64"},
+		// Bitwise ops reject mismatched typed operands like gc too.
+		{n: "uint64_var_or_int_var", src: `var u uint64 = 6; i := 3; u | i`, err: "mismatched types uint64 and int"},
+		{n: "uint64_var_and_int_var", src: `var u uint64 = 6; i := 3; u & i`, err: "mismatched types uint64 and int"},
+		{n: "uint64_var_xor_int_var", src: `var u uint64 = 6; i := 3; u ^ i`, err: "mismatched types uint64 and int"},
+		{n: "uint64_var_andnot_int_var", src: `var u uint64 = 6; i := 3; u &^ i`, err: "mismatched types uint64 and int"},
+		// An untyped-const operand (incl. a context-typed shift result) stays accepted.
+		{n: "uint64_var_or_const", src: `var u uint64 = 6; u | 1`, res: "7"},
+		{n: "uint64_var_or_shift", src: `var u uint64 = 6; var s uint = 0; u | 1<<s`, res: "7"},
 		{n: "float_ge_maxuint64_const", src: `import "math"; var f float64 = 42; f >= math.MaxUint64`, res: "false"},
 		// Untyped const widens in arithmetic too (was NaN; x == x is false only for NaN).
 		{n: "float_add_maxuint64_const", src: `import "math"; var f float64 = 42; x := f + math.MaxUint64; x == x`, res: "true"},
