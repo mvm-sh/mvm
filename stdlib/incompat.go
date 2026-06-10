@@ -38,6 +38,10 @@ var Incompat = map[string]map[string]string{
 	"flag": {
 		"TestDefineAfterSet": "runtime.Caller through reflect.Call adapter masks the user call site",
 	},
+	"os": {
+		"TestLargeCopyViaNetwork": "stress test: streams a 10MB random file through a localhost TCP pair; ~15s under the interpreter (no testing.Short path)",
+		"TestCopyFileToFile":      "stress test: copies a 1MB random file across a srcStart x dstStart x limit subtest grid; ~17s under the interpreter (no testing.Short path)",
+	},
 
 	// testing.AllocsPerRun counts heap allocations of the closure body.
 	// Interpreted execution boxes operands and reallocates working storage,

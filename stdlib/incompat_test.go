@@ -5,8 +5,8 @@ import "testing"
 func TestSkipReason(t *testing.T) {
 	// Spot-check one entry. Don't pin the exact reason string -- the wording
 	// changes; we just want a non-empty return so the driver's skip path fires.
-	if got := SkipReason("flag", "TestPrintDefaults"); got == "" {
-		t.Error("flag/TestPrintDefaults missing from Incompat")
+	if got := SkipReason("flag", "TestDefineAfterSet"); got == "" {
+		t.Error("flag/TestDefineAfterSet missing from Incompat")
 	}
 	if got := SkipReason("flag", "NoSuchTest"); got != "" {
 		t.Errorf("unknown test should not match, got %q", got)

@@ -4856,7 +4856,7 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 	}
 	// Iface boxes nested in a composite arg leak into native reflect walks.
 	for i, rv := range in {
-		if w, ch := m.deepUnboxIface(rv, 0); ch {
+		if w, ch := m.deepUnboxIface(rv, 0, nil); ch {
 			in[i] = w
 		}
 	}

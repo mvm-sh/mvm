@@ -5,8 +5,16 @@ import (
 	"sync"
 )
 
-// maxUnboxDepth bounds the deep-unbox walk on cyclic or pathological data.
+// maxUnboxDepth bounds the deep-unbox walk on pathological data.
 const maxUnboxDepth = 64
+
+// unboxSeen identifies a pointer-like node already visited in one walk.
+// Cyclic graphs (e.g. testing.T parent/sub links) would otherwise be
+// re-walked at every depth up to maxUnboxDepth -- an exponential spin.
+type unboxSeen struct {
+	ptr uintptr
+	t   reflect.Type
+}
 
 var ifaceBearingCache sync.Map // reflect.Type -> bool
 
@@ -47,7 +55,7 @@ func ifaceBearingWalk(t reflect.Type, seen map[reflect.Type]bool) bool {
 // Composites are copied on change only; no box found returns v unchanged.
 // Write-back through a copied composite is lost (already broken for boxed
 // elements).
-func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, bool) {
+func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]bool) (reflect.Value, bool) {
 	if depth > maxUnboxDepth || !v.IsValid() {
 		return v, false
 	}
@@ -64,7 +72,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 			if !w.IsValid() {
 				return v, false
 			}
-			if dw, ch := m.deepUnboxIface(w, depth+1); ch {
+			if dw, ch := m.deepUnboxIface(w, depth+1, seen); ch {
 				w = dw
 			}
 			if !w.Type().AssignableTo(t) {
@@ -72,7 +80,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 			}
 			return w, true
 		}
-		if w, ch := m.deepUnboxIface(el, depth+1); ch && w.Type().AssignableTo(t) {
+		if w, ch := m.deepUnboxIface(el, depth+1, seen); ch && w.Type().AssignableTo(t) {
 			return w, true
 		}
 		return v, false
@@ -80,11 +88,18 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
+		if seen[unboxSeen{v.Pointer(), t}] {
+			return v, false
+		}
+		if seen == nil {
+			seen = map[unboxSeen]bool{}
+		}
+		seen[unboxSeen{v.Pointer(), t}] = true
 		n := v.Len()
 		var out reflect.Value
 		changed := false
 		for i := range n {
-			w, ch := m.deepUnboxIface(v.Index(i), depth+1)
+			w, ch := m.deepUnboxIface(v.Index(i), depth+1, seen)
 			if !ch {
 				continue
 			}
@@ -106,7 +121,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 		var out reflect.Value
 		changed := false
 		for i := range t.Len() {
-			w, ch := m.deepUnboxIface(v.Index(i), depth+1)
+			w, ch := m.deepUnboxIface(v.Index(i), depth+1, seen)
 			if !ch {
 				continue
 			}
@@ -128,7 +143,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 		var out reflect.Value
 		changed := false
 		for i := range t.NumField() {
-			w, ch := m.deepUnboxIface(v.Field(i), depth+1)
+			w, ch := m.deepUnboxIface(v.Field(i), depth+1, seen)
 			if !ch {
 				continue
 			}
@@ -147,7 +162,14 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
-		w, ch := m.deepUnboxIface(v.Elem(), depth+1)
+		if seen[unboxSeen{v.Pointer(), t}] {
+			return v, false
+		}
+		if seen == nil {
+			seen = map[unboxSeen]bool{}
+		}
+		seen[unboxSeen{v.Pointer(), t}] = true
+		w, ch := m.deepUnboxIface(v.Elem(), depth+1, seen)
 		if !ch {
 			return v, false
 		}
@@ -161,12 +183,19 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int) (reflect.Value, boo
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
+		if seen[unboxSeen{v.Pointer(), t}] {
+			return v, false
+		}
+		if seen == nil {
+			seen = map[unboxSeen]bool{}
+		}
+		seen[unboxSeen{v.Pointer(), t}] = true
 		var out reflect.Value
 		changed := false
 		it := v.MapRange()
 		for it.Next() {
-			k, kc := m.deepUnboxIface(it.Key(), depth+1)
-			w, wc := m.deepUnboxIface(it.Value(), depth+1)
+			k, kc := m.deepUnboxIface(it.Key(), depth+1, seen)
+			w, wc := m.deepUnboxIface(it.Value(), depth+1, seen)
 			if !kc && !wc {
 				continue
 			}
