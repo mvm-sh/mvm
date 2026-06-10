@@ -108,6 +108,12 @@ func (ctx *buildContext) matchTag(tag string) bool {
 	if strings.HasPrefix(tag, "go1.") {
 		return version.Compare(ctx.GoVersion, tag) >= 0
 	}
+	// mvm interprets Go source: no assembly, and reflect internals differ from
+	// the native runtime. Enable the conventional tags that select pure-Go,
+	// unsafe-free fallbacks (e.g. go-spew's bypasssafe.go, x/crypto purego).
+	if tag == "purego" || tag == "safe" {
+		return true
+	}
 	return false
 }
 

@@ -102,6 +102,11 @@ var Incompat = map[string]map[string]string{
 		"TestEncoding":             "stress test: quick.Check MaxCount 1e5 (~23s); hardcoded count ignores -short/-quickchecks",
 	},
 
+	"github.com/sirupsen/logrus": {
+		"TestNestedLoggingReportsCorrectCaller": "asserts caller frame.File == cwd-relative on-disk path; virtualized runtime.Callers reports the modfs source path (func and line do match)",
+		"TestCallerReportingOverhead":           "wall-clock bound: 5000 log calls under 1s is a native-speed assertion; interpreted execution exceeds it",
+	},
+
 	"github.com/google/go-cmp/cmp": {
 		"TestOptionPanic/Comparer#03":     "func(...) myBool accepted as a comparer: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",
 		"TestOptionPanic/FilterValues#03": "func(...) myBool accepted as a values filter: a method-less defined basic type shares bool's rtype, so reflect sees the return as bool and no panic fires where native rejects it",

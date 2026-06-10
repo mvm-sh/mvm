@@ -168,6 +168,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 		if err != nil {
 			c.RestoreUnit(snap)
 			c.restoreCodegen(cg)
+			c.resetDanglingIndexes(cg.data)
 		}
 	}()
 	// An empty src means a package-path target (`mvm run`/`mvm test <path>`):
@@ -207,6 +208,7 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 		if err != nil {
 			c.RestoreUnit(snap)
 			c.restoreCodegen(cg)
+			c.resetDanglingIndexes(cg.data)
 		}
 	}()
 	var remaining []goparser.DeferredDecl
@@ -245,6 +247,19 @@ func (c *Compiler) snapshotCodegen() codegenSnap {
 		zeroTypeIdxs: maps.Clone(c.zeroTypeIdxs),
 		zeroSlotType: maps.Clone(c.zeroSlotType),
 		labelAtPos:   maps.Clone(c.labelAtPos),
+	}
+}
+
+// resetDanglingIndexes clears global-slot indexes pointing past the truncated
+// Data. RestoreUnit cannot undo in-place mutation of pre-existing symbols
+// (shared pointers), so a slot allocated by the failed unit (e.g. the Period
+// case allocating a Data slot for an imported const) would otherwise stay
+// recorded and alias whatever the retry compiles into that slot.
+func (c *Compiler) resetDanglingIndexes(dataLen int) {
+	for _, s := range c.Symbols {
+		if s.Index != symbol.UnsetAddr && s.Index >= dataLen {
+			s.Index = symbol.UnsetAddr
+		}
 	}
 }
 

@@ -139,6 +139,14 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 		if mainPkg != "" {
 			// Return the internal-augmented unit; stash the external files for
 			// `mvm test` to load as a second unit (see ExternalTestSources).
+			// Qualify names with Go's external-test pseudo package path
+			// (<importPath>_test/) so runtime.Caller frames report
+			// "<importPath>_test.TestX" like the gc toolchain.
+			if importPath != "" {
+				for i := range external {
+					external[i].Name = importPath + "_test/" + external[i].Name
+				}
+			}
 			p.externalTests = external
 			filtered := out[:0]
 			for i, s := range out {

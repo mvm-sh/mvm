@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/vm"
 )
 
@@ -234,8 +235,14 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				if ptype.Kind() == reflect.Pointer {
 					ptype = ptype.Elem()
 				}
-				_, nativeVal = rt.MethodByName(name)
-				_, nativePtr = reflect.PointerTo(ptype).MethodByName(name)
+				// A synth-built rtype carries methods ATTACHED from interpreted
+				// code (AttachSynthMethods), not a stdlib bridge; they must not
+				// preempt the qualified lookup -- the synth wrapper would mutate
+				// a boxed copy of the receiver, losing ptr-recv write-backs.
+				if !runtype.IsSynth(ptype) {
+					_, nativeVal = rt.MethodByName(name)
+					_, nativePtr = reflect.PointerTo(ptype).MethodByName(name)
+				}
 			}
 			if !nativeVal && !nativePtr {
 				if m := sm.qualifiedMethodLookup(sym.Type, typName, name); m != nil {

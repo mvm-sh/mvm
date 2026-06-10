@@ -311,6 +311,10 @@ func loadExternalTests(i *interp.Interp, target string) {
 }
 
 func noteSkippedTestFile(target, name string, err error) {
+	if strings.Contains(name, "/") { // already a qualified external-test path
+		fmt.Fprintf(os.Stderr, "mvm test: skipping %s (%v)\n", name, err)
+		return
+	}
 	fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, name, err)
 }
 

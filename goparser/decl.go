@@ -1029,6 +1029,13 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 	if n == "." {
 		// Import package symbols in the current scope.
 		for k, v := range pkg.Values {
+			// An interpreted package publishes a func as its code address (an
+			// int), so bind the pkg-qualified symbol, which carries the real
+			// kind and type, when one exists.
+			if qs, ok := p.Symbols[pp+"."+k]; ok {
+				p.SymSet(k, qs) // mvm:symkey-ok: dot-import binds bare names
+				continue
+			}
 			if rtype, ok := v.UnwrapType(); ok {
 				nv := vm.NewValue(rtype)
 				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Type, PkgPath: pp, Value: nv, Type: &vm.Type{Name: rtype.Name(), Rtype: rtype}}) // mvm:symkey-ok: dot-import binds bare names

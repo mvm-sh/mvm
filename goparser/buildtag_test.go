@@ -82,6 +82,14 @@ func TestMatchBuildDirective(t *testing.T) {
 		{"plus multi-line AND", "// +build linux\n// +build amd64\n\npackage main\n", "linux", "amd64", "go1.24", true},
 		{"plus multi-line AND mismatch", "// +build linux\n// +build amd64\n\npackage main\n", "linux", "arm64", "go1.24", false},
 		{"gobuild overrides plus", "//go:build linux\n// +build darwin\n\npackage main\n", "linux", "amd64", "go1.24", true},
+
+		// mvm enables the pure-Go fallback tags (go-spew's bypass.go/bypasssafe.go,
+		// x/crypto purego variants).
+		{"safe tag on", "//go:build safe\n\npackage spew\n", "linux", "amd64", "go1.24", true},
+		{"not-safe excluded", "// +build !js,!appengine,!safe,!disableunsafe,go1.4\n\npackage spew\n", "linux", "amd64", "go1.24", false},
+		{"plus safe-OR included", "// +build js appengine safe disableunsafe !go1.4\n\npackage spew\n", "linux", "amd64", "go1.24", true},
+		{"purego tag on", "//go:build purego\n\npackage x\n", "linux", "amd64", "go1.24", true},
+		{"not-purego excluded", "//go:build !purego\n\npackage x\n", "linux", "amd64", "go1.24", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {

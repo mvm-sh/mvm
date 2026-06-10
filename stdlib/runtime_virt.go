@@ -138,7 +138,40 @@ func mvmCallers(m *vm.Machine, skip int, pcs []uintptr) int {
 		n++
 		return true
 	})
+	// A real goroutine stack continues below the outermost frame
+	// (runtime.goexit), and the (*Frames).Next idiom `for f, more := ...; more;`
+	// drops the final frame. Append a goexit sentinel so the outermost
+	// interpreted frame is still examined by such loops.
+	if n > 0 && n < len(pcs) {
+		pcs[n] = uintptr(unsafe.Pointer(goexitSentinel())) + 1
+		n++
+	}
 	return n
+}
+
+var goexitOnce struct {
+	sync.Once
+	rf *runtime.Func
+}
+
+func goexitSentinel() *runtime.Func {
+	goexitOnce.Do(func() {
+		// Borrow the host goexit's file/line; consumers parse the location
+		// (e.g. pkg/errors' format tests group stack lines by a `\.` match).
+		file, line := "runtime/asm.s", 1
+		hostPCs := make([]uintptr, 64)
+		var last uintptr
+		for _, pc := range hostPCs[:runtime.Callers(0, hostPCs)] {
+			last = pc
+		}
+		if fn := runtime.FuncForPC(last); fn != nil && strings.HasSuffix(fn.Name(), "goexit") {
+			file, line = fn.FileLine(last)
+		}
+		rf := vm.NewRuntimeFuncSentinel()
+		vm.RegisterRuntimeFunc(rf, "runtime.goexit", file, line)
+		goexitOnce.rf = rf
+	})
+	return goexitOnce.rf
 }
 
 // internSentinel returns a *runtime.Func sentinel for the given frame,
