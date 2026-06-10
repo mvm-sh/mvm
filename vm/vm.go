@@ -4651,11 +4651,13 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 		len(iv.Typ.ElemType.IfaceMethods) > 0 {
 		keepInterpreted = true
 	}
+	if iv.Typ.Rtype.Kind() == reflect.Func && !keepInterpreted {
+		// Wrap as a callable typed with the named func rtype: method-bearing
+		// ones carry their (synth-attached) methods natively, and a nil value
+		// stays a TYPED nil so fmt still dispatches String (gc semantics).
+		return m.wrapForFunc(iv.Val, iv.Typ.Rtype), true
+	}
 	if len(iv.Typ.Methods) == 0 && !keepInterpreted {
-		if iv.Typ.Rtype.Kind() == reflect.Func {
-			// Wrap interpreted func so native method lookup works.
-			return m.wrapForFunc(iv.Val, iv.Typ.Rtype), true
-		}
 		return numReflect(iv.Typ.Rtype, iv.Val), true
 	}
 	// Native interface target: bridge so the mvm-typed concrete value is assignable.
