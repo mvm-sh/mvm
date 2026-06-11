@@ -455,3 +455,80 @@ func main() {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }
+
+// TestSynthDirectIfaceFuncRecv covers a value-receiver method on a named func
+// type (kindDirectIface) dispatched through a synth stub: the stub's recv is
+// the receiver word itself, not its address (pflag boolfuncValue.Set).
+func TestSynthDirectIfaceFuncRecv(t *testing.T) {
+	const src = `package main
+
+import "fmt"
+
+type fv func(string) error
+
+func (f fv) Set(s string) error { return f(s) }
+func (f fv) String() string     { return "" }
+
+type Value interface {
+	String() string
+	Set(string) error
+}
+
+type Flag struct{ Value Value }
+
+func main() {
+	var vals []string
+	fn := func(s string) error { vals = append(vals, s); return nil }
+	flags := map[string]*Flag{"f": {Value: fv(fn)}}
+	if err := flags["f"].Value.Set("x"); err != nil {
+		panic(err)
+	}
+	fmt.Print(vals)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "[x]"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestSynthPromotedDirectIfaceValue covers a promoted method on a VALUE of a
+// direct-iface struct (struct{*bytes.Buffer} -> io.Writer): the stub recv is
+// the embedded pointer word itself; formerly skipped, then mis-dereferenced.
+func TestSynthPromotedDirectIfaceValue(t *testing.T) {
+	const src = `package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+)
+
+type W struct{ *bytes.Buffer }
+
+type Box struct{ Out io.Writer }
+
+func main() {
+	w := W{&bytes.Buffer{}}
+	b := Box{Out: w}
+	fmt.Fprint(b.Out, "hi")
+	fmt.Print(w.Buffer.String())
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "hi"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}

@@ -353,13 +353,6 @@ func (m *Machine) allSynthMethods(
 }
 
 func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string]bool) []synthMethodSpec {
-	// A direct-iface struct value-boxed into a native interface passes the synth
-	// stub the data word, so makeRecvValue's NewAt mis-reconstructs the receiver and dispatch faults.
-	// Skip the value set for such types (the *T pointer set is fine); the value then fails iface
-	// assignment gracefully instead of crashing.
-	if !includePtr && isDirectIface(t.Rtype) {
-		return nil
-	}
 	var specs []synthMethodSpec
 	for _, emb := range t.Embedded {
 		if emb.FieldIdx < 0 || emb.FieldIdx >= t.Rtype.NumField() {
@@ -1033,6 +1026,10 @@ func reflectToErrorSlice(v reflect.Value) []error {
 func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, ptrRecv bool) reflect.Value {
 	if ptrRecv {
 		return reflect.NewAt(rtype, recv)
+	}
+	if isDirectIface(rtype) {
+		// recv is the receiver word itself (kindDirectIface), not its address.
+		return reflect.NewAt(rtype, unsafe.Pointer(&recv)).Elem()
 	}
 	return reflect.NewAt(rtype, recv).Elem()
 }
