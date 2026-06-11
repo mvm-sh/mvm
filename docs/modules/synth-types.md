@@ -108,6 +108,9 @@ Each past bug class is a violation of one of them.
   Methods are text-segment function pointers in the rtype's uncommon area; our
   stubs ([stubs](stubs.md)) trampoline back into the interpreter.
   A stub's ABI must match how native code invokes the method.
+  Because the ABI is set by the *register-word classification* of the signature,
+  not its exact Go types, many signatures share one stub -- the basis for the
+  word-class shapes ([ADR-022](../decisions/ADR-022-word-class-dispatch.md)).
   The open `Tfn`/`Ifn` gap (natural-ABI value receivers vs the boxed-pointer
   convention) is a C4 limitation -- it is why `reflect.Method.Func.Call` on a
   non-direct kind can still misbehave.

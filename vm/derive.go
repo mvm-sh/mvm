@@ -213,10 +213,36 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 				if !meth.IsExported() {
 					continue
 				}
-				if _, ok := detectShape(stripRecvType(meth.Type)); ok {
+				sig := stripRecvType(meth.Type)
+				if _, ok := detectShape(sig); ok {
+					return true
+				}
+				if wordShapeAvailable(sig) {
 					return true
 				}
 			}
+		}
+		// Synth methods attach after reserve, so an embedded interpreted type's
+		// rtype may not publish its methods yet (NumMethod 0 mid-materialize,
+		// e.g. a consumer unit materializing an imported struct before the
+		// embed's attach ran). Walk the mvm graph instead; over-reserving is
+		// safe (the reserve gate is a superset of the attach trigger).
+		if embTypeHasMethods(emb.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+// embTypeHasMethods reports whether an embedded field's mvm type (deref'd
+// through a pointer embed, walking Base) declares any methods.
+func embTypeHasMethods(e *mtype.Type) bool {
+	if e != nil && e.IsPtr() && e.ElemType != nil {
+		e = e.ElemType
+	}
+	for ; e != nil; e = e.Base {
+		if len(e.Methods) > 0 {
+			return true
 		}
 	}
 	return false
@@ -243,7 +269,11 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 		if sig == nil {
 			return true // unknown sig: assume table method, don't share
 		}
-		if _, ok := detectShape(eraseSynthIfaceParams(sig)); ok {
+		erased := eraseSynthIfaceParams(sig)
+		if _, ok := detectShape(erased); ok {
+			return true
+		}
+		if wordShapeAvailable(erased) {
 			return true
 		}
 	}

@@ -148,6 +148,12 @@ type Method struct {
 	Sig      reflect.Type
 	Shape    Shape
 	Handler  any
+
+	// WordKey, when non-empty, selects the word-class path: the slot comes from
+	// the generated word-shape pool named WordKey and Core (not Handler/Shape)
+	// does the marshaling.
+	WordKey string
+	Core    CoreFunc
 }
 
 var errInvalidHandlerType = errors.New("stubs: handler type does not match shape")
@@ -160,6 +166,9 @@ var errInvalidHandlerType = errors.New("stubs: handler type does not match shape
 // monotonic with no safe decrement under concurrent acquires.
 // Release is best-effort memory hygiene, not pool reclamation.
 func acquireSlot(m Method) (pc uintptr, release func(), err error) {
+	if m.WordKey != "" {
+		return acquireWordSlot(m.WordKey, m.Core)
+	}
 	switch m.Shape {
 	case ShapeS1:
 		h, ok := m.Handler.(HandlerS1)

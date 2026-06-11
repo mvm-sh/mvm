@@ -534,9 +534,12 @@ rtype that native `itab`/reflect dispatch reads directly -- no per-call wrapper.
 `Machine.AttachSynthMethods(t)` (`vm/synth_bridge.go`) runs for every compiled
 type. For each method it:
 
-1. matches the signature to a *shape* (`detectShape` -> `stubs.ShapeS1..S38`);
-2. builds a handler closure (`makeHandlerS*`) that re-enters the interpreter via
-   `CallFunc` when the stub fires;
+1. matches the signature to a *shape* (`detectShape` -> `stubs.ShapeS1..S38`),
+   falling back to a word-class shape (`detectWordShape`,
+   [ADR-022](../decisions/ADR-022-word-class-dispatch.md)) when no typed shape
+   fits;
+2. builds a handler closure (`makeHandlerS*`, or `makeWordCore` for the word
+   path) that re-enters the interpreter via `CallFunc` when the stub fires;
 3. delegates to `stdlib/stubs`, which resolves each method to a stub-pool slot
    PC and fills them into the type's reserved synth rtype in place.
 

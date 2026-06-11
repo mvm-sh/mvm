@@ -229,10 +229,45 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 // form drives the handler's receiver reconstruction (see recvForm): it folds
 // the method's own receiver kind with the identity the spec is attached to.
 type synthMethodSpec struct {
-	name   string
-	method Method
-	shape  stubs.Shape
-	form   recvForm
+	name    string
+	method  Method
+	shape   stubs.Shape
+	wordKey string // non-empty => word-class path (shape ignored)
+	form    recvForm
+}
+
+// resolveDispatch picks the spec's dispatch path: a typed shape when one
+// matches (faster, shape-specific error semantics), else the word-class
+// fallback. The typed path matches against erased (synth ifaces -> any: typed
+// stubs decode eface words); the word path keeps precise, whose iface params
+// marshal as the itab+data words native callers pack for the exact signature,
+// preserving assignability semantics (e.g. cmp rejecting Equal(InterfaceA) for
+// a non-implementing type). The word path is probed only on a typed miss, so
+// MVM_WORDDROPS reports actual drops; forceWordShape (benchmarks) inverts the
+// preference. Sets s.method.Rtype to the signature the chosen path dispatches
+// with; returns false when neither path can serve (the method is dropped, as
+// before the word path existed).
+func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
+	shape, shapeOK := detectShape(erased)
+	// A typed match on an ERASED sig (erased != precise) is a false friend: the
+	// table would publish any where the method declares a synth iface, breaking
+	// native assignability checks. Prefer the word path there.
+	if shapeOK && !forceWordShape && erased == precise {
+		s.shape = shape
+		s.method.Rtype = erased
+		return true
+	}
+	if key, ok := detectWordShape(precise); ok {
+		s.wordKey = key
+		s.method.Rtype = precise
+		return true
+	}
+	if shapeOK { // forceWordShape with no word pool: keep the typed shape
+		s.shape = shape
+		s.method.Rtype = erased
+		return true
+	}
+	return false
 }
 
 // toSynthMethods materializes the slice of stubs.Method passed to
@@ -244,6 +279,16 @@ func toSynthMethods(
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
+		if s.wordKey != "" {
+			out[i] = stubs.Method{
+				Name:     s.name,
+				Exported: true,
+				Sig:      s.method.Rtype,
+				WordKey:  s.wordKey,
+				Core:     m.makeWordCore(t, s.method, s.name, s.form),
+			}
+			continue
+		}
 		var handler any
 		switch s.shape {
 		case stubs.ShapeS1:
@@ -361,19 +406,17 @@ func (m *Machine) allSynthMethods(
 		if method.PtrRecv && !includePtr {
 			continue
 		}
-		// Method tables erase synth-iface params to any: stubs decode an eface,
-		// and a precise sig would make reflect.Call pack itab+data instead.
-		method.Rtype = eraseSynthIfaceParams(method.Rtype)
-		shape, ok := detectShape(method.Rtype)
-		if !ok {
-			continue
-		}
-		specs = append(specs, synthMethodSpec{
+		spec := synthMethodSpec{
 			name:   m.MethodNames[i],
 			method: method,
-			shape:  shape,
 			form:   recvFormFor(t.Rtype, method.PtrRecv, includePtr),
-		})
+		}
+		// Typed-shape tables erase synth-iface params to any (stubs decode an
+		// eface); the word path keeps the precise sig (see resolveDispatch).
+		if !spec.resolveDispatch(eraseSynthIfaceParams(method.Rtype), method.Rtype) {
+			continue
+		}
+		specs = append(specs, spec)
 		seen[m.MethodNames[i]] = true
 		if len(specs) == synthMaxMethods {
 			return specs
@@ -416,17 +459,16 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 				continue
 			}
 			sig := stripRecvType(meth.Type)
-			shape, ok := detectShape(sig)
-			if !ok {
+			spec := synthMethodSpec{
+				name:   meth.Name,
+				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
+				form:   recvFormFor(t.Rtype, includePtr, includePtr),
+			}
+			if !spec.resolveDispatch(sig, sig) {
 				continue
 			}
 			seen[meth.Name] = true
-			specs = append(specs, synthMethodSpec{
-				name:   meth.Name,
-				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
-				shape:  shape,
-				form:   recvFormFor(t.Rtype, includePtr, includePtr),
-			})
+			specs = append(specs, spec)
 		}
 	}
 	return specs
