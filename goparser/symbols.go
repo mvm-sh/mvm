@@ -86,6 +86,21 @@ func (p *Parser) addGlobalVar(name string) string {
 	return p.addPkgVar(name)
 }
 
+// addOrRebindGlobalVar is addOrRebindLocalVar for package scope: a top-level
+// `:=` redefine (REPL) reuses the existing Var symbol, keeping its slot and
+// type for already-parsed references, instead of overwriting it with a fresh
+// Type=nil entry that breaks compilation of those references.
+func (p *Parser) addOrRebindGlobalVar(name string) string {
+	if name == "_" {
+		return p.addPkgVar(p.blankName())
+	}
+	scoped := p.pkgKey(name)
+	if s, ok := p.Symbols[scoped]; ok && s.Kind == symbol.Var {
+		return scoped
+	}
+	return p.addPkgVar(name)
+}
+
 // setLHSType assigns t to the i-th `:=` LHS local when it is a fresh, named,
 // non-blank, currently-untyped define target. Shared by the range- and
 // call-define inference paths so the (subtle) skip rules live in one place.

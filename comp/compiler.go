@@ -1669,7 +1669,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, op, s.Index, callNarg<<16|nret)
 				} else {
 					callNret := nret
-					if typ.IsVariadic() && !spread {
+					// The flag marks the last arg as a pre-built slice (packed
+					// by MkSlice above or written as f(s...)), so a native
+					// callee goes through CallSlice.
+					if typ.IsVariadic() {
 						callNret |= int(vm.CallSpreadFlag)
 					}
 					c.emit(t, vm.Call, callNarg, callNret)

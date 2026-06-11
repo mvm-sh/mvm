@@ -92,20 +92,9 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 		// the RHS can still reference outer-scope variables being shadowed.
 		if define {
 			for i, e := range lhs {
-				if len(e) != 1 || e[0].Tok != lang.Ident {
-					continue
+				if _, err := p.bindDefineLHS(in[aindex], e, out, lhsPositions[i]); err != nil {
+					return out, err
 				}
-				var name string
-				if p.funcScope != "" {
-					name = p.addOrRebindLocalVar(e[0].Str)
-				} else {
-					name = p.addGlobalVar(e[0].Str)
-				}
-				// Reset to a clean binding target. When the LHS name shadows an
-				// outer type (e.g. `poser := &poser{}`), parseExpr resolved the
-				// type onto this token (Arg carries the *vm.Type), which would
-				// make the compiler treat the define target as a type.
-				out[lhsPositions[i]] = newIdent(name, out[lhsPositions[i]].Pos)
 			}
 			if p.funcScope != "" {
 				switch {
@@ -124,6 +113,28 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 		return out, err
 	}
 	return p.parseAssignMultiRHS(in, lhs, rhs, aindex, define)
+}
+
+// bindDefineLHS registers one `:=` LHS element and resets its token in out to
+// a clean binding target: when the LHS name shadows an outer type (e.g.
+// `poser := &poser{}`), parseExpr resolved the type onto the token (Arg
+// carries the *vm.Type), which would make the compiler treat the define
+// target as a type. Returns the scoped name. A non-ident LHS is an error.
+func (p *Parser) bindDefineLHS(at Token, e Tokens, out Tokens, lhsPos int) (string, error) {
+	if len(e) > 0 {
+		at = e[0]
+	}
+	if len(e) != 1 || e[0].Tok != lang.Ident {
+		return "", p.errAt(at, "non-name on left side of :=")
+	}
+	var name string
+	if p.funcScope != "" {
+		name = p.addOrRebindLocalVar(e[0].Str)
+	} else {
+		name = p.addOrRebindGlobalVar(e[0].Str)
+	}
+	out[lhsPos] = newIdent(name, out[lhsPos].Pos)
+	return name, nil
 }
 
 func lhsNeedsTemps(lhs []Tokens) bool {
@@ -286,52 +297,47 @@ func (p *Parser) parseAssignMultiRHS(in Tokens, lhs, rhs []Tokens, aindex int, d
 		}
 		return out, err
 	}
-	for i, e := range rhs {
-		lhsPos := len(out)
-		toks, err := p.parseExpr(lhs[i], "")
+	// Define multi-RHS (`a, b := e1, e2`): parse all LHS idents, then all RHS
+	// in the pre-statement scope, and bind with a single Define so every RHS
+	// is evaluated before any LHS is assigned (n, d := n/10, n%10).
+	pos := in[aindex].Pos
+	lhsPositions := make([]int, len(lhs))
+	for i, e := range lhs {
+		lhsPositions[i] = len(out)
+		toks, err := p.parseExpr(e, "")
 		if err != nil {
 			return out, err
 		}
 		out = append(out, toks...)
-		toks, err = p.parseExpr(e, "")
+	}
+	rhsToks := make([]Tokens, len(rhs))
+	for i, e := range rhs {
+		toks, err := p.parseExpr(e, "")
 		if err != nil {
 			return out, err
 		}
-		switch out[len(out)-1].Tok {
-		case lang.Index:
-			out = out[:len(out)-1]
-			out = append(out, toks...)
-			out = append(out, newToken(lang.IndexAssign, "", in[aindex].Pos, 1))
-		case lang.Deref:
-			out = out[:len(out)-1]
-			out = append(out, toks...)
-			out = append(out, newToken(lang.DerefAssign, "", in[aindex].Pos, 1))
-		default:
-			out = append(out, toks...)
-			out = append(out, newToken(in[aindex].Tok, "", in[aindex].Pos, 1))
+		rhsToks[i] = toks
+		out = append(out, toks...)
+	}
+	out = append(out, newToken(lang.Define, "", pos, len(lhs)))
+	// Register define symbols after parsing every RHS so the RHS can still
+	// reference outer-scope variables being shadowed.
+	for i, e := range lhs {
+		name, err := p.bindDefineLHS(in[aindex], e, out, lhsPositions[i])
+		if err != nil {
+			return out, err
 		}
-		if define {
-			lt := lhs[i]
-			if len(lt) == 1 && lt[0].Tok == lang.Ident {
-				if p.funcScope != "" {
-					out[lhsPos].Str = p.addOrRebindLocalVar(lt[0].Str)
-					// Type the local from its single-value RHS (toks) so a later
-					// generic call can infer from it, matching the single-RHS
-					// define path. postfixType is pure.
-					if lt[0].Str != "_" {
-						if sym := p.Symbols[out[lhsPos].Str]; sym != nil && sym.Type == nil {
-							if t, _ := p.postfixType(toks); t != nil {
-								sym.Type = t
-							}
-						}
-					}
-				} else {
-					out[lhsPos].Str = p.addGlobalVar(lt[0].Str)
+		// Type the local from its RHS so a later generic call can infer
+		// from it, matching the single-RHS define path. postfixType is pure.
+		if p.funcScope != "" && e[0].Str != "_" {
+			if sym := p.Symbols[name]; sym != nil && sym.Type == nil {
+				if t, _ := p.postfixType(rhsToks[i]); t != nil {
+					sym.Type = t
 				}
 			}
 		}
 	}
-	return out, err
+	return out, nil
 }
 
 var compoundAssignOp = map[lang.Token]lang.Token{
