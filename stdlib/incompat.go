@@ -91,6 +91,11 @@ var Incompat = map[string]map[string]string{
 		"TestStack":        "debug.Stack reads the native goroutine stack; an interpreted method runs via reflect.MakeFunc, so frames show reflect/VM internals instead of the runtime/debug_test source the test greps for",
 	},
 
+	"github.com/cespare/xxhash/v2": {
+		"TestAllocs":       "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 (escape-analysis assertion)",
+		"TestStringAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 (escape-analysis assertion)",
+	},
+
 	"github.com/google/btree": {
 		"TestBTreeG":                     "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
 		"TestBTree":                      "stress test: builds a 10000-key B-tree x10 iterations; minutes under the interpreter (no testing.Short path)",
