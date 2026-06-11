@@ -3109,6 +3109,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					// An untyped const adopts the declared return type
 					// (e.g. `return 1` in a float64-returning func).
 					c.emitConstConvert(t, stackSym, funcType.ReturnType(i), numOut-1-i)
+					// A bare nil becomes a typed nil of the result type, so a
+					// later Iface box of the returned value holds a valid ref.
+					c.emitNilCoerce(t, stackSym, funcType.ReturnType(i), numOut-1-i)
 					c.emitIfaceWrapAt(t, funcType.ReturnType(i), stackSym.Type, numOut-1-i)
 				}
 			}

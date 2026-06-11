@@ -403,6 +403,12 @@ func TestFunc(t *testing.T) {
 		{n: "nil_literal_slice_arg_range", src: `func f(xs []int) int { n := 0; for range xs { n++ }; return n }; f(nil)`, res: "0"},
 		{n: "nil_literal_map_arg_len", src: `func f(m map[string]int) int { return len(m) }; f(nil)`, res: "0"},
 		{n: "nil_literal_variadic_spread", src: `func f(xs ...int) int { return len(xs) }; f(nil...)`, res: "0"},
+		// A bare `return nil` becomes a typed nil of the result type, so the
+		// value survives a later Iface box: passing f() straight to a native
+		// variadic (fmt.Printf) used to panic with
+		// "reflect: call of reflect.Value.Set on zero Value" (fastjson).
+		{n: "return_nil_slice_to_printf", src: `import "fmt"; func f() []byte { return nil }; fmt.Sprintf("%q", f())`, res: `""`},
+		{n: "return_nil_map_to_printf", src: `import "fmt"; func f() map[string]int { return nil }; fmt.Sprintf("%v", f())`, res: "map[]"},
 		// An untyped const return adopts the declared return type; `return 1`
 		// in a float64 func was bit-reinterpreted (read back as 5e-324).
 		{n: "return_const_float", src: `func f() float64 { return 1 }; f() + 0.5`, res: "1.5"},

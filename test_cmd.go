@@ -200,10 +200,32 @@ func testCmd(arg []string) error {
 	// interpreter because Eval mutates compiler/VM state. A non-test-file error
 	// (failingTestFile == "") still fails hard.
 	skip := map[string]bool{}
+	pkgDir := "" // materialized module subtree; cwd while loading AND running
 	for {
 		i, mfs := newTestInterp(trace)
 		if mfs != nil {
 			i.PanicNilCompat = panicNilCompat(findGoModFS(mfs, target))
+			// Materialize and chdir BEFORE Eval: top-level var inits in
+			// _test.go files may read testdata-relative paths at load time,
+			// not run time, so cwd must already be the package dir.
+			if pkgDir == "" {
+				dir, cleanup, merr := materializePkgDir(mfs, target)
+				if merr != nil {
+					return merr
+				}
+				if dir != "" {
+					defer cleanup()
+					prev, werr := os.Getwd()
+					if werr != nil {
+						return werr
+					}
+					if cerr := os.Chdir(dir); cerr != nil {
+						return cerr
+					}
+					defer func() { _ = os.Chdir(prev) }()
+					pkgDir = dir
+				}
+			}
 		}
 		flushStats := setupStats(i, mfs, stat)
 		i.SetIncludeTests(true)
@@ -232,19 +254,11 @@ func testCmd(arg []string) error {
 		}
 		// Also run the target's external `package X_test` tests as a second unit.
 		loadExternalTests(i, target)
-		// modfs serves the package from memory, so tests using testdata-relative
-		// paths see whatever cwd mvm was launched from. Spill the subtree to a
-		// temp dir and chdir there to mirror `go test`'s setup.
-		if mfs != nil {
-			dir, cleanup, err := materializePkgDir(mfs, target)
-			if err != nil {
-				flushStats()
-				return err
-			}
-			if dir != "" {
-				defer cleanup()
-				return runTestsInDir(i, dir, target, flushStats)
-			}
+		// modfs serves the package from memory; cwd is already the materialized
+		// subtree (set before Eval) so testdata-relative paths resolve, as with
+		// `go test`'s chdir.
+		if pkgDir != "" {
+			return runTestDriver(i, target, flushStats)
 		}
 		// Bridged-stdlib case: external test files came from $GOROOT/src/<target>.
 		// chdir there so testdata-relative paths resolve. No copy needed since
