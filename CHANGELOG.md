@@ -6,12 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-11
+
 ### Added
 
 - Assign-form range loops (`for x, y = range e`).
   Loop variables may now be existing variables, including captured ones,
   indexed elements (`a[i]`) and pointer derefs (`*p`).
   Previously only the `:=` form compiled correctly.
+- Source overlays for assembly-backed declarations.
+  Body-less functions such as `syscall.RawSyscall` now resolve through a
+  registered Go source shim, enabling `golang.org/x/sys/unix` and its
+  dependents (`go-isatty`, `fatih/color`).
+- New synthetic dispatch shapes (S32-S38), so interpreted types can satisfy
+  `log/slog.Handler`, `slog.LogValuer`, `io.RuneReader` and niladic marker
+  methods across the native bridge.
+- `panic(nil)` compatibility: `mvm test` of a module whose `go.mod` declares
+  a Go version before 1.21 recovers `nil` (not `*runtime.PanicNilError`),
+  mirroring the runtime's `panicnil` `GODEBUG` default.
 
 ### Fixed
 
@@ -22,9 +34,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Method-bearing interpreted values nested in a composite (e.g. a `[]any`
   literal) no longer leak their internal interface box into native reflect
   walks such as `reflect.DeepEqual` and `fmt` formatting.
+  Pointers, slices and maps unbox in place, preserving identity, so a
+  callee mutating through such an argument reaches the caller's data
+  (zerolog and logrus hooks rely on this).
 - Writes through `&v` of a captured variable are no longer lost after the
   variable is reassigned (e.g. `b = nil` then `fmt.Sscanf(..., &b)`).
   The closure heap cell now always keeps addressable cell-owned storage.
+- A bare `return nil` now yields a typed nil of the declared result type.
+  Passing such a call result directly to a native variadic
+  (e.g. `fmt.Printf("%q", f())`) used to panic in reflect.
+- Deferred-call panics: calling a nil deferred function panics at the
+  defer site with a proper location, and a panic raised inside a deferred
+  call is catchable by an enclosing `recover`.
+  Goroutine, subtest and re-raised panics now carry source locations and a
+  full interpreter stack across native boundaries.
+- Calling a variadic native function through a function value (rather
+  than by name) now packs its arguments into the variadic slice.
+- Assigning a struct field to a package-level function variable is no
+  longer a silent no-op.
+- Named-type identity across the native boundary: methodless named basic,
+  slice and func types keep their own reflect identity (`fmt %#v`,
+  `go-cmp`); named `[]byte` types such as `net.IP` and `json.RawMessage`
+  keep theirs in type switches and interface conversions; a typed nil func
+  value keeps its named type so `fmt` still dispatches its `String` method.
+- Methods promoted from an embedded native concrete type now satisfy
+  native interfaces (e.g. `struct{*bytes.Buffer}` used as an `io.Writer`).
+- Interface boxing of map-literal values and of promoted method values;
+  two sibling closures declaring same-named func-local anonymous structs
+  no longer share a type symbol.
+- A function parameter captured by a closure is promoted to its heap cell
+  at function entry, so writes through earlier-captured pointers are no
+  longer lost.
+- An untyped-constant shift operand now adopts the type of its context
+  instead of defaulting to `int`.
+- A failed `Eval` rolls back compiler and symbol state, so a REPL session
+  survives an erroneous line that touched generics.
+- Deep-unboxing a cyclic data structure no longer hangs.
+- Dot-imported symbol qualification, and method lookup on synthesized
+  rtypes: a method attached from interpreted code no longer preempts the
+  qualified symbol lookup (which lost pointer-receiver write-backs).
+- Generics: a named constraint interface embedded as a union term
+  contributes its type elements; a package-qualified type whose bare name
+  matches a type parameter no longer binds it.
+- Parser: labels no longer collide with same-named variables or with
+  compiler-synthesized labels, including labels on `case` and `select`
+  clause bodies; a `switch` without `default` no longer leaks an operand
+  stack slot; `:=` in an `if` body no longer leaks into the `else if`
+  condition; each `case` clause scopes its own declarations; variadic
+  parameters and spread calls accept a trailing comma; `<-chan T` parses
+  as a receive-only channel type, not a receive.
+- A captured pointer variable now zeroes to a nil pointer instead of a
+  pointer to a fresh element; an embedded pointer field keeps its field
+  name in the materialized reflect layout.
+- `mvm test` chdirs into the package directory before loading, so test
+  files that read `testdata/...` in package-level `var` initializers work.
 
 ### Changed
 
@@ -33,6 +96,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `slog.ExampleHandler_levelHandler` and `slog.ExampleLogValuer_secret`
   run and pass; 7 long-skipped interpreter regression tests
   (named-const method identity, `errors` Is/As bridge cases) re-enabled.
+- Sources now parse with the conventional `purego` and `safe` build tags
+  enabled, selecting pure-Go, reflect-friendly fallbacks in third-party
+  code (e.g. `go-spew`, `x/crypto`).
+- `stdlib.Incompat` gained entries for tests that re-exec the binary,
+  depend on allocation counts, or stress random inputs at native speed.
+- External suites newly passing since 0.4.1: `fatih/color`,
+  `rs/zerolog`, `sirupsen/logrus`, `shopspring/decimal`, `tidwall/gjson`,
+  `tidwall/sjson`, `tidwall/pretty`, `yuin/goldmark` and
+  `valyala/fastjson`.
 
 ## [0.4.1] - 2026-06-09
 

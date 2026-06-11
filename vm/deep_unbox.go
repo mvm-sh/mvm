@@ -18,6 +18,19 @@ type unboxSeen struct {
 
 var ifaceBearingCache sync.Map // reflect.Type -> bool
 
+// seenBefore records k in seen (allocating it on first use), reporting
+// whether k was already visited.
+func seenBefore(seen *map[unboxSeen]bool, k unboxSeen) bool {
+	if (*seen)[k] {
+		return true
+	}
+	if *seen == nil {
+		*seen = map[unboxSeen]bool{}
+	}
+	(*seen)[k] = true
+	return false
+}
+
 // ifaceBearing reports whether values of type t can contain an interface slot.
 func ifaceBearing(t reflect.Type) bool {
 	if v, ok := ifaceBearingCache.Load(t); ok {
@@ -52,9 +65,12 @@ func ifaceBearingWalk(t reflect.Type, seen map[reflect.Type]bool) bool {
 
 // deepUnboxIface returns v with nested vm.Iface boxes replaced by their
 // concrete values, so native reflect walks (DeepEqual, fmt) see real Go values.
-// Composites are copied on change only; no box found returns v unchanged.
-// Write-back through a copied composite is lost (already broken for boxed
-// elements).
+// Value types (struct/array/interface) are copied on change only; reference
+// types (pointer/slice/map) are unboxed IN PLACE so a callee mutating through
+// them still reaches the caller's data (e.g. zerolog's hook.Run(e) appends to
+// e.buf; a rebuilt *Event would detach the write).
+// The bool reports a REPLACED value (value types only); false from a
+// reference type may still mean its contents were unboxed in place.
 func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]bool) (reflect.Value, bool) {
 	if depth > maxUnboxDepth || !v.IsValid() {
 		return v, false
@@ -88,32 +104,18 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
-		if seen[unboxSeen{v.Pointer(), t}] {
+		if seenBefore(&seen, unboxSeen{v.Pointer(), t}) {
 			return v, false
 		}
-		if seen == nil {
-			seen = map[unboxSeen]bool{}
-		}
-		seen[unboxSeen{v.Pointer(), t}] = true
-		n := v.Len()
-		var out reflect.Value
-		changed := false
-		for i := range n {
-			w, ch := m.deepUnboxIface(v.Index(i), depth+1, seen)
-			if !ch {
-				continue
+		// In place: elements are settable through the data pointer, and the
+		// backing array may be aliased elsewhere.
+		for i := range v.Len() {
+			el := v.Index(i)
+			if w, ch := m.deepUnboxIface(el, depth+1, seen); ch {
+				Exportable(el).Set(Exportable(w))
 			}
-			if !changed {
-				out = reflect.MakeSlice(t, n, n)
-				reflect.Copy(out, Exportable(v))
-				changed = true
-			}
-			out.Index(i).Set(Exportable(w))
 		}
-		if !changed {
-			return v, false
-		}
-		return out, true
+		return v, false
 	case reflect.Array:
 		if !ifaceBearing(t) {
 			return v, false
@@ -162,36 +164,30 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
-		if seen[unboxSeen{v.Pointer(), t}] {
+		if seenBefore(&seen, unboxSeen{v.Pointer(), t}) {
 			return v, false
 		}
-		if seen == nil {
-			seen = map[unboxSeen]bool{}
+		// In place: the callee must see the SAME pointer, or its writes
+		// through it land in a detached copy.
+		el := v.Elem()
+		if w, ch := m.deepUnboxIface(el, depth+1, seen); ch {
+			Exportable(el).Set(Exportable(w))
 		}
-		seen[unboxSeen{v.Pointer(), t}] = true
-		w, ch := m.deepUnboxIface(v.Elem(), depth+1, seen)
-		if !ch {
-			return v, false
-		}
-		np := reflect.New(t.Elem())
-		np.Elem().Set(Exportable(w))
-		if np.Type() != t {
-			np = np.Convert(t)
-		}
-		return np, true
+		return v, false
 	case reflect.Map:
 		if v.IsNil() || !ifaceBearing(t) {
 			return v, false
 		}
-		if seen[unboxSeen{v.Pointer(), t}] {
+		if seenBefore(&seen, unboxSeen{v.Pointer(), t}) {
 			return v, false
 		}
-		if seen == nil {
-			seen = map[unboxSeen]bool{}
+		// In place (the map may be aliased elsewhere): collect changed
+		// entries first, then apply, to not mutate during iteration.
+		type entry struct {
+			oldKey, newKey, val reflect.Value
+			keyChanged          bool
 		}
-		seen[unboxSeen{v.Pointer(), t}] = true
-		var out reflect.Value
-		changed := false
+		var changes []entry
 		it := v.MapRange()
 		for it.Next() {
 			k, kc := m.deepUnboxIface(it.Key(), depth+1, seen)
@@ -199,23 +195,16 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 			if !kc && !wc {
 				continue
 			}
-			if !changed {
-				out = reflect.MakeMapWithSize(t, v.Len())
-				inner := v.MapRange()
-				for inner.Next() {
-					out.SetMapIndex(Exportable(inner.Key()), Exportable(inner.Value()))
-				}
-				changed = true
-			}
-			if kc {
-				out.SetMapIndex(Exportable(it.Key()), reflect.Value{})
-			}
-			out.SetMapIndex(Exportable(k), Exportable(w))
+			changes = append(changes, entry{it.Key(), k, w, kc})
 		}
-		if !changed {
-			return v, false
+		mv := Exportable(v)
+		for _, c := range changes {
+			if c.keyChanged {
+				mv.SetMapIndex(Exportable(c.oldKey), reflect.Value{})
+			}
+			mv.SetMapIndex(Exportable(c.newKey), Exportable(c.val))
 		}
-		return out, true
+		return v, false
 	}
 	return v, false
 }

@@ -21,7 +21,7 @@ Inverting the attach API (PC-based `runtype.MethodSpec`) lets `stubs` depend on
 
 ## Key types and functions
 
-- **`Shape`** + **`ShapeS1` ... `ShapeS16`** -- the catalog of supported method
+- **`Shape`** + **`ShapeS1` ... `ShapeS38`** -- the catalog of supported method
   signatures. A few representatives:
 
   | Shape | Signature | Covers |
@@ -34,15 +34,19 @@ Inverting the attach API (PC-based `runtype.MethodSpec`) lets `stubs` depend on
   | S13 | `func([]byte) (int, error)` | `io.Reader`/`io.Writer` |
   | S14 | `func(fmt.State, rune)` | `fmt.Formatter` |
   | S15 / S16 | `MarshalXML`/`UnmarshalXML` | `xml.Marshaler`/`Unmarshaler` |
+  | S22 ... S31 | `fs` method shapes | `fs.FileInfo`, `fs.DirEntry`, `fs.FS` and friends |
+  | S32 ... S36 | `slog` method shapes | `slog.Handler`, `slog.LogValuer` |
+  | S37 | `func() (rune, int, error)` | `io.RuneReader` |
+  | S38 | `func()` | niladic marker methods |
 
 - **`Method`** -- `{Name, Exported, Sig, Shape, Handler}`. The shape-carrying
   input the vm builds; `Handler` is the matching `HandlerS*` closure.
-- **`HandlerS1` ... `HandlerS16`** -- per-shape handler function types.
+- **`HandlerS1` ... `HandlerS38`** -- per-shape handler function types.
 - **`Attach{Methods,StructMethods,PrimitiveMethods,SliceMethods,ArrayMethods,
   MapMethods,PtrMethods}`** -- mirror the `runtype.Attach*` entry points but accept
   `[]Method`; each resolves every method's shape to a free stub slot, then calls
   `runtype`.
-- **`SlotsUsedS1` ... `SlotsUsedS16`** -- slot-pool usage counters (for tests /
+- **`SlotsUsedS1` ... `SlotsUsedS38`** -- slot-pool usage counters (for tests /
   metrics).
 
 ## Internal design
@@ -81,8 +85,9 @@ The vm-side glue is *not* here -- `vm/synth_bridge.go` owns `detectShape`
 ## Dependencies
 
 - [runtype](runtype.md) -- `FuncPC` (pools) and the `Attach*` synthesizers (wrappers).
-- Standard library: `reflect`, `unsafe`, `sync/atomic`, plus `fmt`/`encoding/xml`
-  for the S14/S15/S16 stub signatures.
+- Standard library: `reflect`, `unsafe`, `sync/atomic`, plus the packages the
+  shaped signatures mention (`fmt`, `encoding/xml`, `io/fs`, `time`, `context`,
+  `log/slog`).
 - Consumed by `vm/synth_bridge.go` (`Shape`/`Method`/`HandlerS*`/`Attach*`).
 
 Regenerate the pools with `go generate ./stdlib/stubs/` (or `make generate`)

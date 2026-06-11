@@ -49,7 +49,8 @@ The machinery is split across two packages for a one-directional dependency:
   `runtype` knows nothing about method shapes: `Attach*` take a `MethodSpec`
   carrying an already-resolved stub PC.
 - **`stdlib/stubs`** -- the shape catalog.
-  16 method-signature *shapes* (S1 `func() string` ... S16 `UnmarshalXML`),
+  a catalog of method-signature *shapes* (S1 `func() string` onward; see
+  `stdlib/stubs/gen_pools.go` for the authoritative list),
   each with a generated pool of dispatch-stub functions (`pool_s*.go`) and a
   hand-written handler registry/dispatcher (`registry_s*.go`).
   The `stubs.Attach*` wrappers resolve a method's shape to a free stub slot,
