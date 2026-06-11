@@ -86,6 +86,7 @@ var shapes = []shape{
 	{ID: "S35", Params: ", name string", ArgList: ", name", Results: "slog.Handler", Imports: []string{"log/slog"}},                                      // slog.Handler.WithGroup
 	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                   // slog.LogValuer.LogValue
 	{ID: "S37", Results: "(rune, int, error)"}, // io.RuneReader.ReadRune
+	{ID: "S38"},                                // func() with no params or results (niladic marker methods)
 }
 
 func main() {

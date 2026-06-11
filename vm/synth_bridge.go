@@ -71,7 +71,7 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 		len(et.IfaceMethods) == 0 {
 		return reflect.Value{}
 	}
-	if !val.IsValid() || val.Kind() != reflect.Pointer || val.IsNil() {
+	if !val.IsValid() || val.Kind() != reflect.Pointer {
 		return reflect.Value{}
 	}
 	if !isSynthIfaceTargetFunc(fn) {
@@ -80,6 +80,11 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 	st := synthIfaceRtype(et)
 	if st == nil {
 		return reflect.Value{}
+	}
+	if val.IsNil() {
+		// Nil ptr-to-interface used as a pure type tag, e.g.
+		// reflect.TypeOf((*I)(nil)).Elem(): keep the synth elem type.
+		return reflect.Zero(reflect.PointerTo(st))
 	}
 	return reflect.NewAt(st, val.UnsafePointer())
 }
@@ -280,6 +285,8 @@ func toSynthMethods(
 			handler = makeHandlerS36(m, t, s.method, s.name, s.ptrRecv)
 		case stubs.ShapeS37:
 			handler = makeHandlerS37(m, t, s.method, s.name, s.ptrRecv)
+		case stubs.ShapeS38:
+			handler = makeHandlerS38(m, t, s.method, s.name, s.ptrRecv)
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -492,6 +499,8 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 	case nin == 0 && nout == 3 && sig.Out(0).Kind() == reflect.Int32 &&
 		sig.Out(1).Kind() == reflect.Int && isErrorType(sig.Out(2)):
 		return stubs.ShapeS37, true
+	case nin == 0 && nout == 0:
+		return stubs.ShapeS38, true
 	case nin == 2 && nout == 1 &&
 		sig.In(0).Kind() == reflect.Int && sig.In(1).Kind() == reflect.Int &&
 		sig.Out(0).Kind() == reflect.Bool:
@@ -848,6 +857,18 @@ func makeHandlerS37(m *Machine, t *Type, method Method, name string, ptrRecv boo
 	}
 }
 
+// makeHandlerS38 bridges shape S38: (T).M() with no params or results.
+func makeHandlerS38(m *Machine, t *Type, method Method, name string, ptrRecv bool) stubs.HandlerS38 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) {
+		rv := makeRecvValue(t.Rtype, recv, ptrRecv)
+		_, err := callMethod(m, t, name, rv, method, methodSig, nil)
+		if err != nil {
+			raiseMethodErr(err)
+		}
+	}
+}
+
 // makeHandlerS14 bridges shape S14: (T).Format(fmt.State, rune).
 // st is passed through reflect.ValueOf(&st).Elem() so it keeps its fmt.State
 // type, letting the interpreted body call State methods on it.
@@ -1028,7 +1049,13 @@ func callMethod(
 		return m.callPromotedConcrete(rv, name, method.Path, methodSig, args)
 	}
 	fval := m.MakeMethodCallable(ifc, method)
-	return m.CallFunc(fval, methodSig, args)
+	// Run on a pooled runner, not m itself: synth stubs fire concurrently when
+	// native callers (e.g. sort.Sort) run on several interpreted goroutines,
+	// and CallFunc's save/restore of m's frame state is single-threaded.
+	rs := m.captureRunnerState()
+	runner := rs.acquireRunner()
+	defer rs.releaseRunner(runner)
+	return runner.callPooled(fval, methodSig, args)
 }
 
 // callPromotedConcrete dispatches a method promoted from an embedded concrete

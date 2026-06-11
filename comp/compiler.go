@@ -1680,6 +1680,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			} else if s.Type != nil {
 				rtyp = c.rtype(s.Type)
 			}
+			if rtyp != nil && rtyp.Kind() != reflect.Func {
+				return c.errAt(t, "cannot call non-function value of type %s", rtyp)
+			}
 			// Wrap concrete args in Iface when the parameter expects an interface type.
 			if rtyp != nil && rtyp.Kind() == reflect.Func {
 				nIn := rtyp.NumIn()
@@ -2094,9 +2097,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				// Param slots alias the caller's pushed Value, so SetLocal would write through dst.ref to the caller.
 				if !lhs.Used || lhs.IsParam() {
+					typeIdx := c.typeSym(lhs.Type).Index
+					// A cell-promoted ptr var still needs its zero fixed from
+					// new-elem (FnewE) to nil ptr, else the cell snapshots a
+					// spurious elem value (&captured then types one star short).
+					c.fixPtrFnewE(lhs.Type, typeIdx)
 					if !lhs.NeedsCell() {
-						typeIdx := c.typeSym(lhs.Type).Index
-						c.fixPtrFnewE(lhs.Type, typeIdx)
 						c.emit(t, vm.New, lhs.Index, typeIdx)
 					}
 					lhs.Used = true

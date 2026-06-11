@@ -126,8 +126,9 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				}
 				if typ, n, err2 := p.parseTypeExpr(in[i:]); err2 == nil {
 					ctype = typ.String()
-					if typ.Kind() == reflect.Pointer && !strings.HasPrefix(ctype, "*") {
-						ctype = "*" + ctype
+					if typ.Kind() == reflect.Pointer && typ.ElemType != nil && typ.ElemType.Name != "" {
+						// Key as "*T": methods register under the receiver's bare name.
+						ctype = "*" + typ.ElemType.Name
 					}
 					p.SymAdd(symbol.UnsetAddr, ctype, typeTokenValue(typ), symbol.Type, typ)
 					out = append(out, newIdent(ctype, t.Pos))
@@ -476,6 +477,15 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			i += n - 1
 
 		case lang.Arrow:
+			// "<-chan T" is a recv-only channel type, not a receive.
+			if i+1 < lin && in[i+1].Tok == lang.Chan {
+				var n int
+				if ctype, n, err = p.addTypeExpr(in[i:], &out); err != nil {
+					return out, err
+				}
+				i += n - 1
+				continue
+			}
 			// Unary channel receive: <-ch
 			addop(t)
 

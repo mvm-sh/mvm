@@ -109,6 +109,11 @@ var Incompat = map[string]map[string]string{
 		"TestEncoding":             "stress test: quick.Check MaxCount 1e5 (~23s); hardcoded count ignores -short/-quickchecks",
 	},
 
+	"github.com/stretchr/testify/assert": {
+		"TestDirExists":   "upstream-red: asserts ../_codegen exists, but the dir is omitted from the published module (go test fails natively too)",
+		"TestNoDirExists": "upstream-red: asserts ../_codegen exists, but the dir is omitted from the published module (go test fails natively too)",
+	},
+
 	"github.com/sirupsen/logrus": {
 		"TestNestedLoggingReportsCorrectCaller": "asserts caller frame.File == cwd-relative on-disk path; virtualized runtime.Callers reports the modfs source path (func and line do match)",
 		"TestCallerReportingOverhead":           "wall-clock bound: 5000 log calls under 1s is a native-speed assertion; interpreted execution exceeds it",

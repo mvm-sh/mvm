@@ -133,6 +133,9 @@ const (
 
 	// ShapeS37 is func() (rune, int, error). Covers io.RuneReader.ReadRune.
 	ShapeS37 Shape = 36
+
+	// ShapeS38 is func() with no params or results (niladic marker methods).
+	ShapeS38 Shape = 37
 )
 
 // Method describes one method to install on a synthesized type.
@@ -380,6 +383,12 @@ func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 			return 0, nil, errInvalidHandlerType
 		}
 		return acquireSlotS37(h)
+	case ShapeS38:
+		h, ok := m.Handler.(HandlerS38)
+		if !ok {
+			return 0, nil, errInvalidHandlerType
+		}
+		return acquireSlotS38(h)
 	}
 	return 0, nil, fmt.Errorf("stubs: unknown shape %d", m.Shape)
 }

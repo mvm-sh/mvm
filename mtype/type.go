@@ -494,7 +494,7 @@ func (t *Type) CaptureKind() {
 // SymPtr builds a symbolic *elem with Rtype unset for comp to materialize (see
 // vm.MaterializeRtype); SymSlice/SymMap/SymArray/SymChan are the parse-time
 // counterparts to vm's rtype-building PointerTo/SliceOf/... .
-func SymPtr(elem *Type) *Type { return &Type{Name: elem.Name, kind: reflect.Pointer, ElemType: elem} }
+func SymPtr(elem *Type) *Type { return &Type{kind: reflect.Pointer, ElemType: elem} }
 
 // SymSlice builds a symbolic []elem.
 func SymSlice(elem *Type) *Type { return &Type{kind: reflect.Slice, ElemType: elem} }

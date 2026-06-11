@@ -175,6 +175,7 @@ func testCmd(arg []string) error {
 	if absDir, aerr := filepath.Abs(target); aerr == nil {
 		if _, rerr := os.ReadDir(absDir); rerr == nil {
 			i, mfs := newTestInterp(trace)
+			i.PanicNilCompat = panicNilCompat(findGoModDir(absDir))
 			flushStats := setupStats(i, mfs, stat)
 			if err := evalLocalDir(i, absDir); err != nil {
 				flushStats()
@@ -201,6 +202,9 @@ func testCmd(arg []string) error {
 	skip := map[string]bool{}
 	for {
 		i, mfs := newTestInterp(trace)
+		if mfs != nil {
+			i.PanicNilCompat = panicNilCompat(findGoModFS(mfs, target))
+		}
 		flushStats := setupStats(i, mfs, stat)
 		i.SetIncludeTests(true)
 		i.SetTestSkipFiles(skip)
@@ -676,4 +680,51 @@ func runTestDriver(i *interp.Interp, pkgPath string, flushStats func()) error {
 		return &interp.ExitError{Code: exitCode}
 	}
 	return nil
+}
+
+// panicNilCompat reports whether panic(nil) should recover as nil (pre-Go 1.21
+// semantics) for the module whose go.mod content is given, mirroring the
+// runtime's GODEBUG panicnil default. An explicit GODEBUG setting wins.
+func panicNilCompat(goMod []byte) bool {
+	for kv := range strings.SplitSeq(os.Getenv("GODEBUG"), ",") {
+		if v, ok := strings.CutPrefix(kv, "panicnil="); ok {
+			return v == "1"
+		}
+	}
+	for line := range strings.Lines(string(goMod)) {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == "go" {
+			var major, minor int
+			if n, _ := fmt.Sscanf(f[1], "%d.%d", &major, &minor); n == 2 {
+				return major == 1 && minor < 21
+			}
+		}
+	}
+	return false
+}
+
+// findGoModFS returns the go.mod content of the module enclosing pkgPath in
+// fsys, walking up the import path; nil if none is found.
+func findGoModFS(fsys fs.FS, pkgPath string) []byte {
+	for p := pkgPath; p != "." && p != ""; p = filepath.Dir(p) {
+		if b, err := fs.ReadFile(fsys, p+"/go.mod"); err == nil {
+			return b
+		}
+	}
+	return nil
+}
+
+// findGoModDir returns the go.mod content of the module enclosing dir,
+// walking up the directory tree; nil if none is found.
+func findGoModDir(dir string) []byte {
+	for {
+		if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
+			return b
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
 }

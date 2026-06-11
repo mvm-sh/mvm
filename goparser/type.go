@@ -707,7 +707,12 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	}
 	ft.Base = typ
 	if isPtr {
-		return vm.SymPtr(&ft), typ
+		// The ptr wrapper carries the field name: materialize reads it from
+		// the field type (SymPtr itself leaves Name empty).
+		pt := vm.SymPtr(&ft)
+		pt.Name = name
+		pt.PkgPath = ft.PkgPath
+		return pt, typ
 	}
 	return &ft, typ
 }

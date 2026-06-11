@@ -426,6 +426,11 @@ type Machine struct {
 
 	iterStack []iterEntry // active range-loop iterators, kept off the value stack so a defer in the body can't displace them
 	iterBase  int         // iterStack floor for the current Run (entries below belong to an outer re-entrant Run)
+
+	// PanicNilCompat keeps panic(nil) recovering as nil (pre-Go 1.21 semantics)
+	// instead of substituting *runtime.PanicNilError. Set when the target
+	// module's go directive predates 1.21, mirroring GODEBUG panicnil.
+	PanicNilCompat bool
 }
 
 // iterEntry is one active range-loop iterator.
@@ -2241,11 +2246,7 @@ func (m *Machine) Run() (err error) {
 
 		case Panic:
 			m.panicking = true
-			if nilInterfacePanic(mem[sp]) {
-				m.panicVal = panicNilErr // Go 1.21+: panic(nil) -> *runtime.PanicNilError
-			} else {
-				m.panicVal = mem[sp]
-			}
+			m.panicVal = m.effectivePanicVal(mem[sp])
 			sp-- // pop the panic argument
 			ip = m.stageUnwind(ip, fp, mem)
 			continue
@@ -2276,11 +2277,7 @@ func (m *Machine) Run() (err error) {
 					if Op(funcVal.num) == Panic {
 						// defer panic(arg): begin panicking, drop the pending return
 						// values, then unwind the remaining defers of this frame.
-						if nilInterfacePanic(mem[dh-narg-2]) {
-							m.panicVal = panicNilErr
-						} else {
-							m.panicVal = mem[dh-narg-2]
-						}
+						m.panicVal = m.effectivePanicVal(mem[dh-narg-2])
 						m.panicking = true
 						mem[fp-3].num = uint64(prevHead)
 						clear(mem[retBase : sp+1])
@@ -3263,11 +3260,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 			if Op(funcVal.num) == Panic {
 				// defer panic(arg) reached while already unwinding: the new panic
 				// value replaces the current one; unwinding then resumes.
-				if nilInterfacePanic((*mem)[dh-narg-2]) {
-					m.panicVal = panicNilErr
-				} else {
-					m.panicVal = (*mem)[dh-narg-2]
-				}
+				m.panicVal = m.effectivePanicVal((*mem)[dh-narg-2])
 				return popDefer()
 			}
 			m.execBuiltinDeferred(Op(funcVal.num), dh-narg-2, narg, *mem)
@@ -3279,7 +3272,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 			if rv.Kind() != reflect.Func || rv.IsNil() {
 				// Nil deferred call supersedes the in-flight panic (see VM case below).
 				m.raiseNilDeref()
-				m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicVal.Interface())
+				m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicRaw())
 				return popDefer()
 			}
 			rin := make([]reflect.Value, narg)
@@ -3293,7 +3286,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 			m.mem, m.fp, m.ip = *mem, *fp, deferIP+1
 			if _, panicked := m.invokeNative(nil, reflect.Value{}, rv, rin, deferSpread(packed)); panicked {
 				if !m.panicReraised {
-					m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicVal.Interface())
+					m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicRaw())
 				}
 				m.panicReraised = false
 			}
@@ -3310,7 +3303,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 			// Nil deferred call supersedes the in-flight panic with a nil-deref
 			// pointing at the defer site, then unwinding continues.
 			m.raiseNilDeref()
-			m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicVal.Interface())
+			m.panicInfo = m.capturePanicAt(deferIP, *fp, *mem, m.panicRaw())
 			return popDefer()
 		}
 		base := len(*mem)
@@ -3471,6 +3464,27 @@ func nilInterfacePanic(v Value) bool {
 // recover only reads it.
 var panicNilErr = Value{ref: reflect.ValueOf(&runtime.PanicNilError{})}
 
+// panicRaw returns the panic value as a plain any; an untyped-nil panic
+// (PanicNilCompat) yields nil.
+func (m *Machine) panicRaw() any {
+	if !m.panicVal.IsValid() {
+		return nil
+	}
+	return m.panicVal.Interface()
+}
+
+// effectivePanicVal substitutes *runtime.PanicNilError for a nil panic value
+// (Go 1.21+), or a clean nil interface in PanicNilCompat mode.
+func (m *Machine) effectivePanicVal(v Value) Value {
+	if !nilInterfacePanic(v) {
+		return v
+	}
+	if m.PanicNilCompat {
+		return Value{} // recovers as untyped nil (pre-1.21 semantics)
+	}
+	return panicNilErr
+}
+
 func (m *Machine) panicAddr() int { return m.baseCodeLen + 1 }
 
 func (m *Machine) stageUnwind(ip, fp int, mem []Value) int {
@@ -3486,7 +3500,7 @@ func (m *Machine) stageUnwindAt(panicIP, fp int, mem []Value) int {
 		// native call. Consume the flag and keep the inner snapshot.
 		m.panicReraised = false
 	} else {
-		m.panicInfo = m.capturePanicAt(panicIP, fp, mem, m.panicVal.Interface())
+		m.panicInfo = m.capturePanicAt(panicIP, fp, mem, m.panicRaw())
 	}
 	return m.panicAddr()
 }
@@ -3495,7 +3509,7 @@ func (m *Machine) escapeErr() error {
 	if m.panicInfo != nil {
 		return m.panicInfo
 	}
-	return fmt.Errorf("panic: %v", m.panicVal.Interface())
+	return fmt.Errorf("panic: %v", m.panicRaw())
 }
 
 var typePtrRtype = reflect.TypeFor[*Type]()
@@ -3937,6 +3951,7 @@ type runnerState struct {
 	pool            *sync.Pool      // shared pool on the parent Machine
 	fault           *goroutineFault // shared goroutine-panic sink
 	faultContinue   bool
+	panicNilCompat  bool
 }
 
 // ensureSharedTables lazy-allocates the parent-owned funcFields and
@@ -3972,6 +3987,7 @@ func (m *Machine) captureRunnerState() *runnerState {
 		pool:            &m.runnerPool,
 		fault:           m.fault,
 		faultContinue:   m.faultContinue,
+		panicNilCompat:  m.PanicNilCompat,
 	}
 }
 
@@ -3997,6 +4013,7 @@ func (rs *runnerState) acquireRunner() *Machine {
 	m.debugInfoFn = rs.debugInfoFn
 	m.fault = rs.fault
 	m.faultContinue = rs.faultContinue
+	m.PanicNilCompat = rs.panicNilCompat
 	return m
 }
 
@@ -4308,7 +4325,7 @@ func (m *Machine) reentrantRunErr(runErr error) error {
 		if m.panicInfo != nil {
 			return m.panicInfo
 		}
-		return &PanicError{Raw: m.panicVal.Interface()}
+		return &PanicError{Raw: m.panicRaw()}
 	}
 	return runErr
 }
@@ -4439,6 +4456,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		typesByRtype:    m.typesByRtype,
 		fault:           m.fault,
 		debugInfoFn:     m.debugInfoFn,
+		PanicNilCompat:  m.PanicNilCompat,
 	}
 	go func() {
 		// An unrecovered panic in an interpreted goroutine returns from Run as an
@@ -4845,6 +4863,10 @@ func numReflect(t reflect.Type, src Value) reflect.Value {
 
 func mapKeyReflect(t reflect.Type, src Value) reflect.Value {
 	rv := adoptNamedType(numReflect(t, src), t)
+	if !rv.IsValid() {
+		// Bare nil key literal: use the key type's zero value.
+		return reflect.Zero(t)
+	}
 	if rv.IsValid() && rv.Kind() == reflect.Interface && t.Kind() == reflect.Interface &&
 		rv.Type() != t && !rv.Type().AssignableTo(t) {
 		if rv.IsNil() {

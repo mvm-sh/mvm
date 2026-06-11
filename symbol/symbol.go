@@ -157,9 +157,16 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 		}
 		// Probe pkg-qualified method keys too, so a composite-literal receiver
 		// like `pkg.T{}.M()` resolves, not just a variable of that type.
-		if sym.Type != nil && sym.Type.Name != "" {
-			if m := sm.qualifiedMethodLookup(sym.Type, sym.Type.Name, name); m != nil {
-				return m, nil
+		// An unnamed pointer type takes its elem's name (e.g. (*T).M).
+		if sym.Type != nil {
+			recvName := sym.Type.Name
+			if recvName == "" && sym.Type.IsPtr() && sym.Type.ElemType != nil {
+				recvName = sym.Type.ElemType.Name
+			}
+			if recvName != "" {
+				if m := sm.qualifiedMethodLookup(sym.Type, recvName, name); m != nil {
+					return m, nil
+				}
 			}
 		}
 		return sm.promotedMethod(sym.Type, name, nil)
