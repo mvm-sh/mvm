@@ -99,6 +99,10 @@ var Incompat = map[string]map[string]string{
 	"github.com/google/go-cmp/cmp": {
 		"TestDiff/Transformer/CyclicString":  "cmp's recursive-transformer guard fires only after 65536 path steps; interpreted transforms exhaust memory first",
 		"TestDiff/Transformer/CyclicComplex": "cmp's recursive-transformer guard fires only after 65536 path steps; interpreted transforms exhaust memory first",
+		// Anon struct embedding a method-bearing interface: reflect.StructOf
+		// cannot generate promotion wrappers (same limit as io/fs struct{FS}).
+		"TestDiff/Comparer/StringerEqual":   "reflect.StructOf does not support methods of embedded interfaces (anon struct{fmt.Stringer} literal)",
+		"TestDiff/Comparer/StringerInequal": "reflect.StructOf does not support methods of embedded interfaces (anon struct{fmt.Stringer} literal)",
 	},
 
 	"github.com/google/btree": {

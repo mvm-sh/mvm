@@ -771,6 +771,12 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		}
 
 	case srcKind == reflect.Pointer && dstKind == reflect.Pointer:
+		// Convert when possible: the NewAt path below rebuilds an unnamed
+		// *elem, losing a named pointer type's identity (`type P *T`).
+		if v.ref.Type().ConvertibleTo(dstType) {
+			mem[idx] = FromReflect(v.ref.Convert(dstType))
+			return
+		}
 		// *T -> *U via unsafe reinterpretation.
 		// reflect.Value.Convert for two pointer types requires
 		// name-identity on the elem types (haveIdenticalType compares

@@ -113,10 +113,9 @@ func nativeIsLittleEndian() bool {
 	return *(*byte)(unsafe.Pointer(&x)) == 1
 }
 
-// classifyWordSig classifies sig into its word-shape key ("params_results").
-// On failure it returns the drop reason and ok=false; it never records
-// telemetry and never consults the pool registry, so reserve-time gates
-// (wordShapeAvailable) can probe it without polluting MVM_WORDDROPS counts.
+// classifyWordSig classifies sig into its word-shape key ("params_results"),
+// or the drop reason and ok=false. It never records telemetry and never
+// consults the pool registry.
 func classifyWordSig(sig reflect.Type) (key, reason string, ok bool) {
 	if !wordShapesSupported || sig == nil || sig.Kind() != reflect.Func {
 		return "", "", false
@@ -161,28 +160,55 @@ func detectWordShape(sig reflect.Type) (key string, ok bool) {
 	return key, true
 }
 
-// wordShapeAvailable reports whether sig has a word-shape with a generated
-// pool, silently (no drop telemetry) -- for the reserve gates in derive.go,
-// which probe every candidate method at materialize time.
-func wordShapeAvailable(sig reflect.Type) bool {
+// wordShapeKey returns sig's word-shape key when a generated pool exists,
+// silently: reserve gates and typed-fallback probes must not pollute the
+// MVM_WORDDROPS counts.
+func wordShapeKey(sig reflect.Type) (string, bool) {
 	key, _, ok := classifyWordSig(sig)
-	return ok && stubs.HasWordShape(key)
+	if !ok || !stubs.HasWordShape(key) {
+		return "", false
+	}
+	return key, true
+}
+
+// wordShapeAvailable reports whether sig has a word-shape with a generated pool.
+func wordShapeAvailable(sig reflect.Type) bool {
+	_, ok := wordShapeKey(sig)
+	return ok
+}
+
+// sigWordClasses precomputes the per-param and per-result class strings once at
+// attach, so per-call marshaling never re-classifies (classifyStruct allocates).
+func sigWordClasses(sig reflect.Type) (in, out []string) {
+	in = make([]string, sig.NumIn())
+	for i := range in {
+		in[i], _ = classifyType(sig.In(i))
+	}
+	out = make([]string, sig.NumOut())
+	for j := range out {
+		out[j], _ = classifyType(sig.Out(j))
+	}
+	return in, out
 }
 
 // makeWordCore builds the stubs.CoreFunc for one word-shaped method: it
-// reconstructs the args from the scattered words, re-enters the interpreter, and
-// writes the result words back. A failed dispatch panics (raiseMethodErr), so a
-// panicking interpreted method propagates through the native caller as in Go.
-func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvForm) stubs.CoreFunc {
+// reconstructs the args from the scattered words, re-enters the interpreter,
+// and writes the result words back. A failed dispatch panics (raiseMethodErr)
+// unless swallowErr (see shapeSwallowsDispatchErr): then results stay zero.
+func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
 	methodSig := method.Rtype
+	inClasses, outClasses := sigWordClasses(methodSig)
 	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, rpw []unsafe.Pointer, rsw []uint64) {
 		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := marshalArgs(methodSig, pw, sw)
+		argv := marshalArgs(methodSig, inClasses, pw, sw)
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
-			raiseMethodErr(err)
+			if !swallowErr {
+				raiseMethodErr(err)
+			}
+			out = nil // zero result words
 		}
-		marshalResults(methodSig, out, rpw, rsw)
+		marshalResults(methodSig, outClasses, out, rpw, rsw)
 	}
 }
 
@@ -190,7 +216,7 @@ func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvFor
 // words, consumed left-to-right in signature order (matching the generated
 // dispatcher's scatter). Each arg is built in a fresh reflect.New allocation
 // (typed, so the GC scans its pointer words) before its words are written in.
-func marshalArgs(sig reflect.Type, pw []unsafe.Pointer, sw []uint64) []reflect.Value {
+func marshalArgs(sig reflect.Type, classes []string, pw []unsafe.Pointer, sw []uint64) []reflect.Value {
 	n := sig.NumIn()
 	if n == 0 {
 		return nil
@@ -200,7 +226,7 @@ func marshalArgs(sig reflect.Type, pw []unsafe.Pointer, sw []uint64) []reflect.V
 	for i := range n {
 		t := sig.In(i)
 		av := reflect.New(t)
-		pi, si = writeWords(t, av.UnsafePointer(), pw, sw, pi, si)
+		pi, si = writeWords(t, classes[i], av.UnsafePointer(), pw, sw, pi, si)
 		argv[i] = av.Elem()
 	}
 	return argv
@@ -211,7 +237,7 @@ func marshalArgs(sig reflect.Type, pw []unsafe.Pointer, sw []uint64) []reflect.V
 // scalar or pointer result of the exact type is read straight off the value (no
 // allocation); anything needing a typed buffer (conversion, composite, interface)
 // falls back to a reflect.New scratch.
-func marshalResults(sig reflect.Type, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64) {
+func marshalResults(sig reflect.Type, classes []string, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64) {
 	pi, si := 0, 0
 	for j := range sig.NumOut() {
 		t := sig.Out(j)
@@ -231,7 +257,7 @@ func marshalResults(sig reflect.Type, out []reflect.Value, rpw []unsafe.Pointer,
 		if j < len(out) {
 			setResultValue(tmp.Elem(), out[j])
 		}
-		pi, si = readWords(t, tmp.UnsafePointer(), rpw, rsw, pi, si)
+		pi, si = readWords(t, classes[j], tmp.UnsafePointer(), rpw, rsw, pi, si)
 	}
 }
 
@@ -279,8 +305,7 @@ func scalarWord(v reflect.Value) uint64 {
 // through a pointer-typed slot so it stays GC-visible; an integer word writes
 // only its meaningful low bytes (min(8, size-off)) so a sub-word scalar does not
 // overrun its allocation.
-func writeWords(t reflect.Type, dst unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, pi, si int) (int, int) {
-	classes, _ := classifyType(t)
+func writeWords(t reflect.Type, classes string, dst unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, pi, si int) (int, int) {
 	size := t.Size()
 	for k := range len(classes) {
 		off := uintptr(k) * wordSize
@@ -297,8 +322,7 @@ func writeWords(t reflect.Type, dst unsafe.Pointer, pw []unsafe.Pointer, sw []ui
 
 // readWords reads t's words from the value at src (a *t allocation) into rpw/rsw,
 // symmetric to writeWords.
-func readWords(t reflect.Type, src unsafe.Pointer, rpw []unsafe.Pointer, rsw []uint64, pi, si int) (int, int) {
-	classes, _ := classifyType(t)
+func readWords(t reflect.Type, classes string, src unsafe.Pointer, rpw []unsafe.Pointer, rsw []uint64, pi, si int) (int, int) {
 	size := t.Size()
 	for k := range len(classes) {
 		off := uintptr(k) * wordSize

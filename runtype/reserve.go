@@ -221,11 +221,14 @@ func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, e
 	b := new(synthPtr)
 	b.elem = elemRT
 	intPtrRT := rtypePtr(reflect.TypeFor[*int]())
+	// No tflagNamed: a derived *T is unnamed in Go, methods or not; only a
+	// declared `type P *T` is named (reservePtr). The uncommon section still
+	// carries pkgPath for unexported method-name matching, like native *T.
 	b.t = abiType{
 		Size:       unsafe.Sizeof(uintptr(0)),
 		PtrBytes:   unsafe.Sizeof(uintptr(0)),
 		Hash:       nextSyntheticHash(),
-		TFlag:      tflagUncommon | tflagNamed | tflagDirectIface | tflagRegularMemory,
+		TFlag:      tflagUncommon | tflagDirectIface | tflagRegularMemory,
 		Align:      uint8(unsafe.Alignof(uintptr(0))),
 		FieldAlign: uint8(unsafe.Alignof(uintptr(0))),
 		Kind:       kindPointer,

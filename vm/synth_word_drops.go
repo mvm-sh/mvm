@@ -22,10 +22,13 @@ type wordDrop struct {
 }
 
 // wordDropPools keys actionable drops by word-shape (no pool generated yet);
-// wordDropUnsup keys drops needing floats or a bigger budget, by reason.
+// wordDropUnsup keys drops needing floats or a bigger budget, by reason;
+// wordDropDegraded keys methods attached via their erased typed shape because
+// the precise word-shape was unavailable.
 var (
-	wordDropPools sync.Map // shape key -> *wordDrop
-	wordDropUnsup sync.Map // reason    -> *wordDrop
+	wordDropPools    sync.Map // shape key -> *wordDrop
+	wordDropUnsup    sync.Map // reason    -> *wordDrop
+	wordDropDegraded sync.Map // shape key or reason -> *wordDrop
 )
 
 func recordWordDrop(m *sync.Map, bucket string, sig reflect.Type) {
@@ -49,7 +52,8 @@ func WordShapeDropReport() string {
 	}
 	pools := sortedDrops(&wordDropPools)
 	unsup := sortedDrops(&wordDropUnsup)
-	if len(pools) == 0 && len(unsup) == 0 {
+	degraded := sortedDrops(&wordDropDegraded)
+	if len(pools) == 0 && len(unsup) == 0 && len(degraded) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -63,6 +67,12 @@ func WordShapeDropReport() string {
 	if len(unsup) > 0 {
 		b.WriteString("  unsupported -- need float words or a larger word budget:\n")
 		for _, e := range unsup {
+			fmt.Fprintf(&b, "    %-26s %7d  %s\n", e.bucket, e.count, e.example)
+		}
+	}
+	if len(degraded) > 0 {
+		b.WriteString("  degraded -- attached via the ERASED typed shape (synth-iface params published as any):\n")
+		for _, e := range degraded {
 			fmt.Fprintf(&b, "    %-26s %7d  %s\n", e.bucket, e.count, e.example)
 		}
 	}

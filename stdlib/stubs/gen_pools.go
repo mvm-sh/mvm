@@ -81,39 +81,20 @@ var shapes = []shape{
 	{ID: "S30", Params: ", name string", ArgList: ", name", Results: "([]fs.DirEntry, error)", Imports: []string{"io/fs"}}, // fs.ReadDirFS.ReadDir
 	{ID: "S31", Params: ", name string", ArgList: ", name", Results: "([]byte, error)"},                                    // fs.ReadFileFS.ReadFile
 	// log/slog cluster (slog.Handler).
-	{ID: "S32", Params: ", ctx context.Context, level slog.Level", ArgList: ", ctx, level", Results: "bool", Imports: []string{"context", "log/slog"}},   // slog.Handler.Enabled
+	{ID: "S32", Params: ", ctx context.Context, level slog.Level", ArgList: ", ctx, level", Results: "bool", Imports: []string{"context", "log/slog"}},     // slog.Handler.Enabled
 	{ID: "S33", Params: ", ctx context.Context, record slog.Record", ArgList: ", ctx, record", Results: "error", Imports: []string{"context", "log/slog"}}, // slog.Handler.Handle
-	{ID: "S34", Params: ", attrs []slog.Attr", ArgList: ", attrs", Results: "slog.Handler", Imports: []string{"log/slog"}},                               // slog.Handler.WithAttrs
-	{ID: "S35", Params: ", name string", ArgList: ", name", Results: "slog.Handler", Imports: []string{"log/slog"}},                                      // slog.Handler.WithGroup
-	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                   // slog.LogValuer.LogValue
+	{ID: "S34", Params: ", attrs []slog.Attr", ArgList: ", attrs", Results: "slog.Handler", Imports: []string{"log/slog"}},                                 // slog.Handler.WithAttrs
+	{ID: "S35", Params: ", name string", ArgList: ", name", Results: "slog.Handler", Imports: []string{"log/slog"}},                                        // slog.Handler.WithGroup
+	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                      // slog.LogValuer.LogValue
 	{ID: "S37", Results: "(rune, int, error)"}, // io.RuneReader.ReadRune
-	{ID: "S38"},                                // func() with no params or results (niladic marker methods)
+	{ID: "S38"}, // func() with no params or results (niladic marker methods)
 }
 
-// wordShapes are the ABI word-class shapes (see word.go): each method param and
-// result is classified into pointer words (p) and integer words (f-words omitted
-// in stage 1), and one generic dispatcher per word-shape marshals via reflect.
-// Params and results are flat class strings over {p,i}; key is "params_results".
-// Many distinct Go signatures collapse to one word-shape, so this list -- unlike
-// the per-Go-signature shapes above -- does not grow per new signature.
-// The word path is a fallback: a signature with a matching typed shape attaches
-// there first, so these pools serve only what the S-catalog cannot express
-// (typed params of interpreted types, e.g. go-cmp's Equal methods).
-//
-//	"_i"       func() <int/uint/bool/named-scalar>
-//	"_pp"      func() <iface>
-//	"_pppp"    func() (iface, iface)
-//	"pi_pppp"  func(string) (iface, iface)
-//	"pi_piipp" func(string) (slice, iface)
-//	"i_piipp"  func(int) (slice, iface)
-//	"_piipp"   func() (slice, iface)
-//	"_pi"      func() string
-//	"pii_ipp"  func([]byte) (int, error)
-//	"_iip"     func() <word-sized-leaf struct> (e.g. time.Time)
-//	"pi_i"     func(<2-word struct/string>) bool: Equal(StructA) with a string field
-//	"p_i"      func(<ptr/chan/func>) bool: Equal(*T), Equal(chan T)
-//	"pp_i"     func(<iface>) bool: Equal(InterfaceA)
-//	"i_i"      func(<1-word struct/scalar>) bool: Equal(struct{A int})
+// wordShapes are the ABI word-class shapes: params and results as flat class
+// strings over {p,i} (p = pointer word, i = integer word), key "params_results".
+// Many Go signatures collapse to one word-shape, so the list does not grow per
+// signature; grow it from the MVM_WORDDROPS report. See ADR-022 and
+// docs/modules/stubs.md.
 var wordShapes = []wordShape{
 	{Params: "", Results: "i"},
 	{Params: "", Results: "pp"},

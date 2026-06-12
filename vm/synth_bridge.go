@@ -229,30 +229,36 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 // form drives the handler's receiver reconstruction (see recvForm): it folds
 // the method's own receiver kind with the identity the spec is attached to.
 type synthMethodSpec struct {
-	name    string
-	method  Method
-	shape   stubs.Shape
-	wordKey string // non-empty => word-class path (shape ignored)
-	form    recvForm
+	name       string
+	method     Method
+	shape      stubs.Shape
+	wordKey    string // non-empty => word-class path (shape ignored)
+	swallowErr bool   // word path: swallow dispatch errors to zero results
+	form       recvForm
 }
 
-// resolveDispatch picks the spec's dispatch path: a typed shape when one
-// matches (faster, shape-specific error semantics), else the word-class
-// fallback. The typed path matches against erased (synth ifaces -> any: typed
-// stubs decode eface words); the word path keeps precise, whose iface params
-// marshal as the itab+data words native callers pack for the exact signature,
-// preserving assignability semantics (e.g. cmp rejecting Equal(InterfaceA) for
-// a non-implementing type). The word path is probed only on a typed miss, so
-// MVM_WORDDROPS reports actual drops; forceWordShape (benchmarks) inverts the
-// preference. Sets s.method.Rtype to the signature the chosen path dispatches
-// with; returns false when neither path can serve (the method is dropped, as
-// before the word path existed).
+// resolveDispatch picks the dispatch path and sets s.method.Rtype to the sig
+// that path publishes; false means the method is dropped. A typed shape wins
+// only when erasure changed nothing: an erased match would publish any for a
+// synth-iface param, breaking native assignability checks, so those take the
+// word path with the precise sig -- or, when no pool can serve it, the erased
+// typed shape after all (reported in the MVM_WORDDROPS degraded bucket).
 func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
 	shape, shapeOK := detectShape(erased)
-	// A typed match on an ERASED sig (erased != precise) is a false friend: the
-	// table would publish any where the method declares a synth iface, breaking
-	// native assignability checks. Prefer the word path there.
 	if shapeOK && !forceWordShape && erased == precise {
+		s.shape = shape
+		s.method.Rtype = erased
+		return true
+	}
+	if shapeOK {
+		// A typed fallback exists: probe silently, a miss is not a drop.
+		if key, ok := wordShapeKey(precise); ok {
+			s.wordKey = key
+			s.swallowErr = shapeSwallowsDispatchErr(shape)
+			s.method.Rtype = precise
+			return true
+		}
+		recordWordDrop(&wordDropDegraded, "erased typed fallback", precise)
 		s.shape = shape
 		s.method.Rtype = erased
 		return true
@@ -262,9 +268,15 @@ func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
 		s.method.Rtype = precise
 		return true
 	}
-	if shapeOK { // forceWordShape with no word pool: keep the typed shape
-		s.shape = shape
-		s.method.Rtype = erased
+	return false
+}
+
+// shapeSwallowsDispatchErr reports whether shape's typed handler swallows
+// dispatch errors to zero values (see makeHandlerS5); a word-routed method
+// whose erased sig matched such a shape keeps that policy.
+func shapeSwallowsDispatchErr(shape stubs.Shape) bool {
+	switch shape {
+	case stubs.ShapeS5, stubs.ShapeS11, stubs.ShapeS12:
 		return true
 	}
 	return false
@@ -285,7 +297,7 @@ func toSynthMethods(
 				Exported: true,
 				Sig:      s.method.Rtype,
 				WordKey:  s.wordKey,
-				Core:     m.makeWordCore(t, s.method, s.name, s.form),
+				Core:     m.makeWordCore(t, s.method, s.name, s.form, s.swallowErr),
 			}
 			continue
 		}
@@ -1187,13 +1199,13 @@ func (m *Machine) callPromotedConcrete(
 		return nil, errors.New("synth: nil promoted receiver")
 	}
 	if mv := nativeMethodLookup(m, rv, name); mv.IsValid() {
-		return mv.Call(args), nil
+		return callBound(mv, args), nil
 	}
 	// A pointer-receiver method promoted from a value embed lives in *E's method
 	// set, not E's; retry on the addressable field's address.
 	if rv.CanAddr() {
 		if mv := nativeMethodLookup(m, rv.Addr(), name); mv.IsValid() {
-			return mv.Call(args), nil
+			return callBound(mv, args), nil
 		}
 	}
 	if et := m.typeByRtype(rv.Type()); et != nil {
@@ -1202,6 +1214,16 @@ func (m *Machine) callPromotedConcrete(
 		}
 	}
 	return nil, fmt.Errorf("synth: promoted method %q not found", name)
+}
+
+// callBound invokes a bound native method with stub-marshaled args.
+// A variadic method's trailing args arrive as the caller-packed slice, which
+// reflect.Value.Call rejects; CallSlice takes it as is.
+func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
+	if mv.Type().IsVariadic() {
+		return mv.CallSlice(args)
+	}
+	return mv.Call(args)
 }
 
 // methodID returns the global method ID for name, or -1.
@@ -1251,7 +1273,7 @@ func (m *Machine) callEmbedIface(
 			if !mv.IsValid() {
 				return nil, fmt.Errorf("synth: embedded method %q not found", name)
 			}
-			return mv.Call(args), nil
+			return callBound(mv, args), nil
 		}
 		ifc = embedded.IfaceVal()
 		if methodID < 0 || methodID >= len(ifc.Typ.Methods) {

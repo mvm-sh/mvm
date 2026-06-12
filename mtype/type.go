@@ -1043,8 +1043,18 @@ func (t *Type) Identical(u *Type) bool {
 	if t == nil || u == nil {
 		return false
 	}
+	// Unequal rtypes are not conclusive: one symbolic shape can materialize
+	// twice with different precision (goldmark ast.Node.SortChildren), so an
+	// unnamed pair falls through to structural identity. A named pair must
+	// stem from one declaration (common Base root); distinct declarations
+	// sharing Name+PkgPath (REPL redeclare, func-local types) stay distinct.
 	if t.Rtype != nil && u.Rtype != nil {
-		return t.Rtype == u.Rtype
+		if t.Rtype == u.Rtype {
+			return true
+		}
+		if t.Name != "" || u.Name != "" {
+			return baseRoot(t) == baseRoot(u)
+		}
 	}
 	if t.Kind() != u.Kind() {
 		return false
@@ -1065,6 +1075,15 @@ func (t *Type) Identical(u *Type) bool {
 		return identicalTypes(t.Fields, u.Fields)
 	}
 	return true // identical basic kinds
+}
+
+// baseRoot walks the Base chain to its root, depth-capped against cyclic
+// chains (mirrors vm.CanonicalType's cap).
+func baseRoot(t *Type) *Type {
+	for i := 0; i < 1024 && t != nil && t.Base != nil; i++ {
+		t = t.Base
+	}
+	return t
 }
 
 func identicalTypes(a, b []*Type) bool {

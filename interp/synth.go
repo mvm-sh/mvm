@@ -47,21 +47,30 @@ func (i *Interp) attachSynthMethods() error {
 	return nil
 }
 
+// maxBaseDepth caps Base-chain walks against cyclic chains (mirrors vm.CanonicalType).
+const maxBaseDepth = 1024
+
 // attachWithEmbeds attaches t's embedded interpreted types before t itself:
-// promoted-method collection (promotedSynthMethods) reads the embeds' native
-// method tables, which are filled only at THEIR attach, and the symbol walk
-// above is map-ordered. Pre-marking breaks self-embed cycles (type A struct{*A}).
-func (i *Interp) attachWithEmbeds(t *vm.Type) error {
+// promoted-method collection reads the embeds' native method tables, filled
+// only at THEIR attach, and the symbol walk above is map-ordered.
+// Pre-marking breaks self-embed cycles; on error the mark is removed so a
+// later Eval retries instead of silently skipping the type.
+func (i *Interp) attachWithEmbeds(t *vm.Type) (err error) {
 	if t == nil || i.synthAttached[t] {
 		return nil
 	}
 	i.synthAttached[t] = true
+	defer func() {
+		if err != nil {
+			delete(i.synthAttached, t)
+		}
+	}()
 	for _, emb := range t.Embedded {
 		e := emb.Type
 		if e != nil && e.IsPtr() && e.ElemType != nil {
 			e = e.ElemType
 		}
-		for ; e != nil; e = e.Base {
+		for d := 0; e != nil && d < maxBaseDepth; d, e = d+1, e.Base {
 			if err := i.attachWithEmbeds(e); err != nil {
 				return err
 			}

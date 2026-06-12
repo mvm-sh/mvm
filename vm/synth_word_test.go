@@ -109,10 +109,10 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 
 		src := reflect.New(rt)
 		src.Elem().Set(reflect.ValueOf(v))
-		readWords(rt, src.UnsafePointer(), pw, sw, 0, 0)
+		readWords(rt, classes, src.UnsafePointer(), pw, sw, 0, 0)
 
 		dst := reflect.New(rt)
-		writeWords(rt, dst.UnsafePointer(), pw, sw, 0, 0)
+		writeWords(rt, classes, dst.UnsafePointer(), pw, sw, 0, 0)
 
 		if !reflect.DeepEqual(dst.Elem().Interface(), v) {
 			t.Errorf("round-trip %v: got %v want %v", rt, dst.Elem().Interface(), v)
