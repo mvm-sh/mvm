@@ -1,6 +1,8 @@
 package interp_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -27,6 +29,40 @@ func TestRedeclareAsImport(t *testing.T) {
 		// key, must resolve to the local, never trip the check.
 		{n: "local_shadow_ok", src: `import "sort"; func run() int { sort := 42; return sort }; run()`, res: "42"},
 	})
+}
+
+// TestVarNamedLikeOwnPackage guards against a false positive: a package
+// declaring a top-level var named like the package itself (gonum's blas64
+// declares `var blas64 blas.Float64`) is valid Go. The importing unit binds
+// the bare package name, and the package's deferred var decl (Phase 2) must
+// not be flagged as redeclared against that binding -- imports are
+// file-scoped, so only the declaring file's own aliases count.
+func TestVarNamedLikeOwnPackage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "selfname"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `package selfname
+
+import "sort"
+
+var selfname = sort.SearchInts([]int{1, 2, 3}, 2)
+
+func Value() int { return selfname }
+`
+	if err := os.WriteFile(filepath.Join(dir, "selfname", "selfname.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetPkgfs(dir)
+	r, err := i.Eval("t", `import "selfname"; selfname.Value()`+"\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := r.Interface(); got != 1 {
+		t.Fatalf("selfname.Value() = %v, want 1", got)
+	}
 }
 
 // TestRedeclareVsAutoImport guards against a false positive: in REPL/-e/test

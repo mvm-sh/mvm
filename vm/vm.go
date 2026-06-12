@@ -342,6 +342,14 @@ const (
 	IndexSetBool   // a i -- ; a[i] = bool($1)  (fuses Push/GetGlobal bool + IndexSet + Pop)
 
 	MarkNamedRet // -- ; flag this frame as having captured named returns (set bit in retIPInfo)
+
+	// Complex arithmetic. Operands live in ref (complex does not fit the num
+	// word); $0 = reflect.Kind (Complex64 or Complex128) for precision.
+	AddComplex // c1 c2 -- sum
+	SubComplex // c1 c2 -- diff
+	MulComplex // c1 c2 -- prod
+	DivComplex // c1 c2 -- quot
+	NegComplex // c -- -c
 )
 
 // Memory attributes.
@@ -2244,6 +2252,46 @@ func (m *Machine) Run() (err error) {
 				panic("impossible")
 			}
 			mem[sp] = v
+
+		case AddComplex, SubComplex, MulComplex, DivComplex:
+			x, y := mem[sp-1].ref.Complex(), mem[sp].ref.Complex()
+			sp--
+			if reflect.Kind(c.A) == reflect.Complex64 {
+				// Compute in complex64 so precision matches gc.
+				a, b := complex64(x), complex64(y)
+				var r complex64
+				switch c.Op {
+				case AddComplex:
+					r = a + b
+				case SubComplex:
+					r = a - b
+				case MulComplex:
+					r = a * b
+				case DivComplex:
+					r = a / b
+				}
+				mem[sp] = ValueOf(r)
+				break
+			}
+			var r complex128
+			switch c.Op {
+			case AddComplex:
+				r = x + y
+			case SubComplex:
+				r = x - y
+			case MulComplex:
+				r = x * y
+			case DivComplex:
+				r = x / y
+			}
+			mem[sp] = ValueOf(r)
+
+		case NegComplex:
+			if reflect.Kind(c.A) == reflect.Complex64 {
+				mem[sp] = ValueOf(-complex64(mem[sp].ref.Complex()))
+				break
+			}
+			mem[sp] = ValueOf(-mem[sp].ref.Complex())
 
 		case Min:
 			sp = minMax(mem, sp, int(c.A), reflect.Kind(c.B), false)

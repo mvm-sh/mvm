@@ -189,11 +189,20 @@ func (e ErrRedeclared) Error() string {
 	return msg
 }
 
+// redeclaredAsImport reports a top-level decl of name in a file that also
+// imports a package as name. Imports are file-scoped, so only the declaring
+// file's own aliases count: a sibling file or the enclosing unit importing the
+// same name is legal Go (e.g. package blas64 declares var blas64 while the
+// test unit imports blas64).
 func (p *Parser) redeclaredAsImport(name string, tok Token) error {
 	if p.scope != "" {
 		return nil
 	}
-	if s, ok := p.Symbols[p.pkgKey(name)]; ok && s.Kind == symbol.Pkg && !s.AutoImport {
+	idx := p.Sources.SourceIndex(tok.Pos)
+	if idx < 0 {
+		return nil
+	}
+	if s := p.fileAliases[idx][name]; s != nil {
 		return ErrRedeclared{Name: name, Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos, Through: s.PkgPath}
 	}
 	return nil

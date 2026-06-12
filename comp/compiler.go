@@ -1166,16 +1166,28 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			}
 			typ := arithmeticOpType(right, left)
-			// Runtime complex +-*/ has no opcode yet (folded const complex is fine);
-			// error cleanly instead of panicking in numericOp. See #17.
-			if typ != nil {
-				if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
-					return c.errAt(t, "complex arithmetic on non-constant operands is not supported")
-				}
-			}
 			c.convertOperand(t, right, rightStart, typ, 0)
 			c.convertOperand(t, left, leftStart, typ, 1)
 			push(&symbol.Symbol{Kind: constKind(right, left), Type: typ})
+			if typ != nil {
+				if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
+					var op vm.Op
+					switch t.Tok {
+					case lang.Add:
+						op = vm.AddComplex
+					case lang.Sub:
+						op = vm.SubComplex
+					case lang.Mul:
+						op = vm.MulComplex
+					case lang.Quo:
+						op = vm.DivComplex
+					default:
+						return c.errAt(t, "operator %s not defined on %s", t.Str, typ.Name)
+					}
+					c.emit(t, op, int(k))
+					break
+				}
+			}
 			switch t.Tok {
 			case lang.Add:
 				c.emitArithmeticOp(t, right, typ, vm.AddInt, vm.AddIntImm, vm.GetLocalAddIntImm, vm.AddStr)
@@ -1199,6 +1211,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				break
 			}
 			typ := symbol.Vtype(top())
+			if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
+				c.emit(t, vm.NegComplex, int(k))
+				break
+			}
 			c.emit(t, numericOp(vm.NegInt, typ))
 
 		case lang.Not:
@@ -4326,12 +4342,25 @@ func (c *Compiler) compileBuiltin(
 		if narg < 1 {
 			return true, fmt.Errorf("not enough arguments for %s", s.Name)
 		}
+		// An untyped const arg has Type nil; the result type is the first
+		// concretely typed arg (min(nbmax, n) with const nbmax yields n's type),
+		// or the default const type when every arg is an untyped const.
 		argSym := (*stack)[len(*stack)-narg]
+		for i := 1; i < narg && argSym.Type == nil; i++ {
+			argSym = (*stack)[len(*stack)-narg+i]
+		}
+		typ := argSym.Type
+		if typ == nil && argSym.Cval != nil {
+			typ = goparser.DefaultConstType(argSym.Cval, c.Symbols)
+		}
 		for range narg {
 			pop()
 		}
 		pop() // min/max symbol
-		push(&symbol.Symbol{Type: argSym.Type})
+		if narg > 1 && typ == nil {
+			return true, c.errAt(t, "internal: %s argument has no type", s.Name)
+		}
+		push(&symbol.Symbol{Type: typ})
 		if narg == 1 {
 			return true, nil // single arg: value already on stack
 		}
@@ -4339,7 +4368,7 @@ func (c *Compiler) compileBuiltin(
 		if s.Name == "max" {
 			op = vm.Max
 		}
-		c.emit(t, op, narg, int(argSym.Type.Kind()))
+		c.emit(t, op, narg, int(typ.Kind()))
 		return true, nil
 
 	case "unsafe.Sizeof", "unsafe.Alignof":

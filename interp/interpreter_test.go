@@ -4040,6 +4040,11 @@ func TestBuiltin(t *testing.T) {
 		{n: "max_int1", src: `max(42)`, res: "42"},
 		{n: "max_string", src: `max("b", "a", "c")`, res: "c"},
 		{n: "max_float", src: `max(3.0, 1.5)`, res: "3"},
+		// Untyped const idents carry Type nil; result is the first concretely
+		// typed arg, or the default const type when all args are untyped.
+		{n: "min_const_var", src: `const k = 64; var n int = 5; min(k, n)`, res: "5"},
+		{n: "min_const_const", src: `const a, b = 1, 2; min(a, b)`, res: "1"},
+		{n: "max_const_const_float", src: `const a, b = 1.5, 2.5; max(a, b)`, res: "2.5"},
 		// Float min/max signed-zero/NaN per Go spec: max prefers +0, min prefers
 		// -0 (they compare equal under </>), and any NaN operand yields NaN.
 		{n: "max_signed_zero", src: `import "math"; math.Signbit(max(math.Copysign(0, -1), 0.0))`, res: "false"},
@@ -4071,9 +4076,19 @@ func TestBuiltin(t *testing.T) {
 		{n: "complex64_conv_int", src: `complex64(7)`, res: "(7+0i)"},
 		{n: "complex128_conv_float", src: `var a complex128 = 2.5; a`, res: "(2.5+0i)"},
 		{n: "complex64_slice_lit", src: `[]complex64{1, 2, 3}`, res: "[(1+0i) (2+0i) (3+0i)]"},
-		// Runtime (non-const) complex +-*/ has no opcode; expect a clean compile
-		// error, not a numericOp panic ("non-numeric kind complex128").
-		{n: "complex128_runtime_mul_unsupported", src: `var a complex128 = 2; var b complex128 = 3; a * b`, err: "complex arithmetic on non-constant operands is not supported"},
+		// Runtime (non-const) complex arithmetic.
+		{n: "complex128_runtime_add", src: `var a complex128 = 2 + 3i; var b complex128 = 4 - 1i; a + b`, res: "(6+2i)"},
+		{n: "complex128_runtime_sub", src: `var a complex128 = 2 + 3i; var b complex128 = 4 - 1i; a - b`, res: "(-2+4i)"},
+		{n: "complex128_runtime_mul", src: `var a complex128 = 2 + 3i; var b complex128 = 4 - 1i; a * b`, res: "(11+10i)"},
+		{n: "complex128_runtime_div", src: `var a complex128 = 8 + 4i; var b complex128 = 2; a / b`, res: "(4+2i)"},
+		{n: "complex128_runtime_neg", src: `var a complex128 = 2 + 3i; -a`, res: "(-2-3i)"},
+		{n: "complex128_runtime_mixed_const", src: `var a complex128 = 2 + 3i; 2 * a`, res: "(4+6i)"},
+		{n: "complex64_runtime_mul", src: `var a complex64 = 2 + 3i; var b complex64 = 1 + 1i; a * b`, res: "(-1+5i)"},
+		{n: "complex64_runtime_div", src: `var a complex64 = 2 + 3i; var b complex64 = 1 + 1i; a / b`, res: "(2.5+0.5i)"},
+		{n: "complex64_runtime_neg", src: `var a complex64 = 2 + 3i; -a`, res: "(-2-3i)"},
+		{n: "complex128_runtime_addassign", src: `func f() complex128 { var a, b complex128 = 1 + 2i, 3 + 4i; a += b; return a }; f()`, res: "(4+6i)"},
+		{n: "complex128_runtime_eq", src: `var a, b complex128 = 1 + 2i, 1 + 2i; a == b`, res: "true"},
+		{n: "complex128_rem_err", src: `var a, b complex128 = 1, 2; a % b`, err: "not defined on"},
 
 		// An interpreted String/GoString/Format that panics propagates to fmt's
 		// catchPanic (synth dispatch re-raises the original value via raiseMethodErr).
