@@ -106,3 +106,53 @@ func main() {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// Method.Func calls on indirect value receivers (string, named scalar,
+// multi-word struct) misread the by-value receiver through the one-word synth
+// stubs (go-cmp's callTTBFunc); the Call shim converts them to bound-method
+// calls, while direct-iface receivers (e.g. via the pointer type) stay native.
+func TestMethodFuncValueReceiver(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type S string
+
+func (s S) Equal(o S) bool { return s == o }
+
+type N int
+
+func (n N) Double() int { return int(n) * 2 }
+
+type P struct{ a, b int }
+
+func (p P) Sum() int { return p.a + p.b }
+
+func main() {
+	m, _ := reflect.TypeOf(S("a")).MethodByName("Equal")
+	out := m.Func.Call([]reflect.Value{reflect.ValueOf(S("foo")), reflect.ValueOf(S("foo"))})
+	ne := m.Func.Call([]reflect.Value{reflect.ValueOf(S("foo")), reflect.ValueOf(S("bar"))})
+	fmt.Println(out[0].Bool(), ne[0].Bool())
+
+	m2, _ := reflect.TypeOf(N(21)).MethodByName("Double")
+	out2 := m2.Func.Call([]reflect.Value{reflect.ValueOf(N(21))})
+	fmt.Println(out2[0].Int())
+
+	s := S("foo")
+	mp, _ := reflect.TypeOf(&s).MethodByName("Equal")
+	out3 := mp.Func.Call([]reflect.Value{reflect.ValueOf(&s), reflect.ValueOf(S("foo"))})
+	fmt.Println(out3[0].Bool())
+
+	m4, _ := reflect.TypeOf(P{}).MethodByName("Sum")
+	out4 := m4.Func.Call([]reflect.Value{reflect.ValueOf(P{a: 3, b: 4})})
+	fmt.Println(out4[0].Int())
+}
+`
+	want := "true false\n42\ntrue\n7\n"
+	if got := evalProgram(t, "method_func_value_recv.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
