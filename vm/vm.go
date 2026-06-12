@@ -3791,11 +3791,13 @@ type funcFieldEntry struct {
 	strong Value
 	weak   weak.Pointer[funcRef]
 	isWeak bool
+	gen    uint64 // registration generation; lets a cleanup skip a successor at a recycled address
 }
 
 type funcFieldsTable struct {
-	mu sync.RWMutex
-	m  map[uintptr]funcFieldEntry
+	mu  sync.RWMutex
+	m   map[uintptr]funcFieldEntry
+	gen uint64
 }
 
 func newFuncFieldsTable() *funcFieldsTable {
@@ -3818,10 +3820,47 @@ func (t *funcFieldsTable) get(p uintptr) (Value, bool) {
 	return e.strong, true
 }
 
-func (t *funcFieldsTable) setStrong(p uintptr, v Value) {
+// setStrongKeep registers v at p unless a LIVE weak entry already maps the
+// address: that entry belongs to the funcval currently alive at p (an address
+// cannot be recycled under a live referent) and self-prunes, which a strong
+// overwrite would forfeit. A strong or dead-weak entry is replaced: the
+// address was recycled, and keeping the old mapping resolves the new funcval
+// to a dead wrapper's closure (observed as quicktest's checkParams.fail
+// calling a finished test's t.Fatal: "Fail in goroutine after X completed").
+// Returns the stored generation, or 0 when the weak entry was kept.
+func (t *funcFieldsTable) setStrongKeep(p uintptr, v Value) uint64 {
 	t.mu.Lock()
-	t.m[p] = funcFieldEntry{strong: v}
+	defer t.mu.Unlock()
+	if e, ok := t.m[p]; ok && e.isWeak && e.weak.Value() != nil {
+		return 0
+	}
+	t.gen++
+	t.m[p] = funcFieldEntry{strong: v, gen: t.gen}
+	return t.gen
+}
+
+// pruneStrong deletes the strong entry at p if it is still generation gen;
+// a later registration at a recycled p must survive its predecessor's cleanup.
+func (t *funcFieldsTable) pruneStrong(p uintptr, gen uint64) {
+	t.mu.Lock()
+	if e, ok := t.m[p]; ok && !e.isWeak && e.gen == gen {
+		delete(t.m, p)
+	}
 	t.mu.Unlock()
+}
+
+// cleanupStrong ties the entry's lifetime to the funcval fp: when it is
+// collected the entry is pruned, so a recycled address can never resolve to a
+// dead wrapper's closure, and the entry stops pinning the closure graph. A
+// static funcval is not a heap object and makes AddCleanup panic; recover and
+// keep the entry -- a static address is never recycled, so it cannot go stale.
+// When the entry's own value graph reaches back to the funcval (field ->
+// wrapper -> mvm func -> receiver -> field), the funcval stays reachable and
+// the cleanup never fires: same lifetime as before, not a regression.
+func (t *funcFieldsTable) cleanupStrong(fp unsafe.Pointer, gen uint64) {
+	defer func() { _ = recover() }()
+	p := uintptr(fp)
+	runtime.AddCleanup((*byte)(fp), func(g uint64) { t.pruneStrong(p, g) }, gen)
 }
 
 func (t *funcFieldsTable) setWeak(p uintptr, ref *funcRef) {
@@ -4688,9 +4727,12 @@ func appendValues(sb *strings.Builder, lv []Value) {
 	}
 }
 
-func funcValuePtr(fv reflect.Value) uintptr {
-	return *(*uintptr)(fv.Addr().UnsafePointer())
+// funcValueUnsafe reads the funcval pointer out of an addressable func slot.
+func funcValueUnsafe(fv reflect.Value) unsafe.Pointer {
+	return *(*unsafe.Pointer)(fv.Addr().UnsafePointer())
 }
+
+func funcValuePtr(fv reflect.Value) uintptr { return uintptr(funcValueUnsafe(fv)) }
 
 func funcDataPtr(w reflect.Value) uintptr {
 	h := reflect.New(w.Type()).Elem()
@@ -4716,17 +4758,16 @@ func (m *Machine) resolveFuncField(v Value) Value {
 
 func (m *Machine) setGoFuncField(fv, gf reflect.Value, val Value) {
 	fv.Set(gf)
-	ptr := funcValuePtr(fv)
-	if ptr == 0 {
+	fp := funcValueUnsafe(fv)
+	if fp == nil {
 		return
 	}
 	if m.funcFields == nil {
 		m.funcFields = newFuncFieldsTable()
 	}
-	if _, ok := m.funcFields.get(ptr); ok {
-		return
+	if gen := m.funcFields.setStrongKeep(uintptr(fp), val); gen != 0 {
+		m.funcFields.cleanupStrong(fp, gen)
 	}
-	m.funcFields.setStrong(ptr, val)
 }
 
 func (m *Machine) setFuncField(fv reflect.Value, val Value) {
