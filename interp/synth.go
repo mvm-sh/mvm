@@ -39,17 +39,48 @@ func (i *Interp) attachSynthMethods() error {
 		if sym.Kind != symbol.Type || sym.Type == nil {
 			continue
 		}
-		if i.synthAttached[sym.Type] {
-			continue
+		if err := i.attachWithEmbeds(sym.Type); err != nil {
+			return err
 		}
-		if err := i.AttachSynthMethods(sym.Type); err != nil {
-			if loc := i.Sources.FormatPos(sym.Type.Pos); loc != "" {
-				err = fmt.Errorf("%s: %w", loc, err)
-			}
-			return &attachErr{err: err, pos: sym.Type.Pos}
-		}
-		i.synthAttached[sym.Type] = true
 	}
 	i.FillTypeSlots()
+	return nil
+}
+
+// maxBaseDepth caps Base-chain walks against cyclic chains (mirrors vm.CanonicalType).
+const maxBaseDepth = 1024
+
+// attachWithEmbeds attaches t's embedded interpreted types before t itself:
+// promoted-method collection reads the embeds' native method tables, filled
+// only at THEIR attach, and the symbol walk above is map-ordered.
+// Pre-marking breaks self-embed cycles; on error the mark is removed so a
+// later Eval retries instead of silently skipping the type.
+func (i *Interp) attachWithEmbeds(t *vm.Type) (err error) {
+	if t == nil || i.synthAttached[t] {
+		return nil
+	}
+	i.synthAttached[t] = true
+	defer func() {
+		if err != nil {
+			delete(i.synthAttached, t)
+		}
+	}()
+	for _, emb := range t.Embedded {
+		e := emb.Type
+		if e != nil && e.IsPtr() && e.ElemType != nil {
+			e = e.ElemType
+		}
+		for d := 0; e != nil && d < maxBaseDepth; d, e = d+1, e.Base {
+			if err := i.attachWithEmbeds(e); err != nil {
+				return err
+			}
+		}
+	}
+	if err := i.AttachSynthMethods(t); err != nil {
+		if loc := i.Sources.FormatPos(t.Pos); loc != "" {
+			err = fmt.Errorf("%s: %w", loc, err)
+		}
+		return &attachErr{err: err, pos: t.Pos}
+	}
 	return nil
 }

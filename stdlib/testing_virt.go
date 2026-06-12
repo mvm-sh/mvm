@@ -19,6 +19,18 @@ func init() {
 	registerRunHook((*testing.B)(nil))
 }
 
+// debugTB traces testing.TB receivers (stale-receiver hunting):
+// MVM_DEBUG_TB=1 logs Fail/Fatal receivers, =2 also every Run registration.
+var debugTB = os.Getenv("MVM_DEBUG_TB")
+
+func tbName(recv reflect.Value) string {
+	defer func() { _ = recover() }()
+	if m := recv.MethodByName("Name"); m.IsValid() {
+		return m.Call(nil)[0].String()
+	}
+	return "?"
+}
+
 func registerRunHook(recv any) {
 	t := reflect.TypeOf(recv)
 	runIdx := methodIndex(t, "Run")
@@ -26,10 +38,16 @@ func registerRunHook(recv any) {
 		return
 	}
 	vm.RegisterNativeMethodHook(recv, "Run", func(_ *vm.Machine, recvVal reflect.Value, args []reflect.Value) []reflect.Value {
+		if debugTB == "2" && len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "[mvmdbg] Run %q on %q\n", args[0].String(), tbName(recvVal))
+		}
 		if len(args) == 2 && args[1].IsValid() && args[1].Kind() == reflect.Func {
 			f := args[1]
 			args = []reflect.Value{args[0], reflect.MakeFunc(f.Type(), func(in []reflect.Value) []reflect.Value {
 				defer printPanicDiag()
+				if debugTB == "2" && len(in) > 0 {
+					fmt.Fprintf(os.Stderr, "[mvmdbg] body start %q\n", tbName(in[0]))
+				}
 				return f.Call(in)
 			})}
 		}
@@ -84,6 +102,9 @@ type msgFormatter func(*vm.Machine, reflect.Value, []reflect.Value) string
 
 func (mh tbMethods) hook(format msgFormatter, afterIdx int) vm.NativeMethodHook {
 	return func(m *vm.Machine, recv reflect.Value, args []reflect.Value) []reflect.Value {
+		if debugTB != "" && afterIdx >= 0 {
+			fmt.Fprintf(os.Stderr, "[mvmdbg] fail(%d) on %q\n", afterIdx, tbName(recv))
+		}
 		mh.writeLine(m, recv, format(m, recv, args))
 		if afterIdx >= 0 {
 			recv.Method(afterIdx).Call(nil)

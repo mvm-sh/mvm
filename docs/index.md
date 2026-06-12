@@ -55,3 +55,4 @@ Architecture Decision Records:
 - [ADR-019: `mvm test` drives `testing.MainStart(...).Run()` directly](decisions/ADR-019-test-runner-mainstart-driver.md)
 - [ADR-020: Type references resolved by identity slot, not by name](decisions/ADR-020-type-identity-slots.md)
 - [ADR-021: Synthesized rtypes for native method dispatch](decisions/ADR-021-synthesized-rtypes.md) (supersedes ADR-009, part of ADR-012)
+- [ADR-022: Word-class ABI register shapes for method dispatch](decisions/ADR-022-word-class-dispatch.md) (extends ADR-021)

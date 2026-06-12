@@ -13,6 +13,9 @@ function PC.
 `stubs` pre-generates pools of such functions, one pool per method-signature
 *shape*, and pairs each pool with a dispatcher that forwards the call to a
 per-slot handler closure (which re-enters the interpreter).
+Two kinds of shape coexist: the per-signature *typed* shapes below, and the ABI
+*word-class* shapes ([ADR-022](../decisions/ADR-022-word-class-dispatch.md)) that
+let one pool serve many signatures.
 
 The package exists separately from `runtype` to break an import cycle: `runtype.Attach*`
 need a resolved stub PC, while the stub pools need `runtype.FuncPC`.
@@ -39,13 +42,21 @@ Inverting the attach API (PC-based `runtype.MethodSpec`) lets `stubs` depend on
   | S37 | `func() (rune, int, error)` | `io.RuneReader` |
   | S38 | `func()` | niladic marker methods |
 
-- **`Method`** -- `{Name, Exported, Sig, Shape, Handler}`. The shape-carrying
-  input the vm builds; `Handler` is the matching `HandlerS*` closure.
+- **`Method`** -- `{Name, Exported, Sig, Shape, Handler, WordKey, Core}`. The
+  shape-carrying input the vm builds. For a typed shape, `Handler` is the matching
+  `HandlerS*` closure; for the word-class path, a non-empty `WordKey` names the
+  generated word-shape pool and `Core` is the marshaling closure (`Shape`/`Handler`
+  ignored).
 - **`HandlerS1` ... `HandlerS38`** -- per-shape handler function types.
+- **`CoreFunc`** -- the word-class marshaling closure type, `func(recv
+  unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, rpw []unsafe.Pointer, rsw
+  []uint64)`; the vm supplies it, the generated dispatcher calls it.
 - **`Attach{Methods,StructMethods,PrimitiveMethods,SliceMethods,ArrayMethods,
   MapMethods,PtrMethods}`** -- mirror the `runtype.Attach*` entry points but accept
-  `[]Method`; each resolves every method's shape to a free stub slot, then calls
-  `runtype`.
+  `[]Method`; each resolves every method's shape (typed or word-class) to a free
+  stub slot, then calls `runtype`.
+- **`HasWordShape`** -- reports whether a generated word-shape pool exists for a
+  key, so the vm drops (not errors on) an unsupported word-shape.
 - **`SlotsUsedS1` ... `SlotsUsedS38`** -- slot-pool usage counters (for tests /
   metrics).
 
@@ -78,9 +89,32 @@ handler to free its closure captures.
 S1 carries 2048 slots (Stringer/Error are the most-attached shape); the rest
 default to 256.
 
+### Word-class shapes
+
+The typed shapes above need one hand-written `registry_sN.go` per Go signature.
+The *word-class* shapes ([ADR-022](../decisions/ADR-022-word-class-dispatch.md))
+key on the method's ABI register words instead, so one pool serves every signature
+that classifies the same way (`Equal(StructA) bool` over an interpreted
+two-word struct and any other `func(ptr-word, int-word) int-word` share `pi_i`).
+The catalog is `wordShapes` in `gen_pools.go`, and `emitWord` generates a
+`pool_w*.go` per shape -- the same stub-pool layout as the typed shapes, but with
+one *generic* dispatcher: it scatters the native register words into `pw`
+(pointer words, a typed `[]unsafe.Pointer` so the GC scans them) and `sw` (integer
+words), calls the per-slot `CoreFunc`, then gathers the result words back out.
+The `CoreFunc` -- built by the vm (`Machine.makeWordCore`) -- does the
+reflect-driven value<->word marshaling and owns the error policy.
+`registerWordPool` records each generated pool in a `sync.Map` keyed by the
+word-shape (`acquireWordSlot`/`HasWordShape` read it); the vm computes the same
+key independently via `detectWordShape`.
+The path is gated to 64-bit little-endian targets; elsewhere only the typed shapes
+attach.
+
 The vm-side glue is *not* here -- `vm/synth_bridge.go` owns `detectShape`
-(signature -> `Shape`) and `makeHandlerS*` (builds the closure that calls
-`Machine.CallFunc`), because those need `Machine`/`Iface`/`Type`.
+(signature -> `Shape`) and `makeHandlerS*`, plus `detectWordShape` (signature ->
+word-shape key) and `makeWordCore` for the word path, because those need
+`Machine`/`Iface`/`Type`.
+A method is matched to a typed shape first and only falls back to the word path,
+so the faster, error-aware typed handlers win where they apply.
 
 ## Dependencies
 
@@ -98,5 +132,13 @@ after editing the shape catalog in `gen_pools.go`.
 - Pools are finite; a process attaching more distinct methods of one shape than
   its pool holds errors out (`stubs: shape SN stub pool exhausted`). Sizes are a
   static guess tuned to the test suite.
-- New shapes are append-only edits to `gen_pools.go` + a hand-written
-  `registry_sN.go` + a `makeHandlerSN`/`detectShape` case in `vm/synth_bridge.go`.
+- A new *typed* shape is append-only edits to `gen_pools.go` + a hand-written
+  `registry_sN.go` + a `makeHandlerSN`/`detectShape` case in `vm/synth_bridge.go`;
+  an ABI-compatible signature needs none of that and rides an existing word-shape.
+- The word path drops floats, complex, arrays, sub-word-packed structs, and
+  signatures over six words per side, and is disabled on non-64-bit or big-endian
+  targets (float `f`-class words are a deferred extension).
+- The word-shape catalog is hand-curated (full enumeration would explode), so
+  growing it is guided by telemetry: run with `MVM_WORDDROPS=1` and the process
+  reports, at exit, every signature `detectWordShape` dropped -- a "missing pools"
+  list of word-shapes to add, plus an "unsupported" list (floats / over budget).

@@ -229,10 +229,57 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 // form drives the handler's receiver reconstruction (see recvForm): it folds
 // the method's own receiver kind with the identity the spec is attached to.
 type synthMethodSpec struct {
-	name   string
-	method Method
-	shape  stubs.Shape
-	form   recvForm
+	name       string
+	method     Method
+	shape      stubs.Shape
+	wordKey    string // non-empty => word-class path (shape ignored)
+	swallowErr bool   // word path: swallow dispatch errors to zero results
+	form       recvForm
+}
+
+// resolveDispatch picks the dispatch path and sets s.method.Rtype to the sig
+// that path publishes; false means the method is dropped. A typed shape wins
+// only when erasure changed nothing: an erased match would publish any for a
+// synth-iface param, breaking native assignability checks, so those take the
+// word path with the precise sig -- or, when no pool can serve it, the erased
+// typed shape after all (reported in the MVM_WORDDROPS degraded bucket).
+func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
+	shape, shapeOK := detectShape(erased)
+	if shapeOK && !forceWordShape && erased == precise {
+		s.shape = shape
+		s.method.Rtype = erased
+		return true
+	}
+	if shapeOK {
+		// A typed fallback exists: probe silently, a miss is not a drop.
+		if key, ok := wordShapeKey(precise); ok {
+			s.wordKey = key
+			s.swallowErr = shapeSwallowsDispatchErr(shape)
+			s.method.Rtype = precise
+			return true
+		}
+		recordWordDrop(&wordDropDegraded, "erased typed fallback", precise)
+		s.shape = shape
+		s.method.Rtype = erased
+		return true
+	}
+	if key, ok := detectWordShape(precise); ok {
+		s.wordKey = key
+		s.method.Rtype = precise
+		return true
+	}
+	return false
+}
+
+// shapeSwallowsDispatchErr reports whether shape's typed handler swallows
+// dispatch errors to zero values (see makeHandlerS5); a word-routed method
+// whose erased sig matched such a shape keeps that policy.
+func shapeSwallowsDispatchErr(shape stubs.Shape) bool {
+	switch shape {
+	case stubs.ShapeS5, stubs.ShapeS11, stubs.ShapeS12:
+		return true
+	}
+	return false
 }
 
 // toSynthMethods materializes the slice of stubs.Method passed to
@@ -244,6 +291,16 @@ func toSynthMethods(
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
+		if s.wordKey != "" {
+			out[i] = stubs.Method{
+				Name:     s.name,
+				Exported: true,
+				Sig:      s.method.Rtype,
+				WordKey:  s.wordKey,
+				Core:     m.makeWordCore(t, s.method, s.name, s.form, s.swallowErr),
+			}
+			continue
+		}
 		var handler any
 		switch s.shape {
 		case stubs.ShapeS1:
@@ -361,19 +418,17 @@ func (m *Machine) allSynthMethods(
 		if method.PtrRecv && !includePtr {
 			continue
 		}
-		// Method tables erase synth-iface params to any: stubs decode an eface,
-		// and a precise sig would make reflect.Call pack itab+data instead.
-		method.Rtype = eraseSynthIfaceParams(method.Rtype)
-		shape, ok := detectShape(method.Rtype)
-		if !ok {
-			continue
-		}
-		specs = append(specs, synthMethodSpec{
+		spec := synthMethodSpec{
 			name:   m.MethodNames[i],
 			method: method,
-			shape:  shape,
 			form:   recvFormFor(t.Rtype, method.PtrRecv, includePtr),
-		})
+		}
+		// Typed-shape tables erase synth-iface params to any (stubs decode an
+		// eface); the word path keeps the precise sig (see resolveDispatch).
+		if !spec.resolveDispatch(eraseSynthIfaceParams(method.Rtype), method.Rtype) {
+			continue
+		}
+		specs = append(specs, spec)
 		seen[m.MethodNames[i]] = true
 		if len(specs) == synthMaxMethods {
 			return specs
@@ -416,17 +471,16 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 				continue
 			}
 			sig := stripRecvType(meth.Type)
-			shape, ok := detectShape(sig)
-			if !ok {
+			spec := synthMethodSpec{
+				name:   meth.Name,
+				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
+				form:   recvFormFor(t.Rtype, includePtr, includePtr),
+			}
+			if !spec.resolveDispatch(sig, sig) {
 				continue
 			}
 			seen[meth.Name] = true
-			specs = append(specs, synthMethodSpec{
-				name:   meth.Name,
-				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
-				shape:  shape,
-				form:   recvFormFor(t.Rtype, includePtr, includePtr),
-			})
+			specs = append(specs, spec)
 		}
 	}
 	return specs
@@ -1145,13 +1199,13 @@ func (m *Machine) callPromotedConcrete(
 		return nil, errors.New("synth: nil promoted receiver")
 	}
 	if mv := nativeMethodLookup(m, rv, name); mv.IsValid() {
-		return mv.Call(args), nil
+		return callBound(mv, args), nil
 	}
 	// A pointer-receiver method promoted from a value embed lives in *E's method
 	// set, not E's; retry on the addressable field's address.
 	if rv.CanAddr() {
 		if mv := nativeMethodLookup(m, rv.Addr(), name); mv.IsValid() {
-			return mv.Call(args), nil
+			return callBound(mv, args), nil
 		}
 	}
 	if et := m.typeByRtype(rv.Type()); et != nil {
@@ -1160,6 +1214,16 @@ func (m *Machine) callPromotedConcrete(
 		}
 	}
 	return nil, fmt.Errorf("synth: promoted method %q not found", name)
+}
+
+// callBound invokes a bound native method with stub-marshaled args.
+// A variadic method's trailing args arrive as the caller-packed slice, which
+// reflect.Value.Call rejects; CallSlice takes it as is.
+func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
+	if mv.Type().IsVariadic() {
+		return mv.CallSlice(args)
+	}
+	return mv.Call(args)
 }
 
 // methodID returns the global method ID for name, or -1.
@@ -1209,7 +1273,7 @@ func (m *Machine) callEmbedIface(
 			if !mv.IsValid() {
 				return nil, fmt.Errorf("synth: embedded method %q not found", name)
 			}
-			return mv.Call(args), nil
+			return callBound(mv, args), nil
 		}
 		ifc = embedded.IfaceVal()
 		if methodID < 0 || methodID >= len(ifc.Typ.Methods) {

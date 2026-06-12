@@ -99,6 +99,10 @@ var Incompat = map[string]map[string]string{
 	"github.com/google/go-cmp/cmp": {
 		"TestDiff/Transformer/CyclicString":  "cmp's recursive-transformer guard fires only after 65536 path steps; interpreted transforms exhaust memory first",
 		"TestDiff/Transformer/CyclicComplex": "cmp's recursive-transformer guard fires only after 65536 path steps; interpreted transforms exhaust memory first",
+		// Anon struct embedding a method-bearing interface: reflect.StructOf
+		// cannot generate promotion wrappers (same limit as io/fs struct{FS}).
+		"TestDiff/Comparer/StringerEqual":   "reflect.StructOf does not support methods of embedded interfaces (anon struct{fmt.Stringer} literal)",
+		"TestDiff/Comparer/StringerInequal": "reflect.StructOf does not support methods of embedded interfaces (anon struct{fmt.Stringer} literal)",
 	},
 
 	"github.com/google/btree": {
@@ -124,6 +128,11 @@ var Incompat = map[string]map[string]string{
 		"TestNoDirExists": "upstream-red: asserts ../_codegen exists, but the dir is omitted from the published module (go test fails natively too)",
 	},
 
+	"github.com/mitchellh/mapstructure": {
+		"TestDecode_NilInterfaceHook":    "bridge type erasure: interface-typed struct fields materialize as interface{}, so the hook's to.String() == \"io.Writer\" never matches",
+		"TestDecode_DecodeHookInterface": "bridge type erasure: interface-typed struct fields materialize as interface{}, so the hook's to == reflect.TypeOf((*Interface)(nil)).Elem() never matches",
+	},
+
 	"github.com/sirupsen/logrus": {
 		"TestNestedLoggingReportsCorrectCaller": "asserts caller frame.File == cwd-relative on-disk path; virtualized runtime.Callers reports the modfs source path (func and line do match)",
 		"TestCallerReportingOverhead":           "wall-clock bound: 5000 log calls under 1s is a native-speed assertion; interpreted execution exceeds it",
@@ -143,6 +152,16 @@ var Incompat = map[string]map[string]string{
 
 	"github.com/tidwall/sjson": {
 		"TestRandomData": "stress test: 2e6 iterations of SetRaw over random bytes; ~52s under the interpreter (no testing.Short path)",
+	},
+
+	"golang.org/x/text/cases": {
+		"TestAlloc":        "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestFold":         "testtext.AllocsPerRun assertion inline with correctness checks (which pass); interpreter allocates, native expects 0",
+		"TestCaseMappings": "testtext.AllocsPerRun assertion inline with correctness checks (which pass); interpreter allocates, native expects 0",
+	},
+
+	"golang.org/x/text/language": {
+		"TestBestMatchAlloc": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	},
 
 	"golang.org/x/text/unicode/norm": {

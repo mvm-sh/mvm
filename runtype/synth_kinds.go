@@ -80,12 +80,12 @@ func isPrimitiveKind(k reflect.Kind) bool {
 }
 
 // SupportedKind reports whether a layout of kind k can be given a reserved
-// method-bearing identity -- the single source of truth for the reservable-kind
-// catalog, matching ReserveMethods' dispatch (a named primitive, struct, slice,
-// array, map, or func).
+// identity, matching ReserveMethods' dispatch. A named pointer type cannot
+// carry methods (invalid receiver) but still owns a named identity.
 func SupportedKind(k reflect.Kind) bool {
 	switch k {
-	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map, reflect.Func:
+	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map, reflect.Chan,
+		reflect.Pointer, reflect.Func:
 		return true
 	}
 	return isPrimitiveKind(k)

@@ -2,7 +2,6 @@ package goparser
 
 import (
 	"errors"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -417,21 +416,16 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		}
 	}
 	out = append(out, newGrow(l, in[0].Pos, cellRet, cellParams))
-	// Zero-initialize named-return slots that need a typed zero reflect.Value.
+	// Zero-initialize named-return slots so an unassigned one returns a typed
+	// zero, not an invalid Value{} (which breaks interface boxing at the caller).
 	if n := len(p.namedOut); n > 0 {
-		var initVars []string
-		var initTypes []*vm.Type
+		initVars := make([]string, n)
+		initTypes := make([]*vm.Type, n)
 		for j, name := range p.namedOut {
-			typ := s.Type.Returns[n-1-j]
-			switch typ.Kind() {
-			case reflect.Struct, reflect.Array, reflect.Slice, reflect.Map:
-				initVars = append(initVars, name)
-				initTypes = append(initTypes, typ)
-			}
+			initVars[j] = name
+			initTypes[j] = s.Type.Returns[n-1-j]
 		}
-		if len(initVars) > 0 {
-			out = append(out, p.zeroInitLocals(initVars, initTypes)...)
-		}
+		out = append(out, p.zeroInitLocals(initVars, initTypes)...)
 	}
 	out = append(out, toks...)
 	if out[len(out)-1].Tok != lang.Return {

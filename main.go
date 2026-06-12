@@ -115,7 +115,13 @@ func humanBytes(n int64) string {
 }
 
 func main() {
-	if err := dispatch(os.Args[1:]); err != nil {
+	err := dispatch(os.Args[1:])
+	// MVM_WORDDROPS telemetry: print before any os.Exit so a failing `mvm test`
+	// still reports its dropped word-shapes (see ADR-022).
+	if r := interp.WordShapeDropReport(); r != "" {
+		fmt.Fprint(os.Stderr, r)
+	}
+	if err != nil {
 		var ee *interp.ExitError
 		if errors.As(err, &ee) {
 			os.Exit(ee.Code)

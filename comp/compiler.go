@@ -2643,10 +2643,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						}
 						// Emit a runtime func value so the method expression works
 						// stored, not just inline-called (Call retracts it for the fast
-						// path). Value-receiver only: (*T).M materializes the receiver
-						// to a placeholder rtype, so it stays symbolic-only.
+						// path). Receiver pointer-ness must match the expression's:
+						// T.M (value recv) and (*T).M (ptr recv) pass args[0] through
+						// unchanged; the mixed (*T).M-on-value-recv form would need a
+						// deref in the wrapper, so it stays symbolic-only.
 						var exprType *vm.Type
-						if !strings.HasPrefix(m.Name, "*") && !s.Type.IsPtr() {
+						if strings.HasPrefix(m.Name, "*") == s.Type.IsPtr() {
 							exprType = c.methodExprType(s.Type, m.Type)
 						}
 						sym := &symbol.Symbol{

@@ -131,6 +131,36 @@ func (sm SymMap) Get(name, scope string) (sym *Symbol, sc string, ok bool) {
 	return sym, scope, ok
 }
 
+// bareKeyTypeMatches reports whether the Type symbol at the bare key (if any)
+// is the receiver's own type, so a same-named unit-local type cannot hijack
+// the unqualified method probe for an imported receiver (cmp_test.Stringer
+// answering a testprotos.Stringer call). A missing or non-Type bare symbol
+// allows the probe: there is no conflicting type to resolve against.
+func (sm SymMap) bareKeyTypeMatches(key string, recv *vm.Type) bool {
+	s, ok := sm[key]
+	if !ok || s.Kind != Type || s.Type == nil || recv == nil {
+		return true
+	}
+	rv := recv
+	if rv.IsPtr() && rv.ElemType != nil {
+		rv = rv.ElemType
+	}
+	recvRt := rv.Rtype
+	if recvRt != nil && recvRt.Kind() == reflect.Pointer {
+		recvRt = recvRt.Elem()
+	}
+	if sameNamedType(s.Type, rv, vm.CanonicalType(rv), recvRt) {
+		return true
+	}
+	// Linkage unprovable (a Base-less clone probed before materialization):
+	// fall back to Name+PkgPath, so a same-package clone keeps its bare probe
+	// while a foreign same-named receiver is still refused.
+	if recvRt == nil || s.Type.Rtype == nil {
+		return s.Type.Name == rv.Name && s.Type.PkgPath == rv.PkgPath
+	}
+	return false
+}
+
 // sameNamedType matches cand against the receiver by *Type identity (recvCanon
 // is recv's Base-walked canonical, so a clone matches its source), falling back
 // to rtype equality only when both already carry one -- never materializing.
@@ -146,13 +176,17 @@ func sameNamedType(cand, recv, recvCanon *vm.Type, recvRt reflect.Type) bool {
 func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 	switch sym.Kind {
 	case Type:
-		if m := methodLookup(sm, sym.Name, name); m != nil {
-			return m, nil
-		}
-		// Pointer type: also try value-receiver methods (*T includes T's method set).
-		if strings.HasPrefix(sym.Name, "*") {
-			if m := methodLookup(sm, sym.Name[1:], name); m != nil {
+		// Guard the bare probe: a dot-imported or alias-copied symbol keeps a
+		// bare Name a same-named unit-local type would otherwise hijack.
+		if sm.bareKeyTypeMatches(strings.TrimPrefix(sym.Name, "*"), sym.Type) {
+			if m := methodLookup(sm, sym.Name, name); m != nil {
 				return m, nil
+			}
+			// Pointer type: also try value-receiver methods (*T includes T's method set).
+			if strings.HasPrefix(sym.Name, "*") {
+				if m := methodLookup(sm, sym.Name[1:], name); m != nil {
+					return m, nil
+				}
 			}
 		}
 		// Probe pkg-qualified method keys too, so a composite-literal receiver
@@ -237,11 +271,13 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				typName = firstName
 			}
 		}
-		if m := methodLookup(sm, typName, name); m != nil {
-			return m, nil
-		}
-		if m := methodLookup(sm, "*"+typName, name); m != nil {
-			return m, nil
+		if sm.bareKeyTypeMatches(typName, sym.Type) {
+			if m := methodLookup(sm, typName, name); m != nil {
+				return m, nil
+			}
+			if m := methodLookup(sm, "*"+typName, name); m != nil {
+				return m, nil
+			}
 		}
 		// Path B step 2 stores methods at pkg-qualified keys for imported pkgs
 		// ("<pkgPath>.<Tag>.<M>" or "*<pkgPath>.<Tag>.<M>"). When the short
@@ -385,11 +421,13 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 			continue
 		}
 		fieldPath := append(path, emb.FieldIdx) //nolint:gocritic
-		if m := sm[embType.Name+"."+name]; m != nil {
-			return m, fieldPath
-		}
-		if m := sm["*"+embType.Name+"."+name]; m != nil {
-			return m, fieldPath
+		if sm.bareKeyTypeMatches(embType.Name, embType) {
+			if m := sm[embType.Name+"."+name]; m != nil {
+				return m, fieldPath
+			}
+			if m := sm["*"+embType.Name+"."+name]; m != nil {
+				return m, fieldPath
+			}
 		}
 		// Embedded type's method may live at a pkg-qualified key (Path B).
 		if embType.Name != "" {

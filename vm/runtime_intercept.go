@@ -277,21 +277,66 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 				// (struct), matching the declared return type of func(string) reflect.Value.
 				return []reflect.Value{reflect.ValueOf(m.makeCallFunc(closure, ft))}
 			})
-	case "Call":
+	case "Call", "CallSlice":
 		if innerRV.Kind() != reflect.Func {
 			return reflect.Value{}
 		}
+		spread := name == "CallSlice"
 		return reflect.MakeFunc(callShimType,
 			func(args []reflect.Value) []reflect.Value {
 				var in []reflect.Value
 				if len(args) > 0 && args[0].IsValid() && !args[0].IsNil() {
 					in, _ = args[0].Interface().([]reflect.Value)
 				}
-				out := innerRV.Call(in)
-				return []reflect.Value{reflect.ValueOf(out)}
+				if out, ok := callSynthMethodFunc(innerRV, in, spread); ok {
+					return []reflect.Value{reflect.ValueOf(out)}
+				}
+				return []reflect.Value{reflect.ValueOf(callWithSpread(innerRV, in, spread))}
 			})
 	}
 	return reflect.Value{}
+}
+
+// callSynthMethodFunc converts a Call/CallSlice on a synth Method.Func
+// (recognized by code PC) into a bound-method call.
+// Method.Func packs the receiver by value (Tfn ABI), but synth stubs implement
+// only the one-word Ifn form, which bound dispatch uses; an indirect value
+// receiver would otherwise be misread.
+// Direct-iface receivers already match the stub ABI and stay native.
+func callSynthMethodFunc(fn reflect.Value, in []reflect.Value, spread bool) ([]reflect.Value, bool) {
+	ft := fn.Type()
+	if ft.NumIn() == 0 || len(in) == 0 {
+		return nil, false
+	}
+	recvT := ft.In(0)
+	if isDirectIface(recvT) || !runtype.IsSynth(recvT) ||
+		!in[0].IsValid() || !in[0].Type().AssignableTo(recvT) {
+		return nil, false
+	}
+	pc := fn.Pointer()
+	var name string
+	for i := range recvT.NumMethod() {
+		mm := recvT.Method(i)
+		if mm.Type == ft && mm.Func.Pointer() == pc {
+			name = mm.Name
+			break
+		}
+	}
+	if name == "" {
+		return nil, false
+	}
+	bound := in[0].MethodByName(name)
+	if !bound.IsValid() {
+		return nil, false
+	}
+	return callWithSpread(bound, in[1:], spread), true
+}
+
+func callWithSpread(fn reflect.Value, args []reflect.Value, spread bool) []reflect.Value {
+	if spread {
+		return fn.CallSlice(args)
+	}
+	return fn.Call(args)
 }
 
 // runtimeFuncShim returns a bound-method reflect.Value that satisfies

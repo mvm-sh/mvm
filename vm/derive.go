@@ -2,6 +2,8 @@ package vm
 
 import (
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -213,10 +215,35 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 				if !meth.IsExported() {
 					continue
 				}
-				if _, ok := detectShape(stripRecvType(meth.Type)); ok {
+				sig := stripRecvType(meth.Type)
+				if _, ok := detectShape(sig); ok {
+					return true
+				}
+				if wordShapeAvailable(sig) {
 					return true
 				}
 			}
+		}
+		// The embed's rtype publishes its methods only after ITS attach; walk
+		// the mvm graph too. Over-reserving is safe (the reserve gate is a
+		// superset of the attach trigger).
+		if embTypeHasMethods(emb.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+// embTypeHasMethods reports whether an embedded field's mvm type (deref'd
+// through a pointer embed, walking Base, depth-capped against cycles)
+// declares any methods.
+func embTypeHasMethods(e *mtype.Type) bool {
+	if e != nil && e.IsPtr() && e.ElemType != nil {
+		e = e.ElemType
+	}
+	for i := 0; e != nil && i < canonicalTypeMaxDepth; i, e = i+1, e.Base {
+		if len(e.Methods) > 0 {
+			return true
 		}
 	}
 	return false
@@ -243,7 +270,11 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 		if sig == nil {
 			return true // unknown sig: assume table method, don't share
 		}
-		if _, ok := detectShape(eraseSynthIfaceParams(sig)); ok {
+		erased := eraseSynthIfaceParams(sig)
+		if _, ok := detectShape(erased); ok {
+			return true
+		}
+		if wordShapeAvailable(erased) {
 			return true
 		}
 	}
@@ -451,6 +482,10 @@ var (
 	derivedMu       sync.Mutex
 	derivedCache    = map[*mtype.Type]*derivedTypes{}
 	synthIfaceCache = map[*mtype.Type]reflect.Type{}
+	// synthIfaceNamed dedupes named synth ifaces across clone *Types: clones
+	// must share one InterfaceOf rtype or rtype-identity compares split
+	// (goldmark ast.Node.SortChildren).
+	synthIfaceNamed = map[string]reflect.Type{}
 )
 
 var materializeMu sync.Mutex // serializes the whole materialization pass
@@ -964,18 +999,48 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 
 // cachedSynthIface returns t's cached method-bearing synth interface rtype,
 // building it via build on first use; a nil result is not cached (the AnyRtype
-// bridge stays and a later call retries).
+// bridge stays and a later call retries). A named interface also dedupes by
+// synthIfaceNameKey so clone *Types share one rtype identity.
 func cachedSynthIface(t *mtype.Type, build func() reflect.Type) reflect.Type {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	if st := synthIfaceCache[t]; st != nil {
 		return st
 	}
+	nameKey := synthIfaceNameKey(t)
+	if nameKey != "" {
+		if st := synthIfaceNamed[nameKey]; st != nil {
+			synthIfaceCache[t] = st
+			return st
+		}
+	}
 	if st := build(); st != nil {
 		synthIfaceCache[t] = st
+		if nameKey != "" {
+			synthIfaceNamed[nameKey] = st
+		}
 		return st
 	}
 	return nil
+}
+
+// synthIfaceNameKey fingerprints a named interface for cross-clone dedupe:
+// package, name, and sorted method name:signature pairs, so a same-named
+// interface with different sigs never adopts the other's rtype. Returns ""
+// (no dedupe) for unnamed interfaces or while any method sig is unmaterialized.
+func synthIfaceNameKey(t *mtype.Type) string {
+	if t == nil || t.Name == "" {
+		return ""
+	}
+	names := make([]string, 0, len(t.IfaceMethods))
+	for _, im := range t.IfaceMethods {
+		if im.Rtype == nil {
+			return ""
+		}
+		names = append(names, im.Name+":"+im.Rtype.String())
+	}
+	sort.Strings(names)
+	return t.PkgPath + "." + t.Name + "{" + strings.Join(names, ",") + "}"
 }
 
 // AttachPtrDerived records newPtrRT (a *T-with-methods rtype) as t's derived

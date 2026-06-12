@@ -105,6 +105,15 @@ func TestReserveFillStructAndPtr(t *testing.T) {
 	if got := reflect.PointerTo(elem).NumMethod(); got != 1 {
 		t.Fatalf("*Point NumMethod after Fill = %d, want 1", got)
 	}
+	// A derived *T is unnamed in Go, methods or not (only `type P *T` is
+	// named): Name() and PkgPath() empty, String() keeps the display form.
+	pt := pr.Type()
+	if pt.Name() != "" || pt.PkgPath() != "" {
+		t.Errorf("reserved *T Name=%q PkgPath=%q, want both empty", pt.Name(), pt.PkgPath())
+	}
+	if got := pt.String(); got != "*Point" {
+		t.Errorf("reserved *T String = %q, want *Point", got)
+	}
 }
 
 // TestReserveStructLayoutFill covers the struct cycle path: reserve over a
