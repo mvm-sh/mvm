@@ -3167,10 +3167,14 @@ func TestMethod(t *testing.T) {
 		// Value-receiver method expression as a composite-literal element (the fmt
 		// fmtTests shape that crashed: reflect.Value.Field on a misaligned stack).
 		{n: "mexpr_val_composite", src: `type G int; func(g G) S() string { return "s" }; func f() int { t := []struct{ v any }{{G.S}}; return len(t) }; f()`, res: "1"},
-		// SKIP (still broken): a POINTER-receiver method expression stored/passed.
-		// The (*T).M form materializes the receiver rtype to a placeholder, so it
-		// stays symbolic-only (nil-deref when stored). Value-receiver is fixed above.
-		{n: "mexpr_ptr_stored", skip: true, src: `type T struct{n int}; func(t *T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
+		// POINTER-receiver method expression stored/passed (MkMethodExpr now
+		// covers matching pointer-ness; the x/text/cases titleCaser shape).
+		{n: "mexpr_ptr_stored", src: `type T struct{n int}; func(t *T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
+		// Pointer-receiver method expression as a func-typed struct-field value.
+		{n: "mexpr_ptr_composite", src: `type T struct{n int}; func(t *T) Get() int { return t.n }; type C struct{ f func(*T) int }; func f() int { c := C{f: (*T).Get}; return c.f(&T{7}) }; f()`, res: "7"},
+		// SKIP (still broken): the MIXED form (*T).M where M has a VALUE receiver
+		// (legal Go: derefs the pointer); needs a deref in the MkMethodExpr wrapper.
+		{n: "mexpr_ptr_on_val_stored", skip: true, src: `type T struct{n int}; func(t T) Add(a, b int) int { return t.n + a + b }; func f() int { g := (*T).Add; return g(&T{10}, 2, 3) }; f()`, res: "15"},
 
 		// Method call on composite literal.
 		{n: "comp_lit", src: `type T struct{n int}; func(t T) N() int { return t.n }; T{5}.N()`, res: "5"},

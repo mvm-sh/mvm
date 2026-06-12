@@ -149,6 +149,12 @@ var Incompat = map[string]map[string]string{
 		"TestRandomData": "stress test: 2e6 iterations of SetRaw over random bytes; ~52s under the interpreter (no testing.Short path)",
 	},
 
+	"golang.org/x/text/cases": {
+		"TestAlloc":        "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestFold":         "testtext.AllocsPerRun assertion inline with correctness checks (which pass); interpreter allocates, native expects 0",
+		"TestCaseMappings": "testtext.AllocsPerRun assertion inline with correctness checks (which pass); interpreter allocates, native expects 0",
+	},
+
 	"golang.org/x/text/language": {
 		"TestBestMatchAlloc": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	},
