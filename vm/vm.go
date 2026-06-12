@@ -1965,6 +1965,9 @@ func (m *Machine) Run() (err error) {
 			mem[sp] = Value{num: uint64(int(c.A)), ref: zint}
 		case Pull:
 			v := mem[sp]
+			if v.IsIface() {
+				v = v.IfaceVal().Val
+			}
 			seq := emptySeq // invalid (nil slice/map/string) -> empty range, as in Go
 			if v.ref.IsValid() {
 				if c.A&1 != 0 {
@@ -1982,6 +1985,9 @@ func (m *Machine) Run() (err error) {
 			sp -= int(c.A>>1) + 1 // drop the n dead loop-var values + the subject
 		case Pull2:
 			v := mem[sp]
+			if v.IsIface() {
+				v = v.IfaceVal().Val
+			}
 			seq2 := emptySeq2 // invalid (nil slice/map) -> empty range, as in Go
 			if v.ref.IsValid() {
 				if c.A&1 != 0 {
