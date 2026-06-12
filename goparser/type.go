@@ -387,6 +387,12 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 				if !ifaceType.IsInterface() {
 					return nil, 0, p.wrapAt(lt[0], ErrSyntax, "%s is not an interface", lt[0].Str)
 				}
+				// A forward-declared embedded iface (cross-file: Banded embeds
+				// Matrix with band.go parsed first) has no methods to copy yet:
+				// defer this decl so the fixpoint retries after the target parses.
+				if ifaceType.Placeholder {
+					return nil, 0, p.undef(lt[0].Str, lt[0])
+				}
 				ifaceType.EnsureIfaceMethods()
 				methods = append(methods, ifaceType.IfaceMethods...)
 				continue

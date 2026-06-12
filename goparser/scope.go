@@ -104,6 +104,9 @@ func (p *Parser) propagateCapture(name, definingScope string) {
 			if j >= 0 {
 				cloKey = cur[j+1:]
 			}
+			if strings.HasPrefix(cloKey, "#") && !isInitFname(cloKey) {
+				cloKey = p.anonFuncKey(cloKey)
+			}
 			if cloSym, ok := p.Symbols[cloKey]; ok && cloSym != nil && cloSym.FreeVarIndex(name) < 0 {
 				cloSym.FreeVars = append(cloSym.FreeVars, name)
 			}

@@ -258,6 +258,30 @@ func (p *Parser) registerParamsFromSym(s *symbol.Symbol) {
 	}
 }
 
+// isInitFname reports a rewritten init func name ("#init" + digits).
+func isInitFname(name string) bool {
+	rest, ok := strings.CutPrefix(name, "#init")
+	if !ok || rest == "" {
+		return false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// anonFuncKey returns the symbol-table key for an anonymous closure name,
+// package-qualified like the compiler's qualifyLabel so the Label patch in
+// generate finds the same Symbol the parser created.
+func (p *Parser) anonFuncKey(fname string) string {
+	if p.CompilingPkg == "" {
+		return fname
+	}
+	return QualifyName(p.CompilingPkg, fname)
+}
+
 func (p *Parser) anonFuncName() string {
 	clo := p.clonum
 	p.clonum++
@@ -322,12 +346,24 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	funcScope := p.funcScope
 	onamedOut := p.namedOut
 	p.namedOut = nil
-	// Phase-2 deferred body of a top-level pkg func: look up via symGet which
-	// probes the canonical pkgKey ("<CompilingPkg>.<fname>") before falling
-	// back to bare. Nested funcs (scope non-empty) and anon closures (#-prefix)
-	// follow lexical-scope semantics through symGet's normal Symbols.Get walk.
-	s, _, ok := p.symGet(fname)
-	if !ok {
+	// Anon closures are keyed per-package ("<CompilingPkg>.#outer.funcN", see
+	// anonFuncKey): same-named outer funcs in two packages produce the same
+	// closure name, and a shared bare-key symbol would leak one package's
+	// FreeVars into the other's closure. The direct probe keeps retry
+	// idempotency without symGet's bare-key fallback. Rewritten init funcs
+	// ("#initN") stay bare: interp resolves InitFuncs by that exact key, and
+	// initNum is already unique across packages.
+	var s *symbol.Symbol
+	var ok bool
+	if strings.HasPrefix(fname, "#") && !isInitFname(fname) {
+		key := p.anonFuncKey(fname)
+		if s, ok = p.Symbols[key]; !ok {
+			s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
+			p.SymSet(key, s)
+		}
+	} else if s, _, ok = p.symGet(fname); !ok {
+		// Phase-2 deferred body of a top-level pkg func: symGet probes the
+		// canonical pkgKey ("<CompilingPkg>.<fname>") before falling back to bare.
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
 		key := fname
 		if !strings.HasPrefix(fname, "#") {

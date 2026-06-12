@@ -1005,7 +1005,14 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		if id.IsBoolOp() {
 			return p.Symbols["bool"].Type, 1 + l1 + l2
 		}
-		// Arithmetic / bitwise: result type follows from operands.
+		// Arithmetic / bitwise: result type follows from operands. An untyped
+		// literal adopts the other operand's type (`2 * x` is float64 when x
+		// is), except shifts, whose type is always the left operand's.
+		lit1 := l1 == 1 && in[l-l2-1].Tok.IsLiteral()
+		lit2 := l2 == 1 && in[l-1].Tok.IsLiteral()
+		if id != lang.Shl && id != lang.Shr && typ2 != nil && lit1 && !lit2 {
+			return typ2, 1 + l1 + l2
+		}
 		if typ1 != nil {
 			return typ1, 1 + l1 + l2
 		}

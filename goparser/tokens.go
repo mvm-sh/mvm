@@ -134,9 +134,17 @@ func newNext(label string, pos, n int) Token          { return newToken(lang.Nex
 func newGrow(size, pos int, cellRet, cellParams []int) Token {
 	return newToken(lang.Grow, "", pos, size, cellRet, cellParams)
 }
-func newSemicolon(pos int) Token                  { return newToken(lang.Semicolon, "", pos) }
-func newDrop(pos int) Token                       { return newToken(lang.Drop, "", pos) }
-func newEqualSet(pos int) Token                   { return newToken(lang.EqualSet, "", pos) }
+func newSemicolon(pos int) Token { return newToken(lang.Semicolon, "", pos) }
+func newDrop(pos int) Token      { return newToken(lang.Drop, "", pos) }
+
+// newEqualSet carries the switch operand's type (nil if unknown) so the
+// compiler can fold an untyped-const case value to it.
+func newEqualSet(pos int, opTyp *vm.Type) Token {
+	if opTyp == nil {
+		return newToken(lang.EqualSet, "", pos)
+	}
+	return newToken(lang.EqualSet, "", pos, opTyp)
+}
 func newReturn(pos int) Token                     { return newToken(lang.Return, "", pos) }
 func newJumpSetFalse(label string, pos int) Token { return newToken(lang.JumpSetFalse, label, pos) }
 func newJumpSetTrue(label string, pos int) Token  { return newToken(lang.JumpSetTrue, label, pos) }

@@ -367,12 +367,15 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 		out = init
 	}
 	condSwitch := false
+	var opTyp *vm.Type
 	if len(cond) > 0 {
 		if cond, err = p.parseExpr(cond, ""); err != nil {
 			return nil, err
 		}
 		out = append(out, cond...)
 		condSwitch = true
+		// Operand type for untyped-const case folding; postfixType is pure.
+		opTyp, _ = p.postfixType(cond)
 	}
 	// Split switch body into case clauses.
 	clauses, err := p.scanBlock(in[len(in)-1].Token, true)
@@ -389,7 +392,7 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 	nc := len(sc) - 1
 	prevFallthrough := false
 	for i, cl := range sc {
-		co, hasFallthrough, err := p.parseCaseClause(cl, i, nc, condSwitch, needDrop, prevFallthrough)
+		co, hasFallthrough, err := p.parseCaseClause(cl, i, nc, condSwitch, needDrop, prevFallthrough, opTyp)
 		if err != nil {
 			return nil, err
 		}
@@ -548,7 +551,7 @@ func (p *Parser) parseTypeSwitchClause(in Tokens, index, maximum int, tsName, va
 	return out, nil
 }
 
-func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, needDrop, prevFallthrough bool) (out Tokens, hasFallthrough bool, err error) {
+func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, needDrop, prevFallthrough bool, opTyp *vm.Type) (out Tokens, hasFallthrough bool, err error) {
 	in = append(in, newSemicolon(in[len(in)-1].Pos)) // Force a ';' at the end of body clause.
 	var conds, body Tokens
 	// Split on the first colon only: later colons belong to the body (e.g. a label).
@@ -599,7 +602,7 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 		if len(cond) > 0 {
 			out = append(out, cond...)
 			if condSwitch {
-				out = append(out, newEqualSet(cond[0].Pos))
+				out = append(out, newEqualSet(cond[0].Pos, opTyp))
 			}
 			if isMulti && i < len(lcond)-1 {
 				out = append(out, newJumpFalse(caseLabel(p.scope, index, i+1), cond[len(cond)-1].Pos))
@@ -787,7 +790,7 @@ func (p *Parser) parseSelect(in Tokens) (out Tokens, err error) {
 		out = append(out, newLabel(caseLabel(p.scope, i, 0), 0))
 		if i < nc {
 			out = append(out, newToken(lang.Int, strconv.Itoa(i), pos))
-			out = append(out, newEqualSet(pos))
+			out = append(out, newEqualSet(pos, nil))
 			out = append(out, newJumpFalse(caseLabel(p.scope, i+1, 0), pos))
 		} else {
 			// Last case: drop the chosen index left on the stack by prior EqualSet misses.

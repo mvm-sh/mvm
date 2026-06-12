@@ -2007,10 +2007,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				for i, r := range rhs {
 					typ := r.Type
 					if typ == nil {
-						if !r.Value.Reflect().IsValid() {
+						switch {
+						case r.Name == "nil" && lhs[i].Type != nil:
+							// Bare nil to a same-scope := rebind is an assignment to
+							// the already-typed var (`wasEmpty, empty := empty, nil`).
+							if !isNilableType(lhs[i].Type) {
+								return c.errAt(t, "cannot use nil as %s value in assignment", lhs[i].Type)
+							}
+							typ = lhs[i].Type
+						case !r.Value.Reflect().IsValid():
 							return c.errUndef(t, lhs[i].Name)
+						default:
+							typ = vm.TypeOf(r.Value.Interface())
 						}
-						typ = vm.TypeOf(r.Value.Interface())
 					}
 					lhs[i].Type = typ
 					if !lhs[i].NeedsCell() {
@@ -2021,6 +2030,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					lhs[i].Used = true
 				}
 				for i := n - 1; i >= 0; i-- {
+					if rhs[i].Type == nil && rhs[i].Name == "nil" {
+						// Typed-nil coerce for concrete nilable LHS types.
+						c.emitNilCoerce(t, rhs[i], lhs[i].Type, 0)
+					}
 					if lhs[i].NeedsCell() {
 						// Convert to the declared type so the cell is typed *T, not *int.
 						if isNumericConvType(lhs[i].Type) {
@@ -2274,7 +2287,26 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 2); err != nil {
 				return err
 			}
-			push(&symbol.Symbol{Type: booleanOpType(pop(), pop())})
+			s2Start := codeStarts[len(stack)-1]
+			s2, s1 := pop(), pop()
+			// A case compare is `operand == value`: fold/convert an untyped-const
+			// case value to the switch operand's type, as lang.Equal does. The
+			// type rides on the token: the model's s1 entry is not the operand
+			// past the first case of the chain. Same guards as lang.Equal: a
+			// typed mismatched case value is a compile error, and a case
+			// constant must be representable (no silent runtime truncation).
+			if len(t.Arg) > 0 {
+				if opTyp, ok := t.Arg[0].(*vm.Type); ok && opTyp != nil {
+					if err := c.errIfMismatch(t, &symbol.Symbol{Kind: symbol.Var, Type: opTyp}, s2); err != nil {
+						return err
+					}
+					if err := c.errIfUnrepresentable(t, s2, opTyp); err != nil {
+						return err
+					}
+					c.convertOperand(t, s2, s2Start, opTyp, 0)
+				}
+			}
+			push(&symbol.Symbol{Type: booleanOpType(s2, s1)})
 			c.emit(t, vm.EqualSet)
 
 		case lang.Ident:
@@ -3322,6 +3354,32 @@ func (c *Compiler) errIfMismatch(t goparser.Token, left, right *symbol.Symbol) e
 		return nil
 	}
 	return c.errAt(t, "invalid operation: mismatched types %s and %s", lt, rt)
+}
+
+// isNilableType reports a type whose values can be nil (assignable from bare nil).
+func isNilableType(t *vm.Type) bool {
+	switch t.Kind() {
+	case reflect.Interface, reflect.Slice, reflect.Map, reflect.Pointer,
+		reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return true
+	}
+	return false
+}
+
+// errIfUnrepresentable rejects an untyped constant that cannot be represented
+// in typ, as gc does: integer-range overflow, or a non-integer constant for an
+// integer type ("constant 2.5 truncated to integer").
+func (c *Compiler) errIfUnrepresentable(t goparser.Token, s *symbol.Symbol, typ *vm.Type) error {
+	if s.Kind != symbol.Const || s.Cval == nil || typ == nil {
+		return nil
+	}
+	if goparser.OverflowsType(s.Cval, typ) {
+		return c.errOverflow(t, s.Cval, typ)
+	}
+	if k := typ.Kind(); k >= reflect.Int && k <= reflect.Uintptr && constant.ToInt(s.Cval).Kind() != constant.Int {
+		return c.errAt(t, "constant %v truncated to integer", s.Cval)
+	}
+	return nil
 }
 
 func isVarKind(s *symbol.Symbol) bool {

@@ -999,22 +999,68 @@ func (m *Machine) Run() (err error) {
 	panicAddr := m.panicAddr()
 	deferRetBits := uint64(deferRetAddr)
 
-	mem, ip, fp := m.mem, m.ip, m.fp
-	sp := len(mem) - 1
-	// Extend mem to full capacity so all writes up to cap are in bounds.
-	mem = mem[:cap(mem)]
-
 	// Hoist trace flags into a register-resident local so the hot-loop check
 	// is a single compare-against-zero on a register. Toggles via
 	// SetTracing/SetTraceOps don't take effect until the next Run() entry.
 	traceFlags := m.traceFlags
 
 	defer func() {
-		m.mem, m.ip, m.fp = mem[:sp+1], ip, fp
 		if sentAppended {
 			m.code = m.code[:sentBase]
 		}
 		m.baseCodeLen = savedBaseCodeLen
+	}()
+
+	// Re-enter the dispatch loop each time it converts a catchable runtime
+	// panic from an interpreted opcode into an mvm panic (done=false: m.ip
+	// was staged at the unwind sentinel, so defers and recover() run).
+	for {
+		done, lerr := m.runLoop(traceFlags, panicAddr, deferRetAddr, deferRetBits)
+		if done {
+			return lerr
+		}
+	}
+}
+
+// opPanicCatchable reports whether a Go panic raised by an interpreted opcode
+// (not a native call) is a user-level runtime panic that Go programs can
+// recover: index/slice bounds, divide by zero, and reflect's equivalents for
+// container ops. VM-internal faults (reflect.ValueError, nil derefs inside VM
+// code) stay uncatchable so they surface as crashes, not as program panics.
+func opPanicCatchable(r any) bool {
+	switch v := r.(type) {
+	case string:
+		return strings.HasPrefix(v, "reflect:") &&
+			(strings.Contains(v, "out of range") || strings.Contains(v, "slice bounds"))
+	case runtime.Error:
+		s := v.Error()
+		return strings.Contains(s, "index out of range") ||
+			strings.Contains(s, "slice bounds out of range") ||
+			strings.Contains(s, "divide by zero")
+	}
+	return false
+}
+
+// runLoop executes the dispatch loop until program exit or an unrecovered
+// panic (done=true). A catchable Go runtime panic from an interpreted op is
+// converted into an mvm panic at the faulting instruction (done=false), so an
+// interpreted recover() catches it like a native-call panic (see invokeNative).
+func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRetBits uint64) (done bool, err error) {
+	mem, ip, fp := m.mem, m.ip, m.fp
+	sp := len(mem) - 1
+	// Extend mem to full capacity so all writes up to cap are in bounds.
+	mem = mem[:cap(mem)]
+
+	defer func() {
+		m.mem, m.ip, m.fp = mem[:sp+1], ip, fp
+		if r := recover(); r != nil {
+			if !opPanicCatchable(r) {
+				panic(r)
+			}
+			m.panicking = true
+			m.panicVal = FromReflect(reflect.ValueOf(r))
+			m.ip = m.stageUnwindAt(ip, fp, mem)
+		}
 	}()
 
 	for {
@@ -1546,7 +1592,12 @@ func (m *Machine) Run() (err error) {
 						rv = rv.Elem()
 					}
 					rt := rv.Type()
-					if !hasNativeMethod(rt, m.MethodNames[methodID]) {
+					// A synth rtype's native methods are stubs back into the
+					// interpreter; prefer direct compiled-method dispatch. It
+					// keeps an interface-typed result in mvm Iface form rather
+					// than losing it in the stub's result marshaling (a synth
+					// iface the concrete synth rtype does not implement).
+					if !hasNativeMethod(rt, m.MethodNames[methodID]) || isSynthOrSynthPtr(rt) {
 						if t := m.typeByRtype(rt); t != nil && t.ResolveMethodType(methodID) != nil {
 							mem[sp] = Value{ref: reflect.ValueOf(Iface{Typ: t, Val: Value{ref: rv}})}
 						}
@@ -1855,7 +1906,7 @@ func (m *Machine) Run() (err error) {
 			}
 
 		case Exit:
-			return err
+			return true, err
 		case Fnew:
 			if sp+1 >= len(mem) {
 				mem = growStack(mem, sp, 1)
@@ -3187,8 +3238,8 @@ func (m *Machine) Run() (err error) {
 			continue
 
 		case PanicUnwind:
-			if done, err := m.panicUnwind(&mem, &fp, &sp, &ip, panicAddr); done {
-				return err
+			if done, uerr := m.panicUnwind(&mem, &fp, &sp, &ip, panicAddr); done {
+				return true, uerr
 			}
 			continue
 		}
@@ -3484,6 +3535,14 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 		return mv
 	}
 	return reflect.Indirect(rv).MethodByName(name)
+}
+
+// isSynthOrSynthPtr reports a runtype-built rtype (or pointer to one).
+func isSynthOrSynthPtr(rt reflect.Type) bool {
+	if runtype.IsSynth(rt) {
+		return true
+	}
+	return rt.Kind() == reflect.Pointer && runtype.IsSynth(rt.Elem())
 }
 
 func hasNativeMethod(rt reflect.Type, name string) bool {
