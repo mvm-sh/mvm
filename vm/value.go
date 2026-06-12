@@ -416,9 +416,17 @@ func (v Value) Equal(u Value) bool {
 	// rather than reflect.Value.Equal's stricter Kind-must-match rule. mvm's
 	// own Iface wrapper is handled below; this only unwraps plain native ifaces.
 	if isNativeIface(v) {
+		// Against untyped nil, the non-nil interface itself is the operand:
+		// an eface holding a typed nil (e.g. any([]string(nil))) is != nil.
+		if !u.ref.IsValid() {
+			return false
+		}
 		v = FromReflect(v.ref.Elem())
 	}
 	if isNativeIface(u) {
+		if !v.ref.IsValid() {
+			return false
+		}
 		u = FromReflect(u.ref.Elem())
 	}
 	if v.IsIface() {

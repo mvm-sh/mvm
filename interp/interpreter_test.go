@@ -329,6 +329,11 @@ func TestCompare(t *testing.T) {
 		{n: "nil_neq_map", src: "var m map[string]string; m != nil", res: "false"},
 		{n: "nil_neq_slice", src: "s := []int{1}; s != nil", res: "true"},
 		{n: "nil_iface_conv", src: "err := error(nil); err == nil", res: "true"},
+		// A native eface holding a TYPED nil (here via the reflect bridge, the
+		// mapstructure decodePtr shape) is a non-nil interface: != nil.
+		{n: "nil_in_native_eface", src: `import "reflect"; type S struct{ V []string }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return x == nil }; f()`, res: "false"},
+		{n: "nil_in_native_eface_lhs", src: `import "reflect"; type S struct{ V map[string]int }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return nil == x }; f()`, res: "false"},
+		{n: "nil_native_eface_isnil", src: `import "reflect"; type S struct{ V []string }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return reflect.ValueOf(x).IsNil() }; f()`, res: "true"},
 	})
 }
 

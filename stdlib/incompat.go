@@ -128,6 +128,11 @@ var Incompat = map[string]map[string]string{
 		"TestNoDirExists": "upstream-red: asserts ../_codegen exists, but the dir is omitted from the published module (go test fails natively too)",
 	},
 
+	"github.com/mitchellh/mapstructure": {
+		"TestDecode_NilInterfaceHook":    "bridge type erasure: interface-typed struct fields materialize as interface{}, so the hook's to.String() == \"io.Writer\" never matches",
+		"TestDecode_DecodeHookInterface": "bridge type erasure: interface-typed struct fields materialize as interface{}, so the hook's to == reflect.TypeOf((*Interface)(nil)).Elem() never matches",
+	},
+
 	"github.com/sirupsen/logrus": {
 		"TestNestedLoggingReportsCorrectCaller": "asserts caller frame.File == cwd-relative on-disk path; virtualized runtime.Callers reports the modfs source path (func and line do match)",
 		"TestCallerReportingOverhead":           "wall-clock bound: 5000 log calls under 1s is a native-speed assertion; interpreted execution exceeds it",
