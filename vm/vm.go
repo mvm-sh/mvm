@@ -395,6 +395,16 @@ type Machine struct {
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
+	// trampBase, when non-zero, marks code as a shared pooledCode slice: the
+	// Run sentinels sit at trampBase and the static Call/Exit trampoline table
+	// follows, so re-entry never appends to code (an append on the shared
+	// capacity-capped slice would copy the whole program). See ensurePooledCode.
+	trampBase       int
+	pooledCode      []Instruction // cached shared runner code (built by ensurePooledCode)
+	pooledCodeBase  int           // baseCodeLen pooledCode was built from
+	pooledCodeEpoch int           // codeEpoch pooledCode was built at
+	codeEpoch       int           // bumped by TrimCode: trim+regrow can hit the same length with different content
+
 	funcFields   *funcFieldsTable // see funcFieldsTable doc
 	funcWrappers *funcWrapTable   // see funcWrapTable doc
 	typesByRtype *typesIndex      // see typesIndex doc
@@ -966,10 +976,17 @@ func (m *Machine) Run() (err error) {
 	// Save baseCodeLen too: a re-entrant Run (CallFunc from a native callback)
 	// overwrites it, and panicAddr() reads it freshly, so leaving the inner value
 	// would point stageUnwind at a sentinel that the code trim below removed.
+	// A pooledCode machine (trampBase != 0) has the sentinels baked in at
+	// trampBase and must not append: its code is shared read-only.
 	savedBaseCodeLen := m.baseCodeLen
-	sentBase := len(m.code)
+	sentBase := m.trampBase
+	sentAppended := false
+	if sentBase == 0 {
+		sentBase = len(m.code)
+		m.code = append(m.code, Instruction{Op: DeferRet}, Instruction{Op: PanicUnwind}, Instruction{Op: Exit})
+		sentAppended = true
+	}
 	m.baseCodeLen = sentBase
-	m.code = append(m.code, Instruction{Op: DeferRet}, Instruction{Op: PanicUnwind}, Instruction{Op: Exit})
 	deferRetAddr := sentBase
 	panicAddr := m.panicAddr()
 	deferRetBits := uint64(deferRetAddr)
@@ -986,7 +1003,9 @@ func (m *Machine) Run() (err error) {
 
 	defer func() {
 		m.mem, m.ip, m.fp = mem[:sp+1], ip, fp
-		m.code = m.code[:sentBase]
+		if sentAppended {
+			m.code = m.code[:sentBase]
+		}
 		m.baseCodeLen = savedBaseCodeLen
 	}()
 
@@ -3953,8 +3972,9 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 // multiply retained memory.
 type runnerState struct {
 	globals         []Value
-	code            []Instruction
+	code            []Instruction // shared pooledCode (prefix + sentinels + trampolines)
 	baseCodeLen     int
+	trampBase       int
 	out, err        io.Writer
 	methodNames     []string
 	methodFuncTypes []reflect.Type
@@ -3984,12 +4004,52 @@ func (m *Machine) ensureSharedTables() {
 	}
 }
 
+// Trampoline-table arity bounds; calls above them fall back to the append path.
+const trampMaxArgs, trampMaxRets = 16, 16
+
+// ensurePooledCode (re)builds the shared runner code: the immutable compiled
+// prefix, the three Run sentinels at the same offsets Run would append them
+// (so panicAddr/exitAddr conventions hold), and a static Call/Exit trampoline
+// per (narg, nret) pair. Runners and goroutine machines share it read-only, so
+// pooled re-entry never appends -- an append on the previous capacity-capped
+// slice copied the whole program per call (the cast OOM). Rebuilt when
+// baseCodeLen changes (new Eval, TrimCode); same single-threaded contract as
+// ensureSharedTables.
+func (m *Machine) ensurePooledCode() {
+	if m.pooledCode != nil && m.pooledCodeBase == m.baseCodeLen && m.pooledCodeEpoch == m.codeEpoch {
+		return
+	}
+	base := m.baseCodeLen
+	code := make([]Instruction, base, base+3+(trampMaxArgs+1)*(trampMaxRets+1)*2)
+	copy(code, m.code[:base])
+	code = append(code, Instruction{Op: DeferRet}, Instruction{Op: PanicUnwind}, Instruction{Op: Exit})
+	for a := 0; a <= trampMaxArgs; a++ {
+		for r := 0; r <= trampMaxRets; r++ {
+			code = append(code, Instruction{Op: Call, A: int32(a), B: int32(r)}, Instruction{Op: Exit})
+		}
+	}
+	m.pooledCode = code
+	m.pooledCodeBase = base
+	m.pooledCodeEpoch = m.codeEpoch
+}
+
+// trampolineIP returns the static Call trampoline address for an arity pair,
+// or ok=false when this machine has no table or the arity is out of bounds.
+func (m *Machine) trampolineIP(narg, nret int) (int, bool) {
+	if m.trampBase == 0 || narg > trampMaxArgs || nret > trampMaxRets {
+		return 0, false
+	}
+	return m.trampBase + 3 + (narg*(trampMaxRets+1)+nret)*2, true
+}
+
 func (m *Machine) captureRunnerState() *runnerState {
 	m.ensureSharedTables()
+	m.ensurePooledCode()
 	return &runnerState{
 		globals:         m.globals,
-		code:            m.code[:m.baseCodeLen:m.baseCodeLen],
-		baseCodeLen:     m.baseCodeLen,
+		code:            m.pooledCode,
+		baseCodeLen:     m.pooledCodeBase,
+		trampBase:       m.pooledCodeBase,
 		out:             m.out,
 		err:             m.err,
 		methodNames:     m.MethodNames,
@@ -4017,6 +4077,10 @@ func (rs *runnerState) acquireRunner() *Machine {
 	m.globals = rs.globals
 	m.code = rs.code
 	m.baseCodeLen = rs.baseCodeLen
+	m.trampBase = rs.trampBase
+	m.pooledCode = rs.code
+	m.pooledCodeBase = rs.baseCodeLen
+	m.codeEpoch, m.pooledCodeEpoch = 0, 0 // runners never trim; keep the cache hit-condition true
 	m.out = rs.out
 	m.err = rs.err
 	m.MethodNames = rs.methodNames
@@ -4289,13 +4353,18 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 		m.mem = append(m.mem, FromReflect(a))
 	}
 
-	// Temporarily append Call + Exit to drive the function to completion.
+	// Drive the function to completion via a static trampoline when one
+	// exists, else temporarily append Call + Exit.
 	narg := funcType.NumIn()
 	nret := funcType.NumOut()
-	callIP := len(m.code)
-	m.code = append(m.code, Instruction{Op: Call, A: int32(narg), B: int32(nret)})
-	m.code = append(m.code, Instruction{Op: Exit})
-	m.ip = callIP
+	if ip, ok := m.trampolineIP(narg, nret); ok {
+		m.ip = ip
+	} else {
+		callIP := len(m.code)
+		m.code = append(m.code, Instruction{Op: Call, A: int32(narg), B: int32(nret)})
+		m.code = append(m.code, Instruction{Op: Exit})
+		m.ip = callIP
+	}
 	m.fp = 0
 
 	if err := m.Run(); err != nil {
@@ -4315,10 +4384,14 @@ func (m *Machine) callPooled(fval Value, funcType reflect.Type, args []reflect.V
 	}
 	narg := funcType.NumIn()
 	nret := funcType.NumOut()
-	callIP := len(m.code)
-	m.code = append(m.code, Instruction{Op: Call, A: int32(narg), B: int32(nret)})
-	m.code = append(m.code, Instruction{Op: Exit})
-	m.ip = callIP
+	if ip, ok := m.trampolineIP(narg, nret); ok {
+		m.ip = ip
+	} else {
+		callIP := len(m.code)
+		m.code = append(m.code, Instruction{Op: Call, A: int32(narg), B: int32(nret)})
+		m.code = append(m.code, Instruction{Op: Exit})
+		m.ip = callIP
+	}
 	m.fp = 0
 
 	if err := m.Run(); err != nil {
@@ -4431,11 +4504,14 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		return true
 	}
 
+	m.ensureSharedTables()
+	m.ensurePooledCode()
+
 	// Pre-build the call frame: [fval, args..., deferHead, retIP+info, prevFP].
-	// The return address targets the Exit sentinel appended by Run() at baseCodeLen+2.
+	// The return address targets the Exit sentinel baked in at trampBase+2.
 	narg := len(args)
 	frameBase := narg + 4
-	exitAddr := m.baseCodeLen + 2
+	exitAddr := m.pooledCodeBase + 2
 	mem := make([]Value, frameBase, frameBase+16)
 	mem[0] = fval
 	copy(mem[1:], args)
@@ -4443,7 +4519,6 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	mem[narg+2] = Value{num: packRetIP(exitAddr, 0, frameBase)}
 	mem[narg+3] = Value{num: 0} // prevFP = 0
 
-	m.ensureSharedTables()
 	// Arm the sink if EnableGoroutineFaults didn't (raw vm.Machine.Run); flag that
 	// a goroutine now exists so channel waits start watching for a fault.
 	if m.fault == nil {
@@ -4452,8 +4527,11 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	m.fault.spawned.Store(true)
 	child := &Machine{
 		globals:         m.globals,
-		code:            m.code[:m.baseCodeLen:m.baseCodeLen],
-		baseCodeLen:     m.baseCodeLen,
+		code:            m.pooledCode,
+		baseCodeLen:     m.pooledCodeBase,
+		trampBase:       m.pooledCodeBase,
+		pooledCode:      m.pooledCode,
+		pooledCodeBase:  m.pooledCodeBase,
 		heap:            heap,
 		ip:              nip,
 		fp:              frameBase,
@@ -4584,6 +4662,7 @@ func (m *Machine) PopExit() {
 func (m *Machine) TrimCode(n int) {
 	if n >= 0 && n < len(m.code) {
 		m.code = m.code[:n]
+		m.codeEpoch++
 	}
 }
 
