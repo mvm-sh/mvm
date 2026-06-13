@@ -101,8 +101,6 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 		if errors.Is(err, ErrMissingType) {
 			for _, lt := range decl.Split(lang.Comma) {
 				vars = append(vars, lt[0].Str)
-				name := p.pkgKey(lt[0].Str)
-				p.SymAdd(symbol.UnsetAddr, name, nilValue, symbol.Const, nil)
 			}
 		} else {
 			return out, err
@@ -111,6 +109,19 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 		// parseParamTypes scope-qualifies the names; pkgKey re-scopes below, so
 		// strip the prefix to avoid double-scoping a local typed const.
 		vars = baseNames(vars)
+	}
+	// A blank const binds nothing; rename to a unique throwaway so it never
+	// registers under the "_" key and shadows the blank ident in a later
+	// tuple-assign LHS (`_, n = f()`).
+	for i, v := range vars {
+		if v == "_" {
+			vars[i] = p.blankName()
+		}
+	}
+	if errors.Is(err, ErrMissingType) {
+		for _, name := range vars {
+			p.SymAdd(symbol.UnsetAddr, p.pkgKey(name), nilValue, symbol.Const, nil)
+		}
 	}
 	values := assign.Split(lang.Comma)
 	if len(values) == 1 && len(values[0]) == 0 {
