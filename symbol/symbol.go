@@ -267,8 +267,14 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				typName = namedName
 			case canonName != "":
 				typName = canonName
-			default:
+			case firstName != "":
 				typName = firstName
+			default:
+				// No identity match (mvm can build distinct *Type instances for one
+				// Go type across file-by-file / multi-pass compilation). Fall back to
+				// the receiver's own simple name so qualifiedMethodLookup can match
+				// the method's pkg-qualified key by package path + name.
+				typName = recv.Name
 			}
 		}
 		if sm.bareKeyTypeMatches(typName, sym.Type) {
@@ -355,7 +361,7 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *S
 		}
 		return sm["*"+k+"."+method]
 	}
-	var fallback *Symbol
+	var fallback, nameFallback *Symbol
 	for k, s := range sm {
 		if k == "" || s.Kind != Type || s.Type == nil || !strings.HasSuffix(k, suffix) {
 			continue
@@ -378,8 +384,18 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *S
 		if rt != nil && srt == rt && fallback == nil {
 			fallback = m
 		}
+		// A Go type is identified by package path + name, so a same-name/same-pkg
+		// receiver IS this type even when the *Type object identity differs --
+		// mvm can build distinct instances for one Go type across file-by-file or
+		// multi-pass compilation, so neither pointer nor rtype identity holds.
+		if nameFallback == nil && cv.Name != "" && cv.Name == rv.Name && cv.PkgPath == rv.PkgPath {
+			nameFallback = m
+		}
 	}
-	return fallback
+	if fallback != nil {
+		return fallback
+	}
+	return nameFallback
 }
 
 // methodLookup finds `<typName>.<method>` in sm. With Path B steps 1+2 done,

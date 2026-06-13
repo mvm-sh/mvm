@@ -60,3 +60,45 @@ func TestQualifiedMethodLookupPrefersExactType(t *testing.T) {
 		}
 	}
 }
+
+// TestMethodLookupCrossUniverse models the duplicated-type case seen compiling
+// google.golang.org/protobuf/internal/filedesc: mvm can build distinct *vm.Type
+// instances (and rtypes) for one Go type across file-by-file / multi-pass
+// compilation. The Enum reached through a slice-element field was a different
+// *Type than the registered Enum owning the pkg-qualified method keys, so a
+// method call resolved by *Type / canonical / rtype identity reported
+// "undefined: <method>". MethodByName now falls back to package-path + name,
+// which uniquely identifies a Go type, for both value and pointer receivers.
+func TestMethodLookupCrossUniverse(t *testing.T) {
+	const pkg = "google.golang.org/protobuf/internal/filedesc"
+	for round := 0; round < 200; round++ {
+		// regType owns the methods; recvVal is a same-Go-type instance from
+		// another compile universe (distinct *Type and distinct rtype).
+		regType := &vm.Type{Name: "Enum", PkgPath: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvVal := &vm.Type{Name: "Enum", PkgPath: "filedesc", Rtype: reflect.TypeOf(struct{ b int }{})}
+
+		valMethod := &Symbol{Kind: Func, Name: "unmarshalSeed", Index: 100}
+		ptrMethod := &Symbol{Kind: Func, Name: "Number", Index: 200}
+
+		sm := SymMap{
+			pkg + ".Enum":                     &Symbol{Kind: Type, Type: regType},
+			"Enum":                            &Symbol{Kind: Type, Type: regType},
+			"*" + pkg + ".Enum.unmarshalSeed": valMethod,
+			"*" + pkg + ".Enum.Number":        ptrMethod,
+		}
+
+		// Value receiver: fd...Enums.List[i].unmarshalSeed(...).
+		recv := &Symbol{Kind: Value, Type: recvVal}
+		got, _ := sm.MethodByName(recv, "unmarshalSeed")
+		if got == nil || got.Index != 100 {
+			t.Fatalf("round %d: value receiver: got %v, want method Index=100", round, got)
+		}
+
+		// Pointer receiver: d := &p.List[i]; d.Number().
+		recvPtr := &Symbol{Kind: Value, Type: vm.SymPtr(recvVal)}
+		got2, _ := sm.MethodByName(recvPtr, "Number")
+		if got2 == nil || got2.Index != 200 {
+			t.Fatalf("round %d: pointer receiver: got %v, want method Index=200", round, got2)
+		}
+	}
+}

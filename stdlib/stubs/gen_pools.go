@@ -68,7 +68,9 @@ var shapes = []shape{
 	// must carry its exact type for the call ABI.
 	{ID: "S19", Params: ", st fmt.ScanState, verb rune", ArgList: ", st, verb", Results: "error", Imports: []string{"fmt"}},
 	{ID: "S20", Params: ", value string", ArgList: ", value", Results: "error"}, // flag.Value.Set
-	{ID: "S21", Results: "bool"}, // flag.boolFlag.IsBoolFlag
+	// S21 (func() bool) is pervasive in generated protobuf descriptors
+	// (IsList/IsMap/IsWeak/HasPresence/...): the filedesc stack peaks at ~355.
+	{ID: "S21", Results: "bool", Size: 1024}, // flag.boolFlag.IsBoolFlag
 	// io/fs cluster.
 	{ID: "S22", Results: "int64"},                                                                                          // fs.FileInfo.Size
 	{ID: "S23", Results: "fs.FileMode", Imports: []string{"io/fs"}},                                                        // fs.FileInfo.Mode, fs.DirEntry.Type
@@ -87,7 +89,9 @@ var shapes = []shape{
 	{ID: "S35", Params: ", name string", ArgList: ", name", Results: "slog.Handler", Imports: []string{"log/slog"}},                                        // slog.Handler.WithGroup
 	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                      // slog.LogValuer.LogValue
 	{ID: "S37", Results: "(rune, int, error)"}, // io.RuneReader.ReadRune
-	{ID: "S38"}, // func() with no params or results (niladic marker methods)
+	// S38 (niladic marker methods) is pervasive in generated protobuf code
+	// (ProtoType/ProtoInternal markers): the filedesc stack peaks at ~316.
+	{ID: "S38", Size: 1024},
 }
 
 // wordShapes are the ABI word-class shapes: params and results as flat class
@@ -96,8 +100,14 @@ var shapes = []shape{
 // signature; grow it from the MVM_WORDDROPS report. See ADR-022 and
 // docs/modules/stubs.md.
 var wordShapes = []wordShape{
-	{Params: "", Results: "i"},
-	{Params: "", Results: "pp"},
+	// W_pp (niladic, interface/2-pointer-word result) and W_i (niladic int-word
+	// result) dominate descriptor-heavy code: compiling
+	// google.golang.org/protobuf's reflect/filedesc stack peaks at ~785 W_pp and
+	// ~410 W_i synthesized methods in one process. Slots are monotonic and never
+	// reclaimed, so size for the largest single-process attach count; the
+	// protobuf/grpc stack may need a further bump.
+	{Params: "", Results: "i", Size: 1024},
+	{Params: "", Results: "pp", Size: 2048},
 	{Params: "", Results: "pppp"},
 	{Params: "pi", Results: "pppp"},
 	{Params: "pi", Results: "piipp"},

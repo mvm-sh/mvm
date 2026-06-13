@@ -120,8 +120,28 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 	if methodSym != nil {
 		return methodSym
 	}
+	// Prefer the interpreted symbolic signature: it preserves named result types
+	// (e.g. an interface-returning method) regardless of reflect materialization
+	// order. ifaceSig (Out via reflect) may have erased a not-yet-materialized
+	// named-interface return to bare interface{}, hiding its method set.
+	if interpSig := ifaceMethodInterpSig(ifaceTyp, methodName); interpSig != nil && len(interpSig.Returns) > 0 {
+		return &symbol.Symbol{Kind: symbol.Value, Type: interpSig}
+	}
 	if ifaceSig != nil {
 		return &symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: ifaceSig}}
+	}
+	return nil
+}
+
+// ifaceMethodInterpSig returns the interpreted symbolic signature (a func *vm.Type
+// with symbolic Returns) for methodName on an interface type, or nil for a native
+// interface whose methods carry only a reflect Rtype.
+func ifaceMethodInterpSig(ifaceTyp *vm.Type, methodName string) *vm.Type {
+	ifaceTyp.EnsureIfaceMethods()
+	for _, im := range ifaceTyp.IfaceMethods {
+		if im.Name == methodName {
+			return im.Sig
+		}
 	}
 	return nil
 }
