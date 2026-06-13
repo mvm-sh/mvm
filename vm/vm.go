@@ -1791,6 +1791,13 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 							}
 						}
 					}
+					// Wrap an interface-target match in an Iface so a bare typed-nil
+					// pointer keeps its type instead of collapsing to a nil interface.
+					if matched && wrapTyp == nil && dstTyp.IsInterface() {
+						if ct := m.typeByRtype(rv.Type()); ct != nil {
+							wrapTyp = ct
+						}
+					}
 				}
 				if matched {
 					if wrapTyp != nil {
