@@ -1041,6 +1041,27 @@ func opPanicCatchable(r any) bool {
 	return false
 }
 
+// opRuntimeError is the recovered value for a reflect-raised opcode panic,
+// shaped like gc's runtime.Error ("runtime error: ..." message).
+type opRuntimeError string
+
+func (e opRuntimeError) Error() string { return "runtime error: " + string(e) }
+func (e opRuntimeError) RuntimeError() {}
+
+// normalizeOpPanic maps a reflect string panic ("reflect: slice index out of
+// range") to gc's runtime.Error shape; genuine runtime.Error values (e.g.
+// divide by zero) pass through unchanged.
+func normalizeOpPanic(r any) any {
+	s, ok := r.(string)
+	if !ok {
+		return r
+	}
+	if strings.Contains(s, "slice bounds") {
+		return opRuntimeError("slice bounds out of range")
+	}
+	return opRuntimeError("index out of range")
+}
+
 // runLoop executes the dispatch loop until program exit or an unrecovered
 // panic (done=true). A catchable Go runtime panic from an interpreted op is
 // converted into an mvm panic at the faulting instruction (done=false), so an
@@ -1058,7 +1079,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				panic(r)
 			}
 			m.panicking = true
-			m.panicVal = FromReflect(reflect.ValueOf(r))
+			m.panicVal = FromReflect(reflect.ValueOf(normalizeOpPanic(r)))
 			m.ip = m.stageUnwindAt(ip, fp, mem)
 		}
 	}()
@@ -1713,6 +1734,16 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// here because the method was registered directly on the value type
 				// (comp/compiler.go where it sets PtrRecv from the receiver token).
 				*cell = FromReflect(ifc.Val.Reflect().Elem())
+			}
+			// A value receiver is a copy: detach struct/array cells so the body
+			// gets an addressable receiver (an iface unbox is read-only) and the
+			// caller stays unmutated, matching detachByValueArgs at Call.
+			if !method.PtrRecv && cell.ref.IsValid() {
+				if k := cell.ref.Kind(); k == reflect.Struct || k == reflect.Array {
+					nv := reflect.New(cell.ref.Type()).Elem()
+					nv.Set(Exportable(cell.ref))
+					cell.ref = nv
+				}
 			}
 			mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
 

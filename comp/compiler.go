@@ -2219,8 +2219,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if err := checkTopN(t, 2); err != nil { // check rhs and pointer target
 				return err
 			}
-			pop() // rhs
-			pop() // lhs (pointer, not yet dereferenced)
+			rhsStart := codeStarts[len(stack)-1]
+			rhs := pop()
+			lhs := pop() // pointer, not yet dereferenced
+			if lhs.Type != nil && lhs.Type.IsPtr() {
+				c.convertOperand(t, rhs, rhsStart, lhs.Type.Elem(), 0)
+			}
 			c.emit(t, vm.DerefSet)
 
 		case lang.IndexAssign:
@@ -2251,10 +2255,15 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 				}
 			}
+			// Coerce value (and map key) to the container's elem/key type:
+			// an untyped const folds at compile time, else runtime Convert.
 			switch kind {
 			case reflect.Array, reflect.Slice:
+				c.convertOperand(t, stack[len(stack)-1], codeStarts[len(stack)-1], typ.Elem(), 0)
 				c.emit(t, vm.IndexSet)
 			case reflect.Map:
+				c.convertOperand(t, stack[len(stack)-1], codeStarts[len(stack)-1], typ.Elem(), 0)
+				c.convertOperand(t, stack[len(stack)-2], codeStarts[len(stack)-2], typ.Key(), 1)
 				c.emit(t, vm.MapSet)
 			default:
 				return c.errAt(t, "not a map or array: %s", s.Name)

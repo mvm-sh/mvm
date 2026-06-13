@@ -318,6 +318,12 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		}
 		return reserveNamedCarrier(t, layoutRT)
 	}
+	if !t.Defined && t.Base != nil {
+		// A parser clone of an unnamed method-carrying base (a `f *T` struct
+		// field clones *T with the methods copied, Base.Name == "" so the
+		// isFieldClone gate misses): the field name is not an identity.
+		return layoutRT
+	}
 	return reserveValueAndPtr(t, layoutRT)
 }
 

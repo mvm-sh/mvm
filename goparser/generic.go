@@ -1068,6 +1068,9 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				var ct *vm.Type
 				if s, _, ok := p.Symbols.Get(t.Str, p.scope); ok {
 					ct = symbol.Vtype(s)
+				} else if s, ok := p.Symbols[p.anonFuncKey(t.Str)]; ok {
+					// Anon closures are keyed per-package (anonFuncKey).
+					ct = symbol.Vtype(s)
 				}
 				return ct, l - j + 1
 			}
