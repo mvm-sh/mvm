@@ -202,8 +202,19 @@ func hasReservableMethods(t *mtype.Type) bool {
 func hasPromotedShapedMethods(t *mtype.Type) bool {
 	for _, emb := range t.Embedded {
 		ft := embeddedFieldRtype(t, emb)
-		if ft == nil || ft.Kind() == reflect.Interface {
-			continue // reflect.StructOf already promotes embedded-interface methods
+		if ft == nil {
+			continue
+		}
+		if ft.Kind() == reflect.Interface || (emb.Type != nil && emb.Type.IsInterface()) {
+			// A multi-field struct embedding a method-bearing interface gets no
+			// reflect.StructOf promotion (BuildStructRtype leaves the field
+			// non-Anonymous to avoid a StructOf panic), so its promoted EmbedIface
+			// methods are synth-attached and the struct must be reserved. Single-field
+			// embeds are StructOf-promoted, but over-reserving is safe.
+			if embIfaceHasShapedMethod(emb.Type) {
+				return true
+			}
+			continue
 		}
 		sets := []reflect.Type{ft}
 		if ft.Kind() != reflect.Pointer {
@@ -228,6 +239,44 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 		// the mvm graph too. Over-reserving is safe (the reserve gate is a
 		// superset of the attach trigger).
 		if embTypeHasMethods(emb.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func sigHasSynthShape(sig reflect.Type) bool {
+	erased := eraseSynthIfaceParams(sig)
+	if _, ok := detectShape(erased); ok {
+		return true
+	}
+	return wordShapeAvailable(erased)
+}
+
+func embIfaceHasShapedMethod(e *mtype.Type) bool {
+	if e == nil {
+		return false
+	}
+	if e.IsPtr() && e.ElemType != nil {
+		e = e.ElemType
+	}
+	if !e.IsInterface() {
+		return false
+	}
+	if e.Rtype == nil && len(e.IfaceMethods) == 0 {
+		// Method set not yet knowable. Reserve conservatively.
+		return true
+	}
+	e.EnsureIfaceMethods()
+	for _, im := range e.IfaceMethods {
+		sig := im.Rtype
+		if sig == nil && im.Sig != nil {
+			sig = materialize(im.Sig)
+		}
+		if sig == nil || sig.Kind() != reflect.Func {
+			return true // unknown sig: assume attachable, over-reserve
+		}
+		if sigHasSynthShape(sig) {
 			return true
 		}
 	}
@@ -270,11 +319,7 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 		if sig == nil {
 			return true // unknown sig: assume table method, don't share
 		}
-		erased := eraseSynthIfaceParams(sig)
-		if _, ok := detectShape(erased); ok {
-			return true
-		}
-		if wordShapeAvailable(erased) {
+		if sigHasSynthShape(sig) {
 			return true
 		}
 	}
