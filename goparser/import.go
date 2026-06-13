@@ -464,6 +464,12 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 	p.batchFuncDecls = map[string]bool{}
 	defer func() { p.batchFuncDecls = savedBatch }()
 
+	// Fresh generation per resolveDecls (nestable), gating type reuse; see reuseDeclaredType.
+	savedGen := p.curGen
+	p.genCounter++
+	p.curGen = p.genCounter
+	defer func() { p.curGen = savedGen }()
+
 	p.preRegisterTypes(decls)
 	p.preRegisterGenericFuncs(decls)
 
@@ -614,14 +620,35 @@ func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
 	}
 }
 
-func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
-	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
-		s.Type != nil &&
-		s.Type.Kind() == reflect.Struct && s.Type.Placeholder {
+func (p *Parser) recordTypeGen(t *vm.Type) {
+	if p.typeGen == nil {
+		p.typeGen = map[*vm.Type]int{}
+	}
+	p.typeGen[t] = p.curGen
+}
+
+// reuseDeclaredType returns an existing same-key type to reuse, or nil.
+// It reuses an unfilled placeholder, or one filled in the current generation so a
+// fixpoint re-parse of a grouped decl keeps one identity instead of minting a twin.
+// A type filled by a prior compile (REPL redefinition) is older, so it gets a fresh one.
+func (p *Parser) reuseDeclaredType(key string, kind reflect.Kind) *vm.Type {
+	s, ok := p.Symbols[key]
+	if !ok || s.Kind != symbol.Type || s.Type == nil || s.Type.Kind() != kind {
+		return nil
+	}
+	if s.Type.Placeholder || p.typeGen[s.Type] == p.curGen {
 		return s.Type
+	}
+	return nil
+}
+
+func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
+	if t := p.reuseDeclaredType(key, reflect.Struct); t != nil {
+		return t
 	}
 	ph := vm.NewStructType(short)
 	ph.Name = short
+	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }
@@ -629,22 +656,22 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 // registerNamedPlaceholder registers or reuses a kind-agnostic placeholder for a
 // self-referential composite named type, filled in place by parseTypeLine.
 func (p *Parser) registerNamedPlaceholder(key, short string) *vm.Type {
-	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
-		s.Type != nil && s.Type.Placeholder {
+	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type && s.Type != nil &&
+		(s.Type.Placeholder || p.typeGen[s.Type] == p.curGen) {
 		return s.Type
 	}
 	ph := &vm.Type{Name: short, Placeholder: true}
+	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }
 
 func (p *Parser) registerInterfacePlaceholder(key, short string) *vm.Type {
-	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type &&
-		s.Type != nil && s.Type.Rtype != nil &&
-		s.Type.Kind() == reflect.Interface && s.Type.Placeholder {
-		return s.Type
+	if t := p.reuseDeclaredType(key, reflect.Interface); t != nil {
+		return t
 	}
 	ph := &vm.Type{Rtype: vm.AnyRtype, Name: short, Placeholder: true}
+	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }

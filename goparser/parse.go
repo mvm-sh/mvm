@@ -55,6 +55,9 @@ type Parser struct {
 	blankSeq       int                   // counter for unique blank identifier names
 	namedOut       []string              // scoped names of named return vars for current function
 	symTracker     []string              // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
+	genCounter     int                   // monotonic source of resolveDecls generations
+	curGen         int                   // generation of the current resolveDecls (nestable; saved/restored)
+	typeGen        map[*vm.Type]int      // generation each declared placeholder *Type was minted in; gates reuse (see reuseDeclaredType)
 	batchFuncDecls map[string]bool       // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
 	instanceDecls  []DeferredDecl        // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
 	funcInstArgs   map[string][]*vm.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
