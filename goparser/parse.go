@@ -67,6 +67,7 @@ type Parser struct {
 	loopDepth      int                   // nesting depth of for loops (>0 means inside a loop)
 	instDepth      int                   // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
 	buildCtx       *buildContext         // build constraint context for file filtering
+	embeds         map[string][]byte     // //go:embed file bytes by canonical var key (single-file []byte/string only); see embed.go
 }
 
 // SymSet inserts sym at key in the symbol table, recording the key for potential rollback.

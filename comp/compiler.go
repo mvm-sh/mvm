@@ -523,7 +523,10 @@ func (c *Compiler) allocGlobalSlots() {
 		case symbol.Var:
 			s.Index = len(c.Data)
 			v := s.Value
-			if s.Type != nil {
+			if data, ok := c.EmbedBytes(s.Name); ok && s.Type != nil {
+				// //go:embed var: the file bytes are the initial (and final) slot value.
+				v = c.embedValue(s.Type, data)
+			} else if s.Type != nil {
 				// Re-allocate via vm.NewValue at the current rtype: an earlier
 				// vm.NewValue call (e.g. addSymVar at parse time) may have used
 				// a struct-placeholder rtype whose Size has since grown via
@@ -634,6 +637,18 @@ func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Valu
 		return vm.TypeValue(c.rtype(typ))
 	}
 	return vm.NewValue(c.rtype(typ))
+}
+
+// embedValue returns an addressable slot value of typ holding data (string or []byte).
+func (c *Compiler) embedValue(typ *vm.Type, data []byte) vm.Value {
+	rt := c.rtype(typ)
+	v := vm.NewValue(rt)
+	if rt.Kind() == reflect.String {
+		v.Set(reflect.ValueOf(string(data)).Convert(rt))
+	} else {
+		v.Set(reflect.ValueOf(data).Convert(rt))
+	}
+	return v
 }
 
 // FillTypeSlots settles deferred type Data slots to their final rtype, now that

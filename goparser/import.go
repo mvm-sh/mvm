@@ -100,6 +100,7 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 		if !matchBuildDirective(src, p.buildCtx) {
 			continue
 		}
+		p.scanEmbeds(fsys, dir, src)
 		out = append(out, PackageSource{Name: e.Name(), Content: src})
 	}
 	// Append overlays before the test handling, so the external-only unit
