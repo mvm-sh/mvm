@@ -26,6 +26,5 @@ func main() {
 	fmt.Println(s.X)
 }
 
-// skip: runtime checkptr rejects uintptr -> nsafe.Pointer under -race (VM reconstitutes the pointer from an integer, so Go's pointer-provenance tracking can't follow it). `go run . _samples/unsafe10.go` prints 3 correctly.
 // Output:
 // 3

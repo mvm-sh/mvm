@@ -286,6 +286,11 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			return s2.Type, 2, nil
 		}
 		if s.Kind != symbol.Type {
+			// An auto-import binding must yield to a package-level type of the same name.
+			// Defer as a forward reference so the fixpoint retries.
+			if s.Kind == symbol.Pkg && s.AutoImport {
+				return nil, 0, p.undef(in[0].Str, in[0])
+			}
 			return nil, 0, p.wrapAt(in[0], ErrInvalidType, "%s is not a type", in[0].Str)
 		}
 		return s.Type, 1, nil

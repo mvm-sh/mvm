@@ -10,13 +10,6 @@ import (
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
-// TestRedeclareAsImport guards the file-block vs package-block collision: a
-// top-level name (var/const/type/func) that clashes with an imported package
-// name in the same file. Go rejects it ("X already declared through import");
-// mvm previously clobbered the shared bare-key symbol, yielding a runtime
-// nil-deref (var) or a misleading "is not a type" (type). It must now be a
-// clean, located redeclaration error. A local shadow of an import is valid Go
-// and must still resolve.
 func TestRedeclareAsImport(t *testing.T) {
 	run(t, []etest{
 		{n: "var_vs_import", src: `import "sort"; var sort = 1; func run() int { return 0 }; run()`, err: "redeclared in this block"},
@@ -31,12 +24,6 @@ func TestRedeclareAsImport(t *testing.T) {
 	})
 }
 
-// TestVarNamedLikeOwnPackage guards against a false positive: a package
-// declaring a top-level var named like the package itself (gonum's blas64
-// declares `var blas64 blas.Float64`) is valid Go. The importing unit binds
-// the bare package name, and the package's deferred var decl (Phase 2) must
-// not be flagged as redeclared against that binding -- imports are
-// file-scoped, so only the declaring file's own aliases count.
 func TestVarNamedLikeOwnPackage(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "selfname"), 0o755); err != nil {
@@ -65,10 +52,25 @@ func Value() int { return selfname }
 	}
 }
 
-// TestRedeclareVsAutoImport guards against a false positive: in REPL/-e/test
-// mode every loaded package is ambient-bound under its short name (sort, bytes,
-// ...). A top-level decl of such a name with NO explicit import is valid Go and
-// must shadow the convenience binding, not be rejected as a redeclaration.
+func TestForwardTypeBaseShadowsAutoImport(t *testing.T) {
+	for _, name := range []string{"syntax", "bytes", "sort"} {
+		t.Run(name, func(t *testing.T) {
+			intp := interp.NewInterpreter(golang.GoSpec)
+			intp.ImportPackageValues(stdlib.Values)
+			intp.AutoImportPackages() // ambient-bind the short name as a Pkg symbol
+			// Outer's base is declared AFTER Outer, so the base is a forward ref.
+			src := "type Outer " + name + "; type " + name + " int8; func run() int { var v Outer = 2; return int(v) }; run()\n"
+			r, err := intp.Eval("t", src)
+			if err != nil {
+				t.Fatalf("forward type base %q: unexpected error %v", name, err)
+			}
+			if got := r.Interface(); got != 2 {
+				t.Fatalf("%s: got %v, want 2", name, got)
+			}
+		})
+	}
+}
+
 func TestRedeclareVsAutoImport(t *testing.T) {
 	for _, name := range []string{"sort", "bytes", "time"} {
 		t.Run(name, func(t *testing.T) {
