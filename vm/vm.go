@@ -4939,11 +4939,32 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 	if fv.Kind() == reflect.Interface && src.Kind() == reflect.Interface && src.Type() != fv.Type() {
 		src = interfaceToInterface(src, fv.Type())
 	}
+	// Before AssignableTo below, which infinite-loops on recursive cross-universe rtypes.
+	if src.IsValid() && src.Type() != fv.Type() {
+		if r, ok := reinterpretSameLayout(src, fv.Type()); ok {
+			fv.Set(r)
+			return
+		}
+	}
 	if src.IsValid() && src.Kind() == fv.Kind() && src.Type() != fv.Type() &&
 		!src.Type().AssignableTo(fv.Type()) && src.Type().ConvertibleTo(fv.Type()) {
 		src = src.Convert(fv.Type())
 	}
 	fv.Set(src)
+}
+
+// reinterpretSameLayout coerces src to dst when file-by-file compilation built one
+// Go type as two distinct rtypes (a methodless forward clone vs the canonical).
+// Same kind+size+String means identical layout, so the reinterpret is sound.
+// Only reached on the path that would otherwise panic in reflect.Set.
+func reinterpretSameLayout(src reflect.Value, dst reflect.Type) (reflect.Value, bool) {
+	st := src.Type()
+	if st.Kind() != dst.Kind() || st.Size() != dst.Size() || st.String() != dst.String() {
+		return reflect.Value{}, false
+	}
+	tmp := reflect.New(st)
+	tmp.Elem().Set(src)
+	return reflect.NewAt(dst, tmp.UnsafePointer()).Elem(), true
 }
 
 // unboxIfaceFor converts a boxed mvm Iface to a reflect value assignable to
