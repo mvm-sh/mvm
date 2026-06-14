@@ -118,8 +118,25 @@ func (p *Parser) symGet(name string) (*symbol.Symbol, string, bool) {
 		if qs, qok := p.Symbols[QualifyName(p.importingPkg, name)]; qok {
 			return qs, "", true
 		}
+		// Don't let another package's bare alias satisfy an unqualified reference
+		// here; defer so this package's own same-named decl registers first.
+		if ok && sc == "" && p.foreignBareAlias(s, name) {
+			return nil, "", false
+		}
 	}
 	return s, sc, ok
+}
+
+// foreignBareAlias reports whether s, found at bare key name while parsing
+// imported package p.importingPkg, is another package's symbol aliased to that
+// key by aliasTargetTopLevel. Such an alias has a qualified Name "<pkg>.<name>"
+// for a foreign pkg; a universe alias (byte -> uint8) or dot-import is not
+// qualified for name and is kept.
+func (p *Parser) foreignBareAlias(s *symbol.Symbol, name string) bool {
+	if s == nil || !strings.HasSuffix(s.Name, "."+name) {
+		return false
+	}
+	return s.Name != QualifyName(p.importingPkg, name)
 }
 
 // QualifyName composes the canonical pkg-qualified symbol-table key for a

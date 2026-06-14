@@ -550,6 +550,61 @@ func Use() int {
 	}
 }
 
+// TestRemoteTargetBareAliasShadowsImportLocal: compiling a target package aliases
+// its exports to bare keys (comp.aliasTargetTopLevel); a later imported package's
+// unqualified reference to its OWN same-named type must resolve to that local type,
+// not the leaked bare alias. Mirrors protobuf protocmp's `type reflectMessage
+// Message` binding to proto.Message instead of protocmp's local Message. Fixed in
+// goparser symGet (foreignBareAlias).
+func TestRemoteTargetBareAliasShadowsImportLocal(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/aliaser",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/aliaser\n",
+				// Compiled as the target: aliasTargetTopLevel exposes Shared at the
+				// bare key "Shared" (an interface).
+				"aliaser.go": "package aliaser\n\ntype Shared interface{ Mark() }\n",
+			},
+		},
+		remoteModule{
+			path:    "example.com/victim",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/victim\n",
+				// a_wrap.go sorts first, so `type Wrap Shared` is parsed before
+				// b_shared.go registers the local Shared -- the window in which the
+				// leaked bare alias would otherwise win. len() forces a map, so a
+				// resolution to the interface alias fails to compile.
+				"a_wrap.go": `package victim
+
+type Wrap Shared
+
+func Use() int { w := Wrap{"a": 1, "b": 2}; return len(w) }
+`,
+				"b_shared.go": "package victim\n\ntype Shared map[string]int\n",
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	// Compile the target package first so its exports leak to bare keys.
+	if _, err := i.Eval("example.com/aliaser", ""); err != nil {
+		t.Fatalf("Eval aliaser: %v", err)
+	}
+	if _, err := i.Eval("test", `import "example.com/victim"; println(victim.Use())`); err != nil {
+		t.Fatalf("Eval victim: %v", err)
+	}
+	if got, want := stdout.String(), "2\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestRemotePkgAliasCollision: two imported packages with the same directory
 // name (-> same default short alias `lang`) live at different paths. Main
 // imports both; the LAST main import to be processed SymSets bare `lang` to its
