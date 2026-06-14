@@ -507,11 +507,16 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 	ctype := typ.String()
 	key := ctype
+	// Qualify a named type under the compiling/importing package's canonical key
+	// only when the type actually belongs to that package. A composite literal of
+	// a FOREIGN package's type (e.g. protobuild.Message used in proto's test)
+	// must keep its own identity; keying it under the compiling pkg would clobber
+	// that pkg's same-named symbol (proto.Message, the ProtoMessage alias).
 	if typ.Name != "" {
 		switch {
-		case p.CompilingPkg != "":
+		case p.CompilingPkg != "" && p.typeBelongsTo(typ, p.CompilingPkg):
 			key = p.CompilingPkg + "." + typ.Name
-		case p.importingPkg != "":
+		case p.importingPkg != "" && p.typeBelongsTo(typ, p.importingPkg):
 			key = p.importingPkg + "." + typ.Name
 		}
 	}
