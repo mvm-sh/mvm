@@ -4319,17 +4319,14 @@ func (c *Compiler) compileBuiltin(
 			elemIdx := c.typeSym(makeElemType(typeSym.Type)).Index
 			c.emit(t, vm.MkSlice, -(narg - 1), elemIdx)
 		case reflect.Map:
-			// Canonical key type: keying on the canonical *Type lets the var slot
-			// observe the reserved map[key]V identity via FillTypeSlots. The value
-			// stays a detached snapshot.
-			keyIdx := c.typeSym(makeKeyType(typeSym.Type)).Index
-			valIdx := c.typeSym(typeSym.Type.Elem()).Index
+			// Slot for the full map type, not a rebuilt MapOf(key, val): keeps a
+			// named map type's identity so make(T) stays assignable to a T field/elem.
+			mapIdx := c.typeSym(typeSym.Type).Index
 			if narg >= 2 {
-				// make(map, size): a size hint sits on the stack. Signal MkMap to
-				// consume it by negating the key index (always >= 0 otherwise).
-				keyIdx = -(keyIdx + 1)
+				// make(map, size): negate the index to flag a size hint on the stack.
+				mapIdx = -(mapIdx + 1)
 			}
-			c.emit(t, vm.MkMap, keyIdx, valIdx)
+			c.emit(t, vm.MkMap, mapIdx, 0)
 		case reflect.Chan:
 			elemIdx := c.typeSym(typeSym.Type.ElemType).Index
 			if narg == 2 {
@@ -4585,16 +4582,6 @@ func makeElemType(container *vm.Type) *vm.Type {
 		return container.ElemType
 	}
 	return &vm.Type{Rtype: vm.MaterializeRtype(container).Elem()}
-}
-
-// makeKeyType returns the canonical mvm-level key type of a map type, falling
-// back to a fresh wrapper around the reflect key when the map was built
-// natively without an mvm-level KeyType link.
-func makeKeyType(container *vm.Type) *vm.Type {
-	if container.KeyType != nil {
-		return container.KeyType
-	}
-	return &vm.Type{Rtype: vm.MaterializeRtype(container).Key()}
 }
 
 // emitVariadicPack MkSlice-packs a deferred or go-spawned variadic call's

@@ -210,7 +210,10 @@ func buildMapOf(key, elem reflect.Type, keyRT, elemRT *abiType) reflect.Type {
 
 	b := new(abiMapType)
 	*b = *src
-	b.TFlag = 0
+	// Keep src's layout flags (esp. DirectIface -- a map is one word); clear only
+	// the name/uncommon bits we manage. Zeroing TFlag drops DirectIface, so boxing
+	// the map (reflect packEface) panics "bad indir".
+	b.TFlag = src.TFlag &^ (tflagNamed | tflagUncommon | tflagExtraStar)
 	b.Hash = nextSyntheticHash()
 	b.PtrToThis = 0
 	b.Str = addReflectOff(unsafe.Pointer(

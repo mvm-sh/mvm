@@ -203,6 +203,22 @@ func TestMapOfOnSynthStruct(t *testing.T) {
 	}
 }
 
+// A synth map is a one-word direct-iface value; boxing it must not panic
+// "bad indir" (buildMapOf used to zero TFlag, dropping tflagDirectIface).
+func TestMapOfIsDirectIface(t *testing.T) {
+	elem := synthStructForDerive(t, "DeriveMPI")
+	mt := MapOf(reflect.TypeOf(""), elem)
+	if rtypePtr(mt).TFlag&tflagDirectIface == 0 {
+		t.Errorf("synth map TFlag missing tflagDirectIface: %#x", rtypePtr(mt).TFlag)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("boxing synth map panicked: %v", r)
+		}
+	}()
+	_ = reflect.MakeMap(mt).Interface() // packs into an eface
+}
+
 // TestPointerToOnNativeElem proves the constructor works for native rtypes
 // too -- it doesn't depend on the elem being synth.
 func TestPointerToOnNativeElem(t *testing.T) {
