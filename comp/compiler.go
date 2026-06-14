@@ -187,6 +187,7 @@ func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 // Compile parses src and generates code and data, or returns a non-nil error.
 // Code and data are added incrementally in c.Code and C.Data.
 func (c *Compiler) Compile(name, src string) (err error) {
+	c.ResetUnitLabels()
 	// On failure, roll back to the pre-compile state so a half-compiled unit
 	// can't corrupt the next compile on this reused Compiler.
 	snap := c.SnapshotUnit()
@@ -223,6 +224,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 // declared in one file are visible to the others regardless of file or
 // declaration order. Backs `mvm run f1.go f2.go ...`.
 func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
+	c.ResetUnitLabels()
 	snap := c.SnapshotUnit()
 	cg := c.snapshotCodegen()
 	defer func() {
@@ -2503,7 +2505,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					labelKey = qk
 				}
 			}
-			if s, ok := c.labelSym(labelKey); ok {
+			// Route a func "_end" to the funcexit handling (else branch) via the
+			// per-compile funcStack, so a stale Label symbol from a prior committed
+			// compile can't divert it into the first branch and skip truncStack.
+			endBase, isEnd := strings.CutSuffix(t.Str, "_end")
+			isFuncEnd := isEnd && len(funcStack) > 0 && funcStack[len(funcStack)-1] == endBase
+			if s, ok := c.labelSym(labelKey); ok && !isFuncEnd {
 				s.Value = vm.ValueOf(lc)
 				if s.Kind == symbol.Func {
 					// Label is a function entry point, update its code address in data.
@@ -2542,10 +2549,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 				}
 			} else {
-				if before, ok0 := strings.CutSuffix(t.Str, "_end"); ok0 {
-					base := before
-					endKey := base
-					if qk := c.qualifyLabel(base); qk != base {
+				if isEnd {
+					endKey := endBase
+					if qk := c.qualifyLabel(endBase); qk != endBase {
 						if _, ok := c.Symbols[qk]; ok {
 							endKey = qk
 						}

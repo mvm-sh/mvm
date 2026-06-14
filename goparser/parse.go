@@ -449,6 +449,11 @@ func (p *Parser) ParseOneStmt(toks Tokens) (Tokens, error) {
 	return p.parseStmt(toks)
 }
 
+// ResetUnitLabels resets the per-scope label counter so re-parsing a unit on a
+// reused Parser is idempotent; labelCount is never decremented, so otherwise
+// scope names drift (for0 -> for1 -> ...) and desync closure captures.
+func (p *Parser) ResetUnitLabels() { clear(p.labelCount) }
+
 // TakeInstanceDecls returns and clears the queued generic-instance bodies.
 func (p *Parser) TakeInstanceDecls() []DeferredDecl {
 	d := p.instanceDecls

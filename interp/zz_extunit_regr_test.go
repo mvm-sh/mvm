@@ -286,3 +286,86 @@ func TestExternal(t *testing.T) {}
 		t.Fatalf("external unit: %v\nstderr: %s", err, stderr.String())
 	}
 }
+
+// Regression for recompiling a unit on the reused Compiler (the `mvm test`
+// drop-retry loop). Two recompile bugs: a stale func "_end" Label symbol skipped
+// the funcexit stack restore (leaking body locals so the `r.Run(...)` call
+// resolved to a body local: "call of non-func"), and the per-scope label counter
+// drifted (for0 -> for1) so a captured loop var resolved "undefined".
+// Compiles thrice without running (a re-emitted func label would hang the VM).
+func TestRecompileForLoopClosureFuncexit(t *testing.T) {
+	src := `package main
+
+type T struct{ name string }
+
+func (t *T) Run(name string, f func(t *T)) bool {
+	f(&T{name: name})
+	return true
+}
+
+func Driver(r *T) {
+	cases := []struct {
+		skip bool
+		want int
+	}{
+		{skip: false, want: 3},
+		{skip: true, want: 4},
+	}
+	for _, tc := range cases {
+		r.Run("", func(r *T) {
+			if tc.skip {
+				return
+			}
+			w := tc.want
+			_ = w + tc.want
+		})
+	}
+}
+
+func main() {}
+`
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	files := []goparser.PackageSource{{Name: "main.go", Content: src}}
+	for round := 0; round < 3; round++ {
+		if err := i.CompileFiles(files); err != nil {
+			t.Fatalf("compile round %d: %v", round, err)
+		}
+	}
+	// Every recompile must name the loop scope "Driver/for0..."; a drift desyncs
+	// the closure's captured-variable references.
+	for k := range i.Symbols {
+		if strings.HasPrefix(k, "Driver/for") && !strings.HasPrefix(k, "Driver/for0") {
+			t.Errorf("loop scope name drifted across recompiles: %q", k)
+		}
+	}
+}
+
+// Regression for recompiling a closure with its own parameters (proto's
+// `func unknown() func(m proto.Message)` helpers). The recompile took the
+// registerParamsFromSym path over the closure's empty InNames, registering no
+// params, so the body's `m` resolved "undefined: m".
+func TestRecompileClosureParam(t *testing.T) {
+	src := `package main
+
+type M struct{ v int }
+
+func (m *M) Inc() { m.v++ }
+
+func unknown() func(m *M) {
+	return func(m *M) {
+		m.Inc()
+	}
+}
+
+func main() { _ = unknown() }
+`
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	files := []goparser.PackageSource{{Name: "main.go", Content: src}}
+	for round := 0; round < 3; round++ {
+		if err := i.CompileFiles(files); err != nil {
+			t.Fatalf("compile round %d: %v", round, err)
+		}
+	}
+}

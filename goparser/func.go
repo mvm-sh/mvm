@@ -428,6 +428,13 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		}
 		s.Kind = symbol.Func
 		s.Type = typ
+		// Closures skip Phase-1 registerFunc, so record their param names here:
+		// a recompile sees s.Type set and registers params from InNames.
+		if s.InNames == nil && s.OutNames == nil {
+			if _, in2, out2, e2 := p.parseFuncSig(in[:bi]); e2 == nil {
+				s.InNames, s.OutNames = in2, out2
+			}
+		}
 	}
 	p.function = s
 
