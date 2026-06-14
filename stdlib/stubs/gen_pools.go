@@ -43,18 +43,20 @@ func (s shape) size() int {
 var shapes = []shape{
 	// S1 (Stringer/Error) is the only shape whose cumulative attaches overflow
 	// 256 in the test suite (~271); size generously to absorb suite growth.
-	{ID: "S1", Results: "string", Size: 2048},
+	// S1 (Stringer/Error) peaks at ~3144 attaches compiling protobuf/proto's
+	// test suite (~4.5x recompilation dup over ~692 distinct types).
+	{ID: "S1", Results: "string", Size: 4096},
 	{ID: "S2", Results: "([]byte, error)"},
-	{ID: "S3", Params: ", data []byte", ArgList: ", data", Results: "error"},
+	{ID: "S3", Params: ", data []byte", ArgList: ", data", Results: "error", Size: 512},
 	{ID: "S4", Params: ", target error", ArgList: ", target", Results: "bool"},
 	{ID: "S5", Params: ", target any", ArgList: ", target", Results: "bool"},
 	{ID: "S6", Results: "error"},
 	{ID: "S7", Results: "[]error"},
-	{ID: "S8", Results: "int"},                                                 // sort.Interface.Len
+	{ID: "S8", Results: "int", Size: 512},                                      // sort.Interface.Len
 	{ID: "S9", Params: ", i, j int", ArgList: ", i, j", Results: "bool"},       // sort.Interface.Less
 	{ID: "S10", Params: ", i, j int", ArgList: ", i, j"},                       // sort.Interface.Swap (void)
-	{ID: "S11", Params: ", x any", ArgList: ", x"},                             // heap.Interface.Push (void)
-	{ID: "S12", Results: "any"},                                                // heap.Interface.Pop
+	{ID: "S11", Params: ", x any", ArgList: ", x", Size: 1024},                 // heap.Interface.Push (void)
+	{ID: "S12", Results: "any", Size: 512},                                     // heap.Interface.Pop
 	{ID: "S13", Params: ", p []byte", ArgList: ", p", Results: "(int, error)"}, // io.Reader/Writer
 	// fmt.Formatter.Format (void); fmt.State is a non-empty interface, so the
 	// stub must carry its exact type for the call ABI.
@@ -69,10 +71,10 @@ var shapes = []shape{
 	{ID: "S19", Params: ", st fmt.ScanState, verb rune", ArgList: ", st, verb", Results: "error", Imports: []string{"fmt"}},
 	{ID: "S20", Params: ", value string", ArgList: ", value", Results: "error"}, // flag.Value.Set
 	// S21 (func() bool) is pervasive in generated protobuf descriptors
-	// (IsList/IsMap/IsWeak/HasPresence/...): the filedesc stack peaks at ~355.
-	{ID: "S21", Results: "bool", Size: 1024}, // flag.boolFlag.IsBoolFlag
+	// (IsList/IsMap/...): proto's test suite peaks at ~1123 attaches.
+	{ID: "S21", Results: "bool", Size: 2048}, // flag.boolFlag.IsBoolFlag
 	// io/fs cluster.
-	{ID: "S22", Results: "int64"},                                                                                          // fs.FileInfo.Size
+	{ID: "S22", Results: "int64", Size: 512},                                                                               // fs.FileInfo.Size
 	{ID: "S23", Results: "fs.FileMode", Imports: []string{"io/fs"}},                                                        // fs.FileInfo.Mode, fs.DirEntry.Type
 	{ID: "S24", Results: "time.Time", Imports: []string{"time"}},                                                           // fs.FileInfo.ModTime
 	{ID: "S25", Results: "(fs.FileInfo, error)", Imports: []string{"io/fs"}},                                               // fs.DirEntry.Info, fs.File.Stat
@@ -89,9 +91,9 @@ var shapes = []shape{
 	{ID: "S35", Params: ", name string", ArgList: ", name", Results: "slog.Handler", Imports: []string{"log/slog"}},                                        // slog.Handler.WithGroup
 	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                      // slog.LogValuer.LogValue
 	{ID: "S37", Results: "(rune, int, error)"}, // io.RuneReader.ReadRune
-	// S38 (niladic marker methods) is pervasive in generated protobuf code
-	// (ProtoType/ProtoInternal markers): the filedesc stack peaks at ~316.
-	{ID: "S38", Size: 1024},
+	// S38 (niladic markers Reset/ProtoMessage) is pervasive in generated protobuf
+	// code: proto's test suite peaks at ~4733 attaches (~3.5x recompilation dup).
+	{ID: "S38", Size: 8192},
 }
 
 // wordShapes are the ABI word-class shapes: params and results as flat class
@@ -100,14 +102,12 @@ var shapes = []shape{
 // signature; grow it from the MVM_WORDDROPS report. See ADR-022 and
 // docs/modules/stubs.md.
 var wordShapes = []wordShape{
-	// W_pp (niladic, interface/2-pointer-word result) and W_i (niladic int-word
-	// result) dominate descriptor-heavy code: compiling
-	// google.golang.org/protobuf's reflect/filedesc stack peaks at ~785 W_pp and
-	// ~410 W_i synthesized methods in one process. Slots are monotonic and never
-	// reclaimed, so size for the largest single-process attach count; the
-	// protobuf/grpc stack may need a further bump.
-	{Params: "", Results: "i", Size: 1024},
-	{Params: "", Results: "pp", Size: 2048},
+	// W_pp (niladic 2-pointer-word result) and W_i (niladic int-word result)
+	// dominate descriptor-heavy code: protobuf/proto's test suite peaks at ~2571
+	// W_pp / ~2143 W_i attaches (~5x recompilation dup). Slots are monotonic and
+	// never reclaimed; size for the largest single-process attach count.
+	{Params: "", Results: "i", Size: 4096},
+	{Params: "", Results: "pp", Size: 4096},
 	{Params: "", Results: "pppp"},
 	{Params: "pi", Results: "pppp"},
 	{Params: "pi", Results: "piipp"},
