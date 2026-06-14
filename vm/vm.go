@@ -1688,6 +1688,23 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				}
 				embedded := FromReflect(rv)
 				if !embedded.IsIface() {
+					// Embedded field native-boxed (lost its Iface): re-wrap to the
+					// interpreted *Type and continue, as the IfaceCall re-wrap above.
+					erv := rv
+					if erv.Kind() == reflect.Interface && !erv.IsNil() {
+						erv = erv.Elem()
+					}
+					if erv.IsValid() &&
+						(!hasNativeMethod(erv.Type(), m.MethodNames[methodID]) || isSynthOrSynthPtr(erv.Type())) {
+						if t := m.typeByRtype(erv.Type()); t != nil {
+							if mt := t.ResolveMethodType(methodID); mt != nil {
+								methodTyp = mt
+								ifc = Iface{Typ: t, Val: Value{ref: erv}}
+								method = mt.Methods[methodID]
+								continue
+							}
+						}
+					}
 					if isNilReceiver(rv) {
 						outcome = outNilRcv
 					} else {
