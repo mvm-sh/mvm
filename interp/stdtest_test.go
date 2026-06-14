@@ -232,6 +232,16 @@ func TestHello(t *testing.T) {
 	if _, err := i.Eval("mymir", ""); err != nil {
 		t.Fatalf("loading mymir tests: %v\nstderr: %s", err, stderr.String())
 	}
+	// An external-only test package stashes its tests for a second unit; load it
+	// the way `mvm test` does (see test_cmd.go loadExternalTests).
+	ext := i.ExternalTestSources()
+	if len(ext) == 0 {
+		t.Fatalf("external test sources not stashed for external-only package")
+	}
+	i.PublishCompiledPackage("mymir")
+	if _, err := i.EvalFiles(ext); err != nil {
+		t.Fatalf("loading external test unit: %v\nstderr: %s", err, stderr.String())
+	}
 	if !slices.Contains(i.FuncNames("Test"), "TestHello") {
 		t.Errorf("in-tree external test for mirror-sourced package was not loaded; got %v", i.FuncNames("Test"))
 	}

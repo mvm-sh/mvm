@@ -129,7 +129,17 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 		if mainPkg != "" {
 			external = p.externalTestFiles(out, names, mainPkg, dir)
 		}
-		if !hasInternal && len(external) > 0 {
+		// External-only test package with package source: stash the external
+		// files for the two-unit path below (compile the package once, retry only
+		// the tests) instead of recompiling them as the main unit on every retry.
+		hasPkgSource := false
+		for i := range out {
+			if !strings.HasSuffix(out[i].Name, "_test.go") {
+				hasPkgSource = true
+				break
+			}
+		}
+		if !hasInternal && len(external) > 0 && !hasPkgSource {
 			return external, nil
 		}
 		if importPath != "" && p.testSrcFS != nil && !sawTestFile {
