@@ -56,6 +56,132 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 	return false
 }
 
+// isTypeParamLeaf reports whether shape is an unqualified reference to a type
+// parameter; PkgPath!="" means a concrete type that merely shares the name.
+func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
+	if shape.Name == "" || shape.PkgPath != "" {
+		return false
+	}
+	_, ok := tpArgs[shape.Name]
+	return ok
+}
+
+// argElem/argKey return a composite's element/key type, nil when it carries
+// neither an mvm-level link nor an Rtype (Type.Elem/Key would deref nil Rtype).
+func argElem(t *vm.Type) *vm.Type {
+	if t.ElemType != nil {
+		return t.ElemType
+	}
+	if t.Rtype != nil {
+		return t.Elem()
+	}
+	return nil
+}
+
+func argKey(t *vm.Type) *vm.Type {
+	if t.KeyType != nil {
+		return t.KeyType
+	}
+	if t.Rtype != nil {
+		return t.Key()
+	}
+	return nil
+}
+
+// shapeContainsTypeParam reports whether shape names any type param in tpArgs
+// (e.g. `*P`, `map[K]V`) -- a core-type element checked by substitution.
+func shapeContainsTypeParam(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
+	return shapeContainsTP(shape, tpArgs, nil)
+}
+
+// seen breaks self-referential types (`type Rec []Rec`); a revisited node yielded no param.
+func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Type]bool) bool {
+	if shape == nil || len(tpArgs) == 0 {
+		return false
+	}
+	if isTypeParamLeaf(shape, tpArgs) {
+		return true
+	}
+	if seen[shape] {
+		return false
+	}
+	if seen == nil {
+		seen = map[*vm.Type]bool{}
+	}
+	seen[shape] = true
+	if shapeContainsTP(shape.ElemType, tpArgs, seen) || shapeContainsTP(shape.KeyType, tpArgs, seen) {
+		return true
+	}
+	for _, p := range shape.Params {
+		if shapeContainsTP(p, tpArgs, seen) {
+			return true
+		}
+	}
+	for _, r := range shape.Returns {
+		if shapeContainsTP(r, tpArgs, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// coreTypeArgMatches reports whether arg structurally matches the core-type
+// shape with each type-param leaf resolved to its arg; approx (`~T`) relaxes
+// the leaf to underlying-kind. An unresolved (nil) arg is accepted leniently.
+func coreTypeArgMatches(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool) bool {
+	return coreTypeArgMatchesSeen(shape, arg, tpArgs, approx, nil)
+}
+
+// seen breaks self-referential shapes (`type Rec []Rec`): a revisited level already matched.
+func coreTypeArgMatchesSeen(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool, seen map[*vm.Type]bool) bool {
+	if shape == nil || arg == nil {
+		return true
+	}
+	if isTypeParamLeaf(shape, tpArgs) {
+		sub := tpArgs[shape.Name]
+		if sub == nil {
+			return true
+		}
+		if approx {
+			return arg.Kind() == sub.Kind()
+		}
+		return arg.Identical(sub)
+	}
+	if shape.Kind() != arg.Kind() {
+		return false
+	}
+	if seen[shape] {
+		return true
+	}
+	if seen == nil {
+		seen = map[*vm.Type]bool{}
+	}
+	seen[shape] = true
+	switch shape.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Chan:
+		ae := argElem(arg)
+		if ae == nil {
+			return true
+		}
+		return coreTypeArgMatchesSeen(shape.ElemType, ae, tpArgs, approx, seen)
+	case reflect.Array:
+		ae := argElem(arg)
+		if ae == nil {
+			return true
+		}
+		return shape.Len() == arg.Len() && coreTypeArgMatchesSeen(shape.ElemType, ae, tpArgs, approx, seen)
+	case reflect.Map:
+		ak, ae := argKey(arg), argElem(arg)
+		if ak == nil || ae == nil {
+			return true
+		}
+		return coreTypeArgMatchesSeen(shape.KeyType, ak, tpArgs, approx, seen) &&
+			coreTypeArgMatchesSeen(shape.ElemType, ae, tpArgs, approx, seen)
+	default:
+		return arg.Identical(shape)
+	}
+}
+
 func typeArgName(t *vm.Type) string {
 	if t.Name != "" {
 		if t.IsPtr() {
@@ -85,22 +211,37 @@ func typeArgName(t *vm.Type) string {
 }
 
 func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
+	return typeArgCompositeSeen(t, renderLeaf, nil)
+}
+
+// seen (path-scoped via delete-on-exit) breaks self-referential types
+// (`type Rec []Rec`): a node already on the stack renders as a leaf. Acyclic
+// output is unchanged.
+func typeArgCompositeSeen(t *vm.Type, renderLeaf func(*vm.Type) string, seen map[*vm.Type]bool) string {
+	if seen[t] {
+		return renderLeaf(t)
+	}
+	if seen == nil {
+		seen = map[*vm.Type]bool{}
+	}
+	seen[t] = true
+	defer delete(seen, t)
 	switch t.Kind() {
 	case reflect.Pointer:
 		if t.ElemType != nil {
-			return "*" + typeArgComposite(t.ElemType, renderLeaf)
+			return "*" + typeArgCompositeSeen(t.ElemType, renderLeaf, seen)
 		}
 	case reflect.Slice:
 		if t.ElemType != nil {
-			return "[]" + typeArgComposite(t.ElemType, renderLeaf)
+			return "[]" + typeArgCompositeSeen(t.ElemType, renderLeaf, seen)
 		}
 	case reflect.Array:
 		if t.ElemType != nil {
-			return "[" + strconv.Itoa(t.Len()) + "]" + typeArgComposite(t.ElemType, renderLeaf)
+			return "[" + strconv.Itoa(t.Len()) + "]" + typeArgCompositeSeen(t.ElemType, renderLeaf, seen)
 		}
 	case reflect.Map:
 		if t.KeyType != nil && t.ElemType != nil {
-			return "map[" + typeArgComposite(t.KeyType, renderLeaf) + "]" + typeArgComposite(t.ElemType, renderLeaf)
+			return "map[" + typeArgCompositeSeen(t.KeyType, renderLeaf, seen) + "]" + typeArgCompositeSeen(t.ElemType, renderLeaf, seen)
 		}
 	}
 	return renderLeaf(t)

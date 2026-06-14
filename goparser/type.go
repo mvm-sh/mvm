@@ -382,7 +382,14 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 				continue
 			}
 			if lt[0].Tok != lang.Ident {
-				return nil, 0, p.wrapAt(lt[0], ErrSyntax, "expected method name in interface, got %s", lt[0].Describe())
+				// A composite type term (*P, []T, map[K]V, ...): a core-type
+				// constraint element, not a method.
+				es, err := p.parseTypeElems(lt)
+				if err != nil {
+					return nil, 0, err
+				}
+				elems = append(elems, es...)
+				continue
 			}
 			if len(lt) == 1 || lt[1].Tok != lang.ParenBlock {
 				ifaceType, _, err := p.parseTypeExpr(lt)

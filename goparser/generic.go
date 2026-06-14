@@ -155,8 +155,16 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 }
 
 func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, callPos int) error {
+	// name -> concrete arg, for substituting type params in a core-type
+	// constraint element (e.g. `interface{ *P }`).
+	tpArgs := make(map[string]*vm.Type, len(tmpl.typeParams))
 	for i, tp := range tmpl.typeParams {
-		if err := p.checkConstraint(tp.constraint, typeArgs[i], typeArgs, callPos); err != nil {
+		if i < len(typeArgs) {
+			tpArgs[tp.name] = typeArgs[i]
+		}
+	}
+	for i, tp := range tmpl.typeParams {
+		if err := p.checkConstraint(tp.constraint, typeArgs[i], typeArgs, tpArgs, callPos); err != nil {
 			return err
 		}
 	}
@@ -198,7 +206,7 @@ func (e *constraintErr) ErrPos() int { return e.pos }
 // checkConstraint passes if any element in c.elems matches arg. typeArgs
 // carries the full set of concrete type arguments for the current
 // instantiation so that a TypeParamRef element can resolve to its target.
-func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type, callPos int) error {
+func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type, tpArgs map[string]*vm.Type, callPos int) error {
 	for _, e := range c.elems {
 		// Interface elements (e.g. the `error` in `[E error]`) need a
 		// method-set check that sees interpreted methods, which live in
@@ -207,6 +215,14 @@ func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Ty
 		// symbol table is reachable.
 		if e.kind == elemInterface {
 			if e.typ == nil || p.argImplementsIface(arg, e.typ) {
+				return nil
+			}
+			continue
+		}
+		// A core-type element naming a type param (`*P` in `[T interface{ *P }, P any]`)
+		// is checked structurally with the param resolved to its arg, not by identity.
+		if (e.kind == elemExact || e.kind == elemApprox) && shapeContainsTypeParam(e.typ, tpArgs) {
+			if coreTypeArgMatches(e.typ, arg, tpArgs, e.kind == elemApprox) {
 				return nil
 			}
 			continue
