@@ -1,8 +1,10 @@
 package stdlib
 
 import (
+	"bytes"
 	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +75,23 @@ func init() {
 		"Command": reflect.ValueOf(func(_ testing.TB, name string, args ...string) *exec.Cmd {
 			return exec.Command(name, args...)
 		}),
+	}
+	// internal/bytealg provides assembly-accelerated byte/string scanning used
+	// by source-loaded mirror packages (e.g. path imports it for IndexByteString
+	// and LastIndexByteString). It is unreachable for a real bridge under
+	// internal/, so re-export the equivalent bytes/strings helpers. The generic
+	// helpers (HashStr, IndexRabinKarp) cannot be reflect-bridged and are omitted.
+	Values["internal/bytealg"] = map[string]reflect.Value{
+		"IndexByte":           reflect.ValueOf(bytes.IndexByte),
+		"IndexByteString":     reflect.ValueOf(strings.IndexByte),
+		"LastIndexByte":       reflect.ValueOf(bytes.LastIndexByte),
+		"LastIndexByteString": reflect.ValueOf(strings.LastIndexByte),
+		"Index":               reflect.ValueOf(bytes.Index),
+		"IndexString":         reflect.ValueOf(strings.Index),
+		"Compare":             reflect.ValueOf(bytes.Compare),
+		"CompareString":       reflect.ValueOf(strings.Compare),
+		"Equal":               reflect.ValueOf(bytes.Equal),
+		"Count":               reflect.ValueOf(func(b []byte, c byte) int { return bytes.Count(b, []byte{c}) }),
+		"CountString":         reflect.ValueOf(func(s string, c byte) int { return strings.Count(s, string(c)) }),
 	}
 }

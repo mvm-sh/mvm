@@ -376,6 +376,20 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 	return unifyTP(pType, argType, tpNames, inferred, nil)
 }
 
+// isUntypedConstArg reports whether a call argument is a bare untyped constant
+// literal (int/float/char/string). Such args defer type-param inference: their
+// default type is used only as a fallback, after typed args and constraints.
+func isUntypedConstArg(argExpr Tokens) bool {
+	if len(argExpr) != 1 {
+		return false
+	}
+	switch argExpr[0].Tok {
+	case lang.Int, lang.Float, lang.Char, lang.String:
+		return true
+	}
+	return false
+}
+
 func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type, seen map[*vm.Type]bool) bool {
 	if pType == nil || argType == nil {
 		return false

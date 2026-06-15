@@ -882,6 +882,15 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 			inferred[tmpl.typeParams[i].name] = t
 		}
 	}
+	// Untyped-constant args (e.g. slices.Index(b, '&')) are deferred: Go infers
+	// type params from typed args and constraints first, using a constant's
+	// default type only as a fallback. Binding E from '&' (default rune) up front
+	// would shadow E=byte from the S ~[]E constraint and fail the check.
+	type deferredArg struct {
+		pType *vm.Type
+		expr  Tokens
+	}
+	var deferred []deferredArg
 	for i, argExpr := range args {
 		if len(argExpr) == 0 {
 			continue
@@ -899,6 +908,10 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 			continue
 		}
 		if !hasUnboundTypeParam(pType, tpNames, inferred) {
+			continue
+		}
+		if isUntypedConstArg(argExpr) {
+			deferred = append(deferred, deferredArg{pType, argExpr})
 			continue
 		}
 		var argTyp *vm.Type
@@ -941,6 +954,18 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 					break
 				}
 			}
+		}
+	}
+
+	// Fallback: any type param still unbound after the constraint pass takes a
+	// deferred untyped-constant arg's default type (Go's rule when no typed arg
+	// or constraint fixes it, e.g. F(5) -> int).
+	for _, d := range deferred {
+		if !hasUnboundTypeParam(d.pType, tpNames, inferred) {
+			continue
+		}
+		if argTyp := p.inferExprType(d.expr); argTyp != nil {
+			unifyTypeParam(d.pType, argTyp, tpNames, inferred)
 		}
 	}
 
