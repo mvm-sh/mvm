@@ -1687,8 +1687,18 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				if rv.Kind() == reflect.Pointer {
 					rv = rv.Elem()
 				}
+				nilHop := false
 				for _, fi := range method.Path {
+					if !rv.IsValid() {
+						// nil pointer receiver: promoted access derefs nil.
+						nilHop = true
+						break
+					}
 					rv = rv.Field(fi)
+				}
+				if nilHop {
+					outcome = outNilRcv
+					break
 				}
 				embedded := FromReflect(rv)
 				if !embedded.IsIface() {
@@ -1736,11 +1746,24 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			*cell = ifc.Val
 			if path := method.Path; path != nil {
 				rv := reflect.Indirect(ifc.Val.Reflect())
+				nilHop := false
 				for _, idx := range path {
 					if rv.Kind() == reflect.Pointer {
 						rv = rv.Elem()
 					}
+					if !rv.IsValid() {
+						// Promoted method on a nil pointer: navigating to the
+						// embedded field derefs nil, a recoverable nil-pointer
+						// dereference in Go, not a raw reflect Field panic.
+						nilHop = true
+						break
+					}
 					rv = rv.Field(idx)
+				}
+				if nilHop {
+					m.raiseNilDeref()
+					ip = m.stageUnwind(ip, fp, mem)
+					continue
 				}
 				// A ptr-recv method needs the pointer in the cell: with the bare
 				// struct, passing the receiver to an inner call detaches a copy.

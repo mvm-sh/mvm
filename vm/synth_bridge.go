@@ -1184,6 +1184,12 @@ func (m *Machine) callPromotedConcrete(
 		rv = rv.Elem()
 	}
 	for _, fi := range path {
+		if !rv.IsValid() {
+			// Promoted method on a nil pointer: navigating to the embedded
+			// field derefs nil. Panic with Go's nil-pointer value so the
+			// native caller recovers it like any nil-receiver method call.
+			panic(nilPointerPanicValue)
+		}
 		rv = rv.Field(fi)
 	}
 	rv = Exportable(rv)
