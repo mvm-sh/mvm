@@ -447,7 +447,7 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 		pkgTag = name
 	}
 	out, err = p.resolveDecls(decls, pkgTag)
-	if DebugComp && err == nil && path.Base(name) != "<shim>" {
+	if DebugComp && err == nil && !isShim(name) {
 		p.traceCompPkg(name, p.ownLines(name))
 	}
 	return out, err
@@ -457,6 +457,7 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 // (one package) and returns the still-to-be-code-generated declarations.
 func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err error) {
 	var decls []Tokens
+	start := len(p.Sources)
 	for _, s := range sources {
 		p.PosBase = p.Sources.Add(s.Name, s.Content)
 		d, derr := p.scanDecls(s.Content)
@@ -468,8 +469,8 @@ func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err
 	out, err = p.resolveDecls(decls, "")
 	if DebugComp && err == nil {
 		own := 0
-		for _, s := range sources {
-			own += lineCount(s.Content)
+		for i := start; i < start+len(sources); i++ {
+			own += p.Sources[i].Lines()
 		}
 		p.traceCompPkg("main", own)
 	}

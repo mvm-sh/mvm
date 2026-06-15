@@ -1125,6 +1125,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			m.assignSlot(&m.globals[int(c.A)], mem[sp])
 			sp--
 		case Call:
+			// State-dump safepoint: covers recursion that never hits a back-edge.
+			if dumpRequested.Load() {
+				m.handleDumpReq(ip, fp, mem)
+			}
 			narg := int(c.A)
 			fval := mem[sp-narg]
 			// Inline fast path: only call resolveFuncField for addressable Func fields.
@@ -2000,6 +2004,11 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			m.setFuncField(forceSettable(mem[sp-1].ref), mem[sp])
 			sp -= 2
 		case Jump:
+			// State-dump safepoint at loop back-edges (backward jumps), avoiding a
+			// per-instruction poll.
+			if c.A < 0 && dumpRequested.Load() {
+				m.handleDumpReq(ip, fp, mem)
+			}
 			ip += int(c.A)
 			continue
 		case JumpTrue:

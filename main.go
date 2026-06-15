@@ -115,6 +115,7 @@ func humanBytes(n int64) string {
 }
 
 func main() {
+	watchProgressSignal() // Ctrl-C prints execution state; double-press aborts
 	err := dispatch(os.Args[1:])
 	// MVM_WORDDROPS telemetry: print before any os.Exit so a failing `mvm test`
 	// still reports its dropped word-shapes (see ADR-022).

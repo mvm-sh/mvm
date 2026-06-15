@@ -8,24 +8,25 @@ import (
 	"time"
 )
 
-// DebugComp enables MVM_DEBUG_COMP compile-phase tracing: one line per package
-// as it finishes parsing, plus an execution-start marker (emitted by interp).
+// DebugComp enables MVM_DEBUG_COMP compile-phase tracing.
 var DebugComp = os.Getenv("MVM_DEBUG_COMP") != ""
 
-// progStart approximates process start; package-var init runs before main.
+// progStart approximates process start: package-var init runs before main.
 var progStart = time.Now()
 
 // Elapsed returns time since program start, for MVM_DEBUG_COMP stamps.
 func Elapsed() time.Duration { return time.Since(progStart) }
 
-// traceCompPkg prints a per-package compile-phase trace line: the package's own
-// line count and the cumulative parse totals so far. Code/data stats do not yet
-// exist (Phase 2 code-gen runs once for the whole unit); interp prints those at
-// execution start.
+// isShim reports whether a source is a generic-template shim (scaffolding).
+func isShim(name string) bool { return path.Base(name) == "<shim>" }
+
+// traceCompPkg prints one compile-phase trace line: the package's own line count
+// and cumulative parse totals. Code/data stats don't exist until codegen; interp
+// prints those at execution start.
 func (p *Parser) traceCompPkg(label string, ownLines int) {
 	cumSrcs, cumLines := 0, 0
 	for i := range p.Sources {
-		if path.Base(p.Sources[i].Name) == "<shim>" {
+		if isShim(p.Sources[i].Name) {
 			continue
 		}
 		cumSrcs++
@@ -36,30 +37,18 @@ func (p *Parser) traceCompPkg(label string, ownLines int) {
 }
 
 // ownLines sums the lines of sources belonging to package name (target file or
-// "name/<file>" imported sources), excluding generic-template shims.
+// "name/<file>" imports), skipping shims.
 func (p *Parser) ownLines(name string) int {
 	prefix := name + "/"
 	n := 0
 	for i := range p.Sources {
 		s := &p.Sources[i]
-		if path.Base(s.Name) == "<shim>" {
+		if isShim(s.Name) {
 			continue
 		}
 		if s.Name == name || strings.HasPrefix(s.Name, prefix) {
 			n += s.Lines()
 		}
-	}
-	return n
-}
-
-// lineCount counts lines in raw content, matching scan.Source.Lines semantics.
-func lineCount(s string) int {
-	if s == "" {
-		return 0
-	}
-	n := strings.Count(s, "\n")
-	if !strings.HasSuffix(s, "\n") {
-		n++
 	}
 	return n
 }

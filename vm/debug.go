@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/mvm-sh/mvm/scan"
 )
@@ -243,54 +244,72 @@ func (e *PanicError) Error() string {
 		funcName = di.FuncAt(e.IP)
 		loc = di.PosToLine(e.Pos)
 	}
-	switch {
-	case funcName != "" && loc != "":
-		fmt.Fprintf(&b, "  at %s (%s)\n", funcName, loc)
-	case funcName != "":
-		fmt.Fprintf(&b, "  at %s\n", funcName)
-	case loc != "":
-		fmt.Fprintf(&b, "  at %s\n", loc)
-	}
+	writeAtLine(&b, funcName, loc)
 	writeSourceSnippet(&b, di, e.Pos)
-	if len(e.Frames) > 0 && di != nil {
-		b.WriteString("\nmvm stack:\n")
-		locW := 0
-		type row struct {
-			loc, name string
-			native    bool
-		}
-		rows := make([]row, 0, len(e.Frames))
-		for _, f := range e.Frames {
-			if f.Native {
-				name := f.Name
-				if name == "" {
-					name = "native call"
-				}
-				rows = append(rows, row{name: name, native: true})
-				continue
-			}
-			fLoc := di.PosToLine(f.Pos)
-			// Top-level entry code (init / REPL / _testmain driver) is not inside
-			// any function; FuncAt would misattribute the appended driver IP to a
-			// nearby range, so use a fixed label instead.
-			fName := "<top-level>"
-			if !f.TopLevel {
-				fName = di.FuncAt(f.IP)
-			}
-			rows = append(rows, row{loc: fLoc, name: fName})
-			if l := len(fLoc); l > locW {
-				locW = l
-			}
-		}
-		for _, r := range rows {
-			if r.native {
-				fmt.Fprintf(&b, "  -- via %s [native] --\n", r.name)
-				continue
-			}
-			fmt.Fprintf(&b, "  %-*s  %s\n", locW, r.loc, r.name)
-		}
+	if s := formatFrames(di, e.Frames); s != "" {
+		b.WriteString("\n")
+		b.WriteString(s)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// writeAtLine appends a "  at <func> (<loc>)" line for whichever of funcName
+// and loc is non-empty. Shared by PanicError.Error and dumpState.
+func writeAtLine(b *strings.Builder, funcName, loc string) {
+	switch {
+	case funcName != "" && loc != "":
+		fmt.Fprintf(b, "  at %s (%s)\n", funcName, loc)
+	case funcName != "":
+		fmt.Fprintf(b, "  at %s\n", funcName)
+	case loc != "":
+		fmt.Fprintf(b, "  at %s\n", loc)
+	}
+}
+
+// formatFrames renders the "mvm stack:" block, or "" when there are no frames or
+// no DebugInfo. Shared by PanicError.Error and dumpState.
+func formatFrames(di *DebugInfo, frames []StackFrame) string {
+	if len(frames) == 0 || di == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("mvm stack:\n")
+	locW := 0
+	type row struct {
+		loc, name string
+		native    bool
+	}
+	rows := make([]row, 0, len(frames))
+	for _, f := range frames {
+		if f.Native {
+			name := f.Name
+			if name == "" {
+				name = "native call"
+			}
+			rows = append(rows, row{name: name, native: true})
+			continue
+		}
+		fLoc := di.PosToLine(f.Pos)
+		// Top-level entry code (init / REPL / _testmain driver) is not inside
+		// any function; FuncAt would misattribute the appended driver IP to a
+		// nearby range, so use a fixed label instead.
+		fName := "<top-level>"
+		if !f.TopLevel {
+			fName = di.FuncAt(f.IP)
+		}
+		rows = append(rows, row{loc: fLoc, name: fName})
+		if l := len(fLoc); l > locW {
+			locW = l
+		}
+	}
+	for _, r := range rows {
+		if r.native {
+			fmt.Fprintf(&b, "  -- via %s [native] --\n", r.name)
+			continue
+		}
+		fmt.Fprintf(&b, "  %-*s  %s\n", locW, r.loc, r.name)
+	}
+	return b.String()
 }
 
 func writeSourceSnippet(b *strings.Builder, di *DebugInfo, pos Pos) {
@@ -513,6 +532,52 @@ func formatValue(v Value) string {
 		s = s[:57] + "..."
 	}
 	return s
+}
+
+// dumpRequested is a process-global state-dump request. Global, not per-Machine,
+// because interpreted code runs across the root, pooled runner, and goroutine
+// machines: whichever reaches a safepoint first services it.
+var dumpRequested atomic.Bool
+
+// RequestStateDump asks the running VM to dump its execution state at the next
+// safepoint. Safe from a signal handler or other goroutine; the dump runs on the
+// VM goroutine. Fires only while some machine is executing interpreted code.
+func RequestStateDump() { dumpRequested.Store(true) }
+
+// handleDumpReq services a request; the CAS lets exactly one machine dump. Out of
+// line so the safepoint check stays a cheap load+branch.
+func (m *Machine) handleDumpReq(ip, fp int, mem []Value) {
+	if dumpRequested.CompareAndSwap(true, false) {
+		m.dumpState(ip, fp, mem)
+	}
+}
+
+// dumpState prints the current position and mvm call stack. Called from the run
+// loop, so ip/fp/mem are a consistent snapshot.
+func (m *Machine) dumpState(ip, fp int, mem []Value) {
+	w := m.err
+	if w == nil {
+		w = os.Stderr
+	}
+	var di *DebugInfo
+	if m.debugInfoFn != nil {
+		di = m.debugInfoFn()
+	}
+	pc := ip - 1 // last instruction dispatched (ip points at the next one)
+	var pos Pos
+	if pc >= 0 && pc < len(m.code) {
+		pos = m.code[pc].Pos
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "=== mvm execution state (ip=%d) ===\n", pc)
+	funcName, loc := "", ""
+	if di != nil {
+		funcName = di.FuncAt(pc)
+		loc = di.PosToLine(pos)
+	}
+	writeAtLine(&b, funcName, loc)
+	b.WriteString(formatFrames(di, m.framesFromSegment(mem, fp, ip)))
+	_, _ = io.WriteString(w, b.String())
 }
 
 func (m *Machine) enterDebug() {
