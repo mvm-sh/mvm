@@ -187,6 +187,10 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 		i.SetTraceOps(true)
 	}
 	i.EnableGoroutineFaults()
+	if goparser.DebugComp {
+		fmt.Fprint(os.Stderr, FormatStats(i))
+		fmt.Fprintf(os.Stderr, "[comp] execution starts  +%v\n", goparser.Elapsed().Round(time.Microsecond))
+	}
 	tRun := time.Now()
 	err = i.Run()
 	i.Stats.RunTime += time.Since(tRun)

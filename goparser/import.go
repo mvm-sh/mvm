@@ -446,7 +446,11 @@ func (p *Parser) ParseAll(name, src string) (out []DeferredDecl, err error) {
 	if src == "" {
 		pkgTag = name
 	}
-	return p.resolveDecls(decls, pkgTag)
+	out, err = p.resolveDecls(decls, pkgTag)
+	if DebugComp && err == nil && path.Base(name) != "<shim>" {
+		p.traceCompPkg(name, p.ownLines(name))
+	}
+	return out, err
 }
 
 // ParseAllFiles parses a set of in-memory source files as a SINGLE compile unit
@@ -461,7 +465,15 @@ func (p *Parser) ParseAllFiles(sources []PackageSource) (out []DeferredDecl, err
 		}
 		decls = append(decls, d...)
 	}
-	return p.resolveDecls(decls, "")
+	out, err = p.resolveDecls(decls, "")
+	if DebugComp && err == nil {
+		own := 0
+		for _, s := range sources {
+			own += lineCount(s.Content)
+		}
+		p.traceCompPkg("main", own)
+	}
+	return out, err
 }
 
 func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl, err error) {
