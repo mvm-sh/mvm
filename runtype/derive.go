@@ -226,18 +226,19 @@ func buildMapOf(key, elem reflect.Type, keyRT, elemRT *abiType) reflect.Type {
 	return asReflectType(&b.abiType)
 }
 
-// Swiss-map constants, mirroring internal/abi.
+// Swiss-map constants, mirroring internal/abi (MaxKey==MaxElem across go1.24-1.26).
 const (
 	mapMaxKeyBytes  = 128
 	mapMaxElemBytes = 128
 	mapGroupSlots   = 8
+	mapIndirectKey  = 1 << 2 // abi.MapIndirectKey
 	mapIndirectElem = 1 << 3 // abi.MapIndirectElem
 )
 
-var mapGeomSeq atomic.Uint64
+var geomSeq atomic.Uint64
 
 // RebuildMapGeometry recomputes mapRT's slot/group geometry in place (identity
-// preserved) after its elem was resized in place from a forward placeholder.
+// preserved) after its key or elem was resized in place from a forward placeholder.
 // Unique field names stop reflect.StructOf returning the placeholder-sized layout
 // (reflect caches by identity, which the in-place resize preserves).
 func RebuildMapGeometry(mapRT reflect.Type) {
@@ -249,15 +250,14 @@ func RebuildMapGeometry(mapRT reflect.Type) {
 	key := layoutFor(asReflectType(mt.Key))
 	elem := layoutFor(asReflectType(mt.Elem))
 	// Mirror reflect.groupAndSlotOf: large key/elem are stored indirectly.
-	indirect := false
+	keyIndirect, elemIndirect := false, false
 	if key.Size() > mapMaxKeyBytes {
-		key = reflect.PointerTo(key)
+		key, keyIndirect = reflect.PointerTo(key), true
 	}
 	if elem.Size() > mapMaxElemBytes {
-		elem = reflect.PointerTo(elem)
-		indirect = true
+		elem, elemIndirect = reflect.PointerTo(elem), true
 	}
-	n := strconv.FormatUint(mapGeomSeq.Add(1), 36)
+	n := strconv.FormatUint(geomSeq.Add(1), 36)
 	slot := reflect.StructOf([]reflect.StructField{
 		{Name: "K" + n, Type: key},
 		{Name: "E" + n, Type: elem},
@@ -270,10 +270,45 @@ func RebuildMapGeometry(mapRT reflect.Type) {
 	mt.GroupSize = group.Size()
 	mt.SlotSize = slot.Size()
 	mt.ElemOff = slot.Field(1).Offset
-	mt.Flags &^= mapIndirectElem
-	if indirect {
+	mt.Flags &^= mapIndirectKey | mapIndirectElem
+	if keyIndirect {
+		mt.Flags |= mapIndirectKey
+	}
+	if elemIndirect {
 		mt.Flags |= mapIndirectElem
 	}
+	// MapNeedKeyUpdate/MapHashMightPanic left as built: the Hasher self-heals on the
+	// in-place resize, and they affect stored-key identity, not memory layout.
+}
+
+// RebuildArrayGeometry recomputes arrRT's size/pointer-layout in place after its
+// elem was resized from a forward placeholder; reports whether it changed.
+// [n]elem and a struct of n elem fields share a layout, so a cache-busting
+// StructOf recomputes it from the grown elem.
+func RebuildArrayGeometry(arrRT reflect.Type) bool {
+	rt := rtypePtr(arrRT)
+	if rt == nil || arrRT.Kind() != reflect.Array {
+		return false
+	}
+	at := (*abiArrayType)(unsafe.Pointer(rt))
+	elem := layoutFor(asReflectType(at.Elem))
+	if at.Size == at.Len*elem.Size() {
+		return false // already sized for the current elem (Go arrays have no inter-element padding)
+	}
+	n := strconv.FormatUint(geomSeq.Add(1), 36)
+	fields := make([]reflect.StructField, int(at.Len))
+	for i := range fields {
+		fields[i] = reflect.StructField{Name: "E" + n + "_" + strconv.Itoa(i), Type: elem}
+	}
+	src := rtypePtr(reflect.StructOf(fields))
+	at.Size = src.Size
+	at.PtrBytes = src.PtrBytes
+	at.Align = src.Align
+	at.FieldAlign = src.FieldAlign
+	at.GCData = src.GCData
+	at.Equal = src.Equal
+	registerLayout(rt, src) // refresh the shadow so a containing map/array reads the new size
+	return true
 }
 
 // layoutFor returns the native-layout rtype matching a synth rtype, or t

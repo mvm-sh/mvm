@@ -53,67 +53,78 @@ var (
 	pendingCount    atomic.Int64
 )
 
-// pendingMapGeom holds map rtypes derived over an in-flight placeholder elem;
-// RebuildMapGeometry fixes their slot size once the elem is final. Guarded by derivedMu.
+// pendingGeom holds map/array rtypes derived over an in-flight placeholder key or
+// elem; RebuildMap/ArrayGeometry fixes their stride once it is final. Guarded by derivedMu.
 var (
-	pendingMapGeom      = map[reflect.Type]bool{}
-	pendingMapGeomCount atomic.Int64
+	pendingGeom      = map[reflect.Type]bool{}
+	pendingGeomCount atomic.Int64
 )
 
-func markPendingMapGeom(rt reflect.Type) {
+func markPendingGeom(rt reflect.Type) {
 	if rt == nil {
 		return
 	}
 	derivedMu.Lock()
-	if !pendingMapGeom[rt] {
-		pendingMapGeom[rt] = true
-		pendingMapGeomCount.Add(1)
+	if !pendingGeom[rt] {
+		pendingGeom[rt] = true
+		pendingGeomCount.Add(1)
 	}
 	derivedMu.Unlock()
 }
 
-func isPendingMapGeom(rt reflect.Type) bool {
-	if rt == nil || pendingMapGeomCount.Load() == 0 {
+func isPendingGeom(rt reflect.Type) bool {
+	if rt == nil || pendingGeomCount.Load() == 0 {
 		return false
 	}
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
-	return pendingMapGeom[rt]
+	return pendingGeom[rt]
 }
 
-// propagateMapGeom marks a named map carrier pending when the unnamed layout it
-// copied is pending: reserveMap copies the stale geometry by value.
-func propagateMapGeom(layoutRT, carrier reflect.Type) reflect.Type {
-	if carrier != layoutRT && isPendingMapGeom(layoutRT) && runtype.IsSynth(carrier) {
-		markPendingMapGeom(carrier)
+// propagateGeom marks a named map/array carrier pending when the unnamed layout it
+// copied is pending: reserveMap/reserveArray copy the stale geometry by value.
+func propagateGeom(layoutRT, carrier reflect.Type) reflect.Type {
+	if k := layoutRT.Kind(); k != reflect.Map && k != reflect.Array {
+		return carrier
+	}
+	if carrier != layoutRT && isPendingGeom(layoutRT) {
+		markPendingGeom(carrier)
 	}
 	return carrier
 }
 
-// drainPendingMapGeom recomputes every tracked map's geometry and clears the set.
-func drainPendingMapGeom() {
-	if pendingMapGeomCount.Load() == 0 {
-		return
+// takePendingGeom drains the tracked rtypes, partitioned by kind: arrays recompute
+// inside the FinalizeDeferred fixpoint (a struct re-patch reads their stride), maps after.
+func takePendingGeom() (arrays, maps []reflect.Type) {
+	if pendingGeomCount.Load() == 0 {
+		return nil, nil
 	}
 	derivedMu.Lock()
-	maps := make([]reflect.Type, 0, len(pendingMapGeom))
-	for rt := range pendingMapGeom {
-		maps = append(maps, rt)
+	for rt := range pendingGeom {
+		switch rt.Kind() {
+		case reflect.Array:
+			arrays = append(arrays, rt)
+		case reflect.Map:
+			maps = append(maps, rt)
+		}
 	}
-	pendingMapGeom = map[reflect.Type]bool{}
-	pendingMapGeomCount.Store(0)
+	pendingGeom = map[reflect.Type]bool{}
+	pendingGeomCount.Store(0)
 	derivedMu.Unlock()
-	for _, rt := range maps {
-		runtype.RebuildMapGeometry(rt)
-	}
+	return arrays, maps
 }
+
+var materializingCount atomic.Int64 // lock-free mirror of len(materializingRtypes)
 
 func markMaterializing(rt reflect.Type) {
 	if rt == nil {
 		return
 	}
 	derivedMu.Lock()
-	materializingRtypes[rt] = true
+	if !materializingRtypes[rt] {
+		materializingRtypes[rt] = true
+		materializingCount.Add(1)
+	}
 	derivedMu.Unlock()
 }
 
@@ -122,17 +133,51 @@ func clearMaterializing(rt reflect.Type) {
 		return
 	}
 	derivedMu.Lock()
-	delete(materializingRtypes, rt)
+	if materializingRtypes[rt] {
+		delete(materializingRtypes, rt)
+		materializingCount.Add(-1)
+	}
 	derivedMu.Unlock()
 }
 
 func isMaterializing(rt reflect.Type) bool {
-	if rt == nil {
+	if rt == nil || materializingCount.Load() == 0 {
 		return false
 	}
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	return materializingRtypes[rt]
+}
+
+// geomDepInFlight reports whether t's inline (by-value) layout reaches a still-
+// materializing struct placeholder -- through arrays and nested structs, not
+// through word-sized pointers/maps/slices/chans.
+func geomDepInFlight(t *mtype.Type) bool {
+	if materializingCount.Load() == 0 {
+		return false
+	}
+	return geomDepSeen(t, map[*mtype.Type]bool{})
+}
+
+func geomDepSeen(t *mtype.Type, seen map[*mtype.Type]bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	if isMaterializing(t.Rtype) {
+		return true
+	}
+	switch t.Kind() {
+	case reflect.Array:
+		return geomDepSeen(t.ElemType, seen)
+	case reflect.Struct:
+		for _, f := range t.Fields {
+			if geomDepSeen(f, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func markPending(t *mtype.Type) {
@@ -209,24 +254,28 @@ func finishStructOrDefer(t *mtype.Type, ph reflect.Type) reflect.Type {
 	return ph
 }
 
-// FinalizeDeferred patches every struct whose layout was deferred during materialization.
-// It loops until no progress is made.
+// FinalizeDeferred patches deferred struct layouts and recomputes maps/arrays
+// derived over an in-flight placeholder. Structs and arrays settle in one fixpoint
+// (a re-patched struct reads its array fields' strides); maps follow.
 // Holds materializeMu for the whole pass so it never races a concurrent materialization on a shared rtype.
 func FinalizeDeferred() {
 	materializeMu.Lock()
 	defer materializeMu.Unlock()
-	defer drainPendingMapGeom() // elems are final once the struct loop settles
+	arrays, maps := takePendingGeom()
 	for {
+		progress := false
+		// Arrays first, so a struct re-patch this round reads the corrected stride.
+		for _, a := range arrays {
+			if runtype.RebuildArrayGeometry(a) {
+				progress = true
+			}
+		}
 		derivedMu.Lock()
 		pending := make([]*mtype.Type, 0, len(pendingFinalize))
 		for t := range pendingFinalize {
 			pending = append(pending, t)
 		}
 		derivedMu.Unlock()
-		if len(pending) == 0 {
-			return
-		}
-		progress := false
 		for _, t := range pending {
 			materialize(t)
 			if !isPending(t) {
@@ -241,8 +290,11 @@ func FinalizeDeferred() {
 				clearMaterializing(t.Rtype)
 				clearPending(t)
 			}
-			return
+			break
 		}
+	}
+	for _, m := range maps {
+		runtype.RebuildMapGeometry(m)
 	}
 }
 
@@ -417,7 +469,7 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		if !t.Defined || t.PkgPath == "" {
 			return layoutRT
 		}
-		return propagateMapGeom(layoutRT, reserveNamedCarrier(t, layoutRT))
+		return propagateGeom(layoutRT, reserveNamedCarrier(t, layoutRT))
 	}
 	if !t.Defined && t.Base != nil {
 		// A parser clone of an unnamed method-carrying base (a `f *T` struct
@@ -425,7 +477,7 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		// isFieldClone gate misses): the field name is not an identity.
 		return layoutRT
 	}
-	return propagateMapGeom(layoutRT, reserveValueAndPtr(t, layoutRT))
+	return propagateGeom(layoutRT, reserveValueAndPtr(t, layoutRT))
 }
 
 // reserveNamedCarrier gives a methodless defined non-struct type its own named
@@ -687,6 +739,9 @@ func materialize(t *mtype.Type) reflect.Type {
 			return nil
 		}
 		rt = runtype.DeriveArrayOf(t.ArrayLen, elem)
+		if geomDepInFlight(t.ElemType) { // elem grows later; recompute stride in FinalizeDeferred
+			markPendingGeom(rt)
+		}
 	case reflect.Chan:
 		elem := materialize(t.ElemType)
 		if elem == nil {
@@ -699,10 +754,8 @@ func materialize(t *mtype.Type) reflect.Type {
 			return nil
 		}
 		rt = runtype.DeriveMapOf(key, elem)
-		// An in-flight placeholder elem grows after the map is derived; recompute
-		// the slot geometry once it is final (FinalizeDeferred).
-		if isMaterializing(elem) {
-			markPendingMapGeom(rt)
+		if geomDepInFlight(t.KeyType) || geomDepInFlight(t.ElemType) { // key/elem grows later
+			markPendingGeom(rt)
 		}
 	case reflect.Func:
 		if t.Name != "" {
