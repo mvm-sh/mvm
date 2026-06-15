@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -223,6 +224,56 @@ func buildMapOf(key, elem reflect.Type, keyRT, elemRT *abiType) reflect.Type {
 
 	registerLayout(&b.abiType, rtypePtr(layoutShadow))
 	return asReflectType(&b.abiType)
+}
+
+// Swiss-map constants, mirroring internal/abi.
+const (
+	mapMaxKeyBytes  = 128
+	mapMaxElemBytes = 128
+	mapGroupSlots   = 8
+	mapIndirectElem = 1 << 3 // abi.MapIndirectElem
+)
+
+var mapGeomSeq atomic.Uint64
+
+// RebuildMapGeometry recomputes mapRT's slot/group geometry in place (identity
+// preserved) after its elem was resized in place from a forward placeholder.
+// Unique field names stop reflect.StructOf returning the placeholder-sized layout
+// (reflect caches by identity, which the in-place resize preserves).
+func RebuildMapGeometry(mapRT reflect.Type) {
+	rt := rtypePtr(mapRT)
+	if rt == nil || mapRT.Kind() != reflect.Map {
+		return
+	}
+	mt := (*abiMapType)(unsafe.Pointer(rt))
+	key := layoutFor(asReflectType(mt.Key))
+	elem := layoutFor(asReflectType(mt.Elem))
+	// Mirror reflect.groupAndSlotOf: large key/elem are stored indirectly.
+	indirect := false
+	if key.Size() > mapMaxKeyBytes {
+		key = reflect.PointerTo(key)
+	}
+	if elem.Size() > mapMaxElemBytes {
+		elem = reflect.PointerTo(elem)
+		indirect = true
+	}
+	n := strconv.FormatUint(mapGeomSeq.Add(1), 36)
+	slot := reflect.StructOf([]reflect.StructField{
+		{Name: "K" + n, Type: key},
+		{Name: "E" + n, Type: elem},
+	})
+	group := reflect.StructOf([]reflect.StructField{
+		{Name: "C" + n, Type: reflect.TypeFor[uint64]()},
+		{Name: "S" + n, Type: reflect.ArrayOf(mapGroupSlots, slot)},
+	})
+	mt.Group = rtypePtr(group)
+	mt.GroupSize = group.Size()
+	mt.SlotSize = slot.Size()
+	mt.ElemOff = slot.Field(1).Offset
+	mt.Flags &^= mapIndirectElem
+	if indirect {
+		mt.Flags |= mapIndirectElem
+	}
 }
 
 // layoutFor returns the native-layout rtype matching a synth rtype, or t
