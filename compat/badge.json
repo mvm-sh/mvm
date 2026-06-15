@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "go compat",
-  "message": "stdlib 91/169, ext 43/50",
-  "color": "green"
+  "message": "stdlib 90/169, ext 38/50",
+  "color": "yellow"
 }
