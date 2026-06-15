@@ -62,9 +62,27 @@ type Compiler struct {
 
 	genStart int // code offset at the start of the current generate() pass; see resolveLabel
 
+	// Defer brackets the target package's var inits so eval runs imported init()
+	// funcs before them (Go init order); zero when no reordering is needed.
+	Defer VarDeferral
+
 	// LenientCompile turns a codegen panic into a (rolled-back) error instead of
 	// crashing. Off by default; `mvm test` enables it for the external-test unit.
 	LenientCompile bool
+}
+
+// VarDeferral brackets the target package's var inits for Go init order (an
+// imported init() must run before them). finishCompile lays the unit out as
+//
+//	[non-target var inits][Jump1][target var inits][Jump2][rest]
+//
+// evalCompiled patches the jumps and appends shims to run: non-target var inits
+// -> imported inits -> target var inits -> target inits -> rest -> main.
+type VarDeferral struct {
+	Active       bool
+	Jump1        int // jump after non-target var inits; target var inits follow at Jump1+1
+	Jump2        int // jump after target var inits; rest follows at Jump2+1
+	InitBoundary int // InitFuncs split: [initsBefore:InitBoundary] imported, [InitBoundary:] target
 }
 
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
@@ -205,7 +223,12 @@ func (c *Compiler) Compile(name, src string) (err error) {
 	// qualify the target's top-level symbols at pkg-qualified keys (like importSrc)
 	// so deferred bodies and external test units resolve members like maps.Clone.
 	var remaining []goparser.DeferredDecl
+	// targetTag identifies the unit's own (target) package: its decls are tagged
+	// with the import-path name for a package-path target, "" for a source/REPL
+	// target. finishCompile uses it to defer the target's var inits past imports.
+	targetTag := ""
 	if src == "" {
+		targetTag = name
 		restore := c.WithImportingPkg(name)
 		remaining, err = c.ParseAll(name, src)
 		restore()
@@ -218,7 +241,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 	if err != nil {
 		return err
 	}
-	return c.finishCompile(remaining)
+	return c.finishCompile(remaining, targetTag)
 }
 
 // CompileFiles compiles several in-memory source files as a single main-package
@@ -247,7 +270,8 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 	if err != nil {
 		return err
 	}
-	return c.finishCompile(remaining)
+	// A source-file / REPL unit's own package decls are tagged "".
+	return c.finishCompile(remaining, "")
 }
 
 // codegenSnap records the Compiler's Phase-2 output and dedup caches for
@@ -310,11 +334,17 @@ func (c *Compiler) restoreCodegen(s codegenSnap) {
 	c.labelAtPos = s.labelAtPos
 }
 
+// isInitDecl reports whether a deferred decl is a `func init()` declaration.
+func isInitDecl(toks goparser.Tokens) bool {
+	return len(toks) >= 2 && toks[0].Tok == lang.Func &&
+		toks[1].Tok == lang.Ident && toks[1].Str == "init"
+}
+
 // finishCompile runs Phase 2 over the deferred declarations: allocate global
 // slots, compile var initializers first (so all var types resolve) then func
 // bodies and expression statements, then propagate embedded methods. Shared by
 // Compile and CompileFiles.
-func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
+func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag string) error {
 	c.allocGlobalSlots()
 	c.preregisterMethods()
 	// Materialize interface method signatures now -- after the method pre-pass, so a
@@ -326,15 +356,54 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 	// methods when the reserve gate runs; the post-body call below additionally
 	// promotes embedded value-type methods once their code addresses resolve.
 	c.propagateEmbeddedMethods()
-	var rest []goparser.DeferredDecl
+
+	// Partition so the target package's var inits run after imported init()s (Go
+	// init order; mvm otherwise runs all var inits inline before any init()).
+	// Vars still compile before funcs within each group, so var types resolve.
+	var ntVars, tVars, rest []goparser.DeferredDecl
+	importedInits := 0
 	for _, decl := range remaining {
-		if len(decl.Toks) > 0 && decl.Toks[0].Tok == lang.Var {
-			if err := c.compileDeferred(decl); err != nil {
-				return err
-			}
-		} else {
-			rest = append(rest, decl)
+		if len(decl.Toks) == 0 {
+			continue
 		}
+		if decl.Toks[0].Tok == lang.Var {
+			if decl.PkgPath == targetTag {
+				tVars = append(tVars, decl)
+			} else {
+				ntVars = append(ntVars, decl)
+			}
+			continue
+		}
+		rest = append(rest, decl)
+		if decl.PkgPath != targetTag && isInitDecl(decl.Toks) {
+			importedInits++
+		}
+	}
+	// Defer only when it can matter; otherwise behavior is identical to before.
+	c.Defer = VarDeferral{}
+	deferVars := len(tVars) > 0 && importedInits > 0
+
+	for _, decl := range ntVars {
+		if err := c.compileDeferred(decl); err != nil {
+			return err
+		}
+	}
+	if deferVars {
+		c.Defer.Active = true
+		c.Defer.Jump1 = len(c.Code)
+		c.emit(goparser.Token{}, vm.Jump, 0) // patched in evalCompiled -> imported inits
+	}
+	for _, decl := range tVars {
+		if err := c.compileDeferred(decl); err != nil {
+			return err
+		}
+	}
+	if deferVars {
+		c.Defer.Jump2 = len(c.Code)
+		c.emit(goparser.Token{}, vm.Jump, 0) // patched in evalCompiled -> target inits
+		// rest is import-then-target ordered, so imported init()s are the next
+		// importedInits entries appended to InitFuncs.
+		c.Defer.InitBoundary = len(c.InitFuncs) + importedInits
 	}
 	for _, decl := range rest {
 		if err := c.compileDeferred(decl); err != nil {

@@ -143,11 +143,37 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 			i.PushCode(vm.Instruction{Op: vm.Call})
 		}
 	}
-	for _, fn := range i.InitFuncs[initsBefore:] {
-		emitCall(fn)
+	if d := i.Defer; d.Active {
+		// Wire the compiler's var-init brackets to init-call shims appended here
+		// for Go init order (see comp.VarDeferral). off maps Code indexes into
+		// m.code (start may sit past codeOffset on a re-entrant Eval).
+		off := start - codeOffset
+		aJump1, aJump2 := d.Jump1+off, d.Jump2+off
+		aVarStart, aRestStart := d.Jump1+1+off, d.Jump2+1+off
+		// main shim sits right after the compiled code so `rest` falls into it.
+		emitCall("main")
+		i.PushCode(vm.Instruction{Op: vm.Exit})
+		// Imported inits, then jump back to the target var inits.
+		lInit := i.CodeLen()
+		for _, fn := range i.InitFuncs[initsBefore:d.InitBoundary] {
+			emitCall(fn)
+		}
+		i.PatchJump(i.PushCode(vm.Instruction{Op: vm.Jump}), aVarStart)
+		// Target inits, then jump to rest (which falls through into main).
+		lTargetInit := i.CodeLen()
+		for _, fn := range i.InitFuncs[d.InitBoundary:] {
+			emitCall(fn)
+		}
+		i.PatchJump(i.PushCode(vm.Instruction{Op: vm.Jump}), aRestStart)
+		i.PatchJump(aJump1, lInit)
+		i.PatchJump(aJump2, lTargetInit)
+	} else {
+		for _, fn := range i.InitFuncs[initsBefore:] {
+			emitCall(fn)
+		}
+		emitCall("main")
+		i.PushCode(vm.Instruction{Op: vm.Exit})
 	}
-	emitCall("main")
-	i.PushCode(vm.Instruction{Op: vm.Exit})
 	i.SetIP(max(start, i.Entry))
 	i.SetDebugInfo(func() *vm.DebugInfo { return i.BuildDebugInfo() })
 	if debug {

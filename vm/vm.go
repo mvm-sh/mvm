@@ -3730,6 +3730,12 @@ func (m *Machine) PushCode(code ...Instruction) (p int) {
 	return p
 }
 
+// CodeLen returns the current length of the loaded code.
+func (m *Machine) CodeLen() int { return len(m.code) }
+
+// PatchJump sets the Jump instruction at pos to transfer control to target.
+func (m *Machine) PatchJump(pos, target int) { m.code[pos].A = int32(target - pos) }
+
 // SetIP sets the value of machine instruction pointer to given index.
 func (m *Machine) SetIP(ip int) { m.ip = ip }
 

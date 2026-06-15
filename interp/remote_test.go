@@ -1334,3 +1334,57 @@ func buildZip(t *testing.T, mod, ver string, files map[string]string) []byte {
 	}
 	return buf.Bytes()
 }
+
+// TestRemoteImportedInitBeforeMainVarInit asserts Go init order across packages:
+// an imported package's init() runs before the importer's var inits (dep.init
+// sets dep.Ready, read by main's `var got = dep.Ready`). Also guards that main's
+// own init() still runs after main's var inits (within-package order).
+func TestRemoteImportedInitBeforeMainVarInit(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/dep",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/dep\n",
+				"dep.go": `package dep
+
+var Ready string
+
+func init() { Ready = "INITIALIZED" }
+`,
+			},
+		},
+	)
+
+	src := `package main
+
+import "example.com/dep"
+
+// Reads an imported package's init() side effect at var-init time.
+var got = dep.Ready
+
+// main's own var init; main's init() must observe it (within-package order).
+var local = "set"
+var localSeenByInit string
+
+func init() { localSeenByInit = local }
+
+func main() {
+	println(got)
+	println(localSeenByInit)
+}
+`
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "INITIALIZED\nset\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (imported init must precede main var init; main init after main var init)", got, want)
+	}
+}
