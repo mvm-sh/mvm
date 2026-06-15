@@ -65,6 +65,10 @@ func (i *Interp) attachWithEmbeds(t *vm.Type) (err error) {
 			delete(i.synthAttached, t)
 		}
 	}()
+	// *T owns no reservation; T's attach fills both method sets. Redirect to T.
+	if t.IsPtr() && t.ElemType != nil {
+		return i.attachWithEmbeds(t.ElemType)
+	}
 	for _, emb := range t.Embedded {
 		e := emb.Type
 		if e != nil && e.IsPtr() && e.ElemType != nil {
