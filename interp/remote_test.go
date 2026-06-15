@@ -1388,3 +1388,67 @@ func main() {
 		t.Errorf("stdout: got %q, want %q (imported init must precede main var init; main init after main var init)", got, want)
 	}
 }
+
+// TestRemoteGenericIfaceConstraintForeignArg mirrors proto.CloneOf: a generic
+// func with an interface constraint in package "gen" is instantiated with a
+// concrete *T from package "msg". msg's pkg-qualified method key made the
+// short-name lookup miss it ("does not satisfy constraint"); MethodByName
+// resolves it across packages.
+func TestRemoteGenericIfaceConstraintForeignArg(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/gen",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/gen\n",
+				"gen.go": `package gen
+
+type Msg interface { Tag() int }
+
+func Clone[M Msg](m M) M { return m }
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/msg",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/msg\n",
+				"msg.go": `package msg
+
+type T struct{ N int }
+
+func (t *T) Tag() int { return t.N }
+
+func New() *T { return &T{N: 7} }
+`,
+			},
+		},
+	)
+
+	src := `package main
+
+import (
+	"example.com/gen"
+	"example.com/msg"
+)
+
+func main() {
+	got := gen.Clone(msg.New())
+	println(got.Tag())
+}
+`
+
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "7\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

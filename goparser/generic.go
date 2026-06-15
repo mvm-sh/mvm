@@ -258,15 +258,12 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 	if len(iface.IfaceMethods) == 0 {
 		return true // empty interface (any), or method set unknown: be lenient.
 	}
-	// Each required method must be present either as a native method on arg's
-	// reflect type (e.g. *fs.PathError.Error) or as a registered interpreted
-	// method symbol (e.g. "*E.Error"). A user-defined (interpreted) interface
-	// type argument has neither -- its method set lives in IfaceMethods -- and
-	// is rejected here: instantiating a cross-package generic with a local
-	// interpreted interface type arg is a separate, larger gap (see
-	// [[project_generic_iface_constraint]]). Native interface args (e.g.
-	// `error`) still pass via their reflect method set.
+	// Each required method must be present: as a native reflect method, a short-name
+	// method symbol (symGet, scope-local), a symbol-table method (MethodByName also
+	// resolves a foreign type's pkg-qualified key like "*example.com/msg.T.Tag"), or
+	// in an interpreted interface arg's IfaceMethods.
 	recvNames := argRecvTypeNames(arg)
+	tsym := &symbol.Symbol{Kind: symbol.Type, Name: typeArgName(arg), Type: arg}
 	for _, im := range iface.IfaceMethods {
 		if argRt != nil && hasNativeMethod(argRt, im.Name) {
 			continue
@@ -274,9 +271,9 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 		if p.hasMethodSym(recvNames, im.Name) {
 			continue
 		}
-		// An interpreted INTERFACE type argument carries its own method set in
-		// IfaceMethods (set at parse, invisible to reflect and to method
-		// symbols). It satisfies the constraint by method-set containment.
+		if m, _ := p.Symbols.MethodByName(tsym, im.Name); m != nil {
+			continue
+		}
 		if ifaceContainsMethod(arg, im.Name) {
 			continue
 		}
