@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1449,6 +1450,152 @@ func main() {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "7\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
+// TestRemoteImportedSliceCompositeNilFnew exercises the protopack "index out
+// of range" blocker: an imported pkg defines and uses `type Message []token`
+// and `type LengthPrefix Message`, so their slots relocate into the consumer
+// without a zeroSlotType entry; a package var then nests LengthPrefix
+// composites. The lang.Composite handler must match each literal's Fnew by its
+// own slot, not just by type (which can't match a deferred relocated slot).
+//
+// Whether the slot actually misses zeroSlotType is map-order dependent, so
+// this is a path smoke test; the real protobuf protopack reproduces it
+// deterministically. See project_grpc_investigation.
+func TestRemoteImportedSliceCompositeNilFnew(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/wire",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/wire\n",
+			"wire.go": `package wire
+
+type token interface{ isToken() }
+
+// Type group mirroring protopack: many token types, LengthPrefix defined as
+// Message. Used in-package below so their slots are allocated here and, on
+// import, relocate into the consumer without a zeroSlotType entry.
+type (
+	Token        token
+	Message      []Token
+	Tag          struct{ N, T int }
+	Bool         bool
+	Varint       int64
+	Svarint      int64
+	Uvarint      uint64
+	Int32        int32
+	Uint32       uint32
+	Int64        int64
+	Uint64       uint64
+	Str          string
+	Bytes        []byte
+	LengthPrefix Message
+	Raw          []byte
+)
+
+func (Message) isToken()      {}
+func (Tag) isToken()          {}
+func (Bool) isToken()         {}
+func (Varint) isToken()       {}
+func (Svarint) isToken()      {}
+func (Uvarint) isToken()      {}
+func (Int32) isToken()        {}
+func (Uint32) isToken()       {}
+func (Int64) isToken()        {}
+func (Uint64) isToken()       {}
+func (Str) isToken()          {}
+func (Bytes) isToken()        {}
+func (LengthPrefix) isToken() {}
+func (Raw) isToken()          {}
+
+func (m Message) Size() int {
+	n := 0
+	for _, v := range m {
+		switch v := v.(type) {
+		case Tag:
+			n += 2
+		case LengthPrefix:
+			n += Message(v).Size()
+		case Bytes:
+			n += len(v)
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+func (m Message) Marshal() []int {
+	var out []int
+	for _, v := range m {
+		switch v := v.(type) {
+		case Tag:
+			out = append(out, v.N, v.T)
+		case Bool:
+			out = append(out, 1)
+		case Varint:
+			out = append(out, int(v))
+		case Svarint:
+			out = append(out, int(v))
+		case Uvarint:
+			out = append(out, int(v))
+		case Int32:
+			out = append(out, int(v))
+		case Uint32:
+			out = append(out, int(v))
+		case Int64:
+			out = append(out, int(v))
+		case Uint64:
+			out = append(out, int(v))
+		case Str:
+			out = append(out, len(v))
+		case Bytes:
+			out = append(out, len(v))
+		case LengthPrefix:
+			out = append(out, Message(v).Marshal()...)
+		case Raw:
+			out = append(out, v...)
+		}
+	}
+	return out
+}
+
+// Package-level uses allocate the slice types' slots here (the relocation source).
+var (
+	Seed  = LengthPrefix(Message{Varint(1)})
+	Seed2 = Message{LengthPrefix{Varint(1)}, Bytes{1}, Raw{2}}
+)
+`,
+		},
+	})
+
+	var b strings.Builder
+	b.WriteString("import \"example.com/wire\"\n\nvar msgs = [][]int{\n")
+	// Nine flat composites accumulate code/Fnews ahead of the nested one.
+	for i := 0; i < 9; i++ {
+		b.WriteString("\twire.Message{wire.Tag{1, 0}, wire.Varint(1), wire.Tag{2, 0}, wire.Varint(2)}.Marshal(),\n")
+	}
+	// One composite nesting fourteen LengthPrefix literals (the trigger).
+	b.WriteString("\twire.Message{\n")
+	for i := 1; i <= 14; i++ {
+		fmt.Fprintf(&b, "\t\twire.Tag{%d, 2}, wire.LengthPrefix{wire.Varint(%d), wire.Varint(%d)},\n", i, i*10, i*10+1)
+	}
+	b.WriteString("\t}.Marshal(),\n}\n\n")
+	b.WriteString("func main() {\n\tn := 0\n\tfor _, w := range msgs {\n\t\tn += len(w)\n\t}\n\tprintln(n)\n}\n")
+
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", b.String()); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	// 9 flat msgs: 6 ints each = 54. Nested: 14 tags*2 + 14*2 varints = 56.
+	if got, want := stdout.String(), "110\n"; got != want {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }

@@ -2020,11 +2020,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 
 		case lang.Composite:
 			sliceLen := t.Arg[0].(int)
-			// Patch this literal's nil slice/map Fnew (B=-1) to its length,
-			// making it non-nil. Match the most recent still-nil Fnew whose
-			// slot type matches -- not an exact slot index, which fails when
-			// two same-type literals land on different slots. B!=-1 (already
-			// patched) is skipped so nested literals patch their own Fnew.
+			// Patch this literal's nil slice/map Fnew (B=-1) to its length.
+			// Match its own type-symbol slot (in.A == idx) first; a same-type
+			// slot is the fallback (two same-type literals on different slots)
+			// but can't match a deferred slot value (pendingTypeSlots).
+			// Skip B!=-1 so nested literals patch their own Fnew.
 			{
 				sym := c.Symbols[t.Str]
 				var typ *vm.Type
@@ -2038,7 +2038,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						continue
 					}
 					match := in.A == idx
-					if typ != nil {
+					if !match && typ != nil {
 						match = c.slotMatchesType(int(in.A), typ)
 					}
 					if match {
