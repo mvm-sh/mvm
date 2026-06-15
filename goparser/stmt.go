@@ -249,6 +249,7 @@ func (p *Parser) registerParamPlaceholders(sym *symbol.Symbol, scope string) {
 		}
 		p.Symbols[key] = &symbol.Symbol{Kind: symbol.LocalVar, Name: name}
 		p.Seg.Add(key)
+		p.recordDirectLocal(key)
 	}
 	for _, n := range sym.InNames {
 		add(n)

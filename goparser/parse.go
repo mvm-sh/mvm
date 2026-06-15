@@ -42,7 +42,8 @@ type Parser struct {
 	fileAliases     map[int]map[string]*symbol.Symbol // per-file import scope: srcIndex (Sources.SourceIndex) -> alias name -> Pkg symbol; lets sibling files import the same alias to different paths (see pkgAlias)
 
 	funcScope      string
-	framelen       map[string]int // length of function frames indexed by funcScope
+	framelen       map[string]int      // length of function frames indexed by funcScope
+	directLocals   map[string][]string // funcScope -> its direct-level LocalVar keys; lets clearDirectLocals skip scanning all Symbols
 	labelCount     map[string]int
 	breakLabel     string
 	continueLabel  string
@@ -81,6 +82,9 @@ func (p *Parser) SymSet(key string, sym *symbol.Symbol) {
 	}
 	p.Symbols[key] = sym
 	p.Seg.Add(key)
+	if sym.Kind == symbol.LocalVar {
+		p.recordDirectLocal(key)
+	}
 }
 
 // SymAdd adds a new named symbol, recording the key for potential rollback.
@@ -91,6 +95,9 @@ func (p *Parser) SymAdd(i int, name string, v vm.Value, k symbol.Kind, t *vm.Typ
 	}
 	p.Symbols[name] = &symbol.Symbol{Kind: k, Name: name, Index: i, Value: v, Type: t}
 	p.Seg.Add(name)
+	if k == symbol.LocalVar {
+		p.recordDirectLocal(name)
+	}
 }
 
 // symGet resolves an unqualified name like Symbols.Get(name, p.scope), except
@@ -270,15 +277,16 @@ var (
 // NewParser returns a new parser.
 func NewParser(spec *lang.Spec, noPkg bool) *Parser {
 	p := &Parser{
-		Scanner:     scan.NewScanner(spec),
-		Symbols:     symbol.SymMap{},
-		Seg:         symbol.SegIndex{},
-		Packages:    map[string]*symbol.Package{},
-		noPkg:       noPkg,
-		framelen:    map[string]int{},
-		labelCount:  map[string]int{},
-		labeledJump: map[string][2]string{},
-		buildCtx:    defaultBuildContext(),
+		Scanner:      scan.NewScanner(spec),
+		Symbols:      symbol.SymMap{},
+		Seg:          symbol.SegIndex{},
+		Packages:     map[string]*symbol.Package{},
+		noPkg:        noPkg,
+		framelen:     map[string]int{},
+		directLocals: map[string][]string{},
+		labelCount:   map[string]int{},
+		labeledJump:  map[string][2]string{},
+		buildCtx:     defaultBuildContext(),
 	}
 	p.Symbols.Init()
 	p.rebuildSeg()
@@ -532,7 +540,8 @@ func (p *Parser) RestoreUnit(s UnitState) {
 	}
 	p.instanceDecls = nil
 	p.importRemaining = nil
-	p.rebuildSeg() // map was mutated wholesale; resync the index
+	p.rebuildSeg()          // map was mutated wholesale; resync the index
+	p.rebuildDirectLocals() // and the direct-locals index
 }
 
 // ParseDecl resolves a declaration's symbols (Phase 1) without emitting code.

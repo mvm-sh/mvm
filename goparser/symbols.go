@@ -29,20 +29,47 @@ func (p *Parser) addLocalVar(name string) string {
 	return scoped
 }
 
+// recordDirectLocal indexes a newly inserted LocalVar key under its parent scope
+// (the text before the final '/'), so clearDirectLocals drops a scope's direct
+// locals without scanning the whole symbol table. The index is a superset of the
+// live direct locals: stale keys are tolerated (clearDirectLocals re-checks each).
+func (p *Parser) recordDirectLocal(key string) {
+	i := strings.LastIndexByte(key, '/')
+	if i < 0 {
+		return
+	}
+	if p.directLocals == nil {
+		p.directLocals = map[string][]string{}
+	}
+	scope := key[:i]
+	p.directLocals[scope] = append(p.directLocals[scope], key)
+}
+
 // clearDirectLocals removes LocalVar entries at scope's direct level (keys
 // "scope/<name>" with no further "/"). Used at parseFunc entry to drop leftovers
 // from a prior parse that wrote to the same funcScope key -- see the call site.
 func (p *Parser) clearDirectLocals(scope string) {
-	prefix := scope + "/"
+	keys := p.directLocals[scope]
+	if len(keys) == 0 {
+		return
+	}
+	for _, k := range keys {
+		if s, ok := p.Symbols[k]; ok && s.Kind == symbol.LocalVar {
+			delete(p.Symbols, k)
+			p.Seg.Del(k)
+		}
+	}
+	p.directLocals[scope] = keys[:0]
+}
+
+// rebuildDirectLocals reconstructs the index from the symbol table, after
+// RestoreUnit mutates the map wholesale (mirrors rebuildSeg).
+func (p *Parser) rebuildDirectLocals() {
+	clear(p.directLocals)
 	for k, s := range p.Symbols {
-		if s.Kind != symbol.LocalVar || !strings.HasPrefix(k, prefix) {
-			continue
+		if s.Kind == symbol.LocalVar {
+			p.recordDirectLocal(k)
 		}
-		if strings.IndexByte(k[len(prefix):], '/') >= 0 {
-			continue
-		}
-		delete(p.Symbols, k)
-		p.Seg.Del(k)
 	}
 }
 
