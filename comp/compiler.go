@@ -201,6 +201,7 @@ func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 			continue
 		}
 		c.Symbols[short] = s // mvm:symkey-ok: deliberate bare-key alias for the test driver
+		c.Seg.Add(short)
 	}
 }
 
@@ -832,7 +833,7 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 			continue // already registered directly or through embedded interface
 		}
 		s := &symbol.Symbol{Kind: symbol.Var, Name: lookupTyp.Name, Type: lookupTyp}
-		m, fieldPath := c.Symbols.MethodByName(s, im.Name)
+		m, fieldPath := c.Symbols.MethodByName(s, im.Name, c.Seg)
 		if m == nil {
 			// MethodByName only finds concrete function symbols; interface methods have none.
 			for _, emb := range lookupTyp.Embedded {
@@ -2795,7 +2796,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.IfaceCall, c.methodID(methodName))
 					break
 				}
-				if m, fieldPath := c.Symbols.MethodByName(s, t.Str[1:]); m != nil {
+				if m, fieldPath := c.Symbols.MethodByName(s, t.Str[1:], c.Seg); m != nil {
 					// Method expression: Type.Method yields a func with receiver as first arg.
 					// A composite literal (T{}.Method) is a value, not a method expression.
 					if s.Kind == symbol.Type && !s.Composite {

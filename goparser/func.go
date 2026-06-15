@@ -156,6 +156,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	if err != nil {
 		if !ok {
 			delete(p.Symbols, key)
+			p.Seg.Del(key)
 		}
 		return false, err
 	}

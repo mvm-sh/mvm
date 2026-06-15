@@ -248,6 +248,7 @@ func (p *Parser) registerParamPlaceholders(sym *symbol.Symbol, scope string) {
 			return
 		}
 		p.Symbols[key] = &symbol.Symbol{Kind: symbol.LocalVar, Name: name}
+		p.Seg.Add(key)
 	}
 	for _, n := range sym.InNames {
 		add(n)
@@ -317,7 +318,7 @@ func (p *Parser) walkRefs(toks Tokens, scope string, visit func(*symbol.Symbol))
 			if !ok || recv.Kind == symbol.Pkg || recv.Kind == symbol.Func {
 				continue
 			}
-			if m, _ := p.Symbols.MethodByName(recv, t.Str); m != nil && m.Kind == symbol.Func {
+			if m, _ := p.Symbols.MethodByName(recv, t.Str, p.Seg); m != nil && m.Kind == symbol.Func {
 				visit(m)
 			}
 			continue

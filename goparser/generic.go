@@ -271,7 +271,7 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 		if p.hasMethodSym(recvNames, im.Name) {
 			continue
 		}
-		if m, _ := p.Symbols.MethodByName(tsym, im.Name); m != nil {
+		if m, _ := p.Symbols.MethodByName(tsym, im.Name, p.Seg); m != nil {
 			continue
 		}
 		if ifaceContainsMethod(arg, im.Name) {
@@ -474,6 +474,7 @@ func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typePar
 		old, had := p.Symbols[key]
 		prev = append(prev, saved{key, old, had})
 		p.Symbols[key] = sym // mvm:symkey-ok: transient type-param binding, restored by the returned func
+		p.Seg.Add(key)
 	}
 	for i, tp := range params {
 		sym := mk(i, tp)
@@ -494,6 +495,7 @@ func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typePar
 				p.Symbols[s.key] = s.sym // mvm:symkey-ok: restoring the saved symbol
 			} else {
 				delete(p.Symbols, s.key)
+				p.Seg.Del(s.key)
 			}
 		}
 	}
@@ -690,7 +692,9 @@ func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArg
 		// Body parse failed (a deferred forward ref), but registerFunc already
 		// published the symbol instantiateMethod's guard keys on. Drop it so the
 		// retry re-parses; else the guard skips it forever -> method has no code.
-		delete(p.Symbols, methodInstanceKey(mTypeName, methTmpl))
+		mik := methodInstanceKey(mTypeName, methTmpl)
+		delete(p.Symbols, mik)
+		p.Seg.Del(mik)
 		return false, err
 	}
 	p.instanceDecls = append(p.instanceDecls, DeferredDecl{PkgPath: tmpl.pkgPath, Toks: fout})
@@ -1007,7 +1011,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				return ft, 1 + ln
 			}
 		}
-		if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: leftTyp.Name, Type: leftTyp}, fieldName); ms != nil {
+		if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: leftTyp.Name, Type: leftTyp}, fieldName, p.Seg); ms != nil {
 			return ms.Type, 1 + ln
 		}
 		return nil, 0
@@ -1170,7 +1174,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				if st.Kind() == reflect.Pointer {
 					st = st.Elem()
 				}
-				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member); ms != nil && ms.Type != nil {
+				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
 					return funcReturnType(ms.Type), totalLen
 				}
 				// Native/bridged method: read the return type from the rtype, so a

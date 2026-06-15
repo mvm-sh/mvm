@@ -22,6 +22,7 @@ type Parser struct {
 	*scan.Scanner
 
 	Symbols         symbol.SymMap
+	Seg             symbol.SegIndex // last-segment index over Symbols, for fast method resolution; kept in sync with Symbols
 	Packages        map[string]*symbol.Package
 	function        *symbol.Symbol                    // current function
 	scope           string                            // current scope
@@ -79,6 +80,7 @@ func (p *Parser) SymSet(key string, sym *symbol.Symbol) {
 		p.symTracker = append(p.symTracker, key)
 	}
 	p.Symbols[key] = sym
+	p.Seg.Add(key)
 }
 
 // SymAdd adds a new named symbol, recording the key for potential rollback.
@@ -88,6 +90,7 @@ func (p *Parser) SymAdd(i int, name string, v vm.Value, k symbol.Kind, t *vm.Typ
 		p.symTracker = append(p.symTracker, name)
 	}
 	p.Symbols[name] = &symbol.Symbol{Kind: k, Name: name, Index: i, Value: v, Type: t}
+	p.Seg.Add(name)
 }
 
 // symGet resolves an unqualified name like Symbols.Get(name, p.scope), except
@@ -269,6 +272,7 @@ func NewParser(spec *lang.Spec, noPkg bool) *Parser {
 	p := &Parser{
 		Scanner:     scan.NewScanner(spec),
 		Symbols:     symbol.SymMap{},
+		Seg:         symbol.SegIndex{},
 		Packages:    map[string]*symbol.Package{},
 		noPkg:       noPkg,
 		framelen:    map[string]int{},
@@ -277,7 +281,17 @@ func NewParser(spec *lang.Spec, noPkg bool) *Parser {
 		buildCtx:    defaultBuildContext(),
 	}
 	p.Symbols.Init()
+	p.rebuildSeg()
 	return p
+}
+
+// rebuildSeg rebuilds Seg from the symbol table, after Init or a bulk mutation
+// (RestoreUnit) where incremental tracking is impractical.
+func (p *Parser) rebuildSeg() {
+	p.Seg = make(symbol.SegIndex, len(p.Symbols))
+	for k := range p.Symbols {
+		p.Seg.Add(k)
+	}
 }
 
 func (p *Parser) errAt(tok Token, format string, args ...any) error {
@@ -518,6 +532,7 @@ func (p *Parser) RestoreUnit(s UnitState) {
 	}
 	p.instanceDecls = nil
 	p.importRemaining = nil
+	p.rebuildSeg() // map was mutated wholesale; resync the index
 }
 
 // ParseDecl resolves a declaration's symbols (Phase 1) without emitting code.

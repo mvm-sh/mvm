@@ -404,7 +404,9 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 			cp := *s
 			s = &cp
 		}
-		p.Symbols[QualifyName(pkgPath, k)] = s
+		qk := QualifyName(pkgPath, k)
+		p.Symbols[qk] = s
+		p.Seg.Add(qk)
 	}
 	p.Packages[pkgPath] = pkg
 

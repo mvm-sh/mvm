@@ -42,6 +42,7 @@ func (p *Parser) clearDirectLocals(scope string) {
 			continue
 		}
 		delete(p.Symbols, k)
+		p.Seg.Del(k)
 	}
 }
 
@@ -259,6 +260,7 @@ func (p *Parser) callFuncType(in Tokens) *vm.Type {
 func (p *Parser) rollbackSymTracker() {
 	for _, k := range p.symTracker {
 		delete(p.Symbols, k)
+		p.Seg.Del(k)
 	}
 	p.symTracker = nil
 }

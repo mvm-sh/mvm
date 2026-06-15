@@ -4,6 +4,7 @@ package symbol
 import (
 	"go/constant"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/mvm-sh/mvm/runtype"
@@ -113,6 +114,41 @@ func Vtype(s *Symbol) *vm.Type {
 // SymMap is a map of Symbols.
 type SymMap map[string]*Symbol
 
+// SegIndex maps a key's last dot-segment to the keys sharing it, so method
+// resolution probes a few candidates instead of scanning the whole table (O(n),
+// quadratic on 60k-symbol units like protobuf). nil means "no index": full scan.
+type SegIndex map[string][]string
+
+// LastSeg returns key's text after the final '.', or key itself if there is none.
+func LastSeg(key string) string {
+	if i := strings.LastIndexByte(key, '.'); i >= 0 {
+		return key[i+1:]
+	}
+	return key
+}
+
+// Add records key under its last segment (idempotent).
+func (idx SegIndex) Add(key string) {
+	s := LastSeg(key)
+	if slices.Contains(idx[s], key) {
+		return
+	}
+	idx[s] = append(idx[s], key)
+}
+
+// Del removes key from its segment bucket.
+func (idx SegIndex) Del(key string) {
+	s := LastSeg(key)
+	b := idx[s]
+	for i, k := range b {
+		if k == key {
+			b[i] = b[len(b)-1]
+			idx[s] = b[:len(b)-1]
+			return
+		}
+	}
+}
+
 // Get searches for an existing symbol starting from the deepest scope.
 func (sm SymMap) Get(name, scope string) (sym *Symbol, sc string, ok bool) {
 	for {
@@ -173,7 +209,8 @@ func sameNamedType(cand, recv, recvCanon *vm.Type, recvRt reflect.Type) bool {
 
 // MethodByName returns the method symbol and the field index path to the receiver
 // (empty for direct methods, non-empty for promoted methods through embedded fields).
-func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
+// seg is the candidate index; nil falls back to a full scan.
+func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, []int) {
 	switch sym.Kind {
 	case Type:
 		// Guard the bare probe: a dot-imported or alias-copied symbol keeps a
@@ -198,12 +235,12 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				recvName = sym.Type.ElemType.Name
 			}
 			if recvName != "" {
-				if m := sm.qualifiedMethodLookup(sym.Type, recvName, name); m != nil {
+				if m := sm.qualifiedMethodLookup(sym.Type, recvName, name, seg); m != nil {
 					return m, nil
 				}
 			}
 		}
-		return sm.promotedMethod(sym.Type, name, nil)
+		return sm.promotedMethod(sym.Type, name, nil, seg)
 	case Var, LocalVar, Value, Const:
 		// A typed constant has the method set of its named type, just like a
 		// variable (e.g. `const idx tag.Index = "..."; idx.Index(key)`).
@@ -219,62 +256,64 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 		// Methods are registered under the short receiver name (`*T.M`), so
 		// prefer whichever candidate key actually has a registered method.
 		if typName == "" {
-			// Match the symbol table's named value type by *Type identity; strip a
-			// pointer wrapper symbolically (interpreted ptrs carry ElemType).
+			// Strip a pointer wrapper symbolically (interpreted ptrs carry ElemType).
 			recv := sym.Type
 			if recv.IsPtr() && recv.ElemType != nil {
 				recv = recv.ElemType
 			}
-			recvCanon := vm.CanonicalType(recv)
-			recvRt := recv.Rtype
-			if recvRt != nil && recvRt.Kind() == reflect.Pointer {
-				recvRt = recvRt.Elem()
-			}
-			// Candidates rank by closeness: exact *Type identity beats a
-			// same-Name canonical match (a clone), which beats any other
-			// canonical match (e.g. `type Y X` and X share a canonical but
-			// Y's methods are NOT X's; map order must not pick between them).
-			var firstName, exactName, namedName, canonName string
-			for k, s := range sm {
-				if s.Kind != Type || s.Type == nil || k == "" {
-					continue
+			if recv.Name != "" {
+				// Named element (e.g. a `*T` local): the probes below resolve it
+				// by name/identity, so skip the whole-table scan (the dominant
+				// compile cost on large packages).
+				typName = recv.Name
+			} else {
+				// Anonymous receiver (an mvm-created struct): no name to key on,
+				// so match a named Type symbol by *Type identity / rtype.
+				recvCanon := vm.CanonicalType(recv)
+				recvRt := recv.Rtype
+				if recvRt != nil && recvRt.Kind() == reflect.Pointer {
+					recvRt = recvRt.Elem()
 				}
-				if !sameNamedType(s.Type, recv, recvCanon, recvRt) {
-					continue
-				}
-				if firstName == "" {
-					firstName = k
-				}
-				if methodLookup(sm, k, name) == nil && methodLookup(sm, "*"+k, name) == nil {
-					continue
+				// Candidates rank by closeness: exact *Type identity beats a
+				// same-Name canonical match (a clone), which beats any other
+				// canonical match (e.g. `type Y X` and X share a canonical but
+				// Y's methods are NOT X's; map order must not pick between them).
+				var firstName, exactName, namedName, canonName string
+				for k, s := range sm {
+					if s.Kind != Type || s.Type == nil || k == "" {
+						continue
+					}
+					if !sameNamedType(s.Type, recv, recvCanon, recvRt) {
+						continue
+					}
+					if firstName == "" {
+						firstName = k
+					}
+					if methodLookup(sm, k, name) == nil && methodLookup(sm, "*"+k, name) == nil {
+						continue
+					}
+					switch {
+					case s.Type == recv:
+						exactName = k
+					case s.Type.Name == recv.Name && namedName == "":
+						namedName = k
+					case canonName == "":
+						canonName = k
+					}
+					if exactName != "" {
+						break
+					}
 				}
 				switch {
-				case s.Type == recv:
-					exactName = k
-				case s.Type.Name == recv.Name && namedName == "":
-					namedName = k
-				case canonName == "":
-					canonName = k
+				case exactName != "":
+					typName = exactName
+				case namedName != "":
+					typName = namedName
+				case canonName != "":
+					typName = canonName
+				case firstName != "":
+					typName = firstName
 				}
-				if exactName != "" {
-					break
-				}
-			}
-			switch {
-			case exactName != "":
-				typName = exactName
-			case namedName != "":
-				typName = namedName
-			case canonName != "":
-				typName = canonName
-			case firstName != "":
-				typName = firstName
-			default:
-				// No identity match (mvm can build distinct *Type instances for one
-				// Go type across file-by-file / multi-pass compilation). Fall back to
-				// the receiver's own simple name so qualifiedMethodLookup can match
-				// the method's pkg-qualified key by package path + name.
-				typName = recv.Name
 			}
 		}
 		if sm.bareKeyTypeMatches(typName, sym.Type) {
@@ -315,12 +354,12 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 				}
 			}
 			if !nativeVal && !nativePtr {
-				if m := sm.qualifiedMethodLookup(sym.Type, typName, name); m != nil {
+				if m := sm.qualifiedMethodLookup(sym.Type, typName, name, seg); m != nil {
 					return m, nil
 				}
 			}
 		}
-		return sm.promotedMethod(sym.Type, name, nil)
+		return sm.promotedMethod(sym.Type, name, nil, seg)
 	}
 	return nil, nil
 }
@@ -335,7 +374,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string) (*Symbol, []int) {
 // int}` in x/text via `type Tag compact.Tag`), and rtype-only matching would pick
 // one at random -- the root cause of [[project_isroot_iface_dispatch_recursion]].
 // An rtype-equality match is kept only as a fallback for native types.
-func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *Symbol {
+func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, seg SegIndex) *Symbol {
 	if recv == nil {
 		return nil
 	}
@@ -362,13 +401,15 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *S
 		return sm["*"+k+"."+method]
 	}
 	var fallback, nameFallback *Symbol
-	for k, s := range sm {
-		if k == "" || s.Kind != Type || s.Type == nil || !strings.HasSuffix(k, suffix) {
-			continue
+	// consider returns a definitive identity match for candidate k, else nil,
+	// recording rtype/name fallbacks along the way.
+	consider := func(k string, s *Symbol) *Symbol {
+		if k == "" || s == nil || s.Kind != Type || s.Type == nil || !strings.HasSuffix(k, suffix) {
+			return nil
 		}
 		m := probe(k)
 		if m == nil {
-			continue
+			return nil
 		}
 		cv := s.Type
 		if cv.IsPtr() && cv.ElemType != nil {
@@ -391,6 +432,22 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string) *S
 		if nameFallback == nil && cv.Name != "" && cv.Name == rv.Name && cv.PkgPath == rv.PkgPath {
 			nameFallback = m
 		}
+		return nil
+	}
+	// seg[typName] is a superset of the ".typName" suffix matches, which consider
+	// re-checks -- a few probes instead of a whole-table scan. nil seg: full scan.
+	if seg != nil {
+		for _, k := range seg[typName] {
+			if m := consider(k, sm[k]); m != nil {
+				return m
+			}
+		}
+	} else {
+		for k, s := range sm {
+			if m := consider(k, s); m != nil {
+				return m
+			}
+		}
 	}
 	if fallback != nil {
 		return fallback
@@ -408,14 +465,14 @@ func methodLookup(sm SymMap, typName, method string) *Symbol {
 
 // promotedMethod searches for a method promoted through embedded fields recorded in typ.Embedded.
 // It returns the method symbol and the field index path to reach the embedded receiver.
-func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int) (*Symbol, []int) {
-	return sm.promotedMethodSeen(typ, name, path, nil)
+func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int, seg SegIndex) (*Symbol, []int) {
+	return sm.promotedMethodSeen(typ, name, path, nil, seg)
 }
 
 // promotedMethodSeen is promotedMethod with a visited set guarding against
 // self-referential embedding (legal in Go, e.g. `type A struct{ *A }`), which
 // would otherwise recurse until the stack overflows.
-func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen map[*vm.Type]bool) (*Symbol, []int) {
+func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen map[*vm.Type]bool, seg SegIndex) (*Symbol, []int) {
 	if typ == nil {
 		return nil, nil
 	}
@@ -447,11 +504,11 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 		}
 		// Embedded type's method may live at a pkg-qualified key (Path B).
 		if embType.Name != "" {
-			if m := sm.qualifiedMethodLookup(embType, embType.Name, name); m != nil {
+			if m := sm.qualifiedMethodLookup(embType, embType.Name, name, seg); m != nil {
 				return m, fieldPath
 			}
 		}
-		if m, p := sm.promotedMethodSeen(embType, name, fieldPath, seen); m != nil {
+		if m, p := sm.promotedMethodSeen(embType, name, fieldPath, seen, seg); m != nil {
 			return m, p
 		}
 	}
