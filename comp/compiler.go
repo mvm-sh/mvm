@@ -60,6 +60,8 @@ type Compiler struct {
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 
+	genStart int // code offset at the start of the current generate() pass; see resolveLabel
+
 	// LenientCompile turns a codegen panic into a (rolled-back) error instead of
 	// crashing. Off by default; `mvm test` enables it for the external-test unit.
 	LenientCompile bool
@@ -340,7 +342,6 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl) error {
 		}
 	}
 	// Drain generic-instance bodies queued above, looping since one can trigger more.
-	// Each compiles under its template's package (the decl's PkgPath).
 	for {
 		insts := c.TakeInstanceDecls()
 		if len(insts) == 0 {
@@ -365,15 +366,7 @@ func (c *Compiler) compileInstance(dd goparser.DeferredDecl) error {
 }
 
 // preregisterMethods records every method onto its receiver type's Methods
-// table before Phase-2 body compile materializes any type. Phase 1 registers
-// methods only as symbols keyed "<typeKey>.<M>" (or "*<typeKey>.<M>" for pointer
-// receivers); the slot on the receiver *Type is otherwise filled lazily when the
-// method's label is emitted, which can land after the type was already
-// materialized -- too late for the reserve gate (vm.maybeReserve) to see it.
-// Index stays -1 (the code address is unknown until the body compiles); the real
-// registration overwrites the same slot in place, leaving any reservation (keyed
-// on the stable *Type) intact. Keys are walked in sorted order so method-ID
-// assignment is deterministic.
+// table before Phase-2 body compile materializes any type.
 func (c *Compiler) preregisterMethods() {
 	keys := make([]string, 0, len(c.Symbols))
 	for key := range c.Symbols {
@@ -406,10 +399,7 @@ func (c *Compiler) preregisterMethods() {
 }
 
 // materializeIfaceMethods fills IfaceMethod.Rtype from its symbolic Sig for every
-// interface reachable from the symbol table. goparser leaves it nil at parse; doing
-// it here (after preregisterMethods) means a named type named in a method signature
-// is materialized with its method table populated, so the reserve gate gives it a
-// method-bearing identity instead of a methodless stamp that attach must swap.
+// interface reachable from the symbol table.
 func (c *Compiler) materializeIfaceMethods() {
 	seen := map[*vm.Type]bool{}
 	var visit func(t *vm.Type)
@@ -966,6 +956,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	if debugTokens {
 		fmt.Printf("== generate tokens: %v\n", tokens)
 	}
+	// Pass start, so resolveLabel can tell a this-pass label from a stale one.
+	savedGenStart := c.genStart
+	c.genStart = len(c.Code)
+	defer func() { c.genStart = savedGenStart }()
 	// In lenient mode, turn a codegen panic into a located error (at the current
 	// token) so the external-test loader can drop the file; else crash loudly.
 	var cur goparser.Token
@@ -3931,15 +3925,27 @@ func (c *Compiler) labelSym(key string) (*symbol.Symbol, bool) {
 }
 
 func (c *Compiler) resolveLabel(t goparser.Token, fixList *goparser.Tokens) int {
-	if s, ok := c.labelSym(c.qualifyLabel(t.Str)); ok {
+	if s, ok := c.labelSym(c.qualifyLabel(t.Str)); ok && c.labelResolvedThisPass(s) {
 		return int(s.Value.Int()) - len(c.Code)
 	}
-	if s, ok := c.labelSym(t.Str); ok {
+	if s, ok := c.labelSym(t.Str); ok && c.labelResolvedThisPass(s) {
 		return int(s.Value.Int()) - len(c.Code)
 	}
 	t.Arg = []any{len(c.Code)}
 	*fixList = append(*fixList, t)
 	return 0
+}
+
+// labelResolvedThisPass reports whether a jump target's address is usable now.
+// A Label below genStart is stale (left in c.Symbols by a prior committed compile
+// of the same unit, since the drop-retry loop reuses one Compiler); a forward
+// jump to it must defer to fixList, else it keeps the prior pass's offset.
+// Func entries are cross-unit targets and always resolve.
+func (c *Compiler) labelResolvedThisPass(s *symbol.Symbol) bool {
+	if s.Kind == symbol.Func {
+		return true
+	}
+	return s.Value.IsValid() && int(s.Value.Int()) >= c.genStart
 }
 
 func (c *Compiler) qualifyLabel(name string) string {

@@ -323,10 +323,19 @@ func loadExternalTests(i *interp.Interp, target string) {
 	// The unit failed without naming a droppable file (a recovered panic has no
 	// position); load each file alone so self-contained ones still load.
 	for _, s := range ext {
+		resetCommandLineFlags()
 		if _, err := i.EvalFiles([]goparser.PackageSource{s}); err != nil {
 			noteSkippedTestFile(target, s.Name, err)
 		}
 	}
+}
+
+// resetCommandLineFlags clears the shared native flag.CommandLine before each
+// external-unit EvalFiles. Each drop-retry re-runs the _test.go flag.Bool var
+// inits, which would otherwise panic "flag redefined". testing.Init registers
+// the test.* flags later (runTestDriver), so wiping the set here is safe.
+func resetCommandLineFlags() {
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 }
 
 func noteSkippedTestFile(target, name string, err error) {
@@ -349,6 +358,7 @@ func loadExternalUnit(i *interp.Interp, target string, files []goparser.PackageS
 		if len(srcs) == 0 {
 			return true
 		}
+		resetCommandLineFlags()
 		_, err := i.EvalFiles(srcs)
 		if err == nil {
 			return true

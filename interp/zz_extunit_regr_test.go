@@ -12,6 +12,7 @@ import (
 	"github.com/mvm-sh/mvm/stdlib"
 	_ "github.com/mvm-sh/mvm/stdlib/all"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
+	"github.com/mvm-sh/mvm/vm"
 )
 
 // newExtUnitInterp loads module files via a fake proxy and evaluates the
@@ -337,6 +338,50 @@ func main() {}
 	for k := range i.Symbols {
 		if strings.HasPrefix(k, "Driver/for") && !strings.HasPrefix(k, "Driver/for0") {
 			t.Errorf("loop scope name drifted across recompiles: %q", k)
+		}
+	}
+}
+
+// Regression for recompiling a unit on the reused Compiler (the `mvm test`
+// drop-retry loop): a func-body skip jump (at Start-1) resolved against a stale
+// _end Label from a prior committed compile, landing inside the re-emitted body.
+// Top-level fall-through then ran the body inline on top of the init-shim call,
+// so a package var-init (proto bench_test.go's flag.Bool) ran twice.
+func TestRecompileFuncSkipJumpSkipsBody(t *testing.T) {
+	src := `package main
+
+func Helper(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += i * 2
+		s -= i
+	}
+	return s
+}
+
+var registered = Helper(3)
+
+func main() { _ = registered }
+`
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	files := []goparser.PackageSource{{Name: "main.go", Content: src}}
+	// First compile commits its labels (only compile errors roll back); the
+	// recompile must not reuse their stale addresses.
+	if err := i.CompileFiles(files); err != nil {
+		t.Fatalf("compile round 0: %v", err)
+	}
+	mark := len(i.FuncRanges)
+	if err := i.CompileFiles(files); err != nil {
+		t.Fatalf("compile round 1: %v", err)
+	}
+	for _, fr := range i.FuncRanges[mark:] {
+		if fr.Start == 0 || i.Code[fr.Start-1].Op != vm.Jump {
+			continue
+		}
+		if target := fr.Start - 1 + int(i.Code[fr.Start-1].A); target < fr.End {
+			t.Errorf("func %q skip jump at %d targets %d, inside body [%d,%d): stale label offset",
+				fr.Name, fr.Start-1, target, fr.Start, fr.End)
 		}
 	}
 }
