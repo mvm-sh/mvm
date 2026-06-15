@@ -173,9 +173,68 @@ func sigTypeCompatible(want, have *Type) bool {
 	if want.Kind() != reflect.Func || have.Kind() != reflect.Func {
 		return true
 	}
-	return identicalTypes(want.Params, have.Params) &&
-		identicalTypes(want.Returns, have.Returns) &&
+	return compatibleTypeList(want.Params, have.Params) &&
+		compatibleTypeList(want.Returns, have.Returns) &&
 		want.IsVariadic() == have.IsVariadic()
+}
+
+// compatibleTypeList compares two type lists element-wise with compatibleType.
+func compatibleTypeList(a, b []*Type) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !compatibleType(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// compatibleType is a structural variant of Identical for interface-satisfaction
+// signature comparison, with two relaxations for signature *Types built in a
+// different compile pass/universe than the concrete methods they match:
+// a named type matches by Name+PkgPath (recursing into its shape) instead of by
+// baseRoot/rtype identity, tolerating a cross-compilation dup; and an unnamed
+// empty interface matches any interface (an interface's own method Sig erases an
+// interface-typed component to interface{} when it was a forward ref at parse
+// time). Sound because mvm runs only typechecked Go.
+func compatibleType(a, b *Type) bool {
+	if a == b || a == nil || b == nil || a.Identical(b) {
+		return true
+	}
+	if isErasedIface(a) && b.IsInterface() || isErasedIface(b) && a.IsInterface() {
+		return true
+	}
+	if a.Kind() != b.Kind() {
+		return false
+	}
+	if a.Name != "" || b.Name != "" {
+		if a.Name != b.Name || a.PkgPath != b.PkgPath {
+			return false
+		}
+	}
+	switch a.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Chan:
+		return compatibleType(a.ElemType, b.ElemType)
+	case reflect.Array:
+		return a.Len() == b.Len() && compatibleType(a.ElemType, b.ElemType)
+	case reflect.Map:
+		return compatibleType(a.KeyType, b.KeyType) && compatibleType(a.ElemType, b.ElemType)
+	case reflect.Func:
+		return compatibleTypeList(a.Params, b.Params) &&
+			compatibleTypeList(a.Returns, b.Returns) &&
+			a.IsVariadic() == b.IsVariadic()
+	case reflect.Struct:
+		return compatibleTypeList(a.Fields, b.Fields)
+	}
+	return true
+}
+
+// isErasedIface reports whether t is the unnamed empty interface (the parse-time
+// placeholder for an unresolved interface-typed signature component).
+func isErasedIface(t *Type) bool {
+	return t != nil && t.Name == "" && t.IsInterface() && len(t.IfaceMethods) == 0
 }
 
 // sigCompatible reports whether two receiver-free method signatures match.
