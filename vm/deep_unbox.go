@@ -63,15 +63,24 @@ func ifaceBearingWalk(t reflect.Type, seen map[reflect.Type]bool) bool {
 	return false
 }
 
+// maxMapHops gates map iteration by heap-indirection depth.
+// A fresh composite arg holds its boxes within 1 hop; a map reached deeper
+// belongs to the broader object graph (a live serverConn) where iterating it
+// finds no boxes and races a concurrent writer (a "concurrent map iteration and
+// map write" fatal).
+const maxMapHops = 1
+
 // deepUnboxIface returns v with nested vm.Iface boxes replaced by their
 // concrete values, so native reflect walks (DeepEqual, fmt) see real Go values.
 // Value types (struct/array/interface) are copied on change only; reference
 // types (pointer/slice/map) are unboxed IN PLACE so a callee mutating through
 // them still reaches the caller's data (e.g. zerolog's hook.Run(e) appends to
 // e.buf; a rebuilt *Event would detach the write).
+// hops counts heap indirections from the arg root (pointer, slice, map edges;
+// not by-value struct/array), gating map iteration (see maxMapHops).
 // The bool reports a REPLACED value (value types only); false from a
 // reference type may still mean its contents were unboxed in place.
-func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]bool) (reflect.Value, bool) {
+func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unboxSeen]bool) (reflect.Value, bool) {
 	if depth > maxUnboxDepth || !v.IsValid() {
 		return v, false
 	}
@@ -94,7 +103,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 			if !w.IsValid() {
 				return v, false
 			}
-			if dw, ch := m.deepUnboxIface(w, depth+1, seen); ch {
+			if dw, ch := m.deepUnboxIface(w, depth+1, hops, seen); ch {
 				w = dw
 			}
 			if !w.Type().AssignableTo(t) {
@@ -102,7 +111,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 			}
 			return w, true
 		}
-		if w, ch := m.deepUnboxIface(el, depth+1, seen); ch && w.Type().AssignableTo(t) {
+		if w, ch := m.deepUnboxIface(el, depth+1, hops, seen); ch && w.Type().AssignableTo(t) {
 			return w, true
 		}
 		return v, false
@@ -117,7 +126,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		// backing array may be aliased elsewhere.
 		for i := range v.Len() {
 			el := v.Index(i)
-			if w, ch := m.deepUnboxIface(el, depth+1, seen); ch {
+			if w, ch := m.deepUnboxIface(el, depth+1, hops+1, seen); ch {
 				Exportable(el).Set(Exportable(w))
 			}
 		}
@@ -129,7 +138,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		var out reflect.Value
 		changed := false
 		for i := range t.Len() {
-			w, ch := m.deepUnboxIface(v.Index(i), depth+1, seen)
+			w, ch := m.deepUnboxIface(v.Index(i), depth+1, hops, seen)
 			if !ch {
 				continue
 			}
@@ -151,7 +160,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		var out reflect.Value
 		changed := false
 		for i := range t.NumField() {
-			w, ch := m.deepUnboxIface(v.Field(i), depth+1, seen)
+			w, ch := m.deepUnboxIface(v.Field(i), depth+1, hops, seen)
 			if !ch {
 				continue
 			}
@@ -176,12 +185,12 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		// In place: the callee must see the SAME pointer, or its writes
 		// through it land in a detached copy.
 		el := v.Elem()
-		if w, ch := m.deepUnboxIface(el, depth+1, seen); ch {
+		if w, ch := m.deepUnboxIface(el, depth+1, hops+1, seen); ch {
 			Exportable(el).Set(Exportable(w))
 		}
 		return v, false
 	case reflect.Map:
-		if v.IsNil() || !ifaceBearing(t) {
+		if v.IsNil() || !ifaceBearing(t) || hops > maxMapHops {
 			return v, false
 		}
 		if seenBefore(&seen, unboxSeen{v.Pointer(), t}) {
@@ -196,8 +205,8 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 		var changes []entry
 		it := v.MapRange()
 		for it.Next() {
-			k, kc := m.deepUnboxIface(it.Key(), depth+1, seen)
-			w, wc := m.deepUnboxIface(it.Value(), depth+1, seen)
+			k, kc := m.deepUnboxIface(it.Key(), depth+1, hops+1, seen)
+			w, wc := m.deepUnboxIface(it.Value(), depth+1, hops+1, seen)
 			if !kc && !wc {
 				continue
 			}
