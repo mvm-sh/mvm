@@ -2937,7 +2937,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp--
 		case DeleteMap:
 			mapVal := mem[sp-1].ref
-			mapVal.SetMapIndex(mapKeyReflect(mapVal.Type().Key(), mem[sp]), reflect.Value{})
+			mapVal.SetMapIndex(m.mapKey(mapVal.Type().Key(), mem[sp]), reflect.Value{})
 			sp--
 		case Clear:
 			clearValue(mem[sp].Reflect())
@@ -2976,7 +2976,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp -= 2
 		case MapIndex:
 			mapVal := mem[sp-1].ref
-			rv := mapVal.MapIndex(mapKeyReflect(mapVal.Type().Key(), mem[sp]))
+			rv := mapVal.MapIndex(m.mapKey(mapVal.Type().Key(), mem[sp]))
 			if !rv.IsValid() {
 				rv = reflect.Zero(mapVal.Type().Elem())
 			}
@@ -2984,7 +2984,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp--
 		case MapIndexOk:
 			mapVal := mem[sp-1].ref
-			rv := mapVal.MapIndex(mapKeyReflect(mapVal.Type().Key(), mem[sp]))
+			rv := mapVal.MapIndex(m.mapKey(mapVal.Type().Key(), mem[sp]))
 			ok := rv.IsValid()
 			if !ok {
 				rv = reflect.Zero(mapVal.Type().Elem())
@@ -3001,7 +3001,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			}
 			mt := mapVal.Type()
 			// Exportable: key or value may carry flagRO from an unexported field read.
-			mapVal.SetMapIndex(Exportable(mapKeyReflect(mt.Key(), mem[sp-1])),
+			mapVal.SetMapIndex(Exportable(m.mapKey(mt.Key(), mem[sp-1])),
 				Exportable(m.wrapForFunc(mem[sp], mt.Elem())))
 			sp -= 2
 		case SetS:
@@ -4853,7 +4853,7 @@ func (m *Machine) execBuiltinDeferred(op Op, base, narg int, mem []Value) {
 	case ChanClose:
 		mem[base].ref.Close()
 	case DeleteMap:
-		mem[base].ref.SetMapIndex(mapKeyReflect(mem[base].ref.Type().Key(), mem[base+1]), reflect.Value{})
+		mem[base].ref.SetMapIndex(m.mapKey(mem[base].ref.Type().Key(), mem[base+1]), reflect.Value{})
 	case CopySlice:
 		reflect.Copy(mem[base].ref, mem[base+1].ref)
 	case Clear:
@@ -5281,6 +5281,17 @@ func mapKeyReflect(t reflect.Type, src Value) reflect.Value {
 		}
 	}
 	return rv
+}
+
+// mapKey prepares src as a reflect map key. An Iface key into an interface-typed
+// map is unwrapped to its native concrete; the boxed struct would never collide.
+func (m *Machine) mapKey(t reflect.Type, src Value) reflect.Value {
+	if t.Kind() == reflect.Interface && src.IsIface() {
+		if rv, ok := m.unboxIfaceFor(src, t); ok {
+			return rv
+		}
+	}
+	return mapKeyReflect(t, src)
 }
 
 func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value) {
