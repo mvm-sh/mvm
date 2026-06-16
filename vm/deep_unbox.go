@@ -82,6 +82,12 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth int, seen map[unboxSeen]
 			return v, false
 		}
 		el := Exportable(v.Elem())
+		if !el.IsValid() {
+			// A non-nil interface whose Elem is unreadable: a native unexported
+			// field (e.g. log.Logger.out) can reflect with IsNil false yet a zero
+			// Elem. Nothing to unbox; leave it for the native call unchanged.
+			return v, false
+		}
 		if el.Type() == ifaceRtype {
 			ifc := el.Interface().(Iface)
 			w := m.bridgeIface(ifc, t)
