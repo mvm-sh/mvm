@@ -3,6 +3,7 @@ package vm
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -274,7 +275,7 @@ func byValueDepInFlight(t *mtype.Type) bool {
 // FinalizeDeferred re-patches once the cycle settles; otherwise clear the in-flight
 // bookkeeping. Returns ph either way (its identity is stable across the re-patch).
 func finishStructOrDefer(t *mtype.Type, ph reflect.Type) reflect.Type {
-	if byValueDepInFlight(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) {
 		markPending(t)
 		return ph
 	}
@@ -620,11 +621,12 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		// stored into native code (e.g. log.Logger -> http.Server.ErrorLog).
 		realLayout = mtype.BuildStructRtypeKeepIface(t.Fields, t.Embedded, t.Tags)
 	}
-	if byValueDepInFlight(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) {
 		// An embedded by-value struct is still a word-sized placeholder, so realLayout's
-		// size is provisional. Fill the reserved rtype to this best-effort shape (so
-		// compile-time walks see a real struct) and defer the share-publish + final
-		// fill to FinalizeDeferred, which re-enters once the cycle settles.
+		// size is provisional; or a func field's interface IO erased before its sigs were
+		// ready. Fill the reserved rtype to this best-effort shape (so compile-time walks
+		// see a real struct) and defer the share-publish + final fill to FinalizeDeferred,
+		// which re-enters once the cycle settles / the IO synths.
 		runtype.FillStructLayout(reserved, realLayout)
 		markPending(t)
 		t.Rtype = reserved
@@ -841,6 +843,14 @@ func materialize(t *mtype.Type) reflect.Type {
 			}
 		}
 		rt = reflect.FuncOf(in, out, t.Variadic)
+		// An interface IO that erased only because its method sigs were not yet
+		// materialized will synth precisely later; keep t pending so FinalizeDeferred
+		// rebuilds it (and any struct field holding it) instead of caching erased.
+		if funcIODeferrable(t) {
+			markPending(t)
+		} else {
+			clearPending(t)
+		}
 	case reflect.Struct:
 		if len(t.Fields) == 0 && t.Base != nil && t.Base != t && t.Base.Kind() == reflect.Struct {
 			// Defined type (type T1 T) whose Fields were cloned empty before the
@@ -1087,6 +1097,44 @@ func materializeFuncIO(p *mtype.Type) reflect.Type {
 		}
 	}
 	return materialize(p)
+}
+
+// ifaceSynthDeferrable reports whether p is a named, all-exported, method-bearing
+// interface whose synth rtype cannot be built yet because a method signature is
+// still unmaterialized (im.Rtype nil).
+// materializeFuncIO erases such an IO to interface{} for now, but it will synth
+// precisely once the sigs fill, so a func type carrying it must not be cached final.
+func ifaceSynthDeferrable(p *mtype.Type) bool {
+	if p == nil || p.Name == "" || p.Kind() != reflect.Interface ||
+		len(p.IfaceMethods) == 0 || !allIfaceMethodsExported(p) {
+		return false
+	}
+	if p.Rtype != nil && p.Rtype != mtype.AnyRtype {
+		return false // already a concrete iface rtype (native-bridged or built)
+	}
+	for _, im := range p.IfaceMethods {
+		if im.Rtype == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// funcIODeferrable reports whether func type t has any param/result that is a
+// synth-deferrable interface (see ifaceSynthDeferrable).
+func funcIODeferrable(t *mtype.Type) bool {
+	return slices.ContainsFunc(t.Params, ifaceSynthDeferrable) ||
+		slices.ContainsFunc(t.Returns, ifaceSynthDeferrable)
+}
+
+// anyFieldPending reports whether any direct field of t is pending re-materialization
+// (e.g. a func field whose interface IO was erased before its sigs were ready).
+// Such a struct must be re-patched by FinalizeDeferred once the field rebuilds precisely.
+func anyFieldPending(t *mtype.Type) bool {
+	if pendingCount.Load() == 0 {
+		return false
+	}
+	return slices.ContainsFunc(t.Fields, isPending)
 }
 
 func allIfaceMethodsExported(p *mtype.Type) bool {
