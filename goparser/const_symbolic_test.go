@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mvm-sh/mvm/mtype"
+	"github.com/mvm-sh/mvm/vm"
 )
 
 // The const-typing helpers must work on symbolic types whose Rtype is not yet
@@ -32,6 +33,15 @@ func TestTypedConstValueSymbolic(t *testing.T) {
 		if got := typedConstValue(c.cv, typ); got != c.want {
 			t.Errorf("typedConstValue(%v, %v) = %#v, want %#v", c.cv, c.kind, got, c.want)
 		}
+	}
+}
+
+// Regression: a const of unresolved-external type (OpaqueRtype, e.g. `^big.Word(0)`)
+// must fold its basic value, not Convert to struct{} -- the `make generate` panic.
+func TestTypedConstValueOpaque(t *testing.T) {
+	typ := &vm.Type{Name: "Word", Rtype: vm.OpaqueRtype}
+	if got := typedConstValue(constant.MakeInt64(-1), typ); got != -1 {
+		t.Errorf("typedConstValue(-1, Opaque Word) = %#v, want -1", got)
 	}
 }
 

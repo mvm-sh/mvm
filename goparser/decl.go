@@ -688,10 +688,10 @@ func typedConstValue(c constant.Value, typ *vm.Type) any {
 	if typ == nil || v == nil {
 		return v
 	}
-	// A materialized named type keeps the reflect.Convert path so the value
-	// carries that type. Symbolic types (Rtype nil until comp) convert off the
-	// kind, which already enumerates every basic type -- no reflect.Type needed.
-	if typ.Rtype != nil {
+	// Symbolic (Rtype nil) and unresolved-external (OpaqueRtype) types fold off
+	// the kind; Convert would panic on the latter (int -> struct{}). A real
+	// materialized named type keeps the Convert path so the value carries it.
+	if typ.Rtype != nil && typ.Rtype != vm.OpaqueRtype {
 		return reflect.ValueOf(v).Convert(typ.Rtype).Interface()
 	}
 	return basicConst(v, typ.Kind())

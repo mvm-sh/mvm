@@ -13,6 +13,7 @@ import (
 
 func init() {
 	m := stdlib.Values["crypto/tls"]
+	m["QUICErrorEvent"] = reflect.ValueOf(tls.QUICErrorEvent)
 	m["SecP256r1MLKEM768"] = reflect.ValueOf(tls.SecP256r1MLKEM768)
 	m["SecP384r1MLKEM1024"] = reflect.ValueOf(tls.SecP384r1MLKEM1024)
 }
