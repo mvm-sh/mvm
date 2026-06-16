@@ -59,15 +59,8 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 			out = append(out, toks...)
 			out = append(out, newToken(lang.DerefAssign, "", in[aindex].Pos, len(lhs)))
 		default:
-			if len(lhs) == 2 && len(toks) > 0 {
-				switch toks[len(toks)-1].Tok {
-				case lang.TypeAssert:
-					toks[len(toks)-1].Arg[0] = 1
-				case lang.Index:
-					toks[len(toks)-1].Arg = []any{1}
-				case lang.Arrow:
-					toks[len(toks)-1].Arg = []any{1}
-				}
+			if len(lhs) == 2 {
+				setCommaOkForm(toks)
 			}
 			out = append(out, toks...)
 			isRange = out[len(out)-1].Tok == lang.Range
@@ -161,6 +154,10 @@ func (p *Parser) parseAssignSingleRHSViaTemps(lhs []Tokens, rhsExpr Tokens, opTo
 	if err := p.checkSingleRHSArity(opTok, len(lhs), rhsToks); err != nil {
 		return out, err
 	}
+	// A 2-LHS assign to temps still needs the (value, ok) pair from a comma-ok RHS.
+	if len(lhs) == 2 {
+		setCommaOkForm(rhsToks)
+	}
 	out = append(out, rhsToks...)
 	out = append(out, newToken(lang.Define, "", pos, len(lhs)))
 	for i := range lhs {
@@ -238,6 +235,22 @@ func (p *Parser) checkSingleRHSArity(opTok Token, nLHS int, rhsToks Tokens) erro
 		return nil
 	}
 	return p.errAt(opTok, "assignment mismatch: %d variables but 1 value", nLHS)
+}
+
+// setCommaOkForm flags a 2-value RHS (type assertion, map index, channel receive)
+// to yield its (value, ok) pair for a 2-LHS assignment.
+func setCommaOkForm(toks Tokens) {
+	if len(toks) == 0 {
+		return
+	}
+	switch toks[len(toks)-1].Tok {
+	case lang.TypeAssert:
+		toks[len(toks)-1].Arg[0] = 1
+	case lang.Index:
+		toks[len(toks)-1].Arg = []any{1}
+	case lang.Arrow:
+		toks[len(toks)-1].Arg = []any{1}
+	}
 }
 
 func appendSingleAssign(out Tokens, src Token, pos int) Tokens {
