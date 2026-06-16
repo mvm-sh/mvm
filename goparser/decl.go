@@ -548,6 +548,7 @@ func (p *Parser) isUnsafePkgIdent(t Token) bool {
 //	[unsafe][.Sizeof|.Alignof][x][Call]             bare ident
 //	[unsafe][.Sizeof|.Alignof][T][Composite][Call]  composite literal T{}
 //	[unsafe][.Sizeof|.Alignof][x][.f][Call]         selector x.f
+//	[unsafe][.Sizeof|.Alignof][p][Deref][Call]      pointer deref *p
 //
 // Returns the argument's reflect.Type, the op name ("Sizeof"/"Alignof"),
 // tokens-consumed-including-Call, and any lookup/resolution error. An empty
@@ -575,7 +576,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) 
 		return s.Type, nil
 	}
 
-	if opIdx == l-3 { // composite or selector shape (5 tokens total)
+	if opIdx == l-3 { // composite, selector or deref shape (5 tokens total)
 		switch in[l-1].Tok {
 		case lang.Composite:
 			t, err := symType(in[l-1], in[l-1].Str)
@@ -583,6 +584,18 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) 
 				return nil, op, 0, err
 			}
 			return t, op, 5, nil
+		case lang.Deref: // unsafe.Sizeof(*p): the pointed-to type
+			if in[l-2].Tok != lang.Ident {
+				return nil, "", 0, nil
+			}
+			base, err := symType(in[l-2], in[l-2].Str)
+			if err != nil {
+				return nil, op, 0, err
+			}
+			if base.Kind() != reflect.Pointer || base.ElemType == nil {
+				return nil, op, 0, fmt.Errorf("unsafe.%s: %s is not a pointer", op, in[l-2].Str)
+			}
+			return base.ElemType, op, 5, nil
 		case lang.Period:
 			if in[l-2].Tok != lang.Ident {
 				return nil, "", 0, nil
