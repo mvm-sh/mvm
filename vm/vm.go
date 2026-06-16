@@ -1342,6 +1342,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			continue
 		case Deref:
 			r := mem[sp].ref.Elem()
+			if !r.IsValid() {
+				// *nil: recoverable nil deref, not a raw reflect panic.
+				m.raiseNilDeref()
+				ip = m.stageUnwind(ip, fp, mem)
+				continue
+			}
 			v := Value{ref: r}
 			if isNum(r.Kind()) {
 				v.num = numBits(r)
@@ -1352,6 +1358,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			val := mem[sp]
 			elem := ptr.ref.Elem()
 			sp -= 2
+			if !elem.IsValid() {
+				// *nil = v: recoverable nil deref, not a raw reflect panic.
+				m.raiseNilDeref()
+				ip = m.stageUnwind(ip, fp, mem)
+				continue
+			}
 			if elem.Kind() == reflect.Func && elem.CanAddr() {
 				// *p = f: wrap the mvm func value into a Go func (reflect.Set
 				// rejects the Closure/code-address representation).

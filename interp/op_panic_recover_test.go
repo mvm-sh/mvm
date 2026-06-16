@@ -17,6 +17,12 @@ func TestOpPanicRecoverable(t *testing.T) {
 		// gc message shape: gonum/mat checks HasPrefix(msg, "runtime error: index out of range").
 		{"index_oob_msg", `s := []int{1}; f := func() (m string) { defer func() { m = fmt.Sprint(recover()) }(); _ = s[3]; return }; f()`, "runtime error: index out of range"},
 		{"index_oob_is_error", `s := []int{1}; f := func() (ok bool) { defer func() { _, ok = recover().(error) }(); _ = s[3]; return }; f()`, "true"},
+		// *nilptr read and write must raise a recoverable nil deref, not a raw
+		// reflect panic ("Set/Type on zero Value") that escapes recover().
+		{"deref_read_nil", `var p *int; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = *p; return }; f()`, "true"},
+		{"deref_set_nil", `var p *int; f := func() (ok bool) { defer func() { ok = recover() != nil }(); *p = 1; return }; f()`, "true"},
+		{"deref_set_struct_nil", `type T struct{ x int }; var p *T; f := func() (ok bool) { defer func() { ok = recover() != nil }(); *p = T{}; return }; f()`, "true"},
+		{"deref_nil_is_error", `var p *int; f := func() (ok bool) { defer func() { _, ok = recover().(error) }(); _ = *p; return }; f()`, "true"},
 	}
 	for _, c := range cases {
 		t.Run(c.n, func(t *testing.T) {
