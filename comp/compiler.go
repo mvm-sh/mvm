@@ -495,9 +495,7 @@ func (c *Compiler) materializeIfaceMethods() {
 			visit(e.Type)
 		}
 		for i := range t.IfaceMethods {
-			if t.IfaceMethods[i].Rtype == nil && t.IfaceMethods[i].Sig != nil {
-				t.IfaceMethods[i].Rtype = vm.MaterializeRtype(t.IfaceMethods[i].Sig)
-			}
+			vm.MaterializeIfaceMethod(&t.IfaceMethods[i])
 		}
 	}
 	for _, sym := range c.Symbols {
@@ -4783,9 +4781,7 @@ func (c *Compiler) MaterializeAll() {
 		// at registration (comp builds method signatures symbolically; see the
 		// method-registration sites). Fill it once here, before synth attach reads it.
 		for i := range t.Methods {
-			if t.Methods[i].Rtype == nil && t.Methods[i].Sig != nil {
-				t.Methods[i].Rtype = vm.MaterializeRtype(t.Methods[i].Sig)
-			}
+			vm.MaterializeMethod(&t.Methods[i])
 		}
 	}
 	for t := range c.zeroTypeIdxs {

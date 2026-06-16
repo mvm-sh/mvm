@@ -3788,7 +3788,16 @@ func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 	if m.typesByRtype == nil {
 		m.typesByRtype = &typesIndex{}
 	}
-	return m.typesByRtype.lookup(m.globals, rt)
+	if t := m.typesByRtype.lookup(m.globals, rt); t != nil {
+		return t
+	}
+	// A value-only interpreted type (its *Type never globalized) is absent from the
+	// globals index; recover it from the reservation registry. Gate on a synth rtype
+	// so genuine native-rtype misses (the hot path) skip the scan.
+	if rt != nil && isSynthOrSynthPtr(rt) {
+		return typeForReservedRtype(rt)
+	}
+	return nil
 }
 
 func (m *Machine) ifaceMethodFuncType(name string) reflect.Type {

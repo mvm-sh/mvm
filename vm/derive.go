@@ -470,6 +470,29 @@ func lookupReservation(t *mtype.Type) *synthReservation {
 	return reservations[t]
 }
 
+// typeForReservedRtype recovers the interpreted *Type for a reserved synth rtype
+// from the reservation registry, the fallback when a value-only type round-tripped
+// through native reflect and its *Type is absent from the Machine globals.
+// Reserved rtypes are minted per name, so the first match is sound.
+func typeForReservedRtype(rt reflect.Type) *mtype.Type {
+	if rt == nil {
+		return nil
+	}
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	for t, res := range reservations {
+		if res.value != nil && res.value.Type() == rt {
+			return t
+		}
+		if res.ptr != nil && res.ptr.Type() == rt {
+			if d := derivedCache[t]; d != nil && d.ptr != nil {
+				return d.ptr
+			}
+		}
+	}
+	return nil
+}
+
 func isFieldClone(t *mtype.Type) bool {
 	if t.Defined {
 		return false // a top-level `type X T` definition owns its identity
@@ -749,6 +772,28 @@ func MaterializeRtype(t *mtype.Type) reflect.Type {
 	materializeMu.Lock()
 	defer materializeMu.Unlock()
 	return materialize(t)
+}
+
+// MaterializeIfaceMethod fills im.Rtype from im.Sig under materializeMu (no-op if
+// already set or Sig nil). The guard and write must be under the lock: a shared
+// interface *Type is materialized by multiple parallel compilations, and an
+// unsynchronized write here races a concurrent materialize that reads im.Rtype.
+func MaterializeIfaceMethod(im *mtype.IfaceMethod) {
+	materializeMu.Lock()
+	defer materializeMu.Unlock()
+	if im.Rtype == nil && im.Sig != nil {
+		im.Rtype = materialize(im.Sig)
+	}
+}
+
+// MaterializeMethod fills a concrete method's m.Rtype from m.Sig under
+// materializeMu, for the same reason as MaterializeIfaceMethod.
+func MaterializeMethod(m *mtype.Method) {
+	materializeMu.Lock()
+	defer materializeMu.Unlock()
+	if m.Rtype == nil && m.Sig != nil {
+		m.Rtype = materialize(m.Sig)
+	}
 }
 
 // materialize builds and caches t.Rtype from t's symbolic graph (Kind +
