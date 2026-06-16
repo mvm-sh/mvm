@@ -193,9 +193,16 @@ var reflectValueRtype = reflect.TypeFor[reflect.Value]()
 // Shim MakeFunc signatures, hoisted to avoid re-creating the reflect.Type on
 // every shim invocation.
 var (
-	methodByNameShimType = reflect.TypeOf(func(string) reflect.Value { return reflect.Value{} })
-	callShimType         = reflect.TypeOf(func([]reflect.Value) []reflect.Value { return nil })
+	methodByNameShimType     = reflect.TypeOf(func(string) reflect.Value { return reflect.Value{} })
+	callShimType             = reflect.TypeOf(func([]reflect.Value) []reflect.Value { return nil })
+	typeMethodByNameShimType = reflect.TypeOf(func(string) (reflect.Method, bool) { return reflect.Method{}, false })
 )
+
+// reflectMethodRtype is the reflect.Type for reflect.Method itself.
+var reflectMethodRtype = reflect.TypeFor[reflect.Method]()
+
+// notFoundMethodResult is reflect.Type.MethodByName's miss return.
+var notFoundMethodResult = []reflect.Value{reflect.Zero(reflectMethodRtype), reflect.ValueOf(false)}
 
 // zeroReflectValueResult is the "method not found / invalid" return for the
 // MethodByName shim: a one-element slice holding the zero reflect.Value, which
@@ -295,6 +302,83 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 			})
 	}
 	return reflect.Value{}
+}
+
+// reflectTypeShim intercepts reflect.Type.MethodByName for an mvm-interpreted
+// type whose method native reflect can't see (beyond the synth method cap, or an
+// unsupported synth shape). The method-expression counterpart of reflectValueShim;
+// protobuf's makeStructInfo needs it for reflect.PtrTo(t).MethodByName("XXX_OneofFuncs").
+func reflectTypeShim(m *Machine, rv reflect.Value, name string) reflect.Value {
+	if m == nil || name != "MethodByName" || !rv.IsValid() || !rv.CanInterface() {
+		return reflect.Value{}
+	}
+	rt, ok := rv.Interface().(reflect.Type)
+	if !ok || !isSynthOrSynthPtr(rt) {
+		return reflect.Value{}
+	}
+	return reflect.MakeFunc(typeMethodByNameShimType,
+		func(args []reflect.Value) []reflect.Value {
+			methodName := args[0].String()
+			// Supported-shape methods live in the native uncommon table; prefer them.
+			if mm, found := rt.MethodByName(methodName); found {
+				return []reflect.Value{reflect.ValueOf(mm), reflect.ValueOf(true)}
+			}
+			mm, found := m.synthMethodExpr(rt, methodName)
+			if !found {
+				return notFoundMethodResult
+			}
+			return []reflect.Value{reflect.ValueOf(mm), reflect.ValueOf(true)}
+		})
+}
+
+// synthMethodExpr builds a reflect.Method (method-expression form) for an mvm
+// method on the type rt describes. Method.Func takes the receiver as arg 0,
+// binds it, and dispatches the bytecode.
+func (m *Machine) synthMethodExpr(rt reflect.Type, name string) (reflect.Method, bool) {
+	t := m.typeByRtype(rt)
+	if t == nil {
+		return reflect.Method{}, false
+	}
+	method, ok := m.MethodByName(t, name)
+	if !ok {
+		return reflect.Method{}, false
+	}
+	// Method-set rules: a value type exposes only value-receiver methods. mvm
+	// keeps pointer-receiver methods on the value type too, so gate them out (else
+	// go-cmp's tryMethod would call a pointer-receiver Equal on a value).
+	if rt.Kind() != reflect.Pointer && method.PtrRecv {
+		return reflect.Method{}, false
+	}
+	// Bound signature (no receiver). Rtype is lazy; ifaceMethodFuncType holds only
+	// interface-dispatched methods, which a reflected-only method never is.
+	boundFt := method.Rtype
+	if (boundFt == nil || boundFt.Kind() != reflect.Func) && method.Sig != nil {
+		boundFt = MaterializeRtype(method.Sig)
+	}
+	if boundFt == nil || boundFt.Kind() != reflect.Func {
+		boundFt = m.ifaceMethodFuncType(name)
+	}
+	if boundFt == nil || boundFt.Kind() != reflect.Func {
+		return reflect.Method{}, false
+	}
+	// Method-expression signature: the receiver prepended to the bound signature.
+	in := make([]reflect.Type, 0, boundFt.NumIn()+1)
+	in = append(in, rt)
+	for i := range boundFt.NumIn() {
+		in = append(in, boundFt.In(i))
+	}
+	out := make([]reflect.Type, boundFt.NumOut())
+	for i := range out {
+		out[i] = boundFt.Out(i)
+	}
+	exprType := reflect.FuncOf(in, out, boundFt.IsVariadic())
+	fn := reflect.MakeFunc(exprType, func(args []reflect.Value) []reflect.Value {
+		ifc := Iface{Typ: t, Val: FromReflect(args[0])}
+		closure := m.MakeMethodCallable(ifc, method)
+		return m.makeCallFunc(closure, boundFt).Call(args[1:])
+	})
+	// Index 0 is a placeholder: a beyond-cap method has no native table slot.
+	return reflect.Method{Name: name, Type: exprType, Func: fn, Index: 0}, true
 }
 
 // callSynthMethodFunc converts a Call/CallSlice on a synth Method.Func

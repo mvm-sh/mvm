@@ -3627,6 +3627,9 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 	if shim := reflectValueShim(m, rv, name); shim.IsValid() {
 		return shim
 	}
+	if shim := reflectTypeShim(m, rv, name); shim.IsValid() {
+		return shim
+	}
 	if mv := rv.MethodByName(name); mv.IsValid() {
 		return mv
 	}
@@ -4689,6 +4692,10 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 				// expected interface type (e.g. interface{} -> error) for
 				// MakeFunc callers.
 				rv = interfaceToInterface(rv, outType)
+			case outType.Kind() == reflect.Func && rv.Kind() != reflect.Func:
+				// mvm func value (code or Closure) returned where a native func is
+				// expected: wrap it callable for the MakeFunc caller.
+				rv = m.makeCallFunc(m.mem[i], outType)
 			case rv.Type().ConvertibleTo(outType):
 				// A loosely-typed numeric return (e.g. an untyped int constant
 				// returned from a func(rune) rune callback) must be converted
@@ -5071,6 +5078,12 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 		if w := m.bridgeIface(iv, dst); w.IsValid() {
 			return w, true
 		}
+	} else if !keepInterpreted {
+		// Empty-interface target: store the raw synth-typed concrete (a real eface),
+		// not the boxed Iface struct, so native reflect/unsafe reads see a Go value.
+		// An empty interface has no methods to bridge; the synth rtype carries the
+		// concrete's methods and typeByRtype recovers the interpreted *Type.
+		return numReflect(iv.Typ.Rtype, iv.Val), true
 	}
 	return reflect.Value{}, false
 }
