@@ -947,6 +947,11 @@ const deferStartedFlag = uint64(1) << 63
 // isX. Defer header layout: isX bits 0-1, spread bit 2, narg bits 3-62, started 63.
 const DeferSpreadFlag = 4
 
+// IfaceCallDetachBit in an IfaceCall's B operand (set by the compiler for
+// defer/go) makes the native path capture the receiver by value, not alias its
+// slot. Low bits stay the recvTypeHint.
+const IfaceCallDetachBit = 1 << 30
+
 func packDefer(narg, isX, spread int) uint64 { return uint64(narg<<3 | spread<<2 | isX) }
 func deferNarg(packed uint64) int            { return int((packed &^ deferStartedFlag) >> 3) }
 func deferIsX(packed uint64) int             { return int(packed & 3) }
@@ -1655,18 +1660,25 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			if !mem[sp].IsIface() {
 				// Native interface value: use reflect to get the method.
 				methodName := m.MethodNames[methodID]
+				recvHint := c.B &^ IfaceCallDetachBit
 				recvRV := mem[sp].Reflect()
 				if isNilReceiver(recvRV) {
 					m.raiseNilDeref()
 					ip = m.stageUnwind(ip, fp, mem)
 					continue
 				}
+				// defer/go: capture the receiver by value, not its slot.
+				if c.B&IfaceCallDetachBit != 0 && recvRV.CanAddr() {
+					cp := reflect.New(recvRV.Type()).Elem()
+					cp.Set(Exportable(recvRV))
+					recvRV = cp
+				}
 				rv := nativeMethodLookup(m, recvRV, methodName)
-				if !rv.IsValid() && c.B != 0 {
+				if !rv.IsValid() && recvHint != 0 {
 					// Numeric value lost its named type (e.g. time.Duration stored as int64).
 					// Convert to the named type encoded in B-1 and retry the method lookup.
-					namedType := m.globals[int(c.B)-1].ref.Type()
-					rv = mem[sp].Reflect().Convert(namedType).MethodByName(methodName)
+					namedType := m.globals[int(recvHint)-1].ref.Type()
+					rv = recvRV.Convert(namedType).MethodByName(methodName)
 				}
 				if rv.IsValid() && recvRV.IsValid() &&
 					hasNativeMethodHook(recvRV.Type(), methodName) {

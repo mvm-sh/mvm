@@ -1091,6 +1091,25 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	// push records the current code position as the entry's load start. Callers
 	// that emit a load do so right after push, so len(c.Code) is the load's start.
 	push := func(s *symbol.Symbol) { pushAt(s, len(c.Code)) }
+	// markEscapingMethodDetach flags the IfaceCall producing a defer/go method
+	// value so it captures the receiver by value, not its slot.
+	// The function is at stack[len-1-narg]; its load spans the IfaceCall.
+	markEscapingMethodDetach := func(narg int) {
+		fi := len(stack) - 1 - narg
+		if fi < 0 || fi >= len(codeStarts) {
+			return
+		}
+		start, end := codeStarts[fi], len(c.Code)
+		if narg > 0 {
+			end = codeStarts[fi+1]
+		}
+		for i := end - 1; i >= start; i-- {
+			if c.Code[i].Op == vm.IfaceCall {
+				c.Code[i].B |= vm.IfaceCallDetachBit
+				return
+			}
+		}
+	}
 	// reserveDepth raises the function's max expression depth by `extra` slots
 	// beyond what push() modelled, for transient operand runs that Grow must still cover.
 	reserveDepth := func(extra int) {
@@ -3224,6 +3243,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			narg := t.Arg[0].(int)
 			spread := len(t.Arg) > 1 && t.Arg[1].(int) != 0
 			s := stack[len(stack)-1-narg]
+			markEscapingMethodDetach(narg)
 			isX := 0
 			switch s.Kind {
 			case symbol.Type:
@@ -3261,6 +3281,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if s.Kind == symbol.Type {
 				return c.errAt(t, "cannot use a type conversion as a goroutine")
 			}
+			markEscapingMethodDetach(narg)
 			callNarg, packed := c.emitVariadicPack(t, s, narg, spread, stack)
 			pop() // function
 			for range narg {

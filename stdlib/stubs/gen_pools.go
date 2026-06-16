@@ -122,6 +122,10 @@ var wordShapes = []wordShape{
 	{Params: "i", Results: "i"},
 	// http.RoundTripper.RoundTrip: func(*http.Request) (*http.Response, error).
 	{Params: "p", Results: "ppp"},
+	// http.ResponseWriter.Header + protobuf func() *T getters (niladic ptr, like _pp/_i).
+	{Params: "", Results: "p", Size: 4096},
+	// http.ResponseWriter.WriteHeader(int) and func(int) setters.
+	{Params: "i", Results: "", Size: 1024},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
