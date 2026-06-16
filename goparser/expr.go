@@ -131,7 +131,8 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 						ctype = "*" + typ.ElemType.Name
 					}
 					p.SymAdd(symbol.UnsetAddr, ctype, typeTokenValue(typ), symbol.Type, typ)
-					out = append(out, newIdent(ctype, t.Pos))
+					// Carry the type by identity: the bare "*T" key collides across packages with a shared simple name.
+					out = append(out, newIdent(ctype, t.Pos, typ))
 					i += n - 1
 					break
 				}
