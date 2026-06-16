@@ -145,7 +145,8 @@ func buildChanOf(dir reflect.ChanDir, elem reflect.Type, elemRT *abiType) reflec
 
 	b := new(abiChanType)
 	b.abiType = intChanRT.abiType
-	b.TFlag = tflagRegularMemory // chans hash by ref; see buildPointerTo
+	// tflagDirectIface: chan is single-word; else a synth chan panics "bad indir" when boxed.
+	b.TFlag = tflagDirectIface | tflagRegularMemory // chans hash by ref; see buildPointerTo
 	b.Hash = nextSyntheticHash()
 	b.PtrToThis = 0
 	b.Str = addReflectOff(unsafe.Pointer(

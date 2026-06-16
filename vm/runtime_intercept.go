@@ -331,6 +331,80 @@ func reflectTypeShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 		})
 }
 
+type reflectCtorKind int
+
+const (
+	ctorSlice reflectCtorKind = iota + 1
+	ctorMap
+	ctorArray
+	ctorChan
+)
+
+// reflectCtorPCs maps each constructor's code pointer to its kind. Native reflect
+// builds these over a synth element using its own cache, yielding an rtype distinct
+// from mvm's runtype.Derive* for one Go type -- so reflect.SliceOf(*T) and the []*T
+// literal compare unequal. PointerTo is absent: PtrToThis makes native *T converge
+// on its own, so intercepting it would wrongly force the synth *T.
+var reflectCtorPCs = map[uintptr]reflectCtorKind{
+	reflect.ValueOf(reflect.SliceOf).Pointer(): ctorSlice,
+	reflect.ValueOf(reflect.MapOf).Pointer():   ctorMap,
+	reflect.ValueOf(reflect.ArrayOf).Pointer(): ctorArray,
+	reflect.ValueOf(reflect.ChanOf).Pointer():  ctorChan,
+}
+
+// interceptReflectCtor reroutes a reflect ctor call with a synth component to
+// runtype.Derive*, boxed as the ctor's reflect.Type return. ok=false leaves the
+// native call untouched (non-ctor, or all-native: native identity is canonical).
+func interceptReflectCtor(rv reflect.Value, in []reflect.Value) (out []reflect.Value, ok bool) {
+	if rv.Kind() != reflect.Func {
+		return nil, false
+	}
+	kind, isCtor := reflectCtorPCs[rv.Pointer()]
+	if !isCtor {
+		return nil, false
+	}
+	argType := func(i int) reflect.Type {
+		if i >= len(in) || !in[i].IsValid() || !in[i].CanInterface() {
+			return nil
+		}
+		t, _ := in[i].Interface().(reflect.Type)
+		return t
+	}
+	var result reflect.Type
+	switch kind {
+	case ctorSlice:
+		elem := argType(0)
+		if elem == nil || !runtype.IsSynth(elem) {
+			return nil, false
+		}
+		result = runtype.DeriveSliceOf(elem)
+	case ctorMap:
+		key, elem := argType(0), argType(1)
+		if key == nil || elem == nil || (!runtype.IsSynth(key) && !runtype.IsSynth(elem)) {
+			return nil, false
+		}
+		result = runtype.DeriveMapOf(key, elem)
+	case ctorArray: // ArrayOf(length int, elem Type)
+		elem := argType(1)
+		if elem == nil || !runtype.IsSynth(elem) {
+			return nil, false
+		}
+		result = runtype.DeriveArrayOf(int(in[0].Int()), elem)
+	case ctorChan: // ChanOf(dir ChanDir, elem Type)
+		elem := argType(1)
+		if elem == nil || !runtype.IsSynth(elem) {
+			return nil, false
+		}
+		result = runtype.DeriveChanOf(reflect.ChanDir(in[0].Int()), elem)
+	}
+	if result == nil {
+		return nil, false
+	}
+	box := reflect.New(rv.Type().Out(0)).Elem() // reflect.Type (interface) return
+	box.Set(reflect.ValueOf(result))
+	return []reflect.Value{box}, true
+}
+
 // synthMethodExpr builds a reflect.Method (method-expression form) for an mvm
 // method on the type rt describes. Method.Func takes the receiver as arg 0,
 // binds it, and dispatches the bytecode.

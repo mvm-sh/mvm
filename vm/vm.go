@@ -2226,7 +2226,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 
 		case MkChan:
 			elemType := m.globals[int(c.A)].ref.Type()
-			chanType := reflect.ChanOf(reflect.BothDir, elemType)
+			// Derive, not reflect.ChanOf: a synth elem must match materialize's chan identity.
+			chanType := runtype.DeriveChanOf(reflect.BothDir, elemType)
 			bufSize := int(c.B)
 			if bufSize < 0 {
 				bufSize = int(mem[sp].num)
@@ -2855,7 +2856,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case MkSlice:
 			n := int(c.A)
 			elemType := m.globals[int(c.B)].ref.Type()
-			sliceType := reflect.SliceOf(elemType)
+			// Derive, not reflect.SliceOf: a synth elem must match materialize's slice identity.
+			sliceType := runtype.DeriveSliceOf(elemType)
 			switch {
 			case n < 0:
 				// make([]T, len[, cap]): size args are on the stack.
@@ -4431,6 +4433,9 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		in[len(in)-1] = unwrapVariadicIface(in[len(in)-1])
 		return rv.CallSlice(in), false
 	default:
+		if out, ok := interceptReflectCtor(rv, in); ok {
+			return out, false
+		}
 		if err := checkNativeCall(rv, in, false); err != nil {
 			panic(err)
 		}
