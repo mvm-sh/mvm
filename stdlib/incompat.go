@@ -179,6 +179,11 @@ var Incompat = map[string]map[string]string{
 		"TestWriter": "stress test: streams the static normTests corpus through Form.Writer across all 16 bufSizes x4 forms; ~150s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",
 		"TestReader": "stress test: streams the static normTests corpus through Form.Reader across all 16 bufSizes x4 forms; ~14s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",
 	},
+
+	"google.golang.org/protobuf/proto": {
+		"TestMarshalAppendAllocations": "testing.AllocsPerRun: interpreter allocations differ between the preallocated-buffer and append paths; native expects identical amortized counts",
+		"TestHasExtensionNoAlloc":      "testing.AllocsPerRun: HasExtension allocates under the interpreter; native expects 0",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge
