@@ -205,3 +205,24 @@ func TestSymVisibleFieldsPromotion(t *testing.T) {
 }
 
 func ptrSizeInt() uintptr { return (&Type{kind: reflect.Int}).Size() }
+
+// TestFieldTypeAtPathCloneCanonical guards the x/net/http2 promoted-method
+// write-through bug: a field-access clone loses its Fields, so FieldTypeAtPath
+// must resolve the embedded field's type via the canonical (Base).
+func TestFieldTypeAtPathCloneCanonical(t *testing.T) {
+	fh := &Type{Name: "FrameHeader", kind: reflect.Struct, Rtype: reflect.TypeOf(struct{ valid bool }{})}
+	canon := &Type{
+		Name: "HeadersFrame", kind: reflect.Struct,
+		Rtype:  reflect.TypeOf(struct{ a int }{}),
+		Fields: []*Type{fh},
+	}
+	clone := &Type{Name: "HeadersFrame", kind: reflect.Struct, Base: canon} // no Fields, no Rtype
+
+	got := SymPtr(clone).FieldTypeAtPath([]int{0})
+	if got == nil {
+		t.Fatal("FieldTypeAtPath on *clone returned nil; want FrameHeader via canonical")
+	}
+	if got.Name != "FrameHeader" {
+		t.Fatalf("FieldTypeAtPath = %q, want FrameHeader", got.Name)
+	}
+}

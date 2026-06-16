@@ -169,3 +169,42 @@ func TestMethodLookupCrossUniverse(t *testing.T) {
 		}
 	}
 }
+
+// TestPromotedMethodViaCloneCanonical guards the x/net/http2 "undefined:
+// invalidate" blocker: a field-access clone *Type drops Embedded, so an
+// unexported promoted method (resolvable only via the symbol table, since
+// reflect hides unexported methods) must resolve via the canonical (Base).
+func TestPromotedMethodViaCloneCanonical(t *testing.T) {
+	const pkg = "golang.org/x/net/http2"
+
+	// FrameHeader owns the unexported promoted method `invalidate` (ptr recv),
+	// registered at a pkg-qualified key as for any imported package.
+	fhType := &vm.Type{Name: "FrameHeader", PkgPath: "http2", Rtype: reflect.TypeOf(struct{ valid bool }{})}
+	// canonHF carries the embedded FrameHeader; cloneHF is the field-access clone
+	// with no Embedded and Rtype nil, linked to canonHF via Base.
+	canonHF := &vm.Type{
+		Name: "HeadersFrame", PkgPath: "http2",
+		Rtype:    reflect.TypeOf(struct{ a int }{}),
+		Embedded: []vm.EmbeddedField{{FieldIdx: 0, Type: fhType}},
+	}
+	cloneHF := &vm.Type{Name: "HeadersFrame", PkgPath: "http2", Base: canonHF}
+
+	invalidate := &Symbol{Kind: Func, Name: "invalidate", Index: 42}
+	sm := SymMap{
+		pkg + ".FrameHeader":                  &Symbol{Kind: Type, Type: fhType},
+		"*" + pkg + ".FrameHeader.invalidate": invalidate,
+		pkg + ".HeadersFrame":                 &Symbol{Kind: Type, Type: canonHF},
+		"HeadersFrame":                        &Symbol{Kind: Type, Type: canonHF},
+	}
+	seg := segOf(sm)
+
+	// mh.HeadersFrame.invalidate(): receiver is *HeadersFrame (the clone).
+	recv := &Symbol{Kind: Value, Type: vm.SymPtr(cloneHF)}
+	got, path := sm.MethodByName(recv, "invalidate", seg)
+	if got == nil || got.Index != 42 {
+		t.Fatalf("promoted unexported method via clone: got %v, want method Index=42", got)
+	}
+	if len(path) != 1 || path[0] != 0 {
+		t.Fatalf("promoted field path: got %v, want [0]", path)
+	}
+}

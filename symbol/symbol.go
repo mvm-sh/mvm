@@ -481,6 +481,12 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 	if typ.IsPtr() && typ.ElemType != nil {
 		typ = typ.ElemType
 	}
+	// A field-access clone can lack Embedded; its canonical (Base) keeps it.
+	if len(typ.Embedded) == 0 {
+		if canon := vm.CanonicalType(typ); canon != typ && len(canon.Embedded) > 0 {
+			typ = canon
+		}
+	}
 	if seen[typ] {
 		return nil, nil
 	}

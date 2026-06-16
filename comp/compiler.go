@@ -7,6 +7,7 @@ import (
 	"go/constant"
 	"go/token"
 	"maps"
+	"math"
 	"os"
 	"path"
 	"reflect"
@@ -3686,6 +3687,12 @@ func (c *Compiler) fuseLocalAssign(t goparser.Token, lhsIdx int) bool {
 	return false
 }
 
+// immAddOverflowsInt32 reports whether imm+adj exceeds the int32 immediate field.
+func immAddOverflowsInt32(imm, adj int32) bool {
+	s := int64(imm) + int64(adj)
+	return s < math.MinInt32 || s > math.MaxInt32
+}
+
 func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,
 	cmpOp, fusedOp, getLocalCmpOp, getLocalFusedOp vm.Op, immAdj int32,
 ) bool {
@@ -3704,6 +3711,10 @@ func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,
 	switch prev.Op {
 	case cmpOp:
 		// Layout: A=jumpOff(int32), B=imm32.
+		// Decline when imm+immAdj overflows int32 (imm == MaxInt32); the standalone path stays correct.
+		if immAddOverflowsInt32(prev.A, immAdj) {
+			return false
+		}
 		fused = fusedOp
 		newB = prev.A + immAdj
 		// newA = jumpOff (filled below).
@@ -3715,6 +3726,9 @@ func (c *Compiler) fuseCmpJump(t goparser.Token, fixList *goparser.Tokens,
 		// the end and errors if a real function violates the bound.
 		if prev.A < -32768 || prev.A > 32767 {
 			return false // localOff doesn't fit int16
+		}
+		if immAddOverflowsInt32(prev.B, immAdj) {
+			return false // imm+immAdj overflows int32
 		}
 		fused = getLocalFusedOp
 		newA = prev.A & 0xFFFF // low 16: localOff (sign bit preserved by mask).

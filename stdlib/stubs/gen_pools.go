@@ -120,6 +120,8 @@ var wordShapes = []wordShape{
 	{Params: "p", Results: "i"},
 	{Params: "pp", Results: "i"},
 	{Params: "i", Results: "i"},
+	// http.RoundTripper.RoundTrip: func(*http.Request) (*http.Response, error).
+	{Params: "p", Results: "ppp"},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

@@ -2034,6 +2034,11 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				continue
 			}
 			fv := forceSettable(fieldByAB(rv, int(c.A), int(c.B)))
+			// Strip the read-only flag from an unexported field read off a
+			// non-addressable struct (e.g. a map index) so a later .Interface() won't panic.
+			if !fv.CanInterface() {
+				fv = Exportable(fv)
+			}
 			if isNum(fv.Kind()) {
 				// Preserve addressable ref for write-through on struct field mutations.
 				mem[sp] = Value{num: numBits(fv), ref: fv}

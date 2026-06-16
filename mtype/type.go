@@ -759,6 +759,11 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string) r
 		switch {
 		case f.Kind() != reflect.Interface:
 			rf[i].Type = f.Rtype
+			// mvm stores interfaces as eface, so &errField is *interface{}; a *error field must match.
+			if ft := f.Rtype; ft != nil && ft.Kind() == reflect.Pointer &&
+				ft.Elem().Kind() == reflect.Interface && ft.Elem() != AnyRtype {
+				rf[i].Type = reflect.PointerTo(AnyRtype)
+			}
 		case embSet[i] && f.Rtype != nil && f.Rtype.NumMethod() > 0:
 			rf[i].Type = f.Rtype
 		default:
@@ -941,6 +946,16 @@ func (t *Type) FieldTypeAtPath(path []int) *Type {
 		}
 		if cur.Kind() == reflect.Pointer {
 			cur = cur.Elem()
+		}
+		// A field-access clone can drop Fields/Rtype; resolve via its canonical (Base).
+		for cur != nil && cur.Rtype == nil && (idx >= len(cur.Fields) || cur.Fields[idx] == nil) && cur.Base != nil {
+			cur = cur.Base
+			if cur != nil && cur.Kind() == reflect.Pointer {
+				cur = cur.Elem()
+			}
+		}
+		if cur == nil {
+			return nil
 		}
 		switch {
 		case idx < len(cur.Fields) && cur.Fields[idx] != nil:
