@@ -615,6 +615,11 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 	// Non-memoized build so a deferred re-fill (below) picks up the real size once
 	// an in-flight embedded field is patched, rather than a stale memoized layout.
 	realLayout := mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags)
+	if nativeLayoutRegistered(t) {
+		// Keep interface fields as iface so the value matches its native rtype when
+		// stored into native code (e.g. log.Logger -> http.Server.ErrorLog).
+		realLayout = mtype.BuildStructRtypeKeepIface(t.Fields, t.Embedded, t.Tags)
+	}
 	if byValueDepInFlight(t) {
 		// An embedded by-value struct is still a word-sized placeholder, so realLayout's
 		// size is provisional. Fill the reserved rtype to this best-effort shape (so

@@ -680,7 +680,7 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 	if t, ok := structTypes[key]; ok {
 		return t
 	}
-	t := &Type{Rtype: buildStructRtype(fields, embedded, tags), kind: reflect.Struct, Embedded: embedded, Fields: fields, Tags: tags}
+	t := &Type{Rtype: buildStructRtype(fields, embedded, tags, false), kind: reflect.Struct, Embedded: embedded, Fields: fields, Tags: tags}
 	structTypes[key] = t
 	return t
 }
@@ -709,7 +709,7 @@ func ReserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) (t *
 // calling it again after an in-flight embedded field is patched picks up the new
 // size. Returns the built rtype so the caller can restore the placeholder's String.
 func FinalizeStruct(t *Type) reflect.Type {
-	layout := buildStructRtype(t.Fields, t.Embedded, t.Tags)
+	layout := buildStructRtype(t.Fields, t.Embedded, t.Tags, false)
 	patchRtype(t.Rtype, layout)
 	return layout
 }
@@ -719,7 +719,14 @@ func FinalizeStruct(t *Type) reflect.Type {
 // cycle placeholder -- so a rebuild after an embedded field's size changes is not
 // served a stale memoized layout.
 func BuildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string) reflect.Type {
-	return buildStructRtype(fields, embedded, tags)
+	return buildStructRtype(fields, embedded, tags, false)
+}
+
+// BuildStructRtypeKeepIface is BuildStructRtype but keeps a non-embedded native
+// non-empty interface field as iface instead of erasing it to interface{}.
+// See vm.RegisterNativeLayout.
+func BuildStructRtypeKeepIface(fields []*Type, embedded []EmbeddedField, tags []string) reflect.Type {
+	return buildStructRtype(fields, embedded, tags, true)
 }
 
 // UnreserveStruct drops a reservation whose fields could not be materialized, so a
@@ -731,7 +738,7 @@ func UnreserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) {
 	structTypesMu.Unlock()
 }
 
-func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string) reflect.Type {
+func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, keepIface bool) reflect.Type {
 	rf := make([]reflect.StructField, len(fields))
 	embSet := make(map[int]bool, len(embedded))
 	for _, e := range embedded {
@@ -766,6 +773,8 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string) r
 			}
 		case embSet[i] && f.Rtype != nil && f.Rtype.NumMethod() > 0:
 			rf[i].Type = f.Rtype
+		case keepIface && f.Rtype != nil && f.Rtype.Kind() == reflect.Interface && f.Rtype.NumMethod() > 0:
+			rf[i].Type = f.Rtype // native non-empty interface kept as iface, not erased
 		default:
 			rf[i].Type = AnyRtype
 		}
