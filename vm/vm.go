@@ -1098,13 +1098,24 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case Addr:
 			v := mem[sp]
 			switch {
+			case v.ref.IsValid() && v.ref.Type() == ifaceRtype:
+				// An mvm Iface struct is not a Go eface, so &iface for unsafe access
+				// (protobuf's pointerOfIface) must alias a real *interface{}. Before
+				// CanAddr since an addressable Iface struct has the same wrong layout.
+				// Struct form only: a real interface{} var keeps CanAddr below so writes
+				// through &iface propagate.
+				r := reflect.New(AnyRtype)
+				if cv := v.IfaceVal().Val.Reflect(); cv.IsValid() {
+					r.Elem().Set(cv)
+				}
+				mem[sp] = Value{ref: r}
 			case v.ref.CanAddr():
 				mem[sp] = Value{ref: v.ref.Addr()}
 			case isNum(v.ref.Kind()):
 				// Materialize via Reflect() to get an addressable value, then take its address.
 				mem[sp] = Value{ref: v.Reflect().Addr()}
 			case v.IsIface():
-				// Iface wrapper: allocate *interface{} and store the unwrapped value.
+				// Non-addressable interface{} holding an Iface: no slot to alias.
 				r := reflect.New(AnyRtype)
 				r.Elem().Set(v.IfaceVal().Val.Reflect())
 				mem[sp] = Value{ref: r}

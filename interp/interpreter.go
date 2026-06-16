@@ -124,7 +124,11 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 
 	// Materialize every reachable type's rtype (goparser builds them symbolically
 	// post-flip), so the synth attach sees layout rtypes and the VM never reads a
-	// nil Rtype at run time.
+	// nil Rtype at run time. Bind the active Machine so materialize can share a
+	// method-bearing type's identity across this interp's re-Evals (see
+	// vm.sharedMethodStructs).
+	prevMachine := vm.SetActiveMachine(i.Machine)
+	defer vm.SetActiveMachine(prevMachine)
 	i.MaterializeAll()
 
 	if err := i.attachSynthMethods(); err != nil {

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -35,6 +36,34 @@ var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derive
 // sharedCarriers shares one methodless named non-struct identity per (name,
 // layout) across Evals and field clones; sound for the same reason as sharedStructs.
 var sharedCarriers = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
+
+// sharedMethodStructs shares a method-bearing struct's reserved identity across
+// re-materializations within ONE Machine, so a drop-retry re-Eval reusing the same
+// Go type does not mint a distinct rtype each pass (which breaks reflect.Type ==).
+// Machine-keyed because a method stub closes over the attaching Machine; reuse
+// under a different Machine would dispatch to a dead one. Machine from ActiveMachine,
+// set by the interp around materialize+attach.
+type methodStructKey struct {
+	machine   *Machine
+	name      string
+	layoutSig string
+	methodSig string
+}
+
+var sharedMethodStructs = map[methodStructKey]*synthReservation{} // guarded by derivedMu
+
+// methodFingerprint is the set of resolved/symbolic method indices (= the method
+// name set, IDs being global per name), so two same-name+layout types with
+// different method sets do not share one identity.
+func methodFingerprint(t *mtype.Type) string {
+	var b strings.Builder
+	for i := range t.Methods {
+		if t.Methods[i].IsResolved() || t.Methods[i].Sig != nil {
+			fmt.Fprintf(&b, "%d,", i)
+		}
+	}
+	return b.String()
+}
 
 // materializingRtypes holds struct layout rtypes whose placeholder/reservation is
 // installed but not yet patched to the real layout (in-flight). A struct that
@@ -615,6 +644,33 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		// Fill before publishing so a concurrent hit never adopts the placeholder.
 		runtype.FillStructLayout(reserved, realLayout)
 		sharedStructs[key] = res
+		derivedMu.Unlock()
+		clearMaterializing(reserved)
+		t.Rtype = reserved
+		return reserved, true
+	}
+	// Method-bearing: share per Machine across re-Evals. See sharedMethodStructs.
+	if mach := ActiveMachine(); mach != nil {
+		key := methodStructKey{
+			machine:   mach,
+			name:      qualifiedTypeName(t),
+			layoutSig: realLayout.String(),
+			methodSig: methodFingerprint(t),
+		}
+		derivedMu.Lock()
+		if shared := sharedMethodStructs[key]; shared != nil {
+			sharedRT := shared.value.Type()
+			reservations[t] = shared
+			derivedMu.Unlock()
+			clearMaterializing(reserved)
+			t.Rtype = sharedRT
+			if shared.ptr != nil {
+				AttachPtrDerived(t, shared.ptr.Type())
+			}
+			return sharedRT, true
+		}
+		runtype.FillStructLayout(reserved, realLayout)
+		sharedMethodStructs[key] = res
 		derivedMu.Unlock()
 		clearMaterializing(reserved)
 		t.Rtype = reserved
