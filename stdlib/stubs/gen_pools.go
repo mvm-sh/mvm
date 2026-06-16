@@ -129,6 +129,8 @@ var wordShapes = []wordShape{
 	// net.Conn.SetDeadline/SetReadDeadline/SetWriteDeadline(time.Time) error
 	// (time.Time = 3 words iip; error = pp).
 	{Params: "iip", Results: "pp"},
+	// net/http newClientConner.NewClientConn(net.Conn, func()) (http.RoundTripper, error).
+	{Params: "ppp", Results: "pppp"},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
