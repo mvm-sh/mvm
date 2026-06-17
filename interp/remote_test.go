@@ -595,6 +595,75 @@ func Run() string { return status.Error("boom") }
 	}
 }
 
+func TestRemoteGenericMethodNestedTypeInForeignPkg(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/gmap",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/gmap\n",
+				"gmap.go": `package gmap
+
+type Inner struct{ X int }
+
+type entry[T any] struct {
+	k Inner
+	v T
+}
+
+type Box[T any] struct {
+	m map[string]entry[T]
+}
+
+func New[T any]() *Box[T] { return &Box[T]{m: map[string]entry[T]{}} }
+
+func (b *Box[T]) Set(key string, val T) {
+	b.m[key] = entry[T]{k: Inner{X: 1}, v: val}
+}
+
+func (b *Box[T]) Len() int { return len(b.m) }
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/gconsumer",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/gconsumer\n",
+				"consumer.go": `package gconsumer
+
+import "example.com/gmap"
+
+type Thing struct{ N int }
+
+type Holder struct {
+	b *gmap.Box[Thing]
+}
+
+func Run() int {
+	h := Holder{b: gmap.New[Thing]()}
+	h.b.Set("a", Thing{N: 7})
+	h.b.Set("b", Thing{N: 8})
+	return h.b.Len()
+}
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	if _, err := i.Eval("test", `import "example.com/gconsumer"; println(gconsumer.Run())`); err != nil {
+		t.Fatalf("Eval consumer: %v", err)
+	}
+	if got, want := stdout.String(), "2\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 func TestRemotePkgAliasCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{

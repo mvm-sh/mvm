@@ -175,26 +175,23 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 				t.Str = sc + "/" + t.Str
 			} else {
 				// Rewrite Ident.Str to the pkg-qualified canonical key.
-				pkg := p.importingPkg
-				if pkg == "" {
-					pkg = p.CompilingPkg
-				}
-				if pkg != "" {
+				for _, pkg := range [2]string{p.CompilingPkg, p.importingPkg} {
+					if pkg == "" {
+						continue
+					}
 					qk := QualifyName(pkg, t.Str)
 					if qs, qok := p.Symbols[qk]; qok && (!ok || qs != s) {
 						s = qs
 						ok = true
 						t.Str = qk
+						break
 					}
 				}
 			}
 			// Free variable detection: defined in an enclosing function scope.
-			// Exclude variables defined in sub-scopes of the current function (e.g. for loops).
+			// Exclude variables defined in sub-scopes of the current function.
 			isInnerScope := sc == p.funcScope || strings.HasPrefix(sc, p.funcScope+"/")
 			if ok && s != nil && s.Kind == symbol.LocalVar && sc != "" && p.fname != "" && !isInnerScope {
-				// Every enclosing closure up to the defining function must capture
-				// transitively; otherwise comp's MkClosure can't bridge the chain and
-				// emits GetLocal against the wrong frame.
 				p.propagateCapture(t.Str, sc)
 				s.Captured = true
 			}
@@ -509,10 +506,7 @@ func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 	ctype := typ.String()
 	key := ctype
 	// Qualify a named type under the compiling/importing package's canonical key
-	// only when the type actually belongs to that package. A composite literal of
-	// a FOREIGN package's type (e.g. protobuild.Message used in proto's test)
-	// must keep its own identity; keying it under the compiling pkg would clobber
-	// that pkg's same-named symbol (proto.Message, the ProtoMessage alias).
+	// only when the type actually belongs to that package.
 	if typ.Name != "" {
 		switch {
 		case p.CompilingPkg != "" && p.typeBelongsTo(typ, p.CompilingPkg):
@@ -524,8 +518,7 @@ func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 	if existing, ok := p.Symbols[key]; !ok || existing.Type != typ {
 		p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(typ), symbol.Type, typ)
 	}
-	// Carry the resolved type on the emitted ident so the compiler resolves it by
-	// identity (its global slot) rather than by re-looking up key at compile time.
+	// Carry the resolved type on the emitted ident so the compiler resolves it by identity.
 	*out = append(*out, newIdent(key, pos, typ))
 	return key
 }
