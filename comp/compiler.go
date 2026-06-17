@@ -2151,6 +2151,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						if isNumericConvType(lhs[i].Type) {
 							c.emit(t, vm.Convert, c.typeSym(lhs[i].Type).Index, 0)
 						}
+						if lhs[i].CellSlot {
+							// Rebind: `:=` reusing an existing same-block name whose
+							// captured var already owns a heap cell.
+							c.emit(t, vm.CellSet, lhs[i].Index)
+							continue
+						}
 						c.emit(t, vm.HeapAlloc)
 						lhs[i].CellSlot = true
 					}
