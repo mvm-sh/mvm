@@ -1316,6 +1316,77 @@ func main() {
 	}
 }
 
+// Go init order across imported packages: reader's var init reads a var that
+// setter's init() sets, and reader imports setter, so setter.init() must run
+// first. mvm flattened to [all var inits][all init()s], so reader read the unset
+// (nil) var and the assertion panicked. Mirrors grpc internal/transport's
+// metadataFromOutgoingContextRaw <- metadata.init(); needs per-package
+// interleaving (comp.VarDeferral), not just the target-package deferral.
+func TestRemoteImportedInitBeforeImportedVarInit(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/dep",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/dep\n",
+				"dep.go": `package dep
+
+var Sink any // set by setter.init, read by reader's var init
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/setter",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/setter\n",
+				"setter.go": `package setter
+
+import "example.com/dep"
+
+func init() { dep.Sink = func() string { return "OK" } }
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/reader",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/reader\n",
+				"reader.go": `package reader
+
+import (
+	"example.com/dep"
+	_ "example.com/setter"
+)
+
+var fn = dep.Sink.(func() string)
+
+func Get() string { return fn() }
+`,
+			},
+		},
+	)
+
+	src := `package main
+
+import "example.com/reader"
+
+func main() { println(reader.Get()) }
+`
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "OK\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (imported setter.init must run before imported reader var init)", got, want)
+	}
+}
+
 func TestRemoteGenericIfaceConstraintForeignArg(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{

@@ -72,18 +72,25 @@ type Compiler struct {
 	LenientCompile bool
 }
 
-// VarDeferral brackets the target package's var inits for Go init order (an
-// imported init() must run before them). finishCompile lays the unit out as
+// VarDeferral enforces Go init order: each package's var inits and init()s run
+// before any importer's var inits. mvm otherwise flattens to [all var inits][all
+// init()s][main], breaking when an imported var init reads what another import's
+// init() set. finishCompile lays out
 //
-//	[non-target var inits][Jump1][target var inits][Jump2][rest]
+//	[pkg0 vars][Jump0][pkg1 vars][Jump1]...[pkgN vars][JumpN][rest]
 //
-// evalCompiled patches the jumps and appends shims to run: non-target var inits
-// -> imported inits -> target var inits -> target inits -> rest -> main.
+// and evalCompiled patches each JumpI through pkgI's init() shims to pkg(I+1)'s
+// vars (the last to rest): pkg0 vars -> pkg0 inits -> ... -> rest -> main.
 type VarDeferral struct {
-	Active       bool
-	Jump1        int // jump after non-target var inits; target var inits follow at Jump1+1
-	Jump2        int // jump after target var inits; rest follows at Jump2+1
-	InitBoundary int // InitFuncs split: [initsBefore:InitBoundary] imported, [InitBoundary:] target
+	Active bool
+	Groups []DeferGroup
+}
+
+// DeferGroup is one package's init bracket. Its var inits precede JumpPos in
+// Code; NumInits consecutive entries of this Eval's InitFuncs are its init()s.
+type DeferGroup struct {
+	JumpPos  int
+	NumInits int
 }
 
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
@@ -359,53 +366,59 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag st
 	// promotes embedded value-type methods once their code addresses resolve.
 	c.propagateEmbeddedMethods()
 
-	// Partition so the target package's var inits run after imported init()s (Go
-	// init order; mvm otherwise runs all var inits inline before any init()).
-	// Vars still compile before funcs within each group, so var types resolve.
-	var ntVars, tVars, rest []goparser.DeferredDecl
+	// Group var inits by package for Go init order (see VarDeferral). Package
+	// order is first appearance in remaining, which is topological: imports
+	// precede importers and the var sort only reorders along dependency edges.
+	// A package's init()s are the consecutive InitFuncs entries for its rest
+	// init decls (parse order). Vars compile before funcs, so var types resolve.
+	c.Defer = VarDeferral{}
+	varsByPkg := map[string][]goparser.DeferredDecl{}
+	initsByPkg := map[string]int{}
+	var pkgOrder []string
+	seenPkg := map[string]bool{}
+	var rest []goparser.DeferredDecl
 	importedInits := 0
+	totalVars := 0
 	for _, decl := range remaining {
 		if len(decl.Toks) == 0 {
 			continue
 		}
+		if !seenPkg[decl.PkgPath] {
+			seenPkg[decl.PkgPath] = true
+			pkgOrder = append(pkgOrder, decl.PkgPath)
+		}
 		if decl.Toks[0].Tok == lang.Var {
-			if decl.PkgPath == targetTag {
-				tVars = append(tVars, decl)
-			} else {
-				ntVars = append(ntVars, decl)
-			}
+			varsByPkg[decl.PkgPath] = append(varsByPkg[decl.PkgPath], decl)
+			totalVars++
 			continue
 		}
 		rest = append(rest, decl)
-		if decl.PkgPath != targetTag && isInitDecl(decl.Toks) {
-			importedInits++
+		if isInitDecl(decl.Toks) {
+			initsByPkg[decl.PkgPath]++
+			if decl.PkgPath != targetTag {
+				importedInits++
+			}
 		}
 	}
-	// Defer only when it can matter; otherwise behavior is identical to before.
-	c.Defer = VarDeferral{}
-	deferVars := len(tVars) > 0 && importedInits > 0
+	// Emit init-order jumps only when an imported init() could be observed by a
+	// var init; otherwise the flat order is already Go-correct. Var inits compile
+	// in the same per-package order either way.
+	deferVars := importedInits > 0 && totalVars > 0
+	c.Defer.Active = deferVars
 
-	for _, decl := range ntVars {
-		if err := c.compileDeferred(decl); err != nil {
-			return err
+	for _, pkg := range pkgOrder {
+		for _, decl := range varsByPkg[pkg] {
+			if err := c.compileDeferred(decl); err != nil {
+				return err
+			}
 		}
-	}
-	if deferVars {
-		c.Defer.Active = true
-		c.Defer.Jump1 = len(c.Code)
-		c.emit(goparser.Token{}, vm.Jump, 0) // patched in evalCompiled -> imported inits
-	}
-	for _, decl := range tVars {
-		if err := c.compileDeferred(decl); err != nil {
-			return err
+		if deferVars && (len(varsByPkg[pkg]) > 0 || initsByPkg[pkg] > 0) {
+			c.Defer.Groups = append(c.Defer.Groups, DeferGroup{
+				JumpPos:  len(c.Code),
+				NumInits: initsByPkg[pkg],
+			})
+			c.emit(goparser.Token{}, vm.Jump, 0) // patched in evalCompiled -> this pkg's init()s
 		}
-	}
-	if deferVars {
-		c.Defer.Jump2 = len(c.Code)
-		c.emit(goparser.Token{}, vm.Jump, 0) // patched in evalCompiled -> target inits
-		// rest is import-then-target ordered, so imported init()s are the next
-		// importedInits entries appended to InitFuncs.
-		c.Defer.InitBoundary = len(c.InitFuncs) + importedInits
 	}
 	for _, decl := range rest {
 		if err := c.compileDeferred(decl); err != nil {
