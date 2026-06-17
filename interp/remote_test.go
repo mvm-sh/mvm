@@ -73,9 +73,6 @@ func startFakeProxy(t *testing.T, modules ...remoteModule) (string, *int64) {
 	return srv.URL, &requests
 }
 
-// TestRemoteImport runs interpreted code that imports a package fetched
-// dynamically over HTTP via modfs. No filesystem source for the package
-// exists; the only path is through the network-backed FS.
 func TestRemoteImport(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/foo/bar",
@@ -109,9 +106,6 @@ func main() {
 	}
 }
 
-// TestRemoteTransitiveImport verifies that a remote module's own imports
-// of another remote module also resolve through modfs. Module A imports
-// module B; the interpreted main only mentions A.
 func TestRemoteTransitiveImport(t *testing.T) {
 	url, requests := startFakeProxy(t,
 		remoteModule{
@@ -168,13 +162,6 @@ func main() {
 	}
 }
 
-// TestRemoteTypeNameCollision exercises the bare-name type-collision path that
-// used to SIGSEGV inside vm.patchRtype: package "outer" declares `type Code
-// struct{...}` (pre-registered as a fresh struct placeholder) and imports
-// package "inner" which declares `type Code uint16` (whose Rtype is the shared,
-// read-only reflect.TypeOf(uint16(0))). Parsing inner overwrites the bare
-// "Code" symbol with the static rtype; finalizing outer's struct then memcpy'd
-// onto read-only memory. With the fix, outer's struct gets a fresh placeholder.
 func TestRemoteTypeNameCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -217,11 +204,6 @@ var Zero Code
 	}
 }
 
-// TestRemoteTypedConstMethod checks that a typed string/basic constant keeps
-// its named type's method set across a package boundary (x/text's
-// internal/language does `const lang tag.Index = "..."; lang.Index(key)` where
-// tag.Index is `type Index string`). mvm previously reported "undefined: Index"
-// because symbol.MethodByName had no case for symbol.Const.
 func TestRemoteTypedConstMethod(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/idx",
@@ -255,13 +237,6 @@ func Get() byte { return Tab.Elem(1) }
 	}
 }
 
-// TestRemoteMethodReceiverTypeCollision checks that a method body binds its
-// receiver to the type it was declared against, even when a sibling import
-// later shadows the bare type name. Here "inner" declares `type Tag struct{ N
-// int }` with method Get; "shadow" also declares `type Tag struct{ S string }`.
-// main imports inner then shadow, so by the time inner.Get's deferred body is
-// compiled the bare name "Tag" points at shadow's struct. mvm previously bound
-// inner.Get's receiver to that wrong Tag and failed with "undefined: N".
 func TestRemoteMethodReceiverTypeCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -288,10 +263,6 @@ func TestRemoteMethodReceiverTypeCollision(t *testing.T) {
 	i.SetIO(os.Stdin, &stdout, os.Stderr)
 	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
 
-	// Importing shadow shadows the bare "Tag"; without the Phase-1 receiver-type
-	// cache, inner.Get's body would bind t to shadow.Tag and fail "undefined: N".
-	// (Note: `inner.Tag{N: 7}.Get()` would also work here for the receiver-type
-	// fix but trips a separate composite-literal/shadowing bug, so use a var.)
 	src := `import "example.com/x/inner"; import "example.com/x/shadow"; var _ = shadow.Tag{}; var x inner.Tag; x.N = 7; println(x.Get())`
 	if _, err := i.Eval("test", src); err != nil {
 		t.Fatalf("Eval: %v", err)
@@ -301,13 +272,6 @@ func TestRemoteMethodReceiverTypeCollision(t *testing.T) {
 	}
 }
 
-// TestRemoteVarNameCollision: two imported packages each declare a top-level
-// `var data` of a different type. Phase 2 compiles each package's var init and
-// then a function body that reads its own `data`. Before package-qualified
-// resolution of deferred declarations, the bare key "data" in the symbol table
-// was shared and its symbol mutated in place by whichever var init compiled
-// last, so inner.Sum's body would see shadow's `data` ([]int) and fail
-// "undefined: n" on `data[i].n`.
 func TestRemoteVarNameCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -359,18 +323,6 @@ func Len() int { return len(data) }
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
-
-// TestRemoteTypeNameStructInterfaceCollision: package "inner" declares `type
-// Foo struct{ v [8]byte }` and "shadow" declares `type Foo interface{...}`.
-// Both keys arrive bare in the symbol table; preRegisterTypes for shadow used
-// to call registerInterfacePlaceholder, see inner's already-finalized struct
-// symbol, and return it as the "interface placeholder". parseTypeLine then
-// adopted shadow's interface Rtype into inner's *vm.Type, flipping the struct
-// to an interface. Phase 2 compilation of inner.Make's body (which reads f.v)
-// then failed "undefined: v" because the qualified alias
-// `example.com/x/inner.Foo` pointed at the flipped type. The fix tightens
-// registerInterfacePlaceholder to only reuse a genuine pending interface
-// placeholder; otherwise it shadows the bare key with a fresh placeholder.
 func TestRemoteTypeNameStructInterfaceCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -423,18 +375,6 @@ type Foo interface {
 	}
 }
 
-// TestRemoteFuncNameCollisionAcrossPkgs: two imported packages each declare a
-// top-level `func Make` with different signatures. Before the per-pkg
-// registerFunc fix, the bare-key `Make` Symbol from `lo` survived; `mid`'s
-// registerFunc short-circuited and never built its own Symbol with the right
-// InNames/OutNames. Phase-2 deferred body of mid.Make then read the wrong
-// Symbol's params, never registered the named return as a local, and any
-// reference to it resolved to whatever bare-key sibling shadowed it (in the
-// real golang.org/x/text case: `tag.<field>` resolved to the imported `tag`
-// package -- "symbol not found in package <pkg>: <field>"). Also exercises the
-// matching Phase-2 fixes: parseFunc looks up funcs via CompilingPkg, and the
-// compiler's Label/Goto/fixList paths qualify label keys (Make_end shared the
-// bare key across pkgs and resolved Goto Make_end to the wrong pc -- VM looped).
 func TestRemoteFuncNameCollisionAcrossPkgs(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -480,17 +420,6 @@ func Make() (tag Tag) {
 	}
 }
 
-// TestRemoteTransitiveImportBareKeyClobber: outer.Foo is a wrapper struct
-// referencing inner.Foo (a uint16-underlying type with the same bare name).
-// Outer also has a method whose return type list mentions the BARE name `Foo`
-// (the outer struct). Pre-fix, importSrc ran preRegisterTypes first (setting
-// bare `Foo` to a fresh struct placeholder), then the ParseDecl loop hit
-// `import "inner"` and synchronously parsed inner's `type Foo uint16` -- whose
-// parseTypeLine SymAdd-overwrote bare `Foo` with uint16. Outer's method
-// signature parsed next captured the uint16 Type in its Returns slice. Phase-2
-// field access on the returned value then failed `undefined: <field>` because
-// the receiver's Type was uint16, not the struct. Fixed by processing imports
-// in a pre-pass before preRegisterTypes (goparser/import.go:importSrc).
 func TestRemoteTransitiveImportBareKeyClobber(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -509,10 +438,7 @@ func TestRemoteTransitiveImportBareKeyClobber(t *testing.T) {
 				// Order matters: the method declaration that returns the bare
 				// name `Foo` must come BEFORE the `type Foo struct` in source
 				// order, so Phase-1 signature parsing captures whatever bare
-				// `Foo` is at that moment. (With the pre-fix bare-key clobber,
-				// imports ran in-loop and clobbered before the method's sig
-				// parse; with the fix, imports run first, then preRegisterTypes
-				// re-establishes the struct placeholder for outer.Foo.)
+				// `Foo` is at that moment.
 				"a_method.go": `package outer
 
 type Bar struct{}
@@ -551,12 +477,6 @@ func Use() int {
 	}
 }
 
-// TestRemoteTargetBareAliasShadowsImportLocal: compiling a target package aliases
-// its exports to bare keys (comp.aliasTargetTopLevel); a later imported package's
-// unqualified reference to its OWN same-named type must resolve to that local type,
-// not the leaked bare alias. Mirrors protobuf protocmp's `type reflectMessage
-// Message` binding to proto.Message instead of protocmp's local Message. Fixed in
-// goparser symGet (foreignBareAlias).
 func TestRemoteTargetBareAliasShadowsImportLocal(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -606,16 +526,75 @@ func Use() int { w := Wrap{"a": 1, "b": 2}; return len(w) }
 	}
 }
 
-// TestRemotePkgAliasCollision: two imported packages with the same directory
-// name (-> same default short alias `lang`) live at different paths. Main
-// imports both; the LAST main import to be processed SymSets bare `lang` to its
-// own Pkg Symbol. The OUTER pkg has its own `import "<inner>"` (same default
-// alias `lang`) and a Phase-2 deferred body that uses `lang.X{}`. Without the
-// per-pkg Pkg-alias fix, Phase-2 lookup of `lang` finds whichever Pkg was last
-// SymSet at the bare key (the wrong one), so `lang.X` resolves to the wrong
-// type and `x.<field>` later fails "undefined: <field>". Fixed by also
-// registering Pkg aliases at `<importingPkg>.<localAlias>` and routing Ident
-// rewrites through that qualified key in Phase 2 (goparser/{decl.go,expr.go}).
+func TestRemoteTargetReimportPublishesExports(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/grpcx/status",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/grpcx/status\n",
+				"status.go": `package status
+
+import istatus "example.com/grpcx/internalstatus"
+
+type Status = istatus.Status
+
+func New(msg string) *Status { return istatus.New(msg) }
+
+func Error(msg string) string { return New(msg).Msg }
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/grpcx/internalstatus",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/grpcx/internalstatus\n",
+				"status.go": `package status
+
+type Status struct{ Msg string }
+
+func New(msg string) *Status { return &Status{Msg: msg} }
+
+type Error struct{ e string }
+
+func (e *Error) Error() string { return e.e }
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/grpcx/consumer",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/grpcx/consumer\n",
+				"consumer.go": `package consumer
+
+import "example.com/grpcx/status"
+
+func Run() string { return status.Error("boom") }
+`,
+			},
+		},
+	)
+
+	var stdout bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, os.Stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	// Compile the public package as the target first (qualified keys, no Package).
+	if _, err := i.Eval("example.com/grpcx/status", ""); err != nil {
+		t.Fatalf("Eval target status: %v", err)
+	}
+	// A separate consumer importing the target drives importSrc(target).
+	if _, err := i.Eval("test", `import "example.com/grpcx/consumer"; println(consumer.Run())`); err != nil {
+		t.Fatalf("Eval consumer: %v", err)
+	}
+	if got, want := stdout.String(), "boom\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 func TestRemotePkgAliasCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -659,14 +638,8 @@ type X struct{ V int }
 	i.ImportPackageValues(stdlib.Values)
 	i.SetIO(os.Stdin, &stdout, os.Stderr)
 	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
-	// Main imports both outer and inner. Both have short name `lang`; the
-	// LAST SymSet wins for the bare key. Without the per-pkg alias fix, Phase-2
-	// deferred body of outer.Wrap would resolve `lang.X` via the wrong Pkg
-	// (whichever main imported last). Use a renamed alias for the inner here so
-	// main resolves outer.lang.Wrap unambiguously; the bug we're testing is
-	// about main's `import "example.com/x/inner/lang"` SymSet, which uses the
-	// default short name `lang` and thus overwrites bare `lang` after outer's
-	// own parseSrc finished.
+	// Main imports both outer and inner. Both have short name `lang`;
+	// the LAST SymSet wins for the bare key.
 	src := `import inner "example.com/x/inner/lang"; import "example.com/x/lang"; println(lang.Wrap(42).Get(), inner.X{V: 3}.V)`
 	if _, err := i.Eval("test", src); err != nil {
 		t.Fatalf("Eval: %v", err)
@@ -676,20 +649,6 @@ type X struct{ V int }
 	}
 }
 
-// TestRemoteXTextCrash imports golang.org/x/text/language over the live proxy.
-// It used to fault inside vm.patchRtype (a read-only static rtype was patched
-// when the bare type names "Script"/"Region" collided between
-// internal/language's `type Script uint16` and language's `type Script
-// struct`); that crash is fixed -- see TestRemoteTypeNameCollision for a
-// hermetic regression test. This case still fails on other unimplemented
-// parser features in x/text (currently "undefined: LangID"), so it stays
-// skipped; it also needs network access. Un-skip if/when x/text parses cleanly.
-// TestRemotePkgQualifiedConstUnsetAddr exercises the pkg-qualified-const
-// lookup path: a Const placeholder pre-registered by the parser with
-// Index=UnsetAddr (-65535) was emitted as `GetGlobal -65535`, panicking
-// at runtime with "index out of range [-65535]".  This was the second-to-last
-// blocker on the x/text dual-import scenario; see comp/compiler.go:case
-// lang.Period for the on-demand Data-slot allocation that fixes it.
 func TestRemotePkgQualifiedConstUnsetAddr(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -752,14 +711,6 @@ func Classify(t inner.AliasType) string {
 	}
 }
 
-// TestRemoteTestTargetImportingPkg exercises the `mvm test <importpath>`
-// load path (i.Eval with src=="" and a pkg-path target): without the
-// importingPkg fix in comp.Compile, the target's own top-level symbols
-// land at bare keys instead of `<pkg>.<name>` and lookups from the target's
-// own deferred bodies fail with ErrUndefined. The fixture also embeds a
-// lowercase struct so we cover the matching FieldLookup fallback for
-// promoted fields through unexported embedded types (which reflect.FieldByName
-// does NOT resolve for value-embedded unexported names).
 func TestRemoteTestTargetImportingPkg(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/target",
@@ -791,23 +742,13 @@ func Make() *Outer { return &Outer{hidden: hidden{X: 42}} }
 	i.SetIO(os.Stdin, &stdout, os.Stderr)
 	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
 
-	// Direct-target load (mirrors main.go testCmd's `i.Eval(target, "")`).
-	// Pre-fix this failed with `undefined: X` from Outer.Get's body because:
-	//   1. importingPkg wasn't set, so the target's `hidden` type and Outer
-	//      methods landed at bare keys.
-	//   2. reflect.FieldByName doesn't promote through value-embedded unexported
-	//      `hidden`, and the compiler had no mvm-level FieldLookup fallback.
-	// With both fixes the load succeeds.
+	// Direct-target load.
 	i.SetIncludeTests(true)
 	if _, err := i.Eval("example.com/x/target", ""); err != nil {
 		t.Fatalf("loading target: %v", err)
 	}
 }
 
-// TestRemoteTestTargetForwardVarType covers the uuid `Nil UUID` case: a typed
-// var whose type lives in a sibling file parsed later. Also asserts the test
-// driver can find Test* by short name (aliasTargetTopLevel). See
-// [[project_uuid_test_regression]].
 func TestRemoteTestTargetForwardVarType(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/fwdvar",
@@ -868,9 +809,6 @@ func TestReset(t *testing.T) {
 	}
 }
 
-// TestRemoteIfaceDispatchSignatureCollision: a user-defined Elem(int) string
-// must not shadow reflect.Type.Elem() reflect.Type during interface dispatch.
-// See [[project_iface_dispatch_signature_collision]].
 func TestRemoteIfaceDispatchSignatureCollision(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/ifacecollide",
@@ -883,8 +821,6 @@ import "reflect"
 
 // Index is a string-typed defined type with its own Elem method whose
 // signature (func(int) string) differs from reflect.Type.Elem (func() reflect.Type).
-// Pre-fix, findConcreteFuncSym would pick Index.Elem when resolving
-// reflect.Type.Elem on an interface receiver.
 type Index string
 
 func (i Index) Elem(_ int) string { return string(i) }
@@ -893,8 +829,7 @@ type S struct {
 	X *int
 }
 
-// Probe chains reflect.Type.Elem().Kind() -- the cldr-style chain that
-// breaks when Elem is signature-mismatched with Index.Elem.
+// Probe chains reflect.Type.Elem().Kind().
 func Probe() reflect.Kind {
 	t := reflect.TypeOf(S{})
 	f := t.Field(0)
@@ -916,11 +851,6 @@ var _ = Index("seed")
 	}
 }
 
-// TestRemotePromotedFieldAndMethodThroughAnon mirrors cldr's shape: a `rule`
-// type with methods embedded in an anonymous wrapper (with another field, so
-// reflect.StructOf can't set Anonymous because rule has methods), exposed via
-// a promoted slice. Exercises FieldLookup's promoted-field chain and
-// promotedMethod's cross-pkg method lookup. See [[project_promoted_field_method_anon]].
 func TestRemotePromotedFieldAndMethodThroughAnon(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/cldrlike",
@@ -972,16 +902,6 @@ func New() Holder {
 	}
 }
 
-// TestRemoteReflectTypeForCrossPkg covers reflect.TypeFor[T]() where T is a
-// type defined in a different (and still-being-compiled) package. The
-// interpreted-source generic shim registered by stdlib/reflect_shim.go has
-// pkgPath="reflect", so re-parsing its body sets CompilingPkg="reflect" --
-// under which the substituted bare type-arg name (here "MyKind") cannot be
-// resolved through symGet's CompilingPkg fallback. Without the temp
-// type-arg install in goparser/expr.go's emitGenericFunc, parseTypeExpr on
-// `*MyKind` fails and the parser mis-emits Deref instead of building a
-// pointer-type expression. Verifies the cross-pkg path that the in-process
-// etest cases (which use main-pkg types aliased to bare keys) cannot reach.
 func TestRemoteReflectTypeForCrossPkg(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/typefortarget",
@@ -997,10 +917,6 @@ type MyKind struct {
 	B uint16
 }
 
-// Calling reflect.TypeFor[MyKind]() from a non-main package exercises the
-// substituted-T-in-shim-body resolution path: T -> "MyKind" with
-// CompilingPkg="reflect" while the actual type lives at
-// "example.com/x/typefortarget.MyKind".
 func Size() uintptr {
 	return reflect.TypeFor[MyKind]().Size()
 }
@@ -1023,17 +939,6 @@ func Size() uintptr {
 	}
 }
 
-// TestRemotePlaceholderRtypeGrow checks that a package-level zero-value of an
-// imported struct type is fully zero-initialized even when the struct's rtype
-// grew via SetFields after the var symbol's Value was first allocated.
-//
-// Trigger shape: an imported package has `type Tag struct{...}` (a String()
-// method makes mvm bridge the type via fmt.Stringer) and `var Und Tag`. Before
-// the fix, parseTypeVar's call to vm.NewValue(Tag.Rtype) ran while Tag's rtype
-// was still the 8-byte placeholder; later SetFields patched the rtype to 32
-// bytes but Und's slot stayed 8 bytes backed. Reads past offset 7 hit adjacent
-// heap memory, so Und.LastField was garbage. Repro of the language.Und bug
-// that mangled x/text/internal/language's TestBuilder.
 func TestRemotePlaceholderRtypeGrow(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/lang",
@@ -1073,13 +978,6 @@ println(lang.Und.A, lang.Und.B, lang.Und.C, lang.Und.D, lang.Und.E, len(lang.Und
 	}
 }
 
-// TestRemoteZeroInitLocalShortNameCollision triggers the language.Matcher.Match
-// panic from project_matcher_match_placeholder_mismatch: `var v <pkg>.<Type>`
-// inside a function body used to zero-init v with a sibling pkg's same-named
-// type whose rtype differed from v's slot. zeroInitLocals resolved the type
-// by short name and re-qualified through CompilingPkg, finding the host pkg's
-// "Tag" instead of the imported pkg's "Tag" with the slot's actual rtype.
-// reflect.Set then panicked at SetLocal with mismatched struct rtypes.
 func TestRemoteZeroInitLocalShortNameCollision(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/dual",
@@ -1130,19 +1028,6 @@ println(dual.F().A)`
 	}
 }
 
-// TestRemoteMethodScopedLocalCollidesAcrossPkgs reproduces the
-// x/text/language TestMarshal failure. Two packages each define a method
-// with the same bare name (e.g. `(*Tag).Do`); each method's body declares
-// a `:=` local. mvm keys local symbols by funcScope (bare function name),
-// so the second package's parse finds the first's stale LocalVar for the
-// same local-name and reuses it -- without re-incrementing framelen. The
-// function-entry Grow then under-reserves frame slots, and subsequent stack
-// pushes corrupt the just-declared local.
-//
-// Concretely in the outer method below: after `err := <pkg-call>`, the
-// next assignment to *t issues a HeapGet that pushes at err's storage,
-// overwriting err with a pointer to the Tag receiver. The caller observes
-// a non-nil "error" instead of nil.
 func TestRemoteMethodScopedLocalCollidesAcrossPkgs(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -1159,8 +1044,7 @@ type Tag struct {
 	B int
 }
 
-// Mirrors language.Tag.UnmarshalText: var of imported same-name pkg's
-// type, ':=' to capture its method's return, then '*t = ...'.
+// Mirrors language.Tag.UnmarshalText.
 func (t *Tag) Do(text []byte) error {
 	var x inner.Tag
 	err := x.Do(text)
@@ -1183,11 +1067,6 @@ type Tag struct {
 	B int
 }
 
-// Body must register a LocalVar named err at a higher slot index than
-// the outer package's same-named method will allocate. The extra a
-// pushes err to slot Index=2 -- without the fix the outer reuses that
-// Index but its function-entry Grow only reserved 1 slot, leaving err
-// in stack space that the next push clobbers.
 func (t *Tag) Do(text []byte) error {
 	var a int
 	err := set(t, 134)
@@ -1223,13 +1102,6 @@ println(err == nil)`
 	}
 }
 
-// TestRemoteCrossPkgSameFuncLocalsCollision: two pkgs with the same top-level
-// func name share p.funcScope, so inner's named-return LocalVar at scoped key
-// `<name>/err` survives into outer's parse. Pre-fix, addOrRebindLocalVar rebound
-// outer's `err` to inner's Symbol, leaving outer's `l` and `err` aliased on
-// the same frame slot and reflect-Set'ing a wrongly-typed Value into the
-// composite's uint16 field. Mirrors x/text/language's `ParseBase` wrapping
-// `internal/language.ParseBase`.
 func TestRemoteCrossPkgSameFuncLocalsCollision(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -1290,15 +1162,6 @@ println(b.ID())`
 	}
 }
 
-// TestRemoteXTextLanguageImport is a smoke test that x/text/language --
-// historically a deep stress on cross-pkg type resolution, generic-shim
-// dispatch, and reflect-via-mvm plumbing -- imports end-to-end through
-// the default Go module proxy. Originally tracked vm.patchRtype crashes;
-// after the Phase-2 path-B refactor + reflect.TypeFor shim + named-return
-// slice/map zero-init fixes it now compiles cleanly.
-//
-// Skipped in -short mode because it requires network access to
-// proxy.golang.org and the (cached) module zip.
 func TestRemoteXTextLanguageImport(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires network access to the Go module proxy")
@@ -1336,10 +1199,6 @@ func buildZip(t *testing.T, mod, ver string, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// TestRemoteImportedInitBeforeMainVarInit asserts Go init order across packages:
-// an imported package's init() runs before the importer's var inits (dep.init
-// sets dep.Ready, read by main's `var got = dep.Ready`). Also guards that main's
-// own init() still runs after main's var inits (within-package order).
 func TestRemoteImportedInitBeforeMainVarInit(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -1361,10 +1220,8 @@ func init() { Ready = "INITIALIZED" }
 
 import "example.com/dep"
 
-// Reads an imported package's init() side effect at var-init time.
 var got = dep.Ready
 
-// main's own var init; main's init() must observe it (within-package order).
 var local = "set"
 var localSeenByInit string
 
@@ -1390,11 +1247,6 @@ func main() {
 	}
 }
 
-// TestRemoteGenericIfaceConstraintForeignArg mirrors proto.CloneOf: a generic
-// func with an interface constraint in package "gen" is instantiated with a
-// concrete *T from package "msg". msg's pkg-qualified method key made the
-// short-name lookup miss it ("does not satisfy constraint"); MethodByName
-// resolves it across packages.
 func TestRemoteGenericIfaceConstraintForeignArg(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{
@@ -1454,16 +1306,6 @@ func main() {
 	}
 }
 
-// TestRemoteImportedSliceCompositeNilFnew exercises the protopack "index out
-// of range" blocker: an imported pkg defines and uses `type Message []token`
-// and `type LengthPrefix Message`, so their slots relocate into the consumer
-// without a zeroSlotType entry; a package var then nests LengthPrefix
-// composites. The lang.Composite handler must match each literal's Fnew by its
-// own slot, not just by type (which can't match a deferred relocated slot).
-//
-// Whether the slot actually misses zeroSlotType is map-order dependent, so
-// this is a path smoke test; the real protobuf protopack reproduces it
-// deterministically. See project_grpc_investigation.
 func TestRemoteImportedSliceCompositeNilFnew(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/wire",
@@ -1474,9 +1316,6 @@ func TestRemoteImportedSliceCompositeNilFnew(t *testing.T) {
 
 type token interface{ isToken() }
 
-// Type group mirroring protopack: many token types, LengthPrefix defined as
-// Message. Used in-package below so their slots are allocated here and, on
-// import, relocate into the consumer without a zeroSlotType entry.
 type (
 	Token        token
 	Message      []Token
@@ -1562,7 +1401,6 @@ func (m Message) Marshal() []int {
 	return out
 }
 
-// Package-level uses allocate the slice types' slots here (the relocation source).
 var (
 	Seed  = LengthPrefix(Message{Varint(1)})
 	Seed2 = Message{LengthPrefix{Varint(1)}, Bytes{1}, Raw{2}}

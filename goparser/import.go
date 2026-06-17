@@ -384,11 +384,13 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 	var newKeys []string
 	qualifiedPrefix := pkgPath + "."
 	for k, s := range p.Symbols {
-		if existing[k] == s {
+		if strings.HasPrefix(k, qualifiedPrefix) {
+			// Always publish this package's own qualified exports; the delta skip
+			// below would drop them if it was already parsed (e.g. as the target).
+			publishValue(pkg.Values, k[len(qualifiedPrefix):], s)
 			continue
 		}
-		if strings.HasPrefix(k, qualifiedPrefix) {
-			publishValue(pkg.Values, k[len(qualifiedPrefix):], s)
+		if existing[k] == s {
 			continue
 		}
 		if isScopedKey(k) {
