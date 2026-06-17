@@ -138,6 +138,10 @@ func synthIfaceRtype(t *Type) reflect.Type {
 	})
 }
 
+func isGenericInstanceName(name string) bool {
+	return strings.IndexByte(name, '#') >= 0
+}
+
 func isExportedName(name string) bool {
 	if name == "" {
 		return false
@@ -162,11 +166,6 @@ func qualifiedTypeName(t *Type) string {
 	return base + "." + t.Name
 }
 
-// attachValueRecv fills T's value-receiver methods into its reserved synth
-// identity in place. The reserve gate (hasReservableMethods) is a superset of
-// the attach trigger (a method with a detectShape), so a type with shaped value
-// methods was always reserved at materialize; a missing reservation is an
-// internal invariant violation.
 func (m *Machine) attachValueRecv(t *Type) error {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
@@ -174,14 +173,15 @@ func (m *Machine) attachValueRecv(t *Type) error {
 	}
 	methods := toSynthMethods(m, t, specs)
 	res := lookupReservation(t)
+	if res == nil && isGenericInstanceName(t.Name) {
+		return nil // see attachPtrRecv
+	}
 	if res == nil || res.value == nil {
 		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
 	}
 	return stubs.FillMethods(res.value, methods)
 }
 
-// attachPtrRecv fills *T's methods into its reserved synth pointer identity in
-// place. *T was reserved + wired (PtrToThis, AttachPtrDerived) at materialize.
 func (m *Machine) attachPtrRecv(t *Type) error {
 	specs := m.allSynthMethods(t, true)
 	if len(specs) == 0 {
@@ -189,6 +189,10 @@ func (m *Machine) attachPtrRecv(t *Type) error {
 	}
 	methods := toSynthMethods(m, t, specs)
 	res := lookupReservation(t)
+	if res == nil && isGenericInstanceName(t.Name) {
+		// A monomorphized generic instance materialized before its method table was filled.
+		return nil
+	}
 	if res == nil || res.ptr == nil {
 		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
 	}
