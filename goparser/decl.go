@@ -1289,7 +1289,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		nt.Placeholder = false
 		nt.Defined = true // a top-level definition, not a struct-field clone
 		if isBasicKind(nt.Kind()) {
-			// Stay symbolic: comp materializes from Base, attach adds the methods.
+			nt.CaptureKind()
 			nt.Rtype = nil
 		}
 		if nt.PkgName == "" {
