@@ -34,7 +34,7 @@ func makeUncommon(pkgPath string, moff uint32) abiUncommon {
 func makeMethod(m MethodSpec) abiMethod {
 	return abiMethod{
 		Name: uint32(addReflectOff(unsafe.Pointer(
-			encodeName(m.Name, m.Exported).Bytes))),
+			encodeNamePkg(m.Name, m.Exported, m.PkgPath).Bytes))),
 		Mtyp: uint32(addReflectOff(unsafe.Pointer(rtypePtr(m.Sig)))),
 		Ifn:  uint32(addReflectOff(ptrFromPC(m.StubPC))),
 		Tfn:  uint32(addReflectOff(ptrFromPC(m.StubPC))),

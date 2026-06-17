@@ -239,6 +239,34 @@ type synthMethodSpec struct {
 	wordKey    string // non-empty => word-class path (shape ignored)
 	swallowErr bool   // word path: swallow dispatch errors to zero results
 	form       recvForm
+	pkgName    string // declaring package for an unexported method ("" if exported)
+}
+
+// unexportedMethodPkg returns the package native reflect.Implements requires on
+// an unexported method's synth name: that of its receiver type, reached by
+// walking method.Path through the embedded fields to the type that owns it.
+func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) string {
+	if isExportedName(name) {
+		return ""
+	}
+	cur := t
+	for _, idx := range method.Path {
+		next := embeddedTypeAt(cur, idx)
+		if next == nil {
+			break
+		}
+		cur = next
+	}
+	return cur.PkgName
+}
+
+func embeddedTypeAt(t *Type, idx int) *Type {
+	for _, e := range t.Embedded {
+		if e.FieldIdx == idx {
+			return e.Type
+		}
+	}
+	return nil
 }
 
 // resolveDispatch picks the dispatch path and sets s.method.Rtype to the sig
@@ -298,7 +326,8 @@ func toSynthMethods(
 		if s.wordKey != "" {
 			out[i] = stubs.Method{
 				Name:     s.name,
-				Exported: true,
+				Exported: isExportedName(s.name),
+				PkgPath:  s.pkgName,
 				Sig:      s.method.Rtype,
 				WordKey:  s.wordKey,
 				Core:     m.makeWordCore(t, s.method, s.name, s.form, s.swallowErr),
@@ -386,7 +415,8 @@ func toSynthMethods(
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
-			Exported: true,
+			Exported: isExportedName(s.name),
+			PkgPath:  s.pkgName,
 			Sig:      s.method.Rtype,
 			Shape:    s.shape,
 			Handler:  handler,
@@ -423,9 +453,10 @@ func (m *Machine) allSynthMethods(
 			continue
 		}
 		spec := synthMethodSpec{
-			name:   m.MethodNames[i],
-			method: method,
-			form:   recvFormFor(t.Rtype, method.PtrRecv, includePtr),
+			name:    m.MethodNames[i],
+			method:  method,
+			form:    recvFormFor(t.Rtype, method.PtrRecv, includePtr),
+			pkgName: m.unexportedMethodPkg(t, method, m.MethodNames[i]),
 		}
 		// Typed-shape tables erase synth-iface params to any (stubs decode an
 		// eface); the word path keeps the precise sig (see resolveDispatch).

@@ -1577,3 +1577,141 @@ var (
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// TestRemoteUnexportedMethodInterfaceSatisfaction is the grpc registration
+// pattern: a server embeds a foreign Unimplemented base to satisfy an interface
+// with an unexported method. Native reflect.Implements matches that method by
+// name and declaring package, so its promoted synth name must carry "svc".
+func TestRemoteUnexportedMethodInterfaceSatisfaction(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/svc",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/svc\n",
+			"svc.go": `package svc
+
+type Svc interface {
+	Name() string
+	mustEmbedUnimplementedSvc()
+}
+
+type UnimplementedSvc struct{}
+
+func (UnimplementedSvc) Name() string                { return "base" }
+func (UnimplementedSvc) mustEmbedUnimplementedSvc() {}
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+
+	"example.com/svc"
+)
+
+type server struct {
+	svc.UnimplementedSvc
+}
+
+func (server) Name() string { return "server" }
+
+func main() {
+	st := reflect.TypeOf(server{})
+	it := reflect.TypeOf((*svc.Svc)(nil)).Elem()
+	fmt.Println(st.Implements(it))
+}
+`
+
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true\n"; got != want {
+		t.Errorf("Implements: got %q, want %q", got, want)
+	}
+}
+
+// TestRemoteUnexportedMethodMultiLevelPromotion is the two-level variant: the
+// unexported method is declared in "inner" and reaches main through "mid". Its
+// synth name must carry "inner" (the deepest embed), not "mid" (the first hop),
+// so the pkgPath walk must follow the full method.Path.
+func TestRemoteUnexportedMethodMultiLevelPromotion(t *testing.T) {
+	url, _ := startFakeProxy(t,
+		remoteModule{
+			path:    "example.com/inner",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/inner\n",
+				"inner.go": `package inner
+
+type Svc interface {
+	Name() string
+	mustEmbedInner()
+}
+
+type Base struct{}
+
+func (Base) Name() string   { return "base" }
+func (Base) mustEmbedInner() {}
+`,
+			},
+		},
+		remoteModule{
+			path:    "example.com/mid",
+			version: "v1.0.0",
+			files: map[string]string{
+				"go.mod": "module example.com/mid\n",
+				"mid.go": `package mid
+
+import "example.com/inner"
+
+type Mid struct{ inner.Base }
+`,
+			},
+		},
+	)
+
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+
+	"example.com/inner"
+	"example.com/mid"
+)
+
+type server struct {
+	mid.Mid
+}
+
+func (server) Name() string { return "server" }
+
+func main() {
+	st := reflect.TypeOf(server{})
+	it := reflect.TypeOf((*inner.Svc)(nil)).Elem()
+	fmt.Println(st.Implements(it))
+}
+`
+
+	var stdout, stderr bytes.Buffer
+	i := NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true\n"; got != want {
+		t.Errorf("Implements: got %q, want %q", got, want)
+	}
+}

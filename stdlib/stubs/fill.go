@@ -16,6 +16,7 @@ func FillMethods(res *runtype.Reservation, methods []Method) error {
 		specs[i] = runtype.MethodSpec{
 			Name:     m.Name,
 			Exported: m.Exported,
+			PkgPath:  m.PkgPath,
 			Sig:      m.Sig,
 			StubPC:   stubs[i],
 		}

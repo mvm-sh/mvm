@@ -145,6 +145,7 @@ const (
 type Method struct {
 	Name     string
 	Exported bool
+	PkgPath  string // declaring package for an unexported method (name pkgPath)
 	Sig      reflect.Type
 	Shape    Shape
 	Handler  any

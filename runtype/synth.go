@@ -10,6 +10,7 @@ import (
 type MethodSpec struct {
 	Name     string
 	Exported bool
+	PkgPath  string // declaring package for an unexported method; embedded in the name
 	Sig      reflect.Type
 	StubPC   uintptr
 }
