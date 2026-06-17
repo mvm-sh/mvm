@@ -323,20 +323,25 @@ func (p *Parser) extractImports(src string) []string {
 }
 
 func extractPackageName(src string) string {
-	// skipped; block comments before `package` are not handled (Go style places
-	// `package` directly after build tags, so this is sufficient in practice).
-	for src != "" {
-		var line string
-		if before, after, ok0 := strings.Cut(src, "\n"); ok0 {
-			line, src = before, after
-		} else {
-			line, src = src, ""
+	// Skip leading whitespace, line comments and /* */ block comments (license
+	// headers, common in real-world code) before the package clause.
+	for {
+		src = strings.TrimLeftFunc(src, unicode.IsSpace)
+		switch {
+		case strings.HasPrefix(src, "//"):
+			if i := strings.IndexByte(src, '\n'); i >= 0 {
+				src = src[i+1:]
+				continue
+			}
+			return ""
+		case strings.HasPrefix(src, "/*"):
+			if i := strings.Index(src, "*/"); i >= 0 {
+				src = src[i+2:]
+				continue
+			}
+			return "" // unterminated block comment
 		}
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "//") {
-			continue
-		}
-		rest, ok := strings.CutPrefix(line, "package ")
+		rest, ok := strings.CutPrefix(src, "package ")
 		if !ok {
 			return ""
 		}
@@ -350,7 +355,6 @@ func extractPackageName(src string) string {
 		}
 		return rest[:end]
 	}
-	return ""
 }
 
 func (p *Parser) importSrc(pkgPath string) (err error) {
