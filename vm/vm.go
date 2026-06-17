@@ -2178,12 +2178,24 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				if c.A&1 != 0 {
 					v = v.CopyArray()
 				}
+				fromSeq2 := false
 				if c.B != 0 {
 					// Range-over-func: wrap a mvm Closure into a native Go func.
 					funcType := m.globals[int(c.B)-1].ref.Type()
 					v = Value{ref: m.wrapForFunc(v, funcType)}
+					fromSeq2 = funcType.In(0).NumIn() == 2 // yield takes (K, V)
 				}
-				seq = v.Seq()
+				if fromSeq2 {
+					// iter.Seq2 ranged with fewer than two iteration variables:
+					// iterate as a Seq2 but bind only the first yielded value
+					// (Go semantics for `for k := range seq2`).
+					seq2 := v.Seq2()
+					seq = func(yield func(reflect.Value) bool) {
+						seq2(func(k, _ reflect.Value) bool { return yield(k) })
+					}
+				} else {
+					seq = v.Seq()
+				}
 			}
 			next, stop := iter.Pull(seq)
 			m.iterStack = append(m.iterStack, iterEntry{fp: fp, next: ValueOf(next), stop: ValueOf(stop)})
@@ -2202,6 +2214,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					funcType := m.globals[int(c.B)-1].ref.Type()
 					v = Value{ref: m.wrapForFunc(v, funcType)}
 				}
+				// No Seq-vs-Seq2 adapter needed here (unlike Pull): two iteration
+				// variables require a yield arity of 2, so the func is always a Seq2.
 				seq2 = v.Seq2()
 			}
 			next, stop := iter.Pull2(seq2)
