@@ -837,10 +837,13 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			if !IsExported(name) {
 				pkgPath = p.pkgName
 			}
-			// A placeholder struct field (or an array of one) lacks a final layout,
-			// so the struct's size is unknown: defer via ErrUndefined and retry.
+			// A placeholder struct field lacks a final layout, defer and retry.
 			if ph := placeholderStructElem(types[i]); ph != nil {
 				return nil, p.undef(ph.Name, lt[0])
+			}
+			// A direct field of an unfilled named-composite placeholder must defer.
+			if types[i].Placeholder && types[i].Kind() == reflect.Invalid {
+				return nil, p.undef(types[i].Name, lt[0])
 			}
 			if name == "" {
 				// Unnamed field: likely an embedded type not yet defined.
@@ -851,10 +854,6 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			ft.Name = name
 			ft.PkgName = pkgPath
 			ft.Defined = false // a field clone resolves to Base, unlike a defined type
-			// Back-link to the source type so methods registered on it after
-			// this clone was taken (typical: struct decl precedes method decls,
-			// or named types whose Methods are populated by the compiler later)
-			// remain reachable via MethodByName's ft.Base walk.
 			ft.Base = types[i]
 			fields = append(fields, &ft)
 			tags = append(tags, tag)
