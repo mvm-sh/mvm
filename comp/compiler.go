@@ -765,7 +765,7 @@ func (c *Compiler) findConcreteFuncSym(name string) *symbol.Symbol {
 	return nil
 }
 
-func findEmbeddedIfaceMethod(typ *vm.Type, name string) ([]int, reflect.Type) {
+func findEmbeddedIfaceMethod(typ *vm.Type, name string) ([]int, reflect.Type, *vm.Type) {
 	for _, emb := range typ.Embedded {
 		if emb.Type == nil {
 			continue
@@ -774,15 +774,15 @@ func findEmbeddedIfaceMethod(typ *vm.Type, name string) ([]int, reflect.Type) {
 			emb.Type.EnsureIfaceMethods()
 			for _, im := range emb.Type.IfaceMethods {
 				if im.Name == name {
-					return []int{emb.FieldIdx}, im.Rtype
+					return []int{emb.FieldIdx}, im.Rtype, im.Sig
 				}
 			}
 		}
-		if p, mt := findEmbeddedIfaceMethod(emb.Type, name); p != nil {
-			return append([]int{emb.FieldIdx}, p...), mt
+		if p, mt, sig := findEmbeddedIfaceMethod(emb.Type, name); p != nil {
+			return append([]int{emb.FieldIdx}, p...), mt, sig
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 func findEmbeddedMethod(typ *vm.Type, rtype reflect.Type, name string, path []int) (reflect.Method, []int, bool) {
@@ -2998,23 +2998,27 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						}
 					}
 					// Look up the full mvm type (with Embedded info) from the symbol table.
-					// Without this, types obtained through field access (FieldType) may lack
-					// Embedded metadata, preventing findEmbeddedMethod from finding promoted methods.
 					if ft := c.findTypeSym(lr); ft != nil {
 						lookupTyp = ft
 					}
-					if fieldPath, mt := findEmbeddedIfaceMethod(lookupTyp, methodName); fieldPath != nil {
+					if fieldPath, mt, sig := findEmbeddedIfaceMethod(lookupTyp, methodName); fieldPath != nil {
 						c.emitField(t, fieldPath)
-						// mt is the embedded interface's bound method type (no
-						// receiver). Validate findConcreteFuncSym against it so
-						// an unrelated `.M` Func can't hijack the dispatch.
+						// mt is the embedded interface's bound method type (no receiver).
+						// Validate findConcreteFuncSym against it.
 						methodSym := c.findConcreteFuncSym(methodName)
 						if methodSym != nil && mt != nil && mt.Kind() == reflect.Func && !concreteMatchesIface(methodSym.Type, mt) {
 							methodSym = nil
 						}
 						if methodSym == nil {
+							// Prefer the symbolic Sig: its Returns keep method-bearing
+							// named types (e.g. an interface-returning method) that the
+							// materialized mt may have erased, so chaining a call on the
+							// result resolves. Fall back to mt, then bare interface{}.
 							symType := &vm.Type{Rtype: vm.AnyRtype}
-							if mt != nil && mt.Kind() == reflect.Func {
+							switch {
+							case sig != nil && sig.Kind() == reflect.Func:
+								symType = sig
+							case mt != nil && mt.Kind() == reflect.Func:
 								symType = &vm.Type{Rtype: mt}
 							}
 							methodSym = &symbol.Symbol{Kind: symbol.Value, Type: symType}
