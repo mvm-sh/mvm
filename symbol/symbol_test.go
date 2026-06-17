@@ -38,12 +38,10 @@ func TestSegIndexAddDel(t *testing.T) {
 	}
 }
 
-// TestMethodByNameIndexMatchesFullScan asserts the indexed path resolves
-// identically to the unindexed full scan -- the invariant the speedup rests on.
 func TestMethodByNameIndexMatchesFullScan(t *testing.T) {
 	rt := reflect.TypeOf(struct{ X int }{})
-	innerType := &vm.Type{Name: "Tag", PkgPath: "inner", Rtype: rt}
-	enum := &vm.Type{Name: "Enum", PkgPath: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
+	innerType := &vm.Type{Name: "Tag", PkgName: "inner", Rtype: rt}
+	enum := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
 	sm := SymMap{
 		"inner.Tag":             &Symbol{Kind: Type, Type: innerType},
 		"inner.Tag.IsRoot":      &Symbol{Kind: Func, Name: "IsRoot", Index: 1},
@@ -72,18 +70,6 @@ func TestMethodByNameIndexMatchesFullScan(t *testing.T) {
 	}
 }
 
-// TestQualifiedMethodLookupPrefersExactType reproduces the
-// [[project_isroot_iface_dispatch_recursion]] flake: two distinct *vm.Type
-// values share the same reflect.Type (the `type Tag compact.Tag` shape in
-// x/text/language). With the old rtype-only matcher, qualifiedMethodLookup
-// would pick whichever same-rtype Type Symbol Go's map iteration visited
-// first; ~half the runs the wrong method codeAddr was wired in and the call
-// site recursed back into itself.
-//
-// This test exercises 1000 iterations against a fresh SymMap each round so
-// the map's internal bucket layout (which seeds map-iter randomness) is
-// different every time, and checks that MethodByName always returns the
-// method belonging to the receiver's Type identity, never the sibling's.
 func TestQualifiedMethodLookupPrefersExactType(t *testing.T) {
 	rt := reflect.TypeOf(struct{ X int }{})
 
@@ -127,21 +113,13 @@ func TestQualifiedMethodLookupPrefersExactType(t *testing.T) {
 	}
 }
 
-// TestMethodLookupCrossUniverse models the duplicated-type case seen compiling
-// google.golang.org/protobuf/internal/filedesc: mvm can build distinct *vm.Type
-// instances (and rtypes) for one Go type across file-by-file / multi-pass
-// compilation. The Enum reached through a slice-element field was a different
-// *Type than the registered Enum owning the pkg-qualified method keys, so a
-// method call resolved by *Type / canonical / rtype identity reported
-// "undefined: <method>". MethodByName now falls back to package-path + name,
-// which uniquely identifies a Go type, for both value and pointer receivers.
 func TestMethodLookupCrossUniverse(t *testing.T) {
 	const pkg = "google.golang.org/protobuf/internal/filedesc"
 	for round := 0; round < 200; round++ {
 		// regType owns the methods; recvVal is a same-Go-type instance from
 		// another compile universe (distinct *Type and distinct rtype).
-		regType := &vm.Type{Name: "Enum", PkgPath: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
-		recvVal := &vm.Type{Name: "Enum", PkgPath: "filedesc", Rtype: reflect.TypeOf(struct{ b int }{})}
+		regType := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvVal := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ b int }{})}
 
 		valMethod := &Symbol{Kind: Func, Name: "unmarshalSeed", Index: 100}
 		ptrMethod := &Symbol{Kind: Func, Name: "Number", Index: 200}
@@ -170,24 +148,77 @@ func TestMethodLookupCrossUniverse(t *testing.T) {
 	}
 }
 
-// TestPromotedMethodViaCloneCanonical guards the x/net/http2 "undefined:
-// invalidate" blocker: a field-access clone *Type drops Embedded, so an
-// unexported promoted method (resolvable only via the symbol table, since
-// reflect hides unexported methods) must resolve via the canonical (Base).
+func TestMethodLookupDistinctPkgSameShortName(t *testing.T) {
+	const grpcPkg = "google.golang.org/grpc/internal/status"
+	const genPkg = "google.golang.org/genproto/googleapis/rpc/status"
+	for round := 0; round < 200; round++ {
+		// grpcStatus owns Details(); protoStatus is a different type, no Details.
+		grpcStatus := &vm.Type{Name: "Status", PkgName: "status", ImportPath: grpcPkg, Rtype: reflect.TypeOf(struct{ a int }{})}
+		protoStatus := &vm.Type{Name: "Status", PkgName: "status", ImportPath: genPkg, Rtype: reflect.TypeOf(struct{ b int }{})}
+
+		sm := SymMap{
+			grpcPkg + ".Status":               &Symbol{Kind: Type, Type: grpcStatus},
+			genPkg + ".Status":                &Symbol{Kind: Type, Type: protoStatus},
+			"Status":                          &Symbol{Kind: Type, Type: grpcStatus},
+			"*" + grpcPkg + ".Status.Details": &Symbol{Kind: Func, Name: "Details", Index: 100},
+		}
+		seg := segOf(sm)
+
+		recv := &Symbol{Kind: Value, Type: vm.SymPtr(protoStatus)}
+		if got, _ := sm.MethodByName(recv, "Details", seg); got != nil {
+			t.Fatalf("round %d: proto Status hijacked grpc Status.Details (got Index=%d)", round, got.Index)
+		}
+		// The grpc Status itself still resolves its own method.
+		recvG := &Symbol{Kind: Value, Type: vm.SymPtr(grpcStatus)}
+		if got, _ := sm.MethodByName(recvG, "Details", seg); got == nil || got.Index != 100 {
+			t.Fatalf("round %d: grpc Status.Details unresolved: got %v", round, got)
+		}
+	}
+	// Cross-universe dup (same ImportPath, distinct *Type+rtype): must resolve.
+	for round := 0; round < 50; round++ {
+		const pkg = "example.com/dup"
+		reg := &vm.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvT := &vm.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ b int }{})}
+		sm := SymMap{
+			pkg + ".T":         &Symbol{Kind: Type, Type: reg},
+			"*" + pkg + ".T.M": &Symbol{Kind: Func, Name: "M", Index: 7},
+		}
+		seg := segOf(sm)
+		recv := &Symbol{Kind: Value, Type: vm.SymPtr(recvT)}
+		if got, _ := sm.MethodByName(recv, "M", seg); got == nil || got.Index != 7 {
+			t.Fatalf("round %d: cross-universe dup (same ImportPath) failed to resolve: got %v", round, got)
+		}
+	}
+	// Main/REPL dup (no ImportPath): the lenient short-PkgPath fallback resolves it.
+	for round := 0; round < 50; round++ {
+		reg := &vm.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvM := &vm.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ b int }{})}
+		sm := SymMap{
+			"main.M":      &Symbol{Kind: Type, Type: reg},
+			"*main.M.Inc": &Symbol{Kind: Func, Name: "Inc", Index: 9},
+		}
+		seg := segOf(sm)
+		recv := &Symbol{Kind: Value, Type: vm.SymPtr(recvM)}
+		if got, _ := sm.MethodByName(recv, "Inc", seg); got == nil || got.Index != 9 {
+			t.Fatalf("round %d: main-pkg dup (no ImportPath) failed to resolve: got %v", round, got)
+		}
+	}
+}
+
 func TestPromotedMethodViaCloneCanonical(t *testing.T) {
 	const pkg = "golang.org/x/net/http2"
 
 	// FrameHeader owns the unexported promoted method `invalidate` (ptr recv),
 	// registered at a pkg-qualified key as for any imported package.
-	fhType := &vm.Type{Name: "FrameHeader", PkgPath: "http2", Rtype: reflect.TypeOf(struct{ valid bool }{})}
+	fhType := &vm.Type{Name: "FrameHeader", PkgName: "http2", Rtype: reflect.TypeOf(struct{ valid bool }{})}
 	// canonHF carries the embedded FrameHeader; cloneHF is the field-access clone
 	// with no Embedded and Rtype nil, linked to canonHF via Base.
 	canonHF := &vm.Type{
-		Name: "HeadersFrame", PkgPath: "http2",
+		Name: "HeadersFrame", PkgName: "http2",
 		Rtype:    reflect.TypeOf(struct{ a int }{}),
 		Embedded: []vm.EmbeddedField{{FieldIdx: 0, Type: fhType}},
 	}
-	cloneHF := &vm.Type{Name: "HeadersFrame", PkgPath: "http2", Base: canonHF}
+	cloneHF := &vm.Type{Name: "HeadersFrame", PkgName: "http2", Base: canonHF}
 
 	invalidate := &Symbol{Kind: Func, Name: "invalidate", Index: 42}
 	sm := SymMap{

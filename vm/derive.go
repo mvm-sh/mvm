@@ -502,7 +502,7 @@ func isFieldClone(t *mtype.Type) bool {
 	}
 	// Method-bearing or pkg-scoped named base: the clone resolves to Base's
 	// identity rather than minting one under its own (possibly field-derived) name.
-	return len(t.Base.Methods) > 0 || t.Base.PkgPath != ""
+	return len(t.Base.Methods) > 0 || t.Base.PkgName != ""
 }
 
 func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
@@ -519,7 +519,7 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	if !hasReservableMethods(t) {
 		// Only a definition (`type X T`) owns a named identity; placeholders
 		// (generic type params) and parser-derived clones keep the native layout.
-		if !t.Defined || t.PkgPath == "" {
+		if !t.Defined || t.PkgName == "" {
 			return layoutRT
 		}
 		return propagateGeom(layoutRT, reserveNamedCarrier(t, layoutRT))
@@ -542,7 +542,7 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	defer derivedMu.Unlock()
 	res := sharedCarriers[key]
 	if res == nil {
-		vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgPath)
+		vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgName)
 		if err != nil {
 			return layoutRT
 		}
@@ -557,13 +557,13 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 
 func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	name := qualifiedTypeName(t)
-	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgPath)
+	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgName)
 	if err != nil {
 		return layoutRT
 	}
 	res := &synthReservation{value: vr}
 	valueRT := vr.Type()
-	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, t.PkgPath); err == nil {
+	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, t.PkgName); err == nil {
 		res.ptr = r
 		AttachPtrDerived(t, r.Type())
 	}
@@ -612,12 +612,12 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 			return nil, false // methodless struct: native identity is stable already
 		}
 		name := qualifiedTypeName(t)
-		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, t.PkgPath)
+		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, t.PkgName)
 		if err != nil {
 			return nil, false
 		}
 		res = &synthReservation{value: vr}
-		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, t.PkgPath); err == nil {
+		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, t.PkgName); err == nil {
 			res.ptr = pr
 			AttachPtrDerived(t, pr.Type())
 		}
@@ -1101,7 +1101,7 @@ func reserveSelfRef(t *mtype.Type, donor reflect.Type) reflect.Type {
 	if hasReservableMethods(t) {
 		return reserveValueAndPtr(t, donor)
 	}
-	vr, err := runtype.ReserveMethods(donor, qualifiedTypeName(t), t.PkgPath)
+	vr, err := runtype.ReserveMethods(donor, qualifiedTypeName(t), t.PkgName)
 	if err != nil {
 		return nil
 	}
@@ -1359,7 +1359,7 @@ func synthIfaceNameKey(t *mtype.Type) string {
 		names = append(names, im.Name+":"+im.Rtype.String())
 	}
 	sort.Strings(names)
-	return t.PkgPath + "." + t.Name + "{" + strings.Join(names, ",") + "}"
+	return t.PkgName + "." + t.Name + "{" + strings.Join(names, ",") + "}"
 }
 
 // AttachPtrDerived records newPtrRT (a *T-with-methods rtype) as t's derived

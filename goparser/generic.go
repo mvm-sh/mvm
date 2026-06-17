@@ -592,7 +592,7 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 }
 
 // instanceName gives tmpl<typeArgs> its monomorphization's symbol name and
-// whether an existing one can be reused. Distinct types can share a PkgPath.Name
+// whether an existing one can be reused. Distinct types can share a PkgName.Name
 // (e.g. a type named the same in two functions) and so mangle alike; a func
 // instance bound to one must not be reused for another, so colliding names get a
 // $N suffix.
@@ -647,7 +647,7 @@ func identicalTypeArgs(a, b []*vm.Type) bool {
 }
 
 // sameInstanceType reports whether type args a and b denote the same
-// monomorphization. Unlike Type.Identical it does not fall back to PkgPath.Name:
+// monomorphization. Unlike Type.Identical it does not fall back to PkgName.Name:
 // with no Rtype to compare, distinct named *Types are distinct declarations
 // (e.g. a type named the same in two functions), not one shared type.
 func sameInstanceType(a, b *vm.Type) bool {

@@ -137,7 +137,7 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.T
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
-	return &vm.Type{Name: rt.Name(), PkgPath: rt.PkgPath(), Rtype: rt}, nil
+	return &vm.Type{Name: rt.Name(), PkgName: rt.PkgPath(), Rtype: rt}, nil
 }
 
 func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
@@ -719,9 +719,9 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	// reflect.StructField.PkgPath must be empty for exported fields and the
 	// owning package's path for unexported ones.
 	if IsExported(name) {
-		ft.PkgPath = ""
+		ft.PkgName = ""
 	} else {
-		ft.PkgPath = p.pkgName
+		ft.PkgName = p.pkgName
 	}
 	ft.Base = typ
 	if isPtr {
@@ -729,7 +729,7 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 		// the field type (SymPtr itself leaves Name empty).
 		pt := vm.SymPtr(&ft)
 		pt.Name = name
-		pt.PkgPath = ft.PkgPath
+		pt.PkgName = ft.PkgName
 		return pt, typ
 	}
 	return &ft, typ
@@ -849,7 +849,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			// Copy mvm-level type (preserving Params, IfaceMethods, etc.) and set field name.
 			ft := *types[i]
 			ft.Name = name
-			ft.PkgPath = pkgPath
+			ft.PkgName = pkgPath
 			ft.Defined = false // a field clone resolves to Base, unlike a defined type
 			// Back-link to the source type so methods registered on it after
 			// this clone was taken (typical: struct decl precedes method decls,

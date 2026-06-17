@@ -135,7 +135,7 @@ func TestSymbolicComparable(t *testing.T) {
 }
 
 func TestSymbolicIdentical(t *testing.T) {
-	named := func(pkg, name string, k reflect.Kind) *Type { return &Type{PkgPath: pkg, Name: name, kind: k} }
+	named := func(pkg, name string, k reflect.Kind) *Type { return &Type{PkgName: pkg, Name: name, kind: k} }
 	cases := []struct {
 		a, b *Type
 		want bool

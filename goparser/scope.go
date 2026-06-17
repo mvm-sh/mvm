@@ -74,14 +74,14 @@ func (p *Parser) pkgShortName(path string) string {
 	return path
 }
 
-// typeBelongsTo reports whether named typ is a member of pkgPath. typ.PkgPath
-// carries the type's own (short) package name; an empty PkgPath is treated as
+// typeBelongsTo reports whether named typ is a member of pkgPath. typ.PkgName
+// carries the type's own (short) package name; an empty PkgName is treated as
 // belonging (an unqualified local type keeps the old qualify-by-context path).
 func (p *Parser) typeBelongsTo(typ *vm.Type, pkgPath string) bool {
-	if typ.PkgPath == "" {
+	if typ.PkgName == "" {
 		return true
 	}
-	return typ.PkgPath == pkgPath || typ.PkgPath == p.pkgShortName(pkgPath)
+	return typ.PkgName == pkgPath || typ.PkgName == p.pkgShortName(pkgPath)
 }
 
 // isScopedKey reports whether a symbol-table key names something inside a

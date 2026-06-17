@@ -17,7 +17,7 @@ func TestFuncIfaceResultDeferredSynth(t *testing.T) {
 	// WS interface { Pop() bool }, with Pop's sig initially unmaterialized.
 	ws := mtype.SymBasic(reflect.Interface)
 	ws.Name = "WS"
-	ws.PkgPath = "example.com/fnfield"
+	ws.PkgName = "example.com/fnfield"
 	ws.IfaceMethods = []mtype.IfaceMethod{
 		{Name: "Pop", ID: -1, Rtype: nil, Sig: mtype.SymFunc(nil, []*mtype.Type{mtype.SymBasic(reflect.Bool)}, false)},
 	}
@@ -31,7 +31,7 @@ func TestFuncIfaceResultDeferredSynth(t *testing.T) {
 	field.Defined = false
 	srv := mtype.SymStruct([]*mtype.Type{&field}, nil, nil)
 	srv.Name = "Srv"
-	srv.PkgPath = "example.com/fnfield"
+	srv.PkgName = "example.com/fnfield"
 
 	rt := MaterializeRtype(srv)
 	if rt == nil {

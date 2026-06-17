@@ -1104,7 +1104,7 @@ func (p *Parser) parsePackageDecl(in Tokens) (out Tokens, err error) {
 	}
 	// X and its external test package X_test share a parser unit under
 	// `mvm test .`; accept that transition so each file's types keep their own
-	// PkgPath. Any other mismatch is a genuine two-packages-in-a-dir error.
+	// PkgName. Any other mismatch is a genuine two-packages-in-a-dir error.
 	if p.pkgName != "" && p.pkgName != in[1].Str && !isTestPkgPair(p.pkgName, in[1].Str) {
 		return out, p.errAt(in[1], "package %s; expected %s", in[1].Str, p.pkgName)
 	}
@@ -1118,9 +1118,9 @@ func isTestPkgPair(a, b string) bool {
 	return a == b+"_test" || b == a+"_test"
 }
 
-// backfillPlaceholderPkgPath sets the PkgPath of every still-empty type
+// backfillPlaceholderPkgPath sets the PkgName of every still-empty type
 // placeholder to p.pkgName. preRegisterTypes runs before the package decl is
-// parsed, so its placeholders are created with an empty PkgPath; we backfill
+// parsed, so its placeholders are created with an empty PkgName; we backfill
 // here (and at the implicit "main" default in ParseDecl / parseStmt) before
 // any type-body parse reads them, so generic instance mangled names stay
 // consistent and fmt %T renders <pkg>.<Name> for forward-declared types.
@@ -1132,8 +1132,9 @@ func (p *Parser) backfillPlaceholderPkgPath() {
 		if sym == nil || sym.Kind != symbol.Type || sym.Type == nil {
 			continue
 		}
-		if sym.Type.Placeholder && sym.Type.PkgPath == "" {
-			sym.Type.PkgPath = p.pkgName
+		if sym.Type.Placeholder && sym.Type.PkgName == "" {
+			sym.Type.PkgName = p.pkgName
+			sym.Type.ImportPath = p.importingPkg
 		}
 	}
 }
@@ -1225,15 +1226,17 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		}
 	}
 
-	// Stamp PkgPath before the body parse so a self-referential field type
+	// Stamp PkgName before the body parse so a self-referential field type
 	// (e.g. children items[*node[T]]) mangles this instance consistently; set
 	// afterwards it drifts (items#_node#int vs items#_btree_node#int) into a
 	// duplicate instance.
-	if placeholder != nil && placeholder.PkgPath == "" {
-		placeholder.PkgPath = p.pkgName
+	if placeholder != nil && placeholder.PkgName == "" {
+		placeholder.PkgName = p.pkgName
+		placeholder.ImportPath = p.importingPkg
 	}
-	if compositePh != nil && compositePh.PkgPath == "" {
-		compositePh.PkgPath = p.pkgName
+	if compositePh != nil && compositePh.PkgName == "" {
+		compositePh.PkgName = p.pkgName
+		compositePh.ImportPath = p.importingPkg
 	}
 	if placeholder != nil {
 		placeholder.Pos = in[0].Pos
@@ -1254,9 +1257,10 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 		} else {
 			placeholder.SetFields(typ)
 		}
-		// Func-local types miss backfillPlaceholderPkgPath; set PkgPath here so %T renders <pkg>.<Name>.
-		if placeholder.PkgPath == "" {
-			placeholder.PkgPath = p.pkgName
+		// Func-local types miss backfillPlaceholderPkgPath; set PkgName here so %T renders <pkg>.<Name>.
+		if placeholder.PkgName == "" {
+			placeholder.PkgName = p.pkgName
+			placeholder.ImportPath = p.importingPkg
 		}
 		if s, ok := p.Symbols[name]; ok {
 			s.Value = typeTokenValue(placeholder)
@@ -1288,8 +1292,9 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 			// Stay symbolic: comp materializes from Base, attach adds the methods.
 			nt.Rtype = nil
 		}
-		if nt.PkgPath == "" {
-			nt.PkgPath = p.pkgName
+		if nt.PkgName == "" {
+			nt.PkgName = p.pkgName
+			nt.ImportPath = p.importingPkg
 		}
 		nt.Base = base
 		// A struct defined over a NAMED base (type Y X) must stay symbolic too, so

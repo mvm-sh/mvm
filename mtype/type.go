@@ -19,9 +19,9 @@ type Method struct {
 	Index      int          // data index of code address (-1 if unset or EmbedIface)
 	Path       []int        // field index path to embedded receiver (nil = direct, []int{} = deref only)
 	EmbedIface bool         // Path leads to an embedded interface field; dispatch through it
-	PtrRecv    bool         // true if the method has a pointer receiver (e.g. *T)
-	Rtype      reflect.Type // bound method signature (no receiver); nil if unknown. Per-type, so it disambiguates same-named methods (e.g. Unwrap() error vs Unwrap() []error) that share a global method ID.
-	Sig        *Type        // symbolic bound method signature (no receiver); the materialize-time source of Rtype. Preferred over Rtype for signature comparison when both methods carry it.
+	PtrRecv    bool         // true if the method has a pointer receiver
+	Rtype      reflect.Type // bound method signature (no receiver)
+	Sig        *Type        // symbolic bound method signature (no receiver)
 }
 
 // IsResolved reports whether this method slot has been populated with
@@ -36,31 +36,35 @@ type EmbeddedField struct {
 
 // Type is the representation of a mvm type.
 type Type struct {
-	PkgPath      string
-	Name         string
-	Pos          int // source offset of the type declaration (Sources-global); 0 if unknown
-	Rtype        reflect.Type
+	PkgName      string          // package short name
+	ImportPath   string          // full import path ("" for main/REPL/synthetic)
+	Name         string          //
+	Pos          int             // source offset of the type declaration (Sources-global); 0 if unknown
+	Rtype        reflect.Type    //
 	kind         reflect.Kind    // symbolic kind, set at construction; see Kind
-	Placeholder  bool            // true for forward-declared struct/interface placeholders until finalized (SetFields, or IfaceMethods assignment in parseTypeLine)
+	Placeholder  bool            // true for forward-declared struct/interface placeholders until finalized
 	IfaceMethods []IfaceMethod   // non-nil for interface types: required method signatures
-	TypeElems    []TypeElem      // non-nil for constraint interfaces: union members (e.g. cmp.Ordered)
-	Comparable   bool            // constraint interface embeds the built-in `comparable` (e.g. `interface { comparable; error }`)
+	TypeElems    []TypeElem      // non-nil for constraint interfaces: union members
+	Comparable   bool            // constraint interface embeds the built-in `comparable`
 	Methods      []Method        // concrete types: methods[methodID] = code location + receiver path
 	Embedded     []EmbeddedField // mvm types of anonymous (embedded) fields, for promoted method lookup
-	Params       []*Type         // mvm-level parameter types for func types (nil for non-func or if unknown)
-	Returns      []*Type         // mvm-level return types for func types (nil for non-func or if unknown)
+	Params       []*Type         // mvm-level parameter types for func types
+	Returns      []*Type         // mvm-level return types for func types
 	Fields       []*Type         // mvm-level field types for struct types, parallel to reflect visible fields
 	ElemType     *Type           // mvm-level element type for map/slice/array/pointer/chan types
 	KeyType      *Type           // mvm-level key type for map types; nil for non-maps or native-built maps
+
 	// Symbolic descriptors of what Rtype otherwise carries, so a type can be
-	// materialized (Rtype built) from the symbolic graph alone (see comp materialize).
+	// materialized (Rtype built) from the symbolic graph alone.
 	ArrayLen int             // array length (kind Array)
 	ChanDir  reflect.ChanDir // channel direction (kind Chan)
 	Variadic bool            // last param is variadic (kind Func)
 	Tags     []string        // struct field tags, parallel to Fields (kind Struct)
+
 	// Base is the source *Type a struct-field shallow copy derived from, so
 	// methods registered on the source after the copy stay reachable.
 	Base *Type
+
 	// Defined marks a top-level `type X T` definition (set at parse), as opposed
 	// to a struct-field shallow copy of a named type. A defined type owns its
 	// identity and is never a field clone, even when its Base is a named type
@@ -68,10 +72,7 @@ type Type struct {
 	Defined bool
 }
 
-// Kind returns t's kind. It prefers the symbolic kind set at construction and
-// falls back to the rtype, which lets parse-time dispatch move off Rtype while
-// construction sites are migrated to populate kind. The goal is that, once
-// every constructor sets kind, the rtype need not exist before comp.
+// Kind returns t's kind.
 func (t *Type) Kind() reflect.Kind {
 	if t.kind != reflect.Invalid {
 		return t.kind
@@ -90,10 +91,7 @@ type IfaceMethod struct {
 	Sig   *Type        // symbolic method signature, the materialize-time source of Rtype
 }
 
-// TypeElem describes one member of a constraint interface's type-element union,
-// e.g. for "type Ordered interface { ~int | ~string }" the type elements are
-// TypeElem{Approx: true, Type: intType}, TypeElem{Approx: true, Type: stringType}.
-// Approx encodes the "~" prefix (any type whose underlying type is Type).
+// TypeElem describes one member of a constraint interface's type-element union.
 type TypeElem struct {
 	Approx bool
 	Type   *Type
@@ -107,9 +105,7 @@ func (t *Type) IsInterface() bool {
 	return t != nil && t.Kind() == reflect.Interface
 }
 
-// EnsureIfaceMethods populates IfaceMethods from the reflect method set
-// if not already set. This covers native interface types (e.g. io.Reader)
-// whose method sets were not explicitly enumerated at parse time.
+// EnsureIfaceMethods populates IfaceMethods from the reflect method set if not already set.
 func (t *Type) EnsureIfaceMethods() {
 	if len(t.IfaceMethods) > 0 || t.Kind() != reflect.Interface {
 		return
@@ -133,18 +129,11 @@ func (t *Type) SameAs(u *Type) bool {
 }
 
 // Implements reports whether the concrete type t satisfies interface iface.
-// iface.IfaceMethods must have IDs populated (by the compiler) before calling this.
 func (t *Type) Implements(iface *Type) bool {
-	// Native interface types (e.g. io.Reader) have their method set in Rtype,
-	// so reflect can check implementation.
 	nativeIface := iface.Rtype.NumMethod() > 0
-	// A ptr-receiver method (registered on value type T) only satisfies the
-	// interface when t is itself a pointer, per Go's method-set rule.
 	isPtr := t.Kind() == reflect.Pointer
 	for _, im := range iface.IfaceMethods {
 		if mt := t.ResolveMethodType(im.ID); mt != nil && (isPtr || !mt.Methods[im.ID].PtrRecv) {
-			// Method IDs are global by name; require matching signatures so e.g.
-			// Unwrap() []error does not satisfy interface{ Unwrap() error }.
 			m := mt.Methods[im.ID]
 			if im.Sig != nil && m.Sig != nil {
 				if !sigTypeCompatible(im.Sig, m.Sig) {
@@ -164,8 +153,6 @@ func (t *Type) Implements(iface *Type) bool {
 	return true
 }
 
-// sigTypeCompatible reports whether two receiver-free signatures, expressed as
-// symbolic func *Types, match. Lenient: a nil (unknown) side matches.
 func sigTypeCompatible(want, have *Type) bool {
 	if want == nil || have == nil || want == have {
 		return true
@@ -178,7 +165,6 @@ func sigTypeCompatible(want, have *Type) bool {
 		want.IsVariadic() == have.IsVariadic()
 }
 
-// compatibleTypeList compares two type lists element-wise with compatibleType.
 func compatibleTypeList(a, b []*Type) bool {
 	if len(a) != len(b) {
 		return false
@@ -191,14 +177,6 @@ func compatibleTypeList(a, b []*Type) bool {
 	return true
 }
 
-// compatibleType is a structural variant of Identical for interface-satisfaction
-// signature comparison, with two relaxations for signature *Types built in a
-// different compile pass/universe than the concrete methods they match:
-// a named type matches by Name+PkgPath (recursing into its shape) instead of by
-// baseRoot/rtype identity, tolerating a cross-compilation dup; and an unnamed
-// empty interface matches any interface (an interface's own method Sig erases an
-// interface-typed component to interface{} when it was a forward ref at parse
-// time). Sound because mvm runs only typechecked Go.
 func compatibleType(a, b *Type) bool {
 	if a == b || a == nil || b == nil || a.Identical(b) {
 		return true
@@ -210,7 +188,7 @@ func compatibleType(a, b *Type) bool {
 		return false
 	}
 	if a.Name != "" || b.Name != "" {
-		if a.Name != b.Name || a.PkgPath != b.PkgPath {
+		if !a.SameNamedType(b) {
 			return false
 		}
 	}
@@ -231,14 +209,10 @@ func compatibleType(a, b *Type) bool {
 	return true
 }
 
-// isErasedIface reports whether t is the unnamed empty interface (the parse-time
-// placeholder for an unresolved interface-typed signature component).
 func isErasedIface(t *Type) bool {
 	return t != nil && t.Name == "" && t.IsInterface() && len(t.IfaceMethods) == 0
 }
 
-// sigCompatible reports whether two receiver-free method signatures match.
-// Lenient: a nil (unknown) signature on either side matches.
 func sigCompatible(want, have reflect.Type) bool {
 	if want == nil || have == nil || want == have {
 		return true
@@ -262,10 +236,6 @@ func sigCompatible(want, have reflect.Type) bool {
 	return true
 }
 
-// nativeSigCompatible reports whether a native method's signature mt satisfies
-// the interface's receiver-free required signature want. mt carries the
-// receiver as In(0) when hasRecv (rt is a concrete type, not an interface).
-// Lenient: a nil want matches.
 func nativeSigCompatible(want, mt reflect.Type, hasRecv bool) bool {
 	if want == nil {
 		return true
@@ -293,10 +263,7 @@ func nativeSigCompatible(want, mt reflect.Type, hasRecv bool) bool {
 	return true
 }
 
-// IfaceMethodTypes returns the types carrying typ's method set: typ, its
-// ElemType (pointers register methods on T not *T), and the same along the Base
-// chain (so a struct-field copy reaches methods registered on its source).
-// The [6] bound suffices: Base chains are collapsed to depth 1 at creation.
+// IfaceMethodTypes returns the types carrying typ's method set.
 func IfaceMethodTypes(typ *Type) (types [6]*Type, n int) {
 	push := func(t *Type) {
 		if t != nil && n < len(types) {
@@ -313,8 +280,7 @@ func IfaceMethodTypes(typ *Type) (types [6]*Type, n int) {
 	return
 }
 
-// ResolveMethodType returns the Type whose Methods[id] holds the resolved entry,
-// scanning typ, its ElemType, and the Base chain (via IfaceMethodTypes).
+// ResolveMethodType returns the Type whose Methods[id] holds the resolved entry.
 func (t *Type) ResolveMethodType(id int) *Type {
 	if id < 0 {
 		return nil
@@ -328,8 +294,7 @@ func (t *Type) ResolveMethodType(id int) *Type {
 	return nil
 }
 
-// NativeImplements reports whether native reflect type rt has all the methods
-// required by interface type t.
+// NativeImplements reports whether rt has all the methods required by interface type t.
 func (t *Type) NativeImplements(rt reflect.Type) bool {
 	if !t.IsInterface() {
 		return false
@@ -337,9 +302,7 @@ func (t *Type) NativeImplements(rt reflect.Type) bool {
 	return t.MissingMethod(rt) == ""
 }
 
-// MissingMethod returns the name of the first method required by interface
-// type t that native reflect type rt does not have. Returns "" if all methods
-// are present or t has no IfaceMethods.
+// MissingMethod returns the name of the first missing method that rt does not have.
 func (t *Type) MissingMethod(rt reflect.Type) string {
 	t.EnsureIfaceMethods()
 	hasRecv := rt.Kind() != reflect.Interface
@@ -348,8 +311,7 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 		if !ok {
 			return im.Name
 		}
-		// Method present by name; if both signatures are known they must match
-		// so e.g. Unwrap() []error does not satisfy interface{ Unwrap() error }.
+		// Method present by name; if both signatures are known they must match.
 		if !nativeSigCompatible(im.Rtype, m.Type, hasRecv) {
 			return im.Name
 		}
@@ -369,11 +331,10 @@ func (t *Type) String() string {
 		return "<nil>"
 	}
 	if t.Name != "" {
-		if t.PkgPath != "" {
-			return t.PkgPath + "." + t.Name
+		if t.PkgName != "" {
+			return t.PkgName + "." + t.Name
 		}
-		// For native types without an explicit PkgPath, use the reflect
-		// representation which includes the package qualifier (e.g. "http.Pusher").
+		// For native types without PkgPath, use the reflect representation.
 		if t.Rtype != nil && t.Rtype.PkgPath() != "" {
 			return t.Rtype.String()
 		}
@@ -385,8 +346,6 @@ func (t *Type) String() string {
 	return t.symbolicString()
 }
 
-// symbolicString renders an unnamed composite from the symbolic graph, for use
-// before an rtype is materialized. Basic kinds fall back to the kind name.
 func (t *Type) symbolicString() string {
 	switch t.Kind() {
 	case reflect.Pointer:
@@ -458,7 +417,7 @@ func (t *Type) symbolicString() string {
 	return t.Kind().String()
 }
 
-// Elem returns a type's element type, preserving mvm-level info (e.g. IfaceMethods).
+// Elem returns a type's element type, preserving mvm-level info.
 func (t *Type) Elem() *Type {
 	if t.ElemType != nil {
 		return t.ElemType
@@ -482,8 +441,7 @@ func (t *Type) Out(i int) *Type {
 	return &Type{Name: o.Name(), Rtype: o, kind: o.Kind()}
 }
 
-// ReturnType returns the mvm-level i'th return type if known, else falls back
-// to reflect. Returns nil when i is out of range.
+// ReturnType returns the mvm-level i'th return type if known, else falls back to reflect.
 func (t *Type) ReturnType(i int) *Type {
 	if i < len(t.Returns) {
 		return t.Returns[i]
@@ -494,10 +452,7 @@ func (t *Type) ReturnType(i int) *Type {
 	return nil
 }
 
-// ParamType returns the mvm-level i'th parameter type if known, else falls
-// back to reflect. Returns nil when i is out of range. Symmetric with
-// ReturnType; used by generic inference to walk a func-typed parameter whose
-// reflect-derived bridge form has an empty Params slice.
+// ParamType returns the mvm-level i'th parameter type if known, else falls back to reflect.
 func (t *Type) ParamType(i int) *Type {
 	if i < len(t.Params) {
 		return t.Params[i]
@@ -509,8 +464,7 @@ func (t *Type) ParamType(i int) *Type {
 	return nil
 }
 
-// NumOut returns a func type's number of results, from the symbolic Returns
-// slice when populated, else from reflect. Symmetric with ReturnType.
+// NumOut returns a func type's number of results.
 func (t *Type) NumOut() int {
 	if len(t.Returns) > 0 {
 		return len(t.Returns)
@@ -521,8 +475,7 @@ func (t *Type) NumOut() int {
 	return 0
 }
 
-// NumIn returns a func type's number of parameters, from the symbolic Params
-// slice when populated, else from reflect. Symmetric with ParamType.
+// NumIn returns a func type's number of parameters.
 func (t *Type) NumIn() int {
 	if len(t.Params) > 0 {
 		return len(t.Params)
@@ -542,17 +495,14 @@ func TypeOf(v any) *Type {
 // SymBasic builds a symbolic type of a basic kind with Rtype unset.
 func SymBasic(k reflect.Kind) *Type { return &Type{kind: k} }
 
-// CaptureKind records t's kind in the symbolic field so Kind() survives a
-// caller nilling Rtype to defer materialization.
+// CaptureKind records t's kind in the symbolic field so Kind() survives a caller nilling Rtype to defer materialization.
 func (t *Type) CaptureKind() {
 	if t.kind == reflect.Invalid && t.Rtype != nil {
 		t.kind = t.Rtype.Kind()
 	}
 }
 
-// SymPtr builds a symbolic *elem with Rtype unset for comp to materialize (see
-// vm.MaterializeRtype); SymSlice/SymMap/SymArray/SymChan are the parse-time
-// counterparts to vm's rtype-building PointerTo/SliceOf/... .
+// SymPtr builds a symbolic *elem with Rtype unset for comp to materialize.
 func SymPtr(elem *Type) *Type { return &Type{kind: reflect.Pointer, ElemType: elem} }
 
 // SymSlice builds a symbolic []elem.
@@ -571,7 +521,7 @@ func SymChan(dir reflect.ChanDir, elem *Type) *Type {
 	return &Type{kind: reflect.Chan, ChanDir: dir, ElemType: elem}
 }
 
-// SymFunc builds a symbolic func type (Rtype unset); comp materializes it.
+// SymFunc builds a symbolic func type (Rtype unset).
 func SymFunc(arg, ret []*Type, variadic bool) *Type {
 	return &Type{kind: reflect.Func, Params: arg, Returns: ret, Variadic: variadic}
 }
@@ -581,16 +531,12 @@ func SymStruct(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 	return &Type{kind: reflect.Struct, Fields: fields, Embedded: embedded, Tags: tags}
 }
 
-// funcTypes memoizes FuncOf by signature fingerprint; entries hold their input
-// *Types so keys stay valid. Guarded by funcTypesMu (uncontended per Compiler).
 var (
 	funcTypesMu sync.Mutex
-	funcTypes   = map[string]*Type{}
+	funcTypes   = map[string]*Type{} // memoizes FuncOf by signature fingerprint
 )
 
-// FuncOf returns the canonical func type for the given args/results/variadic;
-// repeated identical calls return the same *Type. Callers must not mutate the
-// returned Params/Returns (they alias the cached slices).
+// FuncOf returns the canonical func type for the given args/results/variadic.
 func FuncOf(arg, ret []*Type, variadic bool) *Type {
 	key := funcTypeKey(arg, ret, variadic)
 	funcTypesMu.Lock()
@@ -642,18 +588,11 @@ func writePtr(b *strings.Builder, p *Type) {
 	b.Write(buf[:])
 }
 
-// structTypes is the global registry for StructOf memoization.
-// Keys are structural fingerprints (per-field {Name, PkgPath, Base-or-self
-// pointer}, embedded list, tag strings).
-// Persistence is process-lifetime; cached entries hold the input slices.
 var (
 	structTypesMu sync.Mutex
-	structTypes   = map[string]*Type{}
+	structTypes   = map[string]*Type{} // memoization of StructOf. Process lifetime
 )
 
-// embedFieldHasMethods reports whether an embedded field has methods, which
-// reflect.StructOf rejects on an embedded pointer in a multi-field struct. Also
-// walks the mvm graph since synth methods attach after StructOf (rtype empty then).
 func embedFieldHasMethods(f *Type, rt reflect.Type) bool {
 	if rt != nil && rt.NumMethod() > 0 {
 		return true
@@ -670,9 +609,7 @@ func embedFieldHasMethods(f *Type, rt reflect.Type) bool {
 	return false
 }
 
-// StructOf returns the canonical struct type for the given fields/embedded/tags,
-// memoized on a structural key (Name+PkgPath+Base-or-self pointer per field) so
-// equivalent shapes parsed separately converge despite per-call field clones.
+// StructOf returns the canonical struct type for the given fields/embedded/tags.
 func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 	key := structTypeKey(fields, embedded, tags)
 	structTypesMu.Lock()
@@ -685,12 +622,7 @@ func StructOf(fields []*Type, embedded []EmbeddedField, tags []string) *Type {
 	return t
 }
 
-// ReserveStruct returns the memoized Type for an anonymous struct shape, or, if
-// absent, installs a placeholder-rtype Type under the key (fresh=true) and
-// returns it. Installing the placeholder before the caller materializes fields
-// lets a pointer cycle re-entering the same shape resolve to it (PointerTo of the
-// placeholder is word-sized, so a *T break needs no real layout). The caller must
-// then materialize the fields and call FinalizeStruct.
+// ReserveStruct returns the memoized Type for an anonymous struct shape.
 func ReserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) (t *Type, fresh bool) {
 	key := structTypeKey(fields, embedded, tags)
 	structTypesMu.Lock()
@@ -703,34 +635,24 @@ func ReserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) (t *
 	return t, true
 }
 
-// FinalizeStruct patches a reserved struct's placeholder rtype in place with the
-// real layout built from its current field rtypes, preserving identity so the *T
-// pointers captured during the cycle stay valid. The build is non-memoized, so
-// calling it again after an in-flight embedded field is patched picks up the new
-// size. Returns the built rtype so the caller can restore the placeholder's String.
+// FinalizeStruct patches a reserved struct's placeholder rtype in place with the real layout from its field rtypes.
 func FinalizeStruct(t *Type) reflect.Type {
 	layout := buildStructRtype(t.Fields, t.Embedded, t.Tags, false)
 	patchRtype(t.Rtype, layout)
 	return layout
 }
 
-// BuildStructRtype builds (without memoizing) the reflect struct rtype for the
-// given fields. Use it where only the layout bytes are needed -- e.g. to patch a
-// cycle placeholder -- so a rebuild after an embedded field's size changes is not
-// served a stale memoized layout.
+// BuildStructRtype builds the reflect struct rtype for the given fields.
 func BuildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string) reflect.Type {
 	return buildStructRtype(fields, embedded, tags, false)
 }
 
-// BuildStructRtypeKeepIface is BuildStructRtype but keeps a non-embedded native
-// non-empty interface field as iface instead of erasing it to interface{}.
-// See vm.RegisterNativeLayout.
+// BuildStructRtypeKeepIface is BuildStructRtype but keeps a non-embedded native non-empty interface field as iface.
 func BuildStructRtypeKeepIface(fields []*Type, embedded []EmbeddedField, tags []string) reflect.Type {
 	return buildStructRtype(fields, embedded, tags, true)
 }
 
-// UnreserveStruct drops a reservation whose fields could not be materialized, so a
-// later pass rebuilds it from scratch instead of adopting a stale placeholder.
+// UnreserveStruct drops a reservation whose fields could not be materialized.
 func UnreserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) {
 	key := structTypeKey(fields, embedded, tags)
 	structTypesMu.Lock()
@@ -748,21 +670,20 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 	// reflect.StructOf requires all unexported fields to share the same PkgPath.
 	pkgPath := "builtin"
 	for _, f := range fields {
-		if f.PkgPath != "" {
-			pkgPath = f.PkgPath
+		if f.PkgName != "" {
+			pkgPath = f.PkgName
 			break
 		}
 	}
 	for i, f := range fields {
 		rf[i].Name = f.Name
-		rf[i].PkgPath = f.PkgPath
+		rf[i].PkgPath = f.PkgName
 		if i < len(tags) {
 			rf[i].Tag = reflect.StructTag(tags[i])
 		}
-		// Interface fields use interface{} so vm.Iface values can be stored via
-		// reflect.Set. Exception: an embedded NATIVE non-empty interface (e.g.
-		// struct{ io.Reader }) keeps its real rtype so the struct satisfies that
-		// interface via method promotion at the native boundary.
+		// Interface fields use interface{} so vm.Iface values can be stored via reflect.Set.
+		// Exception: an embedded NATIVE non-empty interface keeps its real rtype so the struct
+		// satisfies that interface via method promotion at the native boundary.
 		switch {
 		case f.Kind() != reflect.Interface:
 			rf[i].Type = f.Rtype
@@ -778,10 +699,7 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		default:
 			rf[i].Type = AnyRtype
 		}
-		// reflect.StructOf panics on an unexported anonymous field with empty
-		// PkgPath, and on an anonymous method-bearing field in a multi-field
-		// struct. Avoid Anonymous in those cases; mvm's Embedded tracking covers
-		// promoted lookup.
+
 		switch {
 		case embSet[i] && len(f.Name) > 0 && !unicode.IsUpper(rune(f.Name[0])):
 			if rf[i].PkgPath == "" {
@@ -802,7 +720,7 @@ func structTypeKey(fields []*Type, embedded []EmbeddedField, tags []string) stri
 	writeUint32(&b, uint32(len(fields)))
 	for _, f := range fields {
 		writeString(&b, f.Name)
-		writeString(&b, f.PkgPath)
+		writeString(&b, f.PkgName)
 		base := f.Base
 		if base == nil {
 			base = f
@@ -856,9 +774,6 @@ func (t *Type) structView() *Type {
 	return t
 }
 
-// symVisibleFields walks t's symbolic Fields/Embedded graph (no Rtype) and
-// returns visible fields with promotion: shallowest depth wins, names that are
-// ambiguous at their shallowest depth are excluded (matching reflect.VisibleFields).
 func (t *Type) symVisibleFields() []symField {
 	type item struct {
 		t     *Type
@@ -914,11 +829,7 @@ func (t *Type) symVisibleFields() []symField {
 	return out
 }
 
-// symFieldLookup is the Rtype-free counterpart of FieldLookup.
 func (t *Type) symFieldLookup(name string) ([]int, *Type) {
-	// A defined type (type T1 T) clones its source's Fields, which may have been
-	// empty when the source was still a forward-declared placeholder; delegate to
-	// the now-finalized underlying via Base.
 	if len(t.Fields) == 0 && t.Base != nil && t.Base != t {
 		return t.Base.FieldLookup(name)
 	}
@@ -928,25 +839,22 @@ func (t *Type) symFieldLookup(name string) ([]int, *Type) {
 		}
 		if ft := t.resolveFieldByPath(sf.index); ft != nil {
 			if ft.Base != nil && ft.Base.Name != "" {
-				// The clone's own Name/PkgPath are the field's, not the type's;
+				// The clone's own Name/PkgName are the field's, not the type's;
 				// recover the field TYPE's identity from Base.
 				ft.Name = ft.Base.Name
-				ft.PkgPath = ft.Base.PkgPath
+				ft.PkgName = ft.Base.PkgName
 			} else {
 				ft.Name = ""
-				ft.PkgPath = sf.typ.PkgPath
+				ft.PkgName = sf.typ.PkgName
 			}
 			return sf.index, ft
 		}
-		return sf.index, &Type{Name: sf.typ.Name, PkgPath: sf.typ.PkgPath, Rtype: sf.typ.Rtype, kind: sf.typ.Kind()}
+		return sf.index, &Type{Name: sf.typ.Name, PkgName: sf.typ.PkgName, Rtype: sf.typ.Rtype, kind: sf.typ.Kind()}
 	}
 	return nil, nil
 }
 
-// FieldTypeAtPath returns the type of the field reached by the reflect-style
-// index path within struct t, computed from the symbolic Fields graph with a
-// reflect fallback per segment. Pointers are dereferenced between segments.
-// Returns nil if the path cannot be resolved.
+// FieldTypeAtPath returns the type of the field reached by the index path within struct t.
 func (t *Type) FieldTypeAtPath(path []int) *Type {
 	cur := t
 	for _, idx := range path {
@@ -999,22 +907,19 @@ func (t *Type) FieldLookup(name string) ([]int, *Type) {
 			// Use the type's name+pkgpath, so method lookup works.
 			if ft.Base != nil && ft.Base.Name != "" {
 				ft.Name = ft.Base.Name
-				ft.PkgPath = ft.Base.PkgPath
+				ft.PkgName = ft.Base.PkgName
 			} else {
 				ft.Name = f.Type.Name()
-				ft.PkgPath = f.Type.PkgPath()
+				ft.PkgName = f.Type.PkgPath()
 			}
 			return f.Index, ft
 		}
 		// No mvm info: identify by the field's TYPE (name+package), like above.
-		return f.Index, &Type{Name: f.Type.Name(), PkgPath: f.Type.PkgPath(), Rtype: f.Type, kind: f.Type.Kind()}
+		return f.Index, &Type{Name: f.Type.Name(), PkgName: f.Type.PkgPath(), Rtype: f.Type, kind: f.Type.Kind()}
 	}
 	return t.embeddedFieldLookup(name)
 }
 
-// resolveFieldByPath walks t.Fields/Embedded recursively along the reflect-side
-// field index path, returning a clone of the deepest mvm-level Type so that
-// ElemType / Embedded / Fields propagate to the caller.
 func (t *Type) resolveFieldByPath(path []int) *Type {
 	if t == nil || len(path) == 0 {
 		return nil
@@ -1057,7 +962,7 @@ func (t *Type) embeddedFieldLookup(name string) ([]int, *Type) {
 				}
 			}
 			// Identify by the field's TYPE (name+package), like FieldLookup.
-			return idx, &Type{Name: sf.Type.Name(), PkgPath: sf.Type.PkgPath(), Rtype: sf.Type, kind: sf.Type.Kind()}
+			return idx, &Type{Name: sf.Type.Name(), PkgName: sf.Type.PkgPath(), Rtype: sf.Type, kind: sf.Type.Kind()}
 		}
 	}
 	return nil, nil
@@ -1083,8 +988,7 @@ func (t *Type) Len() int {
 	return t.ArrayLen
 }
 
-// IsVariadic reports whether a func type's final parameter is variadic, from the
-// symbolic graph when no rtype is materialized yet.
+// IsVariadic reports whether a func type's final parameter is variadic.
 func (t *Type) IsVariadic() bool {
 	if t.Rtype != nil {
 		return t.Rtype.IsVariadic()
@@ -1092,10 +996,7 @@ func (t *Type) IsVariadic() bool {
 	return t.Variadic
 }
 
-// IsComparable reports whether values of t may be compared with == / !=,
-// computed from the symbolic graph (matching reflect.Type.Comparable). Slices,
-// maps and funcs are not comparable; a struct is comparable iff every field is;
-// an array iff its element is; interfaces are comparable (may panic at runtime).
+// IsComparable reports whether values of t may be compared with == / !=.
 func (t *Type) IsComparable() bool {
 	if t.Rtype != nil {
 		return t.Rtype.Comparable()
@@ -1116,9 +1017,18 @@ func (t *Type) IsComparable() bool {
 	return true
 }
 
-// Identical reports whether t and u denote the same Go type. Materialized types
-// compare by rtype identity; symbolic ones compare structurally (named types by
-// name+package, composites recursively).
+// SameNamedType reports whether t and u are the same named Go type.
+func (t *Type) SameNamedType(u *Type) bool {
+	if t.Name != u.Name {
+		return false
+	}
+	if t.ImportPath != "" && u.ImportPath != "" {
+		return t.ImportPath == u.ImportPath
+	}
+	return t.PkgName == u.PkgName
+}
+
+// Identical reports whether t and u denote the same Go type.
 func (t *Type) Identical(u *Type) bool {
 	if t == u {
 		return true
@@ -1127,10 +1037,9 @@ func (t *Type) Identical(u *Type) bool {
 		return false
 	}
 	// Unequal rtypes are not conclusive: one symbolic shape can materialize
-	// twice with different precision (goldmark ast.Node.SortChildren), so an
-	// unnamed pair falls through to structural identity. A named pair must
-	// stem from one declaration (common Base root); distinct declarations
-	// sharing Name+PkgPath (REPL redeclare, func-local types) stay distinct.
+	// twice with different precision, so an unnamed pair falls through to structural identity.
+	// A named pair must stem from one declaration (common Base root);
+	// distinct declarations sharing Name+PkgName stay distinct.
 	if t.Rtype != nil && u.Rtype != nil {
 		if t.Rtype == u.Rtype {
 			return true
@@ -1143,7 +1052,7 @@ func (t *Type) Identical(u *Type) bool {
 		return false
 	}
 	if t.Name != "" || u.Name != "" {
-		return t.Name == u.Name && t.PkgPath == u.PkgPath
+		return t.SameNamedType(u)
 	}
 	switch t.Kind() {
 	case reflect.Pointer, reflect.Slice, reflect.Chan:
@@ -1160,8 +1069,6 @@ func (t *Type) Identical(u *Type) bool {
 	return true // identical basic kinds
 }
 
-// baseRoot walks the Base chain to its root, depth-capped against cyclic
-// chains (mirrors vm.CanonicalType's cap).
 func baseRoot(t *Type) *Type {
 	for i := 0; i < 1024 && t != nil && t.Base != nil; i++ {
 		t = t.Base
@@ -1181,15 +1088,11 @@ func identicalTypes(a, b []*Type) bool {
 	return true
 }
 
-// ptrSize is the machine word: the size and alignment of a pointer, int, and
-// the header words of strings/slices/interfaces.
-var ptrSize = unsafe.Sizeof(uintptr(0))
+var ptrSize = unsafe.Sizeof(uintptr(0)) // machine word size.
 
 type layout struct{ size, align uintptr }
 
-// Size returns the number of bytes a value of t occupies, computed from the
-// symbolic graph so it is available before Rtype materializes. It matches
-// reflect.Type.Size for every kind mvm constructs.
+// Size returns the number of bytes a value of t occupies.
 func (t *Type) Size() uintptr {
 	if t.Rtype != nil {
 		return t.Rtype.Size()
@@ -1235,10 +1138,6 @@ func (t *Type) layout() layout {
 	return layout{}
 }
 
-// structLayout lays fields out with Go's padding rules: each field aligns to
-// its own alignment, the struct aligns to the widest field, and a struct that
-// ends in a zero-sized field gets one byte of trailing padding so the address
-// of that field cannot point past the allocation.
 func structLayout(fields []*Type) layout {
 	off, maxAlign := uintptr(0), uintptr(1)
 	lastZero := false
@@ -1259,9 +1158,7 @@ func structLayout(fields []*Type) layout {
 	return layout{alignUp(off, maxAlign), maxAlign}
 }
 
-// FieldOffset returns the byte offset of the field reached by the reflect-style
-// index path within struct t, computed symbolically (value-embed promotion;
-// Go's unsafe.Offsetof does not cross pointer embeds).
+// FieldOffset returns the byte offset of the field reached by the index path within struct t.
 func (t *Type) FieldOffset(path []int) uintptr {
 	var off uintptr
 	cur := t
@@ -1278,7 +1175,6 @@ func (t *Type) FieldOffset(path []int) uintptr {
 	return off
 }
 
-// fieldOffsetAt returns the offset of field index i within struct t's own layout.
 func (t *Type) fieldOffsetAt(i int) uintptr {
 	off := uintptr(0)
 	for j := 0; j < len(t.Fields); j++ {

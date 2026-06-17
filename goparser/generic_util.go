@@ -57,9 +57,9 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 }
 
 // isTypeParamLeaf reports whether shape is an unqualified reference to a type
-// parameter; PkgPath!="" means a concrete type that merely shares the name.
+// parameter; PkgName!="" means a concrete type that merely shares the name.
 func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
-	if shape.Name == "" || shape.PkgPath != "" {
+	if shape.Name == "" || shape.PkgName != "" {
 		return false
 	}
 	_, ok := tpArgs[shape.Name]
@@ -276,8 +276,8 @@ func mangledTypeArgName(t *vm.Type) string {
 		if leaf.Name == "" {
 			return leaf.String()
 		}
-		if leaf.PkgPath != "" {
-			return leaf.PkgPath + "." + leaf.Name
+		if leaf.PkgName != "" {
+			return leaf.PkgName + "." + leaf.Name
 		}
 		return leaf.Name
 	})
@@ -365,7 +365,7 @@ func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.T
 		}
 		return false
 	}
-	if !tpNames[t.Name] || t.PkgPath != "" {
+	if !tpNames[t.Name] || t.PkgName != "" {
 		return false
 	}
 	_, ok := inferred[t.Name]
@@ -464,7 +464,7 @@ func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[stri
 	// Leaf: bind if this is a type-param ident; otherwise a concrete leaf
 	// with no binding to make. A pkg-qualified named type is never a type
 	// param even when its bare name collides (e.g. testing.T vs param T).
-	if tpNames[pType.Name] && pType.PkgPath == "" {
+	if tpNames[pType.Name] && pType.PkgName == "" {
 		if _, ok := inferred[pType.Name]; !ok {
 			inferred[pType.Name] = argType
 		}

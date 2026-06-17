@@ -189,10 +189,10 @@ func (sm SymMap) bareKeyTypeMatches(key string, recv *vm.Type) bool {
 		return true
 	}
 	// Linkage unprovable (a Base-less clone probed before materialization):
-	// fall back to Name+PkgPath, so a same-package clone keeps its bare probe
-	// while a foreign same-named receiver is still refused.
+	// fall back to import-path + name (a same-package clone keeps its bare probe;
+	// a foreign same-short-named receiver is refused).
 	if recvRt == nil || s.Type.Rtype == nil {
-		return s.Type.Name == rv.Name && s.Type.PkgPath == rv.PkgPath
+		return s.Type.SameNamedType(rv)
 	}
 	return false
 }
@@ -429,7 +429,7 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, se
 		// receiver IS this type even when the *Type object identity differs --
 		// mvm can build distinct instances for one Go type across file-by-file or
 		// multi-pass compilation, so neither pointer nor rtype identity holds.
-		if nameFallback == nil && cv.Name != "" && cv.Name == rv.Name && cv.PkgPath == rv.PkgPath {
+		if nameFallback == nil && cv.Name != "" && cv.SameNamedType(rv) {
 			nameFallback = m
 		}
 		return nil

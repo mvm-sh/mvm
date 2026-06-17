@@ -134,7 +134,7 @@ func synthIfaceRtype(t *Type) reflect.Type {
 			}
 			name = t.Rtype.String()
 		}
-		return runtype.InterfaceOf(name, t.PkgPath, ims)
+		return runtype.InterfaceOf(name, t.PkgName, ims)
 	})
 }
 
@@ -156,10 +156,10 @@ func isExportedName(name string) bool {
 // what the Go compiler emits for native types.
 // Name() strips back to the last "." to recover the bare type name.
 func qualifiedTypeName(t *Type) string {
-	if t.PkgPath == "" || t.Name == "" {
+	if t.PkgName == "" || t.Name == "" {
 		return t.Name
 	}
-	base := t.PkgPath
+	base := t.PkgName
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
