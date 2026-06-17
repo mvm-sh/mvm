@@ -1135,8 +1135,11 @@ func selfRefStandIn(et *mtype.Type) reflect.Type {
 func materializeFuncIO(p *mtype.Type) reflect.Type {
 	// Native-bridged interfaces (error, io.Writer) keep their rtype.
 	// Unexported methods never enter synth tables, so such an interface could never build an itab; keep it as any.
+	// A generic-instance iface's method table fills late, so a precise rtype here is
+	// materialization-order-dependent; erase it to any on both sides so reflect.Implements still matches.
 	if p != nil && p.Name != "" && p.Kind() == reflect.Interface && len(p.IfaceMethods) > 0 &&
-		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && allIfaceMethodsExported(p) {
+		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && allIfaceMethodsExported(p) &&
+		!isGenericInstanceName(p.Name) {
 		if rt := synthIfaceRtype(p); rt != nil {
 			return rt
 		}
@@ -1151,7 +1154,8 @@ func materializeFuncIO(p *mtype.Type) reflect.Type {
 // precisely once the sigs fill, so a func type carrying it must not be cached final.
 func ifaceSynthDeferrable(p *mtype.Type) bool {
 	if p == nil || p.Name == "" || p.Kind() != reflect.Interface ||
-		len(p.IfaceMethods) == 0 || !allIfaceMethodsExported(p) {
+		len(p.IfaceMethods) == 0 || !allIfaceMethodsExported(p) ||
+		isGenericInstanceName(p.Name) { // generic instances erase to any, never synth precisely
 		return false
 	}
 	if p.Rtype != nil && p.Rtype != mtype.AnyRtype {
