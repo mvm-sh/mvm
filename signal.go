@@ -11,8 +11,11 @@ import (
 
 const doublePressWindow = 1 * time.Second
 
+var progressSignalCh chan os.Signal
+
 func watchProgressSignal() {
 	ch := make(chan os.Signal, 1)
+	progressSignalCh = ch
 	signal.Notify(ch, os.Interrupt)
 	go func() {
 		var last time.Time
@@ -26,4 +29,15 @@ func watchProgressSignal() {
 			vm.RequestStateDump()
 		}
 	}()
+}
+
+// stopProgressSignal stops the Ctrl-C watcher and lets its goroutine exit, so
+// it does not register as a leak in goroutine-checking tests. Ctrl-C reverts to
+// its default disposition (terminate).
+func stopProgressSignal() {
+	if progressSignalCh != nil {
+		signal.Stop(progressSignalCh)
+		close(progressSignalCh)
+		progressSignalCh = nil
+	}
 }

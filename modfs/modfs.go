@@ -73,6 +73,22 @@ func (f *FS) NetStats() NetStats {
 	return f.stats
 }
 
+// CloseIdleConnections closes keep-alive proxy connections held by the HTTP
+// client's transport. Call it after loading so a lingering connection's
+// readLoop goroutine does not register as a leak in goroutine-checking tests.
+func (f *FS) CloseIdleConnections() {
+	if f.client == nil {
+		return
+	}
+	rt := f.client.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
+
 // countingReader wraps an io.Reader and tallies bytes consumed. Used by
 // proxyGet to count what the consumer actually reads from the response body.
 type countingReader struct {

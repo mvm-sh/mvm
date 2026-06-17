@@ -138,6 +138,9 @@ var wordShapes = []wordShape{
 	// grpc streaming handlers + metadata/error-returning iface methods:
 	// func(stream) error = pp_pp. ~202 attaches in one grpc bidi program; 1024 = headroom.
 	{Params: "pp", Results: "pp", Size: 1024},
+	// func(*testing.T) value-receiver subtest methods (grpctest.RunSubTests),
+	// enumerated by reflect; pervasive across grpc test suites.
+	{Params: "p", Results: "", Size: 1024},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

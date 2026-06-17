@@ -143,6 +143,7 @@ func rewriteTestFlags(args []string) []string {
 }
 
 func testCmd(arg []string) error {
+	stopProgressSignal() // its goroutine would trip tests' leak checks
 	var (
 		trace traceFlag
 		stat  bool
@@ -181,6 +182,9 @@ func testCmd(arg []string) error {
 			if err := evalLocalDir(i, absDir); err != nil {
 				flushStats()
 				return err
+			}
+			if mfs != nil {
+				mfs.CloseIdleConnections() // drain proxy goroutines before leak-checking tests
 			}
 			return runTestsInDir(i, absDir, "", flushStats)
 		}
@@ -255,6 +259,9 @@ func testCmd(arg []string) error {
 		}
 		// Also run the target's external `package X_test` tests as a second unit.
 		loadExternalTests(i, target)
+		if mfs != nil {
+			mfs.CloseIdleConnections() // drain proxy goroutines before leak-checking tests
+		}
 		// modfs serves the package from memory; cwd is already the materialized
 		// subtree (set before Eval) so testdata-relative paths resolve, as with
 		// `go test`'s chdir.

@@ -387,3 +387,24 @@ func names(entries []fs.DirEntry) []string {
 	}
 	return out
 }
+
+// closeTrackingTransport records whether CloseIdleConnections was called.
+type closeTrackingTransport struct{ closed bool }
+
+func (t *closeTrackingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, fs.ErrNotExist // never used by the test
+}
+func (t *closeTrackingTransport) CloseIdleConnections() { t.closed = true }
+
+// nil client, default client (nil Transport), and a custom transport whose
+// CloseIdleConnections must be reached.
+func TestCloseIdleConnections(t *testing.T) {
+	(&FS{}).CloseIdleConnections()        // nil client: no panic
+	New(Options{}).CloseIdleConnections() // default client, Transport nil: no panic
+
+	ct := &closeTrackingTransport{}
+	New(Options{Client: &http.Client{Transport: ct}}).CloseIdleConnections()
+	if !ct.closed {
+		t.Error("CloseIdleConnections did not reach the client transport")
+	}
+}

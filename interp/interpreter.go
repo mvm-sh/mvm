@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mvm-sh/mvm/comp"
 	"github.com/mvm-sh/mvm/goparser"
@@ -299,9 +300,9 @@ func (i *Interp) patchFmtBindings() {
 	}
 }
 
-// FuncNames returns names of top-level functions whose name starts with
-// prefix and whose first character after prefix is an ASCII uppercase letter,
-// in source-declaration order.
+// FuncNames returns top-level functions whose name matches cmd/go's isTest for
+// prefix (exact match, e.g. "Test", or a non-lower-case rune after it), in
+// source-declaration order.
 func (i *Interp) FuncNames(prefix string) []string {
 	type entry struct {
 		name string
@@ -312,9 +313,10 @@ func (i *Interp) FuncNames(prefix string) []string {
 		if s.Kind != symbol.Func || !strings.HasPrefix(name, prefix) {
 			continue
 		}
-		rest := name[len(prefix):]
-		if rest == "" || !unicode.IsUpper(rune(rest[0])) {
-			continue
+		if rest := name[len(prefix):]; rest != "" {
+			if r, _ := utf8.DecodeRuneInString(rest); unicode.IsLower(r) {
+				continue
+			}
 		}
 		var pos vm.Pos
 		if s.Value.IsValid() {
