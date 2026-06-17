@@ -61,7 +61,7 @@ type Compiler struct {
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 
-	genStart int // code offset at the start of the current generate() pass; see resolveLabel
+	genStart int // code offset at the start of the current generate() pass; bounds resolveLabel staleness and the remove*/patchNilFnewLen retraction scans
 
 	// Defer brackets the target package's var inits so eval runs imported init()
 	// funcs before them (Go init order); zero when no reordering is needed.
@@ -2053,32 +2053,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		case lang.Composite:
 			sliceLen := t.Arg[0].(int)
 			// Patch this literal's nil slice/map Fnew (B=-1) to its length.
-			// Match its own type-symbol slot (in.A == idx) first; a same-type
-			// slot is the fallback (two same-type literals on different slots)
-			// but can't match a deferred slot value (pendingTypeSlots).
-			// Skip B!=-1 so nested literals patch their own Fnew.
-			{
-				sym := c.Symbols[t.Str]
-				var typ *vm.Type
-				idx := int32(-1)
-				if sym != nil {
-					typ, idx = sym.Type, int32(sym.Index)
-				}
-				for i := range slices.Backward(c.Code) {
-					in := c.Code[i]
-					if in.Op != vm.Fnew || in.B != -1 {
-						continue
-					}
-					match := in.A == idx
-					if !match && typ != nil {
-						match = c.slotMatchesType(int(in.A), typ)
-					}
-					if match {
-						c.Code[i].B = int32(sliceLen)
-						break
-					}
-				}
+			idx := int32(-1)
+			var typ *vm.Type
+			if sym := c.Symbols[t.Str]; sym != nil {
+				typ, idx = sym.Type, int32(sym.Index)
 			}
+			c.patchNilFnewLen(idx, typ, sliceLen)
 			// Mark the stack top as a composite literal value so that a
 			// subsequent Period treats it as a method call, not a method
 			// expression (Type.Method).
@@ -4222,7 +4202,9 @@ func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
 	if typ == nil || typ.Kind() != reflect.Pointer {
 		return
 	}
-	for i := range slices.Backward(c.Code) {
+	// Bounded at genStart like the remove* helpers: the FnewE was emitted in
+	// this generate() pass, so the scan must not reach a prior function's FnewE.
+	for i := len(c.Code) - 1; i >= c.genStart; i-- {
 		if c.Code[i].Op == vm.FnewE {
 			di := int(c.Code[i].A)
 			if di == index || c.slotMatchesType(di, typ) {
@@ -4243,8 +4225,27 @@ func (c *Compiler) slotMatchesType(di int, typ *vm.Type) bool {
 	return c.Data[di].IsValid() && c.Data[di].Type() == c.rtype(typ)
 }
 
+// patchNilFnewLen fills a composite literal's nil slice/map Fnew (B=-1) with its length.
+// It matches the literal's own type-symbol slot, else any same-type slot; an already-filled Fnew is skipped so nested literals patch their own.
+// Bounded at genStart like the remove* helpers below.
+func (c *Compiler) patchNilFnewLen(idx int32, typ *vm.Type, length int) {
+	for i := len(c.Code) - 1; i >= c.genStart; i-- {
+		in := c.Code[i]
+		if in.Op != vm.Fnew || in.B != -1 {
+			continue
+		}
+		if in.A == idx || (typ != nil && c.slotMatchesType(int(in.A), typ)) {
+			c.Code[i].B = int32(length)
+			return
+		}
+	}
+}
+
+// remove* helpers retract a load/Fnew that the current operand emitted.
+// The backward scan stops at c.genStart, the start of this generate() pass, so it never reaches an already-compiled function's live load for the same slot.
+// genStart is a safe over-approximation of the precise per-function start (funcStartStack top); it suffices only because every retraction finds its own load first.
 func (c *Compiler) removeFnew(index int) {
-	for i := range slices.Backward(c.Code) {
+	for i := len(c.Code) - 1; i >= c.genStart; i-- {
 		op := c.Code[i].Op
 		if (op == vm.Fnew || op == vm.FnewE) && int(c.Code[i].A) == index {
 			c.Code[i] = vm.Instruction{Op: vm.Nop}
@@ -4254,7 +4255,7 @@ func (c *Compiler) removeFnew(index int) {
 }
 
 func (c *Compiler) removeGetLocal(index int) {
-	for i := range slices.Backward(c.Code) {
+	for i := len(c.Code) - 1; i >= c.genStart; i-- {
 		op := c.Code[i].Op
 		if (op == vm.GetLocal || op == vm.CellGet) && int(c.Code[i].A) == index {
 			c.Code[i] = vm.Instruction{Op: vm.Nop}
@@ -4271,7 +4272,7 @@ func (c *Compiler) removeGetLocal(index int) {
 }
 
 func (c *Compiler) removeGetGlobal(index int) bool {
-	for i := range slices.Backward(c.Code) {
+	for i := len(c.Code) - 1; i >= c.genStart; i-- {
 		if c.Code[i].Op == vm.GetGlobal && int(c.Code[i].A) == index {
 			// Skip if followed by Swap (method dispatch: GetGlobal + Swap + MkClosure).
 			if i+1 < len(c.Code) && c.Code[i+1].Op == vm.Swap {
