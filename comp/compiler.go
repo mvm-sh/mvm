@@ -58,6 +58,7 @@ type Compiler struct {
 	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type
 	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
+	canonIface   map[string]*vm.Type         // memo: unique method-bearing interface by name (canonicalIfaceType)
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 
@@ -117,9 +118,21 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 }
 
 func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
-	if rm, ok := vm.MaterializeRtype(ifaceTyp).MethodByName(methodName); ok {
-		return rm.Type
+	if rt := vm.MaterializeRtype(ifaceTyp); rt != nil {
+		if rm, ok := rt.MethodByName(methodName); ok {
+			return rm.Type
+		}
+		// MethodByName misses unexported interface methods; Method(i) finds them.
+		if rt.Kind() == reflect.Interface {
+			for i := range rt.NumMethod() {
+				if m := rt.Method(i); m.Name == methodName {
+					return m.Type
+				}
+			}
+		}
 	}
+	// Fall back to the interpreted method set when reflect has no signature.
+	ifaceTyp.EnsureIfaceMethods()
 	for _, im := range ifaceTyp.IfaceMethods {
 		if im.Name != methodName {
 			continue
@@ -137,9 +150,8 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 	return nil
 }
 
-// resolveIfaceMethodSym builds a Symbol carrying the bound method signature
-// for an interface-dispatch site.
 func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *symbol.Symbol {
+	ifaceTyp = c.canonicalIfaceType(ifaceTyp, methodName)
 	ifaceSig := ifaceMethodSig(ifaceTyp, methodName)
 	methodSym := c.findConcreteFuncSym(methodName)
 	if methodSym != nil && ifaceSig != nil && !concreteMatchesIface(methodSym.Type, ifaceSig) {
@@ -148,10 +160,6 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 	if methodSym != nil {
 		return methodSym
 	}
-	// Prefer the interpreted symbolic signature: it preserves named result types
-	// (e.g. an interface-returning method) regardless of reflect materialization
-	// order. ifaceSig (Out via reflect) may have erased a not-yet-materialized
-	// named-interface return to bare interface{}, hiding its method set.
 	if interpSig := ifaceMethodInterpSig(ifaceTyp, methodName); interpSig != nil && len(interpSig.Returns) > 0 {
 		return &symbol.Symbol{Kind: symbol.Value, Type: interpSig}
 	}
@@ -161,9 +169,51 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 	return nil
 }
 
-// ifaceMethodInterpSig returns the interpreted symbolic signature (a func *vm.Type
-// with symbolic Returns) for methodName on an interface type, or nil for a native
-// interface whose methods carry only a reflect Rtype.
+func (c *Compiler) canonicalIfaceType(t *vm.Type, methodName string) *vm.Type {
+	if t == nil || t.Name == "" || len(t.IfaceMethods) > 0 {
+		return t
+	}
+	if c.canonIface == nil {
+		c.canonIface = map[string]*vm.Type{}
+	}
+	canon, ok := c.canonIface[t.Name]
+	if !ok {
+		canon = c.findCanonicalIface(t.Name)
+		if canon != nil {
+			c.canonIface[t.Name] = canon // negatives stay uncached: symbols grow during compile
+		}
+	}
+	if canon != nil && ifaceDeclares(canon, methodName) {
+		return canon
+	}
+	return t
+}
+
+func (c *Compiler) findCanonicalIface(name string) *vm.Type {
+	var found *vm.Type
+	for _, sym := range c.Symbols {
+		st := sym.Type
+		if sym.Kind != symbol.Type || st == nil || !st.IsInterface() ||
+			st.Name != name || len(st.IfaceMethods) == 0 {
+			continue
+		}
+		if found != nil && found != st {
+			return nil // two distinct same-named interfaces; cannot disambiguate
+		}
+		found = st
+	}
+	return found
+}
+
+func ifaceDeclares(t *vm.Type, methodName string) bool {
+	for _, im := range t.IfaceMethods {
+		if im.Name == methodName {
+			return true
+		}
+	}
+	return false
+}
+
 func ifaceMethodInterpSig(ifaceTyp *vm.Type, methodName string) *vm.Type {
 	ifaceTyp.EnsureIfaceMethods()
 	for _, im := range ifaceTyp.IfaceMethods {
@@ -228,13 +278,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 			c.resetDanglingIndexes(cg.data)
 		}
 	}()
-	// An empty src means a package-path target (`mvm run`/`mvm test <path>`):
-	// qualify the target's top-level symbols at pkg-qualified keys (like importSrc)
-	// so deferred bodies and external test units resolve members like maps.Clone.
 	var remaining []goparser.DeferredDecl
-	// targetTag identifies the unit's own (target) package: its decls are tagged
-	// with the import-path name for a package-path target, "" for a source/REPL
-	// target. finishCompile uses it to defer the target's var inits past imports.
 	targetTag := ""
 	if src == "" {
 		targetTag = name
@@ -256,7 +300,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 // CompileFiles compiles several in-memory source files as a single main-package
 // unit (Phase 1 across all files, then Phase 2 code-gen), so top-level symbols
 // declared in one file are visible to the others regardless of file or
-// declaration order. Backs `mvm run f1.go f2.go ...`.
+// declaration order.
 func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 	c.ResetUnitLabels()
 	snap := c.SnapshotUnit()
@@ -283,10 +327,7 @@ func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 	return c.finishCompile(remaining, "")
 }
 
-// codegenSnap records the Compiler's Phase-2 output and dedup caches for
-// rollback: slices revert by length, caches by restore. The index-keyed caches
-// (strings, zeroSlotType, labelAtPos) must be restored since the next unit
-// reuses those Code/Data indices; the rest are restored for uniformity.
+// codegenSnap records the Compiler's Phase-2 output and dedup caches for rollback.
 type codegenSnap struct {
 	code, data, funcRanges, pendingSlots, entry int
 	strings                                     map[string]int
@@ -314,11 +355,6 @@ func (c *Compiler) snapshotCodegen() codegenSnap {
 	}
 }
 
-// resetDanglingIndexes clears global-slot indexes pointing past the truncated
-// Data. RestoreUnit cannot undo in-place mutation of pre-existing symbols
-// (shared pointers), so a slot allocated by the failed unit (e.g. the Period
-// case allocating a Data slot for an imported const) would otherwise stay
-// recorded and alias whatever the retry compiles into that slot.
 func (c *Compiler) resetDanglingIndexes(dataLen int) {
 	for _, s := range c.Symbols {
 		if s.Index != symbol.UnsetAddr && s.Index >= dataLen {
@@ -343,34 +379,21 @@ func (c *Compiler) restoreCodegen(s codegenSnap) {
 	c.labelAtPos = s.labelAtPos
 }
 
-// isInitDecl reports whether a deferred decl is a `func init()` declaration.
 func isInitDecl(toks goparser.Tokens) bool {
 	return len(toks) >= 2 && toks[0].Tok == lang.Func &&
 		toks[1].Tok == lang.Ident && toks[1].Str == "init"
 }
 
-// finishCompile runs Phase 2 over the deferred declarations: allocate global
-// slots, compile var initializers first (so all var types resolve) then func
-// bodies and expression statements, then propagate embedded methods. Shared by
-// Compile and CompileFiles.
+// finishCompile runs Phase 2 over the deferred declarations.
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag string) error {
 	c.allocGlobalSlots()
 	c.preregisterMethods()
-	// Materialize interface method signatures now -- after the method pre-pass, so a
-	// named type referenced in a signature reserves its method-bearing identity
-	// rather than getting stamped methodless (goparser leaves IfaceMethod.Rtype nil).
 	c.materializeIfaceMethods()
-	// Promote embedded-interface methods now (before any body-compile
-	// materialization) so a struct embedding an interface carries its promoted
-	// methods when the reserve gate runs; the post-body call below additionally
-	// promotes embedded value-type methods once their code addresses resolve.
 	c.propagateEmbeddedMethods()
 
-	// Group var inits by package for Go init order (see VarDeferral). Package
-	// order is first appearance in remaining, which is topological: imports
-	// precede importers and the var sort only reorders along dependency edges.
-	// A package's init()s are the consecutive InitFuncs entries for its rest
-	// init decls (parse order). Vars compile before funcs, so var types resolve.
+	// Group var inits by package for Go init order.
+	// Package/ order is first appearance in remaining, which is topological.
+	// Vars compile before funcs, so var types resolve.
 	c.Defer = VarDeferral{}
 	varsByPkg := map[string][]goparser.DeferredDecl{}
 	initsByPkg := map[string]int{}
@@ -441,16 +464,12 @@ func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag st
 	return nil
 }
 
-// compileInstance code-gens one already-parsed generic-instance body in its own
-// generate call under its template's package, so labels resolve consistently.
 func (c *Compiler) compileInstance(dd goparser.DeferredDecl) error {
 	c.CompilingPkg = dd.PkgPath
 	defer func() { c.CompilingPkg = "" }()
 	return c.generate(dd.Toks)
 }
 
-// preregisterMethods records every method onto its receiver type's Methods
-// table before Phase-2 body compile materializes any type.
 func (c *Compiler) preregisterMethods() {
 	keys := make([]string, 0, len(c.Symbols))
 	for key := range c.Symbols {
@@ -482,8 +501,6 @@ func (c *Compiler) preregisterMethods() {
 	}
 }
 
-// materializeIfaceMethods fills IfaceMethod.Rtype from its symbolic Sig for every
-// interface reachable from the symbol table.
 func (c *Compiler) materializeIfaceMethods() {
 	seen := map[*vm.Type]bool{}
 	var visit func(t *vm.Type)
@@ -551,10 +568,7 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				}
 				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype, Sig: m.Sig}
 			}
-			// An embedded interface promotes its methods as EmbedIface dispatch
-			// (its method set lives in IfaceMethods, not Methods). Recording them
-			// on the value type lets synth attach build a rtype satisfying the
-			// promoted interface (e.g. `struct{ error }` -> error).
+			// An embedded interface promotes its methods as EmbedIface dispatch.
 			if embType.IsInterface() {
 				embType.EnsureIfaceMethods()
 				for _, im := range embType.IfaceMethods {
@@ -601,12 +615,7 @@ func (c *Compiler) allocGlobalSlots() {
 				// //go:embed var: the file bytes are the initial (and final) slot value.
 				v = c.embedValue(s.Type, data)
 			} else if s.Type != nil {
-				// Re-allocate via vm.NewValue at the current rtype: an earlier
-				// vm.NewValue call (e.g. addSymVar at parse time) may have used
-				// a struct-placeholder rtype whose Size has since grown via
-				// SetFields, leaving s.Value's backing memory too small to
-				// hold the finalized struct. Reads past the original size hit
-				// adjacent memory (the language.Und Tag pExt-garbage bug).
+				// Re-allocate via vm.NewValue at the current rtype.
 				v = c.typeSlotValue(s.Index, s.Type, false)
 			}
 			c.Data = append(c.Data, v)
@@ -623,11 +632,6 @@ func (c *Compiler) methodID(name string) int {
 	return id
 }
 
-// populateIfaceMethodIDs assigns global method IDs to an interface type's
-// IfaceMethods so vm.Type.Implements / ResolveMethodType can match interpreted
-// methods at runtime (type assertions and type switches). Idempotent: methodID
-// is deterministic and IDs are only assigned when unset (ID < 0). Call after
-// typ.EnsureIfaceMethods().
 func (c *Compiler) populateIfaceMethodIDs(typ *vm.Type) {
 	if typ.IsInterface() && len(typ.IfaceMethods) > 0 && typ.IfaceMethods[0].ID < 0 {
 		for i, im := range typ.IfaceMethods {
@@ -645,10 +649,8 @@ func (c *Compiler) MethodNames() []string {
 	return names
 }
 
-// MethodFuncTypes returns a slice of bound-method func types (no receiver)
-// indexed by global method ID. Entries are nil when no interface declaration
-// recorded the signature (e.g. methods on native types resolved purely via
-// reflect).
+// MethodFuncTypes returns a slice of bound-method func types (no receiver) indexed by global method ID.
+// Entries are nil when no interface declaration recorded the signature.
 func (c *Compiler) MethodFuncTypes() []reflect.Type {
 	ft := make([]reflect.Type, len(c.methodIDs))
 	for id, rtype := range c.methodRtype {
@@ -659,8 +661,6 @@ func (c *Compiler) MethodFuncTypes() []reflect.Type {
 	return ft
 }
 
-// methodExprType builds func(recv, params...) rets from a receiver type and the
-// method's receiver-less signature; nil if inner is not a usable func type.
 func (c *Compiler) methodExprType(recv, inner *vm.Type) *vm.Type {
 	if recv == nil || inner == nil || inner.Kind() != reflect.Func {
 		return nil
@@ -691,17 +691,10 @@ func (c *Compiler) typeIndex(typ *vm.Type) int {
 	return i
 }
 
-// rtype is the single seam through which comp obtains a type's reflect.Type.
-// goparser builds types symbolically; comp materializes the rtype from the
-// symbolic graph on first use, caching it on the *Type.
 func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
 	return vm.MaterializeRtype(typ)
 }
 
-// typeSlotValue returns the value for Data slot idx holding typ: a zero value
-// (descriptor=false) or a type descriptor (descriptor=true). An un-materialized
-// typ is deferred -- the slot is recorded and FillTypeSlots settles it once the
-// type's reserved identity is filled, so the slot captures the final rtype.
 func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Value {
 	if typ != nil && typ.Rtype == nil {
 		c.pendingTypeSlots = append(c.pendingTypeSlots, pendingSlot{idx: idx, typ: typ, descriptor: descriptor})
@@ -725,11 +718,7 @@ func (c *Compiler) embedValue(typ *vm.Type, data []byte) vm.Value {
 	return v
 }
 
-// FillTypeSlots settles deferred type Data slots to their final rtype, now that
-// MaterializeAll + the per-type reserve/fill attach have run. The reserve path
-// fills each type's identity in place, so a slot's type already holds the final
-// rtype; only slots left invalid at generate time (deferred, or an imported
-// descriptor that could not materialize at parse) need settling here.
+// FillTypeSlots settles deferred type Data slots to their final rtype.
 func (c *Compiler) FillTypeSlots() {
 	for _, p := range c.pendingTypeSlots {
 		if p.typ.Rtype == nil {
@@ -757,9 +746,6 @@ func (c *Compiler) FillTypeSlots() {
 }
 
 func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
-	// rtype is an already-materialized reflect.Type; a symbol can match it by
-	// identity only if it too is materialized, so skip nil-Rtype symbols rather
-	// than materializing every type just to compare.
 	for _, sym := range c.Symbols {
 		if sym.Kind == symbol.Type && sym.Type != nil && sym.Type.Rtype != nil && sym.Type.Rtype == rtype {
 			return sym.Type
@@ -910,8 +896,6 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
-// errOverflow reports a constant that cannot be represented in typ, matching the
-// goparser-side error (gc "constant X overflows T") so both carry a source snippet.
 func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *vm.Type) error {
 	return goparser.ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
@@ -979,10 +963,6 @@ func fieldPathOffset(rt reflect.Type, path []int) uintptr {
 	return off
 }
 
-// paramNeedsDetach reports whether any parameter of fnType has reflect Kind
-// Struct or Array. Those are the only kinds where vm.detachByValueArgs does
-// real work (see its definition); for everything else the detach is a no-op
-// the compiler can elide via vm.CallImmFast.
 func paramNeedsDetach(fnType *vm.Type) bool {
 	if fnType == nil || fnType.Kind() != reflect.Func {
 		return true
@@ -1033,7 +1013,6 @@ func (c *Compiler) emitTypeOrGlobal(t goparser.Token, sym *symbol.Symbol, index 
 	}
 }
 
-// generate generates vm code and data from parsed tokens, or returns an error.
 func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	if debugTokens {
 		fmt.Printf("== generate tokens: %v\n", tokens)
@@ -1042,9 +1021,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	savedGenStart := c.genStart
 	c.genStart = len(c.Code)
 	defer func() { c.genStart = savedGenStart }()
-	// In lenient mode, turn a codegen panic into a located error (at the current
-	// token) so the external-test loader can drop the file; else crash loudly.
 	var cur goparser.Token
+
 	defer func() {
 		if !c.LenientCompile {
 			return
@@ -1056,6 +1034,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			err = c.errAt(cur, "internal compile error: %v", r)
 		}
 	}()
+
 	fixList := goparser.Tokens{}  // list of tokens to fix after all necessary information is gathered
 	stack := []*symbol.Symbol{}   // for symbolic evaluation and type checking
 	codeStarts := []int{}         // parallel to stack: c.Code index where each operand's load began, for const-fold retraction
@@ -1063,7 +1042,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	funcStack := []string{}       // names of functions currently being compiled
 	funcStartStack := []int{}     // entry code address per function on funcStack, used to record FuncRange on exit
 	jumpDepth := map[string]int{} // expected compile-stack depth at short-circuit merge labels
-	exprBaseStack := []int{}      // stack of compile-stack depths at expression-statement starts; nested (closure body inside outer call args) requires a stack, not a single base
+	exprBaseStack := []int{}      // stack of compile-stack depths at expression-statement starts
 	growPos := []int{}            // code positions of Grow instructions per function scope
 	maxExprDepth := []int{}       // max expression depth above locals per function scope
 	hasDefer := []bool{}          // whether current function scope uses defer
