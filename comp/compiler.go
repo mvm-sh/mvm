@@ -53,15 +53,15 @@ type Compiler struct {
 	strings      map[string]int              // locations of strings in Data
 	methodIDs    map[string]int              // global method ID by method name
 	methodRtype  map[int]reflect.Type        // func type (no receiver) by global method ID
-	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex, keyed by mvm type pointer
-	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym (type-descriptor slot), keyed by mvm type pointer
-	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type (Fnew source), keyed by mvm type pointer
-	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index, for *Type-identity slot compares
+	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex
+	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym
+	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type
+	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 
-	genStart int // code offset at the start of the current generate() pass; bounds resolveLabel staleness and the remove*/patchNilFnewLen retraction scans
+	genStart int // code offset at the start of the current generate() pass
 
 	// Defer brackets the target package's var inits so eval runs imported init()
 	// funcs before them (Go init order); zero when no reordering is needed.
@@ -1067,6 +1067,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 	growPos := []int{}            // code positions of Grow instructions per function scope
 	maxExprDepth := []int{}       // max expression depth above locals per function scope
 	hasDefer := []bool{}          // whether current function scope uses defer
+	deferOverhead := []int{}      // persistent defer-record slots live on the stack per function scope
 	retCellSlots := [][]int{}     // per function scope: slot indices of cell-promoted named returns
 	// Per function scope: local slot indices that have had their address taken
 	// (lang.Addr -> vm.AddrLocal). Future GetLocals on these slots emit
@@ -1094,7 +1095,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		stack = append(stack, s)
 		codeStarts = append(codeStarts, start)
 		if len(maxExprDepth) > 0 {
-			if d := len(stack) - flen[len(flen)-1]; d > maxExprDepth[len(maxExprDepth)-1] {
+			if d := len(stack) - flen[len(flen)-1] + deferOverhead[len(deferOverhead)-1]; d > maxExprDepth[len(maxExprDepth)-1] {
 				maxExprDepth[len(maxExprDepth)-1] = d
 			}
 		}
@@ -1127,7 +1128,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		if extra <= 0 || len(maxExprDepth) == 0 {
 			return
 		}
-		if d := len(stack) - flen[len(flen)-1] + extra; d > maxExprDepth[len(maxExprDepth)-1] {
+		if d := len(stack) - flen[len(flen)-1] + extra + deferOverhead[len(deferOverhead)-1]; d > maxExprDepth[len(maxExprDepth)-1] {
 			maxExprDepth[len(maxExprDepth)-1] = d
 		}
 	}
@@ -2072,6 +2073,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			growPos = append(growPos, len(c.Code))
 			maxExprDepth = append(maxExprDepth, 0)
 			hasDefer = append(hasDefer, false)
+			deferOverhead = append(deferOverhead, 0)
 			c.emit(t, vm.Grow, t.Arg[0].(int))
 			// Allocate a heap cell for each captured named return so a capturing closure shares the slot.
 			cellRet, _ := t.Arg[1].([]int)
@@ -2645,6 +2647,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							growPos = growPos[:len(growPos)-1]
 							maxExprDepth = maxExprDepth[:len(maxExprDepth)-1]
 							hasDefer = hasDefer[:len(hasDefer)-1]
+							deferOverhead = deferOverhead[:len(deferOverhead)-1]
 							retCellSlots = retCellSlots[:len(retCellSlots)-1]
 						}
 						// Exit function: restore caller stack and function name tracking.
@@ -3274,6 +3277,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				deferB |= vm.DeferSpreadFlag
 			}
 			c.emit(t, vm.DeferPush, callNarg, deferB)
+			if len(deferOverhead) > 0 {
+				deferOverhead[len(deferOverhead)-1] += callNarg + 4
+				if d := len(stack) - flen[len(flen)-1] + deferOverhead[len(deferOverhead)-1]; d > maxExprDepth[len(maxExprDepth)-1] {
+					maxExprDepth[len(maxExprDepth)-1] = d
+				}
+			}
 
 		case lang.Go:
 			narg := t.Arg[0].(int)
