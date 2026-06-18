@@ -37,6 +37,8 @@ type SelectCaseInfo struct {
 	Slot   int               // local/global index for received value (-1 if unused)
 	OkSlot int               // local/global index for ok bool (-1 if unused)
 	Local  bool              // true if slots are local (frame-relative), false for global
+	Cell   bool              // true if Slot holds a heap-cell pointer (captured var); write through it
+	OkCell bool              // true if OkSlot holds a heap-cell pointer (captured var)
 }
 
 // SelectMeta holds metadata for a select statement, stored in the data section.
@@ -2353,17 +2355,23 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			if ci.Dir == reflect.SelectRecv {
 				if ci.Slot >= 0 {
 					v := FromReflect(recv)
-					if ci.Local {
+					switch {
+					case ci.Cell:
+						setCell(mem[fp-1+ci.Slot].ref.Interface().(*Value), v)
+					case ci.Local:
 						mem[fp-1+ci.Slot] = v
-					} else {
+					default:
 						m.assignSlot(&m.globals[ci.Slot], v)
 					}
 				}
 				if ci.OkSlot >= 0 {
 					v := boolVal(recvOK)
-					if ci.Local {
+					switch {
+					case ci.OkCell:
+						setCell(mem[fp-1+ci.OkSlot].ref.Interface().(*Value), v)
+					case ci.Local:
 						mem[fp-1+ci.OkSlot] = v
-					} else {
+					default:
 						m.assignSlot(&m.globals[ci.OkSlot], v)
 					}
 				}

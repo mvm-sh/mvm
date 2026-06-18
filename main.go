@@ -51,6 +51,7 @@ func wireFS(i *interp.Interp) *modfs.FS {
 	}
 	i.SetStdlibFS(stdmod.FS(mfs))
 	i.SetRemoteFS(mfs)
+	stdlib.RegisterModuleFS(mfs)
 	return mfs
 }
 

@@ -3384,10 +3384,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.emit(t, vm.Slice)
 				truncStack(len(stack) - 3)
 			}
-			// Slicing a slice/string yields the same named type; only an
-			// array or *array operand produces a fresh []T result. Use Vtype
-			// so an untyped operand (e.g. a string const) resolves via its
-			// Value instead of nil-dereferencing coll.Type.
+			// Slicing a slice/string yields the same named type.
+			// Use Vtype so an untyped operand resolves via its Value instead of nil-dereferencing coll.Type.
 			resType := symbol.Vtype(coll)
 			if resType != nil {
 				// Symbolic Kind/Elem so a named array operand (e.g. uuid.UUID,
@@ -3405,6 +3403,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 		case lang.Select:
 			descs := t.Arg[0].([]goparser.SelectCaseDesc)
 			meta := &vm.SelectMeta{Cases: make([]vm.SelectCaseInfo, len(descs))}
+
 			// initSlot initializes a variable slot and returns its index.
 			initSlot := func(name string, typ *vm.Type) int {
 				s := c.Symbols[name]
@@ -3420,6 +3419,18 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				return s.Index
 			}
+
+			// recvSlot resolves a recv target. Plain targets keep the initSlot path.
+			recvSlot := func(name string, typ *vm.Type) (local bool, slot int, cell bool) {
+				s := c.Symbols[name]
+				local = s.Kind == symbol.LocalVar
+				if local && s.CellSlot {
+					s.Type = typ
+					return true, s.Index, true
+				}
+				return local, initSlot(name, typ), false
+			}
+
 			// Pop stack entries in reverse (LIFO) to collect channel element types.
 			chanTypes := make([]*vm.Type, len(descs))
 			for i, v := range slices.Backward(descs) {
@@ -3436,11 +3447,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				switch d.Dir {
 				case reflect.SelectRecv:
 					if d.ValName != "" {
-						ci.Local = c.Symbols[d.ValName].Kind == symbol.LocalVar
-						ci.Slot = initSlot(d.ValName, chanTypes[i])
+						ci.Local, ci.Slot, ci.Cell = recvSlot(d.ValName, chanTypes[i])
 					}
 					if d.OkName != "" {
-						ci.OkSlot = initSlot(d.OkName, c.Symbols["bool"].Type)
+						ci.Local, ci.OkSlot, ci.OkCell = recvSlot(d.OkName, c.Symbols["bool"].Type)
 					}
 				case reflect.SelectSend:
 					meta.TotalPop += 2

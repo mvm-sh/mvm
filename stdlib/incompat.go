@@ -184,6 +184,10 @@ var Incompat = map[string]map[string]string{
 		"TestMarshalAppendAllocations": "testing.AllocsPerRun: interpreter allocations differ between the preallocated-buffer and append paths; native expects identical amortized counts",
 		"TestHasExtensionNoAlloc":      "testing.AllocsPerRun: HasExtension allocates under the interpreter; native expects 0",
 	},
+
+	"google.golang.org/grpc/internal/leakcheck": {
+		"TestCheckRegisterIgnore": "RegisterIgnoreGoroutine ignores a goroutine by its function name in runtime.Stack(all); an interpreted `go f()` runs on a VM goroutine whose native stack shows vm/reflect frames, not f's name, so the ignore can't match and the ignored leak is counted",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge
