@@ -4469,11 +4469,11 @@ func (c *Compiler) compileBuiltin(
 		switch typeSym.Type.Kind() {
 		case reflect.Slice:
 			// make([]T, len) or make([]T, len, cap).
-			// Use the canonical mvm-level element type so a post-compile
-			// synth-rtype attach (which upgrades the named element in place)
-			// is observed via FillTypeSlots; a detached {Rtype: Elem()}
-			// snapshot would freeze the pre-attach placeholder rtype and
-			// MkSlice's reflect.SliceOf would diverge from the var slot type.
+			if typeSym.Type.Name != "" {
+				sliceIdx := c.typeSym(typeSym.Type).Index
+				c.emit(t, vm.MkSlice, -(narg - 1), -(sliceIdx + 1))
+				break
+			}
 			elemIdx := c.typeSym(makeElemType(typeSym.Type)).Index
 			c.emit(t, vm.MkSlice, -(narg - 1), elemIdx)
 		case reflect.Map:

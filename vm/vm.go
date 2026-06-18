@@ -2910,9 +2910,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			mem[sp] = clo
 		case MkSlice:
 			n := int(c.A)
-			elemType := m.globals[int(c.B)].ref.Type()
-			// Derive, not reflect.SliceOf: a synth elem must match materialize's slice identity.
-			sliceType := runtype.DeriveSliceOf(elemType)
+			var sliceType reflect.Type
+			if b := int(c.B); b < 0 {
+				// make(NamedSlice, ...): whole type passed, read live like MkMap.
+				sliceType = m.globals[-b-1].ref.Type()
+			} else {
+				// Derive, not reflect.SliceOf: a synth elem must match materialize's slice identity.
+				sliceType = runtype.DeriveSliceOf(m.globals[b].ref.Type())
+			}
 			switch {
 			case n < 0:
 				// make([]T, len[, cap]): size args are on the stack.

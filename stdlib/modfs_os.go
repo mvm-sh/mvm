@@ -9,9 +9,7 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// moduleFS serves files under the synthetic "modfs/" root that mvm's
-// virtualized runtime.Caller reports for module-sourced frames.
-var moduleFS fs.FS
+var moduleFS fs.FS // "modfs/" root that mvm's runtime.Caller reports for module-sourced frames.
 
 // RegisterModuleFS installs the module filesystem consulted by the os patcher
 // for "modfs/"-prefixed paths. Call once at startup; nil leaves os untouched.
@@ -26,17 +24,21 @@ func modfsSub(name string) (string, bool) {
 	return strings.TrimPrefix(name, modfsPrefix), true
 }
 
+// ReadFileModfs reads name from the module FS when it carries the synthetic
+// "modfs/" root, else from the host os.
+func ReadFileModfs(name string) ([]byte, error) {
+	if sub, ok := modfsSub(name); ok {
+		return fs.ReadFile(moduleFS, sub)
+	}
+	return os.ReadFile(name)
+}
+
 func init() {
 	RegisterPackagePatcher("os", patchOsModfs)
 }
 
 func patchOsModfs(_ *vm.Machine, values map[string]vm.Value) {
-	values["ReadFile"] = vm.FromReflect(reflect.ValueOf(func(name string) ([]byte, error) {
-		if sub, ok := modfsSub(name); ok {
-			return fs.ReadFile(moduleFS, sub)
-		}
-		return os.ReadFile(name)
-	}))
+	values["ReadFile"] = vm.FromReflect(reflect.ValueOf(ReadFileModfs))
 	values["ReadDir"] = vm.FromReflect(reflect.ValueOf(func(name string) ([]os.DirEntry, error) {
 		if sub, ok := modfsSub(name); ok {
 			return fs.ReadDir(moduleFS, sub)

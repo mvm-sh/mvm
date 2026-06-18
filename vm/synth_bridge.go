@@ -23,7 +23,7 @@ import (
 // reserved for t at materialize.
 // Native code that asserts the rtype to an interface dispatches the method directly.
 //
-// Up to synth's per-attach method cap (currently 16).
+// Up to synth's per-attach method cap (runtype.MaxMethods).
 // Excess methods of the same receiver kind are silently dropped.
 func (m *Machine) AttachSynthMethods(t *Type) error {
 	if t == nil || t.Rtype == nil {
@@ -434,7 +434,7 @@ func toSynthMethods(
 func (m *Machine) allSynthMethods(
 	t *Type, includePtr bool,
 ) []synthMethodSpec {
-	const synthMaxMethods = 16 // matches runtype.maxMethods
+	const synthMaxMethods = runtype.MaxMethods
 	var specs []synthMethodSpec
 	seen := map[string]bool{}
 	for i, method := range t.Methods {

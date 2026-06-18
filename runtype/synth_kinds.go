@@ -20,9 +20,6 @@ func stampHeader(t *abiType, name string) {
 	t.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
-// makeUncommon builds the uncommon header for a reserved rtype: Mcount/Xcount
-// stay 0 (the method table is empty until Fill installs methods and publishes
-// the counts).
 func makeUncommon(pkgPath string, moff uint32) abiUncommon {
 	return abiUncommon{
 		PkgPath: uint32(addReflectOff(unsafe.Pointer(
@@ -79,9 +76,7 @@ func isPrimitiveKind(k reflect.Kind) bool {
 	return false
 }
 
-// SupportedKind reports whether a layout of kind k can be given a reserved
-// identity, matching ReserveMethods' dispatch. A named pointer type cannot
-// carry methods (invalid receiver) but still owns a named identity.
+// SupportedKind reports whether a layout of kind k can be given a reserved identity.
 func SupportedKind(k reflect.Kind) bool {
 	switch k {
 	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map, reflect.Chan,
@@ -96,23 +91,19 @@ var (
 	errNoMethods     = errors.New("runtype: methods slice is empty")
 )
 
-// maxFuncIO caps a synth func type's combined in+out parameter count; the
-// inline io array is sized to it. Method-bearing func types are rare and have
-// small signatures, so this is generous headroom.
+// maxFuncIO caps a synth func type's combined in+out parameter count.
+// Method-bearing func types are rare and have small signatures, so this is generous headroom.
 const maxFuncIO = 32
 
-// maxMethods caps the number of methods installable per synth attach call.
-// Sized to comfortably hold the union of Stringer/Error/GoString +
-// Marshal{JSON,Text,Binary} + Unmarshal{JSON,Text,Binary} + Format-like
-// methods, plus headroom.
-// Runtime cost: maxMethods*16 bytes per synth rtype (unused slots stay
-// zero; Mcount in uncommon bounds runtime iteration to the real count).
-const maxMethods = 16
+// maxMethods caps the methods installable per synth attach call.
+// Runtime cost: maxMethods*16 bytes per synth rtype.
+const maxMethods = 256
+
+// MaxMethods is the per-synth-rtype method-table capacity.
+const MaxMethods = maxMethods
 
 // Per-kind multi-method containers.
 // Layout = kind-specific type prefix + uncommon + [maxMethods]method.
-// The runtime reads exactly Mcount methods starting at Moff, so unused
-// slots are harmless padding.
 
 type synthPrim struct {
 	t abiType
