@@ -380,7 +380,10 @@ func (p *Parser) parseCompoundAssign(in Tokens, aindex int, op lang.Token) (Toke
 	lhs := in[:aindex]
 	rhs := in[aindex+1:]
 	pos := in[aindex].Pos
-	// Build: lhs = lhs op (rhs)
+	prefix, lhs, err := p.hoistCompoundLHS(lhs, pos)
+	if err != nil {
+		return nil, err
+	}
 	newIn := make(Tokens, 0, len(lhs)*2+len(rhs)+2)
 	newIn = append(newIn, lhs...)
 	newIn = append(newIn, newToken(lang.Assign, "", pos, 1))
@@ -392,7 +395,11 @@ func (p *Parser) parseCompoundAssign(in Tokens, aindex int, op lang.Token) (Toke
 	} else {
 		newIn = append(newIn, rhs...)
 	}
-	return p.parseAssign(newIn, len(lhs))
+	out, err := p.parseAssign(newIn, len(lhs))
+	if err != nil {
+		return nil, err
+	}
+	return append(prefix, out...), nil
 }
 
 func (p *Parser) parseIncDec(in Tokens) (Tokens, error) {
@@ -403,11 +410,61 @@ func (p *Parser) parseIncDec(in Tokens) (Tokens, error) {
 		op = lang.Sub
 	}
 	pos := last.Pos
+	prefix, lhs, err := p.hoistCompoundLHS(lhs, pos)
+	if err != nil {
+		return nil, err
+	}
 	newIn := make(Tokens, 0, len(lhs)*2+3)
 	newIn = append(newIn, lhs...)
 	newIn = append(newIn, newToken(lang.Assign, "", pos, 1))
 	newIn = append(newIn, lhs...)
 	newIn = append(newIn, newToken(op, "", pos))
 	newIn = append(newIn, newToken(lang.Int, "1", pos))
-	return p.parseAssign(newIn, len(lhs))
+	out, err := p.parseAssign(newIn, len(lhs))
+	if err != nil {
+		return nil, err
+	}
+	return append(prefix, out...), nil
+}
+
+// hoistCompoundLHS rewrites an index-form lhs of a compound
+// assignment or ++/-- so a side-effecting index evaluates exactly once.
+func (p *Parser) hoistCompoundLHS(lhs Tokens, pos int) (prefix, newLHS Tokens, err error) {
+	if len(lhs) < 2 || lhs[len(lhs)-1].Tok != lang.BracketBlock {
+		return nil, lhs, nil
+	}
+	idxTok := lhs[len(lhs)-1]
+	idxToks, err := p.scanBlock(idxTok.Token, false)
+	if err != nil {
+		return nil, lhs, err
+	}
+	// Only hoist a side-effecting single index.
+	if idxToks.Index(lang.Colon) >= 0 || !p.tokensMayHaveSideEffect(idxToks) {
+		return nil, lhs, nil
+	}
+	name := fmt.Sprintf("_lhsidx_%d", pos)
+	defStmt := append(Tokens{newIdent(name, pos), newToken(lang.Define, ":=", pos)}, idxToks...)
+	prefix, err = p.parseAssign(defStmt, 1)
+	if err != nil {
+		return nil, lhs, err
+	}
+	// Rebuild lhs with the index replaced by the temp.
+	newLHS = make(Tokens, 0, len(lhs))
+	newLHS = append(newLHS, lhs[:len(lhs)-1]...)
+	newLHS = append(newLHS, newToken(lang.BracketBlock, name, pos))
+	return prefix, newLHS, nil
+}
+
+func (p *Parser) tokensMayHaveSideEffect(toks Tokens) bool {
+	for _, t := range toks {
+		switch t.Tok {
+		case lang.ParenBlock, lang.Arrow:
+			return true
+		case lang.BracketBlock, lang.BraceBlock:
+			if sub, err := p.scanBlock(t.Token, false); err == nil && p.tokensMayHaveSideEffect(sub) {
+				return true
+			}
+		}
+	}
+	return false
 }
