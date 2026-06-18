@@ -20,16 +20,11 @@ import (
 )
 
 // AttachSynthMethods fills t's interpreted methods into the synth rtype that was
-// reserved for t at materialize (via runtype + stdlib/stubs), in place -- t.Rtype
-// and any composite that captured it keep their identity.
-// Native code that asserts the rtype to an interface (fmt.Stringer, error,
-// json.Marshaler, json.Unmarshaler, etc.) then dispatches the method directly,
-// with no bridge proxy.
+// reserved for t at materialize.
+// Native code that asserts the rtype to an interface dispatches the method directly.
 //
-// Handles any combination of the supported method shapes (see detectShape) on any
-// supported kind, plus pointer-receiver variants on *T via attachPtrRecv. Up to
-// synth's per-attach method cap (currently 16); excess methods of the same
-// receiver kind are silently dropped.
+// Up to synth's per-attach method cap (currently 16).
+// Excess methods of the same receiver kind are silently dropped.
 func (m *Machine) AttachSynthMethods(t *Type) error {
 	if t == nil || t.Rtype == nil {
 		return nil
@@ -50,18 +45,6 @@ func (m *Machine) AttachSynthMethods(t *Type) error {
 	return m.attachPtrRecv(t)
 }
 
-// bridgePtrToIface retypes a bridged pointer-to-interpreted-interface (e.g.
-// &timeout) to *synthIface so the callee sees the real method set, not a
-// methodless any; without it errors.As treats the target as matching every error.
-// Returns an invalid Value (the common case) to fall through to the default bridge.
-//
-// Gated to an allowlist (fn), because mvm stores interfaces as eface (type+data)
-// while a non-empty interface is iface (itab+data): relabeling is only safe for
-// callees that use the pointer as a type-tagged out-param (errors.As) or merely
-// describe it (reflect.ValueOf/TypeOf, used to read the result back). A callee
-// that reads the pointee as an iface (gob, json) would misread eface bytes.
-// val (= ifc.Val.Reflect()) shares storage with the result, so a callee write is
-// visible to a later read through the same mvm pointer.
 func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Value {
 	if ifc.Typ == nil || ifc.Typ.Rtype == nil || ifc.Typ.Rtype.Kind() != reflect.Pointer {
 		return reflect.Value{}
@@ -77,40 +60,82 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 	if !isSynthIfaceTargetFunc(fn) {
 		return reflect.Value{}
 	}
+	// Fill unmaterialized method sigs before building the synth rtype.
+	// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
+	// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
+	for i := range et.IfaceMethods {
+		MaterializeIfaceMethod(&et.IfaceMethods[i])
+	}
 	st := synthIfaceRtype(et)
 	if st == nil {
 		return reflect.Value{}
 	}
 	if val.IsNil() {
-		// Nil ptr-to-interface used as a pure type tag, e.g.
-		// reflect.TypeOf((*I)(nil)).Elem(): keep the synth elem type.
+		// Nil ptr-to-interface used as a pure type tag.
 		return reflect.Zero(reflect.PointerTo(st))
 	}
 	return reflect.NewAt(st, val.UnsafePointer())
 }
 
-// synthIfaceTargetPCs is the set of native-func PCs whose pointer-to-interface
-// argument may be retyped (see bridgePtrToIface); init-write, concurrent-read.
-var synthIfaceTargetPCs sync.Map // uintptr -> struct{}
+// synthIfaceTargetPCs holds native-func PCs whose pointer-to-interface arg may be retyped.
+var (
+	synthIfaceTargetPCs      sync.Map // uintptr -> struct{}
+	synthIfaceWriteTargetPCs sync.Map // uintptr -> struct{}
+)
 
-// RegisterSynthIfaceTargetFunc allowlists fn for synth-interface target
-// retyping. Call from package init.
-func RegisterSynthIfaceTargetFunc(fn reflect.Value) {
+func storeFuncPC(s *sync.Map, fn reflect.Value) {
 	if fn.IsValid() && fn.Kind() == reflect.Func {
-		synthIfaceTargetPCs.Store(fn.Pointer(), struct{}{})
+		s.Store(fn.Pointer(), struct{}{})
 	}
 }
 
-func isSynthIfaceTargetFunc(fn reflect.Value) bool {
+func hasFuncPC(s *sync.Map, fn reflect.Value) bool {
 	if !fn.IsValid() || fn.Kind() != reflect.Func {
 		return false
 	}
-	_, ok := synthIfaceTargetPCs.Load(fn.Pointer())
+	_, ok := s.Load(fn.Pointer())
 	return ok
 }
 
-// synthIfaceRtype builds and caches t's method-bearing synth interface rtype.
-// Returns nil if any method signature is unknown, keeping the AnyRtype bridge.
+// RegisterSynthIfaceTargetFunc allowlists fn for synth-interface target retyping.
+func RegisterSynthIfaceTargetFunc(fn reflect.Value) { storeFuncPC(&synthIfaceTargetPCs, fn) }
+
+func isSynthIfaceTargetFunc(fn reflect.Value) bool { return hasFuncPC(&synthIfaceTargetPCs, fn) }
+
+// RegisterSynthIfaceWriteTargetFunc allowlists fn as a synth-interface write target.
+func RegisterSynthIfaceWriteTargetFunc(fn reflect.Value) { storeFuncPC(&synthIfaceWriteTargetPCs, fn) }
+
+func isSynthIfaceWriteTargetFunc(fn reflect.Value) bool {
+	return hasFuncPC(&synthIfaceWriteTargetPCs, fn)
+}
+
+// ifaceWriteback is a retyped synth-interface pointer arg to normalize after the native write-target call.
+type ifaceWriteback struct {
+	ptr    unsafe.Pointer
+	st     reflect.Type // synth interface rtype the callee wrote through
+	before [2]uintptr   // cell's two words (eface) before the call
+}
+
+func (m *Machine) normalizeIfaceWritebacks(wb []ifaceWriteback) {
+	for _, w := range wb {
+		// Unchanged cell: no match written, so it still holds mvm form.
+		if *(*[2]uintptr)(w.ptr) == w.before {
+			continue
+		}
+		synthVal := reflect.NewAt(w.st, w.ptr).Elem()
+		if synthVal.IsNil() {
+			continue // wrote a nil interface; nothing to wrap (errors.As never does)
+		}
+		concrete := Exportable(synthVal.Elem())
+		loc := reflect.NewAt(AnyRtype, w.ptr).Elem()
+		if t := m.typeByRtype(concrete.Type()); t != nil {
+			loc.Set(reflect.ValueOf(any(Iface{Typ: t, Val: FromReflect(concrete)})))
+		} else {
+			loc.Set(concrete)
+		}
+	}
+}
+
 func synthIfaceRtype(t *Type) reflect.Type {
 	return cachedSynthIface(t, func() reflect.Type {
 		ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))
@@ -150,11 +175,6 @@ func isExportedName(name string) bool {
 	return unicode.IsUpper(r)
 }
 
-// qualifiedTypeName returns the Str-form name stamped into the synth rtype:
-// "pkgBase.Name" when the type has a package path, otherwise just Name.
-// reflect.Type.String() returns this verbatim, so fmt %T and similar matches
-// what the Go compiler emits for native types.
-// Name() strips back to the last "." to recover the bare type name.
 func qualifiedTypeName(t *Type) string {
 	if t.PkgName == "" || t.Name == "" {
 		return t.Name
@@ -199,24 +219,15 @@ func (m *Machine) attachPtrRecv(t *Type) error {
 	return stubs.FillMethods(res.ptr, methods)
 }
 
-// recvForm tells a handler how to reconstruct the receiver from the stub's
-// iface data word.
+// recvForm tells a handler how to reconstruct the receiver from the stub's iface data word.
 type recvForm uint8
 
 const (
-	// recvPtr: pointer-receiver method; the word IS the *T receiver.
-	recvPtr recvForm = iota
-	// recvDeref: value-receiver method; the word is an address (the *T pointer
-	// on the pointer identity, or boxed T storage on an indirect value identity).
-	recvDeref
-	// recvWord: value-receiver method on a direct-iface T's value identity;
-	// the word is the receiver value itself, not its address.
-	recvWord
+	recvPtr   recvForm = iota // pointer-receiver method: the word is the *T receiver
+	recvDeref                 // value-receiver method: the word is an address
+	recvWord                  // value-receiver method on direct-iface: the word is the receiver value
 )
 
-// recvFormFor decides the receiver form at spec-build time, where the attach
-// identity is known. ptrIdent says the method set is *T's (the word is always
-// the *T pointer); otherwise it is T's own iface representation.
 func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 	switch {
 	case ptrRecv:
@@ -229,22 +240,16 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 }
 
 // synthMethodSpec describes a single method picked for synth attachment.
-// shape is the matched signature shape; name comes from MethodNames.
-// form drives the handler's receiver reconstruction (see recvForm): it folds
-// the method's own receiver kind with the identity the spec is attached to.
 type synthMethodSpec struct {
 	name       string
 	method     Method
-	shape      stubs.Shape
-	wordKey    string // non-empty => word-class path (shape ignored)
-	swallowErr bool   // word path: swallow dispatch errors to zero results
-	form       recvForm
-	pkgName    string // declaring package for an unexported method ("" if exported)
+	shape      stubs.Shape // matched signature shape
+	wordKey    string      // non-empty => word-class path (shape ignored)
+	swallowErr bool        // word path: swallow dispatch errors to zero results
+	form       recvForm    //
+	pkgName    string      // declaring package for an unexported method ("" if exported)
 }
 
-// unexportedMethodPkg returns the package native reflect.Implements requires on
-// an unexported method's synth name: that of its receiver type, reached by
-// walking method.Path through the embedded fields to the type that owns it.
 func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) string {
 	if isExportedName(name) {
 		return ""
@@ -269,12 +274,6 @@ func embeddedTypeAt(t *Type, idx int) *Type {
 	return nil
 }
 
-// resolveDispatch picks the dispatch path and sets s.method.Rtype to the sig
-// that path publishes; false means the method is dropped. A typed shape wins
-// only when erasure changed nothing: an erased match would publish any for a
-// synth-iface param, breaking native assignability checks, so those take the
-// word path with the precise sig -- or, when no pool can serve it, the erased
-// typed shape after all (reported in the MVM_WORDDROPS degraded bucket).
 func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
 	shape, shapeOK := detectShape(erased)
 	if shapeOK && !forceWordShape && erased == precise {
@@ -303,9 +302,6 @@ func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
 	return false
 }
 
-// shapeSwallowsDispatchErr reports whether shape's typed handler swallows
-// dispatch errors to zero values (see makeHandlerS5); a word-routed method
-// whose erased sig matched such a shape keeps that policy.
 func shapeSwallowsDispatchErr(shape stubs.Shape) bool {
 	switch shape {
 	case stubs.ShapeS5, stubs.ShapeS11, stubs.ShapeS12:
@@ -314,10 +310,6 @@ func shapeSwallowsDispatchErr(shape stubs.Shape) bool {
 	return false
 }
 
-// toSynthMethods materializes the slice of stubs.Method passed to
-// stubs.FillMethods.
-// Each method's handler closure is built per its shape, with receiver
-// reconstruction driven by s.form.
 func toSynthMethods(
 	m *Machine, t *Type, specs []synthMethodSpec,
 ) []stubs.Method {
@@ -458,8 +450,7 @@ func (m *Machine) allSynthMethods(
 			form:    recvFormFor(t.Rtype, method.PtrRecv, includePtr),
 			pkgName: m.unexportedMethodPkg(t, method, m.MethodNames[i]),
 		}
-		// Typed-shape tables erase synth-iface params to any (stubs decode an
-		// eface); the word path keeps the precise sig (see resolveDispatch).
+		// Typed-shape tables erase synth-iface params to any.
 		if !spec.resolveDispatch(eraseSynthIfaceParams(method.Rtype), method.Rtype) {
 			continue
 		}
@@ -469,8 +460,7 @@ func (m *Machine) allSynthMethods(
 			return specs
 		}
 	}
-	// Methods promoted from embedded fields are absent from t.Methods and
-	// reflect.StructOf generates no promotion wrappers, so attach them explicitly.
+	// Methods promoted from embedded fields are absent from t.Methods. Attatch them explicetely.
 	for _, spec := range m.promotedSynthMethods(t, includePtr, seen) {
 		specs = append(specs, spec)
 		if len(specs) == synthMaxMethods {
@@ -488,14 +478,12 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 		}
 		ft := t.Rtype.Field(emb.FieldIdx).Type
 		// Embedded interface methods are promoted by reflect.StructOf itself and
-		// dispatched via the EmbedIface path; skip them here (and their method
-		// types carry no receiver to strip).
+		// dispatched via the EmbedIface path; skip them here.
 		if ft.Kind() == reflect.Interface {
 			continue
 		}
-		// The promotable method set: a pointer embed contributes all of the
-		// pointee's methods to both T and *T; a value embed contributes value-
-		// receiver methods to T and value+pointer methods to *T.
+		// A pointer embed contributes all of the pointee's methods to both T and *T.
+		// A value embed contributes value-receiver methods to T and value+pointer methods to *T.
 		setType := ft
 		if includePtr && ft.Kind() != reflect.Pointer {
 			setType = reflect.PointerTo(ft)
@@ -521,8 +509,6 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 	return specs
 }
 
-// eraseSynthIfaceParams maps synth non-empty interface params/returns back to
-// any; see its allSynthMethods call site.
 func eraseSynthIfaceParams(sig reflect.Type) reflect.Type {
 	if sig == nil || sig.Kind() != reflect.Func {
 		return sig
@@ -549,9 +535,6 @@ func eraseSynthIfaceParams(sig reflect.Type) reflect.Type {
 	return reflect.FuncOf(in, out, sig.IsVariadic())
 }
 
-// isDirectIface reports whether a value of rt is stored directly in an interface
-// word (Go's kindDirectIface): a pointer-shaped type, or a struct/array reducing
-// to one such element.
 func isDirectIface(rt reflect.Type) bool {
 	switch rt.Kind() {
 	case reflect.Pointer, reflect.Chan, reflect.Map, reflect.Func, reflect.UnsafePointer:
@@ -565,8 +548,6 @@ func isDirectIface(rt reflect.Type) bool {
 	}
 }
 
-// stripRecvType returns a method's signature with the leading receiver param
-// removed, matching the receiver-elided form detectShape expects.
 func stripRecvType(mt reflect.Type) reflect.Type {
 	if mt.NumIn() == 0 {
 		return mt
@@ -582,8 +563,7 @@ func stripRecvType(mt reflect.Type) reflect.Type {
 	return reflect.FuncOf(in, out, mt.IsVariadic())
 }
 
-// detectShape inspects a method signature (receiver elided) and returns the
-// matching stubs.Shape if any.
+// detectShape inspects a method signature and returns the matching stubs.Shape if any.
 // Recognized shapes:
 //
 //	S1: func() string
@@ -716,9 +696,6 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 // Identity-based predicates: a named alias like `type MyBytes []byte` or
 // `type Failure interface{ Error() string }` is structurally compatible but
 // has a distinct reflect.Type identity.
-// Native iface satisfaction (json.Marshaler etc.) keys on exact type
-// identity, so accepting aliases here would burn slot-pool entries on
-// types that never satisfy the target interface.
 var (
 	errorIface        = reflect.TypeFor[error]()
 	byteSliceType     = reflect.TypeFor[[]byte]()
@@ -752,19 +729,10 @@ func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
 
 func isErrorType(t reflect.Type) bool { return t == errorIface }
 
-// isAnyType matches the empty interface exactly (errors.As targets `any`),
-// distinguishing S5 from S4 whose param is the one-method `error` interface.
 func isAnyType(t reflect.Type) bool { return t == anyIface }
 
 func isErrorSlice(t reflect.Type) bool { return t == errorSliceType }
 
-// makeHandlerS1 builds the per-method bridge closure for shape S1.
-// recv is the stub's iface data word; form (fixed at spec-build time) says how
-// makeRecvValue reconstructs the receiver from it (see recvForm).
-//
-// t.Rtype is the reserved synth identity (stable: fill installs methods in place,
-// it does not swap), read through the *Type so the receiver Value's type matches
-// ifcType.Rtype at dispatch.
 func makeHandlerS1(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS1 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) string {
@@ -780,12 +748,6 @@ func makeHandlerS1(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// raiseMethodErr re-raises a failed synth dispatch as a Go panic so a native
-// caller's recover handles it (e.g. fmt's catchPanic -> "%!s(PANIC=...)", or its
-// nil-pointer-receiver special case -> "<nil>"). An interpreted-method panic
-// (surfaced as a *PanicError) is re-raised with its original value; any other
-// dispatch error (e.g. a reflect error from a nil receiver) is re-raised as is.
-// Calling a method that fails always panics in Go, so this never returns.
 func raiseMethodErr(err error) {
 	var pe *PanicError
 	if errors.As(err, &pe) {
@@ -830,20 +792,12 @@ func makeHandlerS3(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS4 bridges shape S4: (T).Is(target error) bool.
-// target is passed through its static error type (reflect.ValueOf(&target)
-// .Elem() stays valid and interface-typed even when target is nil).
 func makeHandlerS4(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS4 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target error) bool {
 		rv := makeRecvValue(t.Rtype, recv, form)
 		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		// A dispatch error (incl. an interpreted-method panic surfaced as a
-		// *PanicError) is swallowed to false: re-panicking it back through the
-		// native caller crashes the nested-panic-across-native-boundary path
-		// (machine stack left inconsistent on unwind). See the skipped
-		// interp.TestStruct errors_is_panic_propagates.
 		if err != nil || len(out) != 1 {
 			return false
 		}
@@ -851,20 +805,12 @@ func makeHandlerS4(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS5 bridges shape S5: (T).As(target any) bool.
-// target boxes the *E pointer errors.As wants populated; passing it through
-// lets the interpreted As write back into the caller's storage.
 func makeHandlerS5(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS5 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, target any) bool {
 		rv := makeRecvValue(t.Rtype, recv, form)
 		argv := []reflect.Value{reflect.ValueOf(&target).Elem()}
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		// A dispatch error (incl. an interpreted-method panic surfaced as a
-		// *PanicError) is swallowed to false: re-panicking it back through the
-		// native caller crashes the nested-panic-across-native-boundary path
-		// (machine stack left inconsistent on unwind). See the skipped
-		// interp.TestStruct errors_is_panic_propagates.
 		if err != nil || len(out) != 1 {
 			return false
 		}
@@ -872,7 +818,6 @@ func makeHandlerS5(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS6 bridges shape S6: (T).Unwrap() error.
 func makeHandlerS6(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS6 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) error {
@@ -885,7 +830,6 @@ func makeHandlerS6(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS7 bridges shape S7: (T).Unwrap() []error.
 func makeHandlerS7(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS7 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) []error {
@@ -898,7 +842,6 @@ func makeHandlerS7(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS8 bridges shape S8: (T).Len() int.
 func makeHandlerS8(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS8 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) int {
@@ -911,7 +854,6 @@ func makeHandlerS8(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS9 bridges shape S9: (T).Less(i, j int) bool.
 func makeHandlerS9(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS9 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) bool {
@@ -925,7 +867,6 @@ func makeHandlerS9(m *Machine, t *Type, method Method, name string, form recvFor
 	}
 }
 
-// makeHandlerS10 bridges shape S10: (T).Swap(i, j int).
 func makeHandlerS10(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS10 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, i, j int) {
@@ -935,8 +876,6 @@ func makeHandlerS10(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS11 bridges shape S11: (T).Push(x any).
-// x is passed through reflect.ValueOf(&x).Elem() so it stays interface-typed.
 func makeHandlerS11(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS11 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, x any) {
@@ -946,7 +885,6 @@ func makeHandlerS11(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS12 bridges shape S12: (T).Pop() any.
 func makeHandlerS12(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS12 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) any {
@@ -959,7 +897,6 @@ func makeHandlerS12(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS13 bridges shape S13: (T).Read/Write(p []byte) (int, error).
 func makeHandlerS13(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS13 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer, p []byte) (int, error) {
@@ -967,9 +904,6 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, form recvFo
 		argv := []reflect.Value{reflect.ValueOf(p)}
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
-			// An interpreted-method panic must propagate through the native caller
-			// (e.g. bytes.Buffer.ReadFrom) to an outer recover(), as in Go;
-			// invokeNative's recover re-establishes it as an mvm panic.
 			var pe *PanicError
 			if errors.As(err, &pe) {
 				panic(reraisedPanic{pe})
@@ -983,7 +917,119 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS37 bridges shape S37: (T).ReadRune() (rune, int, error).
+func makeHandlerS14(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS14 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, st fmt.State, verb rune) {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
+		_, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			raiseMethodErr(err)
+		}
+	}
+}
+
+func makeHandlerS15(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS15 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(e), reflect.ValueOf(start)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S15 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
+	}
+}
+
+func makeHandlerS16(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS16 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, d *xml.Decoder, start xml.StartElement) error {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(d), reflect.ValueOf(start)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S16 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
+	}
+}
+
+func makeHandlerS17(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS17 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) (int, bool) {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
+		if err != nil || len(out) != 2 {
+			return 0, false
+		}
+		return int(out[0].Int()), out[1].Bool()
+	}
+}
+
+func makeHandlerS18(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS18 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, c int) bool {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(c)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil || len(out) != 1 {
+			return false
+		}
+		return out[0].Bool()
+	}
+}
+
+func makeHandlerS19(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS19 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, st fmt.ScanState, verb rune) error {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S19 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
+	}
+}
+
+func makeHandlerS20(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS20 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer, value string) error {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := []reflect.Value{reflect.ValueOf(value)}
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 {
+			return errors.New("synth: S20 dispatch produced wrong arity")
+		}
+		return reflectToError(out[0])
+	}
+}
+
+func makeHandlerS21(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS21 {
+	methodSig := method.Rtype
+	return func(recv unsafe.Pointer) bool {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
+		if err != nil || len(out) != 1 {
+			return false
+		}
+		return out[0].Bool()
+	}
+}
+
 func makeHandlerS37(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS37 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) (rune, int, error) {
@@ -1003,7 +1049,6 @@ func makeHandlerS37(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS38 bridges shape S38: (T).M() with no params or results.
 func makeHandlerS38(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS38 {
 	methodSig := method.Rtype
 	return func(recv unsafe.Pointer) {
@@ -1015,134 +1060,6 @@ func makeHandlerS38(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-// makeHandlerS14 bridges shape S14: (T).Format(fmt.State, rune).
-// st is passed through reflect.ValueOf(&st).Elem() so it keeps its fmt.State
-// type, letting the interpreted body call State methods on it.
-func makeHandlerS14(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS14 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, st fmt.State, verb rune) {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
-		_, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			raiseMethodErr(err)
-		}
-	}
-}
-
-// makeHandlerS15 bridges shape S15: (T).MarshalXML(*xml.Encoder, xml.StartElement) error.
-func makeHandlerS15(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS15 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(e), reflect.ValueOf(start)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S15 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
-	}
-}
-
-// makeHandlerS16 bridges shape S16: (T).UnmarshalXML(*xml.Decoder, xml.StartElement) error.
-func makeHandlerS16(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS16 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, d *xml.Decoder, start xml.StartElement) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(d), reflect.ValueOf(start)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S16 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
-	}
-}
-
-// makeHandlerS17 bridges shape S17: (T).Width/Precision() (int, bool).
-func makeHandlerS17(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS17 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer) (int, bool) {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
-		if err != nil || len(out) != 2 {
-			return 0, false
-		}
-		return int(out[0].Int()), out[1].Bool()
-	}
-}
-
-// makeHandlerS18 bridges shape S18: (T).Flag(c int) bool.
-func makeHandlerS18(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS18 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, c int) bool {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(c)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil || len(out) != 1 {
-			return false
-		}
-		return out[0].Bool()
-	}
-}
-
-// makeHandlerS19 bridges shape S19: (T).Scan(fmt.ScanState, rune) error.
-// st is passed through reflect.ValueOf(&st).Elem() so it keeps its
-// fmt.ScanState type, letting the interpreted body call ScanState methods on it.
-func makeHandlerS19(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS19 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, st fmt.ScanState, verb rune) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(&st).Elem(), reflect.ValueOf(verb)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S19 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
-	}
-}
-
-// makeHandlerS20 bridges shape S20: (T).Set(string) error.
-func makeHandlerS20(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS20 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, value string) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(value)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S20 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
-	}
-}
-
-// makeHandlerS21 bridges shape S21: (T).IsBoolFlag() bool.
-func makeHandlerS21(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS21 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer) bool {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		out, err := callMethod(m, t, name, rv, method, methodSig, nil)
-		if err != nil || len(out) != 1 {
-			return false
-		}
-		return out[0].Bool()
-	}
-}
-
-// reflectToError extracts a native error from a method-return Value, tolerating
-// both an interface-typed result and a concrete (struct/ptr) error that
-// collectReturns left unboxed.
 func reflectToError(v reflect.Value) error {
 	if !v.IsValid() {
 		return nil
@@ -1158,9 +1075,6 @@ func reflectToError(v reflect.Value) error {
 	return rerr
 }
 
-// reflectToErrorSlice extracts []error from a multi-unwrap return, tolerating a
-// named slice type (e.g. `type multiErr []error`) that collectReturns left as
-// its own concrete type instead of []error.
 func reflectToErrorSlice(v reflect.Value) []error {
 	v = Exportable(v)
 	if !v.IsValid() || v.Kind() != reflect.Slice || v.IsNil() {
@@ -1199,8 +1113,8 @@ func callMethod(
 		return m.callPromotedConcrete(rv, name, method.Path, methodSig, args)
 	}
 	fval := m.MakeMethodCallable(ifc, method)
-	// Run on a pooled runner, not m itself: synth stubs fire concurrently when
-	// native callers (e.g. sort.Sort) run on several interpreted goroutines,
+	// Run on a pooled runner, not m itself.
+	// native callers run on several interpreted goroutines,
 	// and CallFunc's save/restore of m's frame state is single-threaded.
 	rs := m.captureRunnerState()
 	runner := rs.acquireRunner()
@@ -1208,10 +1122,6 @@ func callMethod(
 	return runner.callPooled(fval, methodSig, args)
 }
 
-// callPromotedConcrete dispatches a method promoted from an embedded concrete
-// field (synthesized with Index<0 and a Path; see promotedSynthMethods): it
-// navigates Path to the embedded value, then calls the named method -- natively
-// via reflect for a native embed, or through the interpreter for an interpreted one.
 func (m *Machine) callPromotedConcrete(
 	rv reflect.Value, name string, path []int, methodSig reflect.Type, args []reflect.Value,
 ) ([]reflect.Value, error) {
@@ -1220,9 +1130,6 @@ func (m *Machine) callPromotedConcrete(
 	}
 	for _, fi := range path {
 		if !rv.IsValid() {
-			// Promoted method on a nil pointer: navigating to the embedded
-			// field derefs nil. Panic with Go's nil-pointer value so the
-			// native caller recovers it like any nil-receiver method call.
 			panic(nilPointerPanicValue)
 		}
 		rv = rv.Field(fi)
@@ -1242,8 +1149,8 @@ func (m *Machine) callPromotedConcrete(
 	if mv := nativeMethodLookup(m, rv, name); mv.IsValid() {
 		return callBound(mv, args), nil
 	}
-	// A pointer-receiver method promoted from a value embed lives in *E's method
-	// set, not E's; retry on the addressable field's address.
+	// A pointer-receiver method promoted from a value embed lives in *E's method set, not E's;
+	// retry on the addressable field's address.
 	if rv.CanAddr() {
 		if mv := nativeMethodLookup(m, rv.Addr(), name); mv.IsValid() {
 			return callBound(mv, args), nil
@@ -1257,9 +1164,6 @@ func (m *Machine) callPromotedConcrete(
 	return nil, fmt.Errorf("synth: promoted method %q not found", name)
 }
 
-// callBound invokes a bound native method with stub-marshaled args.
-// A variadic method's trailing args arrive as the caller-packed slice, which
-// reflect.Value.Call rejects; CallSlice takes it as is.
 func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
 	if mv.Type().IsVariadic() {
 		return mv.CallSlice(args)
@@ -1267,7 +1171,6 @@ func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
 	return mv.Call(args)
 }
 
-// methodID returns the global method ID for name, or -1.
 func (m *Machine) methodID(name string) int {
 	for id, n := range m.MethodNames {
 		if n == name {
@@ -1277,14 +1180,7 @@ func (m *Machine) methodID(name string) int {
 	return -1
 }
 
-// callEmbedIface dispatches a method promoted from an embedded interface field
-// (Method.EmbedIface, Index == -1, so makeMethodCell can't build a cell).
-// It walks the embedded chain like the IfaceCall path (see the Run loop): for
-// each EmbedIface hop, navigate Path to the embedded value; a native embedded
-// value (e.g. `struct{ error }` holding a native error) is dispatched by name
-// via reflect, an interpreted one recurses to its concrete method.
-func (m *Machine) callEmbedIface(
-	ifc Iface, method Method, name string, methodSig reflect.Type, args []reflect.Value,
+func (m *Machine) callEmbedIface(ifc Iface, method Method, name string, methodSig reflect.Type, args []reflect.Value,
 ) ([]reflect.Value, error) {
 	methodID := -1
 	for id, n := range m.MethodNames {
@@ -1301,9 +1197,7 @@ func (m *Machine) callEmbedIface(
 		for _, fi := range method.Path {
 			rv = rv.Field(fi)
 		}
-		// Embedded fields are often unexported (named after the type), so the
-		// navigated value carries reflect's read-only flag; clear it before
-		// dispatch or reflect.Value.Call panics.
+		// Embedded fields are often unexported, value carries RO flag. Clear it before dispatch.
 		rv = Exportable(rv)
 		embedded := FromReflect(rv)
 		if !embedded.IsIface() {

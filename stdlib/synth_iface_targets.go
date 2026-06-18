@@ -16,4 +16,7 @@ func init() {
 	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(errors.As))
 	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(reflect.ValueOf))
 	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(reflect.TypeOf))
+	// errors.As writes the match through the retyped pointer, so its pointee
+	// needs normalizing back to mvm form afterward.
+	vm.RegisterSynthIfaceWriteTargetFunc(reflect.ValueOf(errors.As))
 }

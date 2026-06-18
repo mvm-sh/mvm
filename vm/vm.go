@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"unsafe" // to allow setting unexported struct fields
@@ -1206,7 +1207,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					for i := range in {
 						in[i] = mem[sp-narg+1+i].Reflect()
 					}
-					m.bridgeArgs(in, funcType, rv)
+					ifaceWB := m.bridgeArgs(in, funcType, rv)
 					coerceInterfaceArgs(in, funcType)
 					m.wrapFuncArgs(in, mem[sp-narg+1:sp+1], funcType)
 					sp -= narg + 1
@@ -1222,6 +1223,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					if panicked {
 						ip = m.stageUnwind(ip, fp, mem)
 						continue
+					}
+					if ifaceWB != nil {
+						m.normalizeIfaceWritebacks(ifaceWB)
 					}
 					for _, v := range out {
 						if sp+1 >= len(mem) {
@@ -5334,7 +5338,9 @@ func (m *Machine) mapKey(t reflect.Type, src Value) reflect.Value {
 	return mapKeyReflect(t, src)
 }
 
-func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value) {
+func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value) []ifaceWriteback {
+	var wb []ifaceWriteback
+	var retyped []int // args relabeled to *synthIface; excluded from the unbox walk
 	for i, rv := range in {
 		if !rv.IsValid() || rv.Type() != ifaceRtype {
 			if rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() &&
@@ -5347,6 +5353,11 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 		ifc := rv.Interface().(Iface)
 		if st := m.bridgePtrToIface(ifc, ifc.Val.Reflect(), fn); st.IsValid() {
 			in[i] = st
+			retyped = append(retyped, i)
+			if !st.IsNil() && isSynthIfaceWriteTargetFunc(fn) {
+				ptr := st.UnsafePointer()
+				wb = append(wb, ifaceWriteback{ptr: ptr, st: st.Type().Elem(), before: *(*[2]uintptr)(ptr)})
+			}
 			continue
 		}
 		targetType := paramTypeFor(funcType, i)
@@ -5356,11 +5367,17 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 		in[i] = m.bridgeIface(ifc, targetType)
 	}
 	// Iface boxes nested in a composite arg leak into native reflect walks.
+	// Skip args relabeled to *synthIface: their pointee is the caller's interface
+	// cell in mvm form, which deepUnboxIface would misread as Go iface layout.
 	for i, rv := range in {
+		if slices.Contains(retyped, i) {
+			continue
+		}
 		if w, ch := m.deepUnboxIface(rv, 0, 0, nil); ch {
 			in[i] = w
 		}
 	}
+	return wb
 }
 
 func paramTypeFor(funcType reflect.Type, i int) reflect.Type {
