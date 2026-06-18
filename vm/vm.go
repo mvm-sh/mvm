@@ -1658,7 +1658,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					// iface the concrete synth rtype does not implement).
 					if !hasNativeMethod(rt, m.MethodNames[methodID]) || isSynthOrSynthPtr(rt) {
 						if t := m.typeByRtype(rt); t != nil && t.ResolveMethodType(methodID) != nil {
-							mem[sp] = Value{ref: reflect.ValueOf(Iface{Typ: t, Val: Value{ref: rv}})}
+							// FromReflect, not Value{ref: rv}: a numeric concrete (rv from
+							// iface.Elem()) is non-addressable, so its data must go in num
+							// or the value-receiver body reads a stale zero.
+							mem[sp] = Value{ref: reflect.ValueOf(Iface{Typ: t, Val: FromReflect(rv)})}
 						}
 					}
 				}
@@ -1754,7 +1757,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						if t := m.typeByRtype(erv.Type()); t != nil {
 							if mt := t.ResolveMethodType(methodID); mt != nil {
 								methodTyp = mt
-								ifc = Iface{Typ: t, Val: Value{ref: erv}}
+								ifc = Iface{Typ: t, Val: FromReflect(erv)}
 								method = mt.Methods[methodID]
 								continue
 							}
