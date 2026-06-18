@@ -3975,7 +3975,6 @@ func (m *Machine) reflectForSend(val Value, elemType reflect.Type) reflect.Value
 }
 
 func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value {
-	_ = targetType
 	val := ifc.Val.Reflect()
 	if ifc.Typ != nil && (!val.IsValid() || (val.Kind() == reflect.Interface && val.IsNil())) {
 		return reflect.Zero(ifc.Typ.Rtype)
@@ -3999,6 +3998,15 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 		rt.Kind() == reflect.String && val.Kind() == reflect.String &&
 		val.Type() != rt && val.Type().ConvertibleTo(rt) {
 		return val.Convert(rt)
+	}
+	// A struct embedding an interface satisfies a native interface param via
+	// methods promoted from the embedded field; reflect.StructOf cannot build
+	// those callably, so install a synth rtype that forwards them.
+	if targetType != nil && targetType.Kind() == reflect.Interface && targetType.NumMethod() > 0 &&
+		val.IsValid() && val.Kind() == reflect.Struct {
+		if sv := m.bridgeStructEmbedIface(val, targetType); sv.IsValid() {
+			return sv
+		}
 	}
 	return val
 }
