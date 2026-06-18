@@ -29,10 +29,6 @@ func (p *Parser) addLocalVar(name string) string {
 	return scoped
 }
 
-// recordDirectLocal indexes a newly inserted LocalVar key under its parent scope
-// (the text before the final '/'), so clearDirectLocals drops a scope's direct
-// locals without scanning the whole symbol table. The index is a superset of the
-// live direct locals: stale keys are tolerated (clearDirectLocals re-checks each).
 func (p *Parser) recordDirectLocal(key string) {
 	i := strings.LastIndexByte(key, '/')
 	if i < 0 {
@@ -45,9 +41,6 @@ func (p *Parser) recordDirectLocal(key string) {
 	p.directLocals[scope] = append(p.directLocals[scope], key)
 }
 
-// clearDirectLocals removes LocalVar entries at scope's direct level (keys
-// "scope/<name>" with no further "/"). Used at parseFunc entry to drop leftovers
-// from a prior parse that wrote to the same funcScope key -- see the call site.
 func (p *Parser) clearDirectLocals(scope string) {
 	keys := p.directLocals[scope]
 	if len(keys) == 0 {
@@ -62,8 +55,19 @@ func (p *Parser) clearDirectLocals(scope string) {
 	p.directLocals[scope] = keys[:0]
 }
 
-// rebuildDirectLocals reconstructs the index from the symbol table, after
-// RestoreUnit mutates the map wholesale (mirrors rebuildSeg).
+// PurgeUnitLocals drops every scoped local-variable symbol left over from prior compile units.
+func (p *Parser) PurgeUnitLocals() {
+	for _, keys := range p.directLocals {
+		for _, k := range keys {
+			if s, ok := p.Symbols[k]; ok && s.Kind == symbol.LocalVar {
+				delete(p.Symbols, k)
+				p.Seg.Del(k)
+			}
+		}
+	}
+	clear(p.directLocals)
+}
+
 func (p *Parser) rebuildDirectLocals() {
 	clear(p.directLocals)
 	for k, s := range p.Symbols {
@@ -73,16 +77,6 @@ func (p *Parser) rebuildDirectLocals() {
 	}
 }
 
-// addOrRebindLocalVar returns the scoped key for a `:=` LHS ident, preserving
-// an existing same-scope LocalVar (named return, param, or prior `:=`) instead
-// of overwriting it with a fresh Type=nil entry. Go's short-var-decl rebinds
-// existing names when at least one LHS ident is new in the same block.
-//
-// `Index < framelen` rejects a stale entry left by a prior parse of a
-// different package's same-named method: funcScope is the bare function
-// name, so cross-pkg method namesakes share scoped keys for their locals.
-// Valid rebinds (named return, param, prior `:=` in this parse) have
-// Index < framelen by construction.
 func (p *Parser) addOrRebindLocalVar(name string) string {
 	if name == "_" {
 		return p.addLocalVar(name)
@@ -114,10 +108,6 @@ func (p *Parser) addGlobalVar(name string) string {
 	return p.addPkgVar(name)
 }
 
-// addOrRebindGlobalVar is addOrRebindLocalVar for package scope: a top-level
-// `:=` redefine (REPL) reuses the existing Var symbol, keeping its slot and
-// type for already-parsed references, instead of overwriting it with a fresh
-// Type=nil entry that breaks compilation of those references.
 func (p *Parser) addOrRebindGlobalVar(name string) string {
 	if name == "_" {
 		return p.addPkgVar(p.blankName())
@@ -129,9 +119,6 @@ func (p *Parser) addOrRebindGlobalVar(name string) string {
 	return p.addPkgVar(name)
 }
 
-// setLHSType assigns t to the i-th `:=` LHS local when it is a fresh, named,
-// non-blank, currently-untyped define target. Shared by the range- and
-// call-define inference paths so the (subtle) skip rules live in one place.
 func (p *Parser) setLHSType(i int, t *vm.Type, lhs []Tokens, lhsPositions []int, out Tokens) {
 	if t == nil || i >= len(lhs) || len(lhs[i]) != 1 || lhs[i][0].Tok != lang.Ident || lhs[i][0].Str == "_" {
 		return
@@ -200,10 +187,6 @@ func (p *Parser) inferDefineType(rhs Tokens, scopedName string) {
 	}
 }
 
-// inferCallDefineTypes sets the static Type of freshly-defined `:=` LHS locals
-// from the return tuple of a call RHS, e.g. `bad, good := DumpTables(p)` types
-// both as []int. Without this, locals bound from a call have a nil Type and
-// later generic type inference (inferExprType) can't resolve them.
 func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []int, out Tokens) {
 	ft := p.callFuncType(rhs)
 	if ft == nil {
@@ -222,10 +205,6 @@ func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []i
 	}
 }
 
-// callFuncType returns the function type invoked by a postfix expression
-// ending in a Call token, or nil if the callee isn't a resolvable function
-// identifier (e.g. a type conversion, builtin, or pkg-qualified selector).
-// It mirrors postfixType's Call arg-walking to locate the callee token.
 func (p *Parser) callFuncType(in Tokens) *vm.Type {
 	l := len(in) - 1
 	if l < 0 || in[l].Tok != lang.Call {

@@ -267,6 +267,7 @@ func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 // Code and data are added incrementally in c.Code and C.Data.
 func (c *Compiler) Compile(name, src string) (err error) {
 	c.ResetUnitLabels()
+	c.PurgeUnitLocals()
 	// On failure, roll back to the pre-compile state so a half-compiled unit
 	// can't corrupt the next compile on this reused Compiler.
 	snap := c.SnapshotUnit()
@@ -303,6 +304,7 @@ func (c *Compiler) Compile(name, src string) (err error) {
 // declaration order.
 func (c *Compiler) CompileFiles(sources []goparser.PackageSource) (err error) {
 	c.ResetUnitLabels()
+	c.PurgeUnitLocals()
 	snap := c.SnapshotUnit()
 	cg := c.snapshotCodegen()
 	defer func() {
