@@ -417,10 +417,14 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 			}
 			return nil, nil, 0, errors.New("len: unsupported constant argument type")
 		}
-		if s, _, ok := p.symGet(fname); ok && s.Kind == symbol.Type {
-			return p.constTypeConv(args[0], s.Type, narg, totalLen, in[l])
+		if s, _, ok := p.symGet(fname); ok {
+			if s.Kind == symbol.Type {
+				return p.constTypeConv(args[0], s.Type, narg, totalLen, in[l])
+			}
+			return nil, nil, 0, fmt.Errorf("unsupported constant call: %s", fname)
 		}
-		return nil, nil, 0, fmt.Errorf("unsupported constant call: %s", fname)
+		// Unresolved callee: likely a forward-referenced type conversion.
+		return nil, nil, 0, p.undef(fname, rest[len(rest)-1])
 
 	default:
 		return nil, nil, 0, p.errAt(in[l], "invalid constant expression")
@@ -431,14 +435,10 @@ func isUnsignedKind(k reflect.Kind) bool {
 	return k >= reflect.Uint && k <= reflect.Uintptr
 }
 
-// isBasicKind reports whether k is a non-composite Go basic kind.
 func isBasicKind(k reflect.Kind) bool {
 	return (k >= reflect.Bool && k <= reflect.Complex128) || k == reflect.String
 }
 
-// definedOverNativeComposite reports that t is a defined composite (type ipValue
-// net.IP) over a NATIVE underlying with no own symbolic structure -- deferring it
-// (vs the eager native Rtype) lets comp materialize from Base post-attach.
 func definedOverNativeComposite(t *vm.Type) bool {
 	if t.Base == nil || t.Base.Rtype == nil || t.ElemType != nil || t.KeyType != nil || len(t.Fields) != 0 {
 		return false
@@ -450,12 +450,6 @@ func definedOverNativeComposite(t *vm.Type) bool {
 	return false
 }
 
-// definedSymbolicComposite reports that t is a defined slice/array/chan/map
-// (type flagVar []string) carrying its own symbolic structure that comp can
-// rebuild from ElemType/KeyType. Deferring it (Rtype nil) instead of keeping the
-// eager parse-time rtype lets the reserve path give a method-bearing one its own
-// identity, so composites capturing it need no later patching. Structs (handled
-// by definedOverNativeComposite or the placeholder path) are intentionally excluded.
 func definedSymbolicComposite(t *vm.Type) bool {
 	switch t.Kind() {
 	case reflect.Slice, reflect.Array, reflect.Chan:
@@ -466,10 +460,7 @@ func definedSymbolicComposite(t *vm.Type) bool {
 	return false
 }
 
-// ErrConstOverflow reports a constant that cannot be represented in its type --
-// the gc "constant X overflows T" compile error. It is a hard parse error so
-// ParseAll does not skip past it (which would otherwise mask it as a later
-// "undefined" error). ErrPos lets the diagnostic chokepoint render a snippet.
+// ErrConstOverflow reports a constant that cannot be represented in its type.
 type ErrConstOverflow struct {
 	Value string
 	Type  string
@@ -492,13 +483,7 @@ func (p *Parser) overflowErr(cv constant.Value, typ *vm.Type, tok Token) ErrCons
 	return ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
 }
 
-// OverflowsType reports whether the integer constant cv cannot be represented in
-// the integer type typ -- the Go representability rule the gc compiler enforces
-// as a compile error (e.g. `int8(200)` or `const x uint8 = 256`). It is meant to
-// be called only at explicit-type points (conversions, typed const declarations);
-// untyped constant arithmetic must NOT use it (1<<63 etc. are valid untyped).
-// Non-integer constants and non-integer types return false (truncation and float
-// range are handled elsewhere / left unconstrained).
+// OverflowsType reports whether the integer constant cv cannot be represented in the integer type typ.
 func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 	if cv == nil || typ == nil {
 		return false
@@ -527,8 +512,6 @@ func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 	return constant.Compare(i, token.LSS, loBound) || constant.Compare(i, token.GTR, hiBound)
 }
 
-// isUnsafePkgIdent reports whether t names the "unsafe" package. File-scoped
-// imports rewrite the ident to an alias key ("unsafe@34"), so check PkgPath too.
 func (p *Parser) isUnsafePkgIdent(t Token) bool {
 	if t.Tok != lang.Ident {
 		return false

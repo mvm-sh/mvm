@@ -1155,6 +1155,11 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 					return nil, 0
 				}
 				return vm.SymPtr(firstArgType), totalLen
+			case "len", "cap", "copy":
+				return p.Symbols["int"].Type, totalLen
+			case "min", "max":
+				// min/max yield their operands' (shared) type.
+				return firstArgType, totalLen
 			}
 			s, _, ok := p.Symbols.Get(fnTok.Str, p.scope)
 			if !ok {
@@ -1201,6 +1206,26 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				}
 				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
 					return funcReturnType(ms.Type), totalLen
+				}
+				// Interface receiver: the method set lives in IfaceMethods, not as
+				// method decls, so MethodByName misses it. Read the declared return
+				// type from there (cmp.Compare(a.ID(), b.ID()) with a/b interface).
+				if st.IsInterface() {
+					st.EnsureIfaceMethods()
+					for _, im := range st.IfaceMethods {
+						if im.Name != member {
+							continue
+						}
+						if im.Sig != nil {
+							if rt := funcReturnType(im.Sig); rt != nil {
+								return rt, totalLen
+							}
+						}
+						if im.Rtype != nil && im.Rtype.NumOut() >= 1 {
+							return &vm.Type{Rtype: im.Rtype.Out(0)}, totalLen
+						}
+						break
+					}
 				}
 				// Native/bridged method: read the return type from the rtype, so a
 				// chain like sig.Params().Variables() types as iter.Seq[*Var] and a

@@ -491,6 +491,15 @@ const size = 3
 type Vec struct { data [size]int }
 len(Vec{}.data)`, res: "3"},
 
+		// A const using a type-conversion of a type declared later: the forward
+		// ref must defer (ErrUndefined), not register a Cval-less stub that
+		// poisons consts referencing it (gonum graph.Empty/nothing/empty).
+		{n: "const_typed_conv_fwd_type", src: `
+const Empty = nothing
+const nothing = empty(0)
+type empty int
+int(Empty)`, res: "0"},
+
 		// var with initializer declared after the func that uses it.
 		{n: "var_init_after_func", src: `
 func get() int { return x }
@@ -642,6 +651,12 @@ func TestGenericImplicit(t *testing.T) {
 		{n: "infer_generic_call_as_arg", src: `func Or[T comparable](vals ...T) T { var z T; for _, v := range vals { if v != z { return v } }; return z }; func cmp3[T int](a, b T) int { if a < b { return -1 }; if a > b { return 1 }; return 0 }; Or(cmp3(1, 2), cmp3(3, 3))`, res: "-1"},
 		{n: "infer_pkg_qualified_ptr_type_pos", src: `import "bytes"; func zero[T any](x T) T { var z T; return z }; var p *bytes.Buffer; zero(p) == nil`, res: "true"},
 		{n: "infer_pkg_qualified_slice_type_pos", src: `import "bytes"; func first[T any](xs []T) T { var z T; if len(xs) == 0 { return z }; return xs[0] }; var p *bytes.Buffer; first([]*bytes.Buffer{p, nil}) == nil`, res: "true"},
+		// Infer a type param from an interface-method-call result (gonum
+		// internal/order: cmp.Compare(a.ID(), b.ID()) with a/b interface-typed).
+		{n: "infer_iface_method_result", src: `import "cmp"; type N interface{ ID() int64 }; type n int64; func (x n) ID() int64 { return int64(x) }; var a, b N = n(1), n(2); cmp.Compare(a.ID(), b.ID())`, res: "-1"},
+		{n: "infer_iface_method_result_via_temp", src: `import "cmp"; type N interface{ ID() int64 }; type n int64; func (x n) ID() int64 { return int64(x) }; var a N = n(5); v := a.ID(); cmp.Compare(v, v)`, res: "0"},
+		// Infer a type param from a len/cap builtin call result.
+		{n: "infer_len_builtin_arg", src: `import "cmp"; func f(a, b []int) int { return cmp.Compare(len(a), len(b)) }; f([]int{1, 2, 3}, []int{1})`, res: "1"},
 	})
 }
 
@@ -4244,6 +4259,16 @@ for i := 0; i < 3; i++ { select { case v := <-ch: sum = sum + v } }
 sum`, res: "60"},
 
 		{n: "select_bare_recv", src: `ch := make(chan int, 1); ch <- 1; select { case <-ch: }; 42`, res: "42"},
+
+		// reflect.Select returns an unaddressable value; the recv var must land
+		// in addressable storage so a later field assignment works (gonum diff/fd).
+		{n: "select_recv_struct_field_set", src: `
+type S struct{ n int; f float64 }
+ch := make(chan S, 1)
+ch <- S{n: 1}
+r := 0.0
+select { case v := <-ch: v.f = 2.5; r = v.f }
+int(r * 10)`, res: "25"},
 
 		{n: "select_multiple_cases", src: `
 ch1 := make(chan int, 1)
