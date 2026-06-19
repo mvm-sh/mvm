@@ -1,7 +1,8 @@
 // Package modfs implements an io/fs.FS backed by the Go module proxy
 // protocol. It fetches modules over HTTP on demand and caches them in
-// memory, so no module sources are written to disk. This makes it usable
-// from WASM and other restricted environments.
+// memory. With no CacheDir set it writes nothing to disk, so it stays
+// usable from WASM and other restricted environments; set Options.CacheDir
+// to also persist fetched module zips across runs.
 //
 // The filesystem is plugged into goparser.Parser as a third-tier fallback
 // after the user pkgfs and the embedded stdlib source FS, so any import
@@ -17,7 +18,9 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -29,37 +32,29 @@ const DefaultProxy = "https://proxy.golang.org"
 
 // Options configures FS construction.
 type Options struct {
-	// Proxy is the module proxy base URL. Empty means DefaultProxy.
-	Proxy string
-	// Client is the HTTP client used for proxy requests. Empty means
-	// http.DefaultClient.
-	Client *http.Client
-	// Offline disables proxy fetches. Only modules added via Inject are
-	// served; any other lookup returns fs.ErrNotExist. Useful for
-	// playground/WASM and GOPROXY=off, where the embedded stdlib zip is the
-	// sole source.
-	Offline bool
+	Proxy    string       // module proxy base URL. Empty means DefaultProxy.
+	Client   *http.Client // for proxy requests. Empty means http.DefaultClient.
+	Offline  bool         // disable proxy fetch if true.
+	CacheDir string       // writable dir to store zip, etc. Empty keeps modfs in-memory.
+	ReadDirs []string     // additional read-only roots searched.
 }
 
-// FS is an in-memory filesystem that resolves Go import paths against a
-// module proxy. It implements fs.FS, fs.StatFS and fs.ReadDirFS.
+// FS is an in-memory filesystem that resolves Go import paths against a module proxy.
 type FS struct {
-	proxy   string
-	client  *http.Client
-	offline bool
+	proxy    string
+	client   *http.Client
+	offline  bool
+	cacheDir string   // writable persistent cache root ("" = memory only)
+	readDirs []string // read-only cache roots (e.g. Go's module download cache)
 
 	mu      sync.Mutex
 	modules map[string]*module  // module path -> loaded module
 	missing map[string]struct{} // module-path candidates known to be absent
 	stats   NetStats            // proxy traffic counters; guarded by mu
+	cache   CacheStats          // disk-cache counters; guarded by mu
 }
 
-// NetStats summarizes the network work performed by an FS instance:
-// proxy requests issued (200s and failures), bytes consumed from response
-// bodies, and total wall-clock time spent in proxyGet.
-//
-// Cache hits, Inject calls, and offline lookups do not contribute -- only
-// real HTTP requests do. Snapshot the counters with FS.NetStats.
+// NetStats summarizes the network work performed by an FS instance.
 type NetStats struct {
 	Requests     int
 	BytesFetched int64
@@ -73,9 +68,22 @@ func (f *FS) NetStats() NetStats {
 	return f.stats
 }
 
-// CloseIdleConnections closes keep-alive proxy connections held by the HTTP
-// client's transport. Call it after loading so a lingering connection's
-// readLoop goroutine does not register as a leak in goroutine-checking tests.
+// CacheStats summarizes the on-disk cache work performed by an FS instance.
+type CacheStats struct {
+	ZipHits         int   // module zips served from disk instead of the network
+	ZipBytes        int64 // bytes of those cached zips
+	ReadThroughHits int   // subset of ZipHits served from a read-only root
+	ZipWrites       int   // zips persisted to CacheDir after a fetch
+}
+
+// CacheStats returns a snapshot of the FS's disk-cache counters.
+func (f *FS) CacheStats() CacheStats {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cache
+}
+
+// CloseIdleConnections closes keep-alive proxy connections held by the HTTP client's transport.
 func (f *FS) CloseIdleConnections() {
 	if f.client == nil {
 		return
@@ -89,8 +97,7 @@ func (f *FS) CloseIdleConnections() {
 	}
 }
 
-// countingReader wraps an io.Reader and tallies bytes consumed. Used by
-// proxyGet to count what the consumer actually reads from the response body.
+// countingReader wraps an io.Reader and tallies bytes consumed.
 type countingReader struct {
 	r io.Reader
 	n int64
@@ -120,19 +127,17 @@ func New(opts Options) *FS {
 		client = http.DefaultClient
 	}
 	return &FS{
-		proxy:   proxy,
-		client:  client,
-		offline: opts.Offline,
-		modules: map[string]*module{},
-		missing: map[string]struct{}{},
+		proxy:    proxy,
+		client:   client,
+		offline:  opts.Offline,
+		cacheDir: opts.CacheDir,
+		readDirs: opts.ReadDirs,
+		modules:  map[string]*module{},
+		missing:  map[string]struct{}{},
 	}
 }
 
-// Inject installs a pre-fetched module into the in-memory cache. The
-// zipBytes must use the standard Go module proxy layout (entries rooted at
-// "<modPath>@<version>/"). After Inject, lookups under modPath are served
-// from memory without network access. Any prior negative cache entry for
-// modPath itself is cleared so locate() can find it.
+// Inject installs a pre-fetched module into the in-memory cache.
 func (f *FS) Inject(modPath, version string, zipBytes []byte) error {
 	mod, err := newModule(modPath, version, zipBytes)
 	if err != nil {
@@ -145,8 +150,7 @@ func (f *FS) Inject(modPath, version string, zipBytes []byte) error {
 	return nil
 }
 
-// Open implements fs.FS. The name is an import path or a path inside one
-// (e.g. "github.com/foo/bar" or "github.com/foo/bar/sub/file.go").
+// Open implements fs.FS. The name is an import path or a path inside one.
 func (f *FS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
@@ -198,18 +202,12 @@ func (f *FS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return out, nil
 }
 
-// locate returns the owning module and the path within that module for
-// the given import path. The mutex is held across proxy requests; the
-// parser is single-threaded so contention is not a concern.
+// locate returns the owning module and the path within that module for the given import path.
 func (f *FS) locate(importPath string) (*module, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Probe shortest-first (a module path has >=2 components). Take the first
-	// prefix the proxy answers 200 for AND that owns the sub-path; misses are
-	// negative-cached. The sub-path check handles semantic import versioning:
-	// "github.com/blang/semver" also answers 200 for ".../semver/v4", so
-	// without it we would pick the v1 module and miss the v4 subdir.
+	// Probe shortest-first (a module path has >=2 components).
 	parts := strings.Split(importPath, "/")
 	for i := 2; i <= len(parts); i++ {
 		cand := strings.Join(parts[:i], "/")
@@ -224,7 +222,6 @@ func (f *FS) locate(importPath string) (*module, string, error) {
 		sub := strings.TrimPrefix(strings.TrimPrefix(importPath, cand), "/")
 		if !m.has(sub) {
 			// Real module, wrong one for this import: try a longer prefix.
-			// Not negative-cached, since the module itself exists.
 			continue
 		}
 		return m, sub, nil
@@ -232,7 +229,6 @@ func (f *FS) locate(importPath string) (*module, string, error) {
 	return nil, "", fs.ErrNotExist
 }
 
-// has reports whether the module contains sub as a file or dir ("" = root).
 func (m *module) has(sub string) bool {
 	if sub == "" {
 		return true
@@ -248,10 +244,7 @@ func (f *FS) fetchModulePath(modPath string) (*module, error) {
 	if mod, ok := f.modules[modPath]; ok {
 		return mod, nil
 	}
-	if f.offline {
-		return nil, fs.ErrNotExist
-	}
-	version, err := f.fetchLatest(modPath)
+	version, err := f.resolveVersion(modPath)
 	if err != nil {
 		return nil, err
 	}
@@ -263,13 +256,21 @@ func (f *FS) fetchModulePath(modPath string) (*module, error) {
 	return mod, nil
 }
 
-// proxyGet fetches the given path under the proxy base URL and invokes
-// consume on the response body. It handles status checking and body close.
-//
-// Every call -- including failures -- contributes to NetStats: a request
-// is counted, bytes are tallied from a counting wrapper around the body,
-// and wall-clock time is added. Callers already hold f.mu (via locate), so
-// the counter writes are safe without separate locking.
+func (f *FS) resolveVersion(modPath string) (string, error) {
+	if v, ok := f.readCachedLatest(modPath); ok {
+		return v, nil
+	}
+	if f.offline {
+		return "", fs.ErrNotExist
+	}
+	v, err := f.fetchLatest(modPath)
+	if err != nil {
+		return "", err
+	}
+	f.writeCachedLatest(modPath, v)
+	return v, nil
+}
+
 func (f *FS) proxyGet(path string, consume func(io.Reader) error) error {
 	url := f.proxy + "/" + path
 	start := time.Now()
@@ -307,6 +308,12 @@ func (f *FS) fetchLatest(modPath string) (string, error) {
 }
 
 func (f *FS) fetchModule(modPath, version string) (*module, error) {
+	if data, ok := f.readCachedZip(modPath, version); ok {
+		return newModule(modPath, version, data)
+	}
+	if f.offline {
+		return nil, fs.ErrNotExist
+	}
 	esc, err := escapePath(modPath)
 	if err != nil {
 		return nil, err
@@ -323,11 +330,119 @@ func (f *FS) fetchModule(modPath, version string) (*module, error) {
 	}); err != nil {
 		return nil, err
 	}
+	f.writeCachedZip(modPath, version, data)
 	return newModule(modPath, version, data)
 }
 
-// newModule parses a module zip into an in-memory module. The Go module
-// proxy zips have all entries under "<modPath>@<version>/".
+func zipCacheRel(modPath, version string) (string, bool) {
+	escMod, err := escapePath(modPath)
+	if err != nil {
+		return "", false
+	}
+	escVer, err := escapePath(version)
+	if err != nil {
+		return "", false
+	}
+	return filepath.FromSlash(escMod + "/@v/" + escVer + ".zip"), true
+}
+
+func (f *FS) readCachedZip(modPath, version string) ([]byte, bool) {
+	rel, ok := zipCacheRel(modPath, version)
+	if !ok {
+		return nil, false
+	}
+	if f.cacheDir != "" {
+		if data, ok := f.tryCachedZip(filepath.Join(f.cacheDir, rel), false); ok {
+			return data, true
+		}
+	}
+	for _, root := range f.readDirs {
+		if data, ok := f.tryCachedZip(filepath.Join(root, rel), true); ok {
+			return data, true
+		}
+	}
+	return nil, false
+}
+
+func (f *FS) tryCachedZip(path string, readOnly bool) ([]byte, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	f.cache.ZipHits++
+	f.cache.ZipBytes += int64(len(data))
+	if readOnly {
+		f.cache.ReadThroughHits++
+	}
+	return data, true
+}
+
+func (f *FS) writeCachedZip(modPath, version string, data []byte) {
+	if f.cacheDir == "" {
+		return
+	}
+	rel, ok := zipCacheRel(modPath, version)
+	if !ok {
+		return
+	}
+	if writeFileAtomic(filepath.Join(f.cacheDir, rel), data) == nil {
+		f.cache.ZipWrites++
+	}
+}
+
+func (f *FS) latestPath(modPath string) string {
+	escMod, err := escapePath(modPath)
+	if err != nil || f.cacheDir == "" {
+		return ""
+	}
+	return filepath.Join(f.cacheDir, filepath.FromSlash(escMod), "@latest")
+}
+
+func (f *FS) readCachedLatest(modPath string) (string, bool) {
+	p := f.latestPath(modPath)
+	if p == "" {
+		return "", false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", false
+	}
+	v := strings.TrimSpace(string(data))
+	return v, v != ""
+}
+
+func (f *FS) writeCachedLatest(modPath, version string) {
+	if p := f.latestPath(modPath); p != "" {
+		_ = writeFileAtomic(p, []byte(version))
+	}
+}
+
+func writeFileAtomic(name string, data []byte) error {
+	dir := filepath.Dir(name)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, name); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
 func newModule(modPath, version string, zipBytes []byte) (*module, error) {
 	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
@@ -414,9 +529,6 @@ func newModule(modPath, version string, zipBytes []byte) (*module, error) {
 	}, nil
 }
 
-// escapePath case-encodes the input as required by the module proxy
-// protocol: every uppercase ASCII letter is replaced by "!" + lowercase.
-// Non-ASCII runes are rejected to avoid silent mis-encoding.
 func escapePath(s string) (string, error) {
 	var b strings.Builder
 	b.Grow(len(s))

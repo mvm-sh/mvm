@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -377,6 +379,84 @@ func TestOfflineNoFetch(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&p.requests); got != 0 {
 		t.Errorf("offline FS made %d proxy requests, want 0", got)
+	}
+}
+
+func TestDiskCacheRoundTrip(t *testing.T) {
+	p := &fakeProxy{
+		t:       t,
+		modules: map[string]map[string]string{"example.com/foo@v1.0.0": {"foo.go": "package foo\n"}},
+		latest:  map[string]string{"example.com/foo": "v1.0.0"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(p.handler))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+
+	// First load over the network populates the cache.
+	f1 := New(Options{Proxy: srv.URL, CacheDir: dir})
+	if _, err := fs.ReadFile(f1, "example.com/foo/foo.go"); err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+	if atomic.LoadInt64(&p.requests) == 0 {
+		t.Fatal("expected proxy requests on first load")
+	}
+	for _, rel := range []string{"example.com/foo/@v/v1.0.0.zip", "example.com/foo/@latest"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("cache file %s missing: %v", rel, err)
+		}
+	}
+
+	// A fresh offline FS over the same cache serves without any network.
+	p.requests = 0
+	f2 := New(Options{Proxy: srv.URL, CacheDir: dir, Offline: true})
+	data, err := fs.ReadFile(f2, "example.com/foo/foo.go")
+	if err != nil {
+		t.Fatalf("cached offline load: %v", err)
+	}
+	if !strings.Contains(string(data), "package foo") {
+		t.Errorf("unexpected content: %q", data)
+	}
+	if got := atomic.LoadInt64(&p.requests); got != 0 {
+		t.Errorf("offline cached load made %d proxy requests, want 0", got)
+	}
+	if cs := f2.CacheStats(); cs.ZipHits != 1 || cs.ZipBytes == 0 || cs.ReadThroughHits != 0 {
+		t.Errorf("CacheStats = %+v, want 1 hit, >0 bytes, 0 read-through", cs)
+	}
+	if cs := f1.CacheStats(); cs.ZipWrites != 1 {
+		t.Errorf("first FS ZipWrites = %d, want 1", cs.ZipWrites)
+	}
+}
+
+func TestReadThroughGoCache(t *testing.T) {
+	// Proxy resolves @latest but has no zip; the zip lives only in a
+	// read-only root, mimicking an existing Go module download cache.
+	p := &fakeProxy{
+		t:       t,
+		modules: map[string]map[string]string{},
+		latest:  map[string]string{"example.com/bar": "v2.1.0"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(p.handler))
+	t.Cleanup(srv.Close)
+
+	goCache := t.TempDir()
+	zb, err := buildZip("example.com/bar", "v2.1.0", map[string]string{"bar.go": "package bar\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zp := filepath.Join(goCache, filepath.FromSlash("example.com/bar/@v/v2.1.0.zip"))
+	if err := os.MkdirAll(filepath.Dir(zp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zp, zb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := New(Options{Proxy: srv.URL, CacheDir: t.TempDir(), ReadDirs: []string{goCache}})
+	if _, err := fs.ReadFile(f, "example.com/bar/bar.go"); err != nil {
+		t.Fatalf("read via Go-cache read-through: %v", err)
+	}
+	if cs := f.CacheStats(); cs.ZipHits != 1 || cs.ReadThroughHits != 1 || cs.ZipWrites != 0 {
+		t.Errorf("CacheStats = %+v, want 1 hit, 1 read-through, 0 writes", cs)
 	}
 }
 

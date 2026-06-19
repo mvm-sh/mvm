@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -26,22 +27,70 @@ import (
 //   - "off":         disable network fetches (offline-only modfs)
 //   - any URL list:  use the first URL entry as the proxy; "direct"/"off"
 //     entries fall back to offline since modfs has no direct VCS path
+//
+// All modes may persist fetched zips to a local cache.
 func buildModFS() *modfs.FS {
+	opts := modfs.Options{}
+	opts.CacheDir, opts.ReadDirs = cacheOptions()
 	p := os.Getenv("GOPROXY")
 	if p == "" {
-		return modfs.New(modfs.Options{})
+		return modfs.New(opts)
 	}
 	for _, part := range strings.FieldsFunc(p, func(r rune) bool { return r == ',' || r == '|' }) {
 		switch strings.TrimSpace(part) {
 		case "":
 			continue
 		case "off", "direct":
-			return modfs.New(modfs.Options{Offline: true})
+			opts.Offline = true
+			return modfs.New(opts)
 		default:
-			return modfs.New(modfs.Options{Proxy: strings.TrimSpace(part)})
+			opts.Proxy = strings.TrimSpace(part)
+			return modfs.New(opts)
 		}
 	}
-	return modfs.New(modfs.Options{Offline: true})
+	opts.Offline = true
+	return modfs.New(opts)
+}
+
+func cacheOptions() (cacheDir string, readDirs []string) {
+	switch v := os.Getenv("MVMCACHE"); v {
+	case "off":
+		return "", nil
+	case "":
+		if ucd, err := os.UserCacheDir(); err == nil {
+			cacheDir = filepath.Join(ucd, "mvm", "download")
+		}
+	default:
+		cacheDir = v
+	}
+	if gmc := goModCacheDownload(); gmc != "" && gmc != cacheDir {
+		readDirs = []string{gmc}
+	}
+	return cacheDir, readDirs
+}
+
+func goModCacheDownload() string {
+	base := os.Getenv("GOMODCACHE")
+	if base == "" {
+		gp := os.Getenv("GOPATH")
+		if gp == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return ""
+			}
+			gp = filepath.Join(home, "go")
+		}
+		if i := strings.IndexByte(gp, os.PathListSeparator); i >= 0 {
+			gp = gp[:i] // GOPATH may be a list; first entry wins
+		}
+		base = filepath.Join(gp, "pkg", "mod")
+	}
+	dir := filepath.Join(base, "cache", "download")
+	//nolint:gosec // G703: dir derives from the user's own GOMODCACHE/GOPATH, not untrusted input
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return dir
 }
 
 func wireFS(i *interp.Interp) *modfs.FS {
@@ -97,6 +146,13 @@ func setupStats(i *interp.Interp, mfs *modfs.FS, enabled bool) func() {
 			ns := mfs.NetStats()
 			out += fmt.Sprintf("  network:  %d requests, %s in %v\n",
 				ns.Requests, humanBytes(ns.BytesFetched), ns.FetchTime)
+			cs := mfs.CacheStats()
+			via := ""
+			if cs.ReadThroughHits > 0 {
+				via = fmt.Sprintf(" (%d via go cache)", cs.ReadThroughHits)
+			}
+			out += fmt.Sprintf("  cache:    %d hits%s, %s served, %d stored\n",
+				cs.ZipHits, via, humanBytes(cs.ZipBytes), cs.ZipWrites)
 		}
 		_, _ = fmt.Fprint(stderr, out)
 	})
