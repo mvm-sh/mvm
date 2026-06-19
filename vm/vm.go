@@ -2869,6 +2869,15 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				rv := reflect.New(cell.ref.Type()).Elem()
 				rv.Set(cell.ref)
 				cell.ref = rv
+			} else {
+				// A non-addressable reference value still needs its own addressable cell storage,
+				// or a later write through &cell is lost vs a CellGet read.
+				switch cell.ref.Kind() {
+				case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer:
+					rv := reflect.New(cell.ref.Type()).Elem()
+					rv.Set(Exportable(cell.ref))
+					cell.ref = rv
+				}
 			}
 			mem[sp] = ValueOf(cell) // replace value with cell pointer
 		case HeapGet:

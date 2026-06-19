@@ -1097,7 +1097,13 @@ func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, form recvForm) refle
 	case recvWord:
 		return reflect.NewAt(rtype, unsafe.Pointer(&recv)).Elem()
 	default: // recvDeref
-		return reflect.NewAt(rtype, recv).Elem()
+		// Value receiver: copy the boxed value so a struct/array field write in
+		// the method body stays local and does not leak back into the caller's
+		// interface storage (matches the IfaceCall opcode detach).
+		v := reflect.NewAt(rtype, recv).Elem()
+		cp := reflect.New(rtype).Elem()
+		cp.Set(Exportable(v))
+		return cp
 	}
 }
 

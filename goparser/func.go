@@ -2,6 +2,7 @@ package goparser
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,8 +12,6 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// registerFunc registers a function or method declaration (Phase 1).
-// Returns (true, nil) if the declaration is a generic template (fully handled).
 func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	if len(toks) < 3 || toks[0].Tok != lang.Func {
 		return false, nil
@@ -32,8 +31,6 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			return false, nil // init functions are handled in Phase 2 only.
 		}
 		if fname == "_" {
-			// Blank funcs are never callable; Go allows many per package
-			// (stringer emits `func _()` per file). Don't register: no collision.
 			return false, nil
 		}
 		if err := p.redeclaredAsImport(fname, toks[1]); err != nil {
@@ -56,10 +53,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			sigToks = append(sigToks, toks[3:sigEnd]...) // (params) rettype (skip BracketBlock)
 			genType, _, _, gerr := p.parseFuncSig(sigToks)
 			restore()
-			// Forward reference in the signature (e.g. return type names a
-			// not-yet-declared generic): defer via ErrUndefined so the retry
-			// loop re-registers this template once the referenced type exists.
-			var eu ErrUndefined
+			var eu ErrUndefined // forward reference in the signature: defer via ErrUndefined
 			if errors.As(gerr, &eu) {
 				return false, gerr
 			}
@@ -123,22 +117,10 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		return false, nil // Anonymous function.
 	}
 
-	// Top-level funcs/methods live at the canonical pkgKey ("<pkgPath>.<fname>"
-	// inside an imported pkg, bare in main/REPL). Each pkg gets its own
-	// canonical Symbol, so sibling-pkg same-named funcs (e.g.
-	// golang.org/x/text/{language,internal/language,internal/language/compact}
-	// all declare `func Make`) never collide on the bare key. The retry-loop
-	// reentry guard then collapses to a simple "this Symbol already has a
-	// Type" check at the canonical key. Anonymous closures (fname starts with
-	// '#') and the special `init` rewrite stay scope-relative via scopedName.
 	key := p.pkgKey(fname)
 	s, ok := p.Symbols[key]
 	if ok && s.Type != nil {
-		// A second declaration of this name within the same compilation unit is
-		// a redeclaration (gc: "X redeclared in this block"). Erroring here stops
-		// Phase 2 from emitting a duplicate function label, whose colliding jump
-		// target hangs the VM. A symbol carried over from a prior Eval (REPL) is
-		// not in this batch, so it falls through to the existing skip.
+		// A second declaration of this name within the same compilation unit is a redeclaration.
 		if p.batchFuncDecls[key] {
 			nameTok := toks[1]
 			if nameTok.Tok == lang.ParenBlock { // method: name follows the receiver
@@ -190,11 +172,6 @@ func (e ErrRedeclared) Error() string {
 	return msg
 }
 
-// redeclaredAsImport reports a top-level decl of name in a file that also
-// imports a package as name. Imports are file-scoped, so only the declaring
-// file's own aliases count: a sibling file or the enclosing unit importing the
-// same name is legal Go (e.g. package blas64 declares var blas64 while the
-// test unit imports blas64).
 func (p *Parser) redeclaredAsImport(name string, tok Token) error {
 	if p.scope != "" {
 		return nil
@@ -259,7 +236,6 @@ func (p *Parser) registerParamsFromSym(s *symbol.Symbol) {
 	}
 }
 
-// isInitFname reports a rewritten init func name ("#init" + digits).
 func isInitFname(name string) bool {
 	rest, ok := strings.CutPrefix(name, "#init")
 	if !ok || rest == "" {
@@ -273,9 +249,6 @@ func isInitFname(name string) bool {
 	return true
 }
 
-// anonFuncKey returns the symbol-table key for an anonymous closure name,
-// package-qualified like the compiler's qualifyLabel so the Label patch in
-// generate finds the same Symbol the parser created.
 func (p *Parser) anonFuncKey(fname string) string {
 	if p.CompilingPkg == "" {
 		return fname
@@ -347,13 +320,8 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	funcScope := p.funcScope
 	onamedOut := p.namedOut
 	p.namedOut = nil
-	// Anon closures are keyed per-package ("<CompilingPkg>.#outer.funcN", see
-	// anonFuncKey): same-named outer funcs in two packages produce the same
-	// closure name, and a shared bare-key symbol would leak one package's
-	// FreeVars into the other's closure. The direct probe keeps retry
-	// idempotency without symGet's bare-key fallback. Rewritten init funcs
-	// ("#initN") stay bare: interp resolves InitFuncs by that exact key, and
-	// initNum is already unique across packages.
+	// Anon closures are keyed per-package: same-named outer funcs in two packages
+	// produce the same closure name.
 	var s *symbol.Symbol
 	var ok bool
 	if strings.HasPrefix(fname, "#") && !isInitFname(fname) {
@@ -416,8 +384,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	if s.Type != nil {
 		p.registerParamsFromSym(s)
 	} else {
-		// This is a real func signature: parseTypeExpr's func case must register
-		// the params as locals (it suppresses registration for func TYPES).
+		// This is a real func signature: parseTypeExpr's func case must register the params as locals.
 		p.regFuncSig = true
 		typ, _, err := p.parseTypeExpr(in[:bi])
 		p.regFuncSig = false
@@ -467,10 +434,32 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 				cellParams = append(cellParams, ps.Index)
 			}
 		}
+		addrParams := map[*symbol.Symbol]bool{}
+		for _, name := range s.InNames {
+			if name == "" {
+				continue
+			}
+			ps := p.Symbols[p.scopedName(name)]
+			if ps == nil || ps.CellSlot || ps.Type == nil {
+				continue
+			}
+			switch ps.Type.Kind() {
+			case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer:
+				addrParams[ps] = true
+			}
+		}
+		for j := 0; len(addrParams) > 0 && j+1 < len(toks); j++ {
+			if toks[j].Tok != lang.Ident || toks[j+1].Tok != lang.Addr {
+				continue
+			}
+			if ps := p.Symbols[toks[j].Str]; ps != nil && addrParams[ps] {
+				ps.CellSlot = true
+				cellParams = append(cellParams, ps.Index)
+				delete(addrParams, ps)
+			}
+		}
 	}
 	out = append(out, newGrow(l, in[0].Pos, cellRet, cellParams))
-	// Zero-initialize named-return slots so an unassigned one returns a typed
-	// zero, not an invalid Value{} (which breaks interface boxing at the caller).
 	if n := len(p.namedOut); n > 0 {
 		initVars := make([]string, n)
 		initTypes := make([]*vm.Type, n)
