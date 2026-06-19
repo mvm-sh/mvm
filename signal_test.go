@@ -2,20 +2,17 @@ package main
 
 import "testing"
 
-// Stop is nil-safe before start, clears the channel (so the watcher goroutine
-// exits), and is idempotent.
-func TestStopProgressSignal(t *testing.T) {
-	stopProgressSignal() // nil-safe when never started
-	if progressSignalCh != nil {
-		t.Fatal("progressSignalCh must be nil before watchProgressSignal")
-	}
+// watchProgressSignal starts the watcher goroutine; safepointInterrupt stops it
+// and switches to VM-safepoint draining, leaving no parked goroutine for
+// interpreted leak checks to count.
+func TestSafepointInterrupt(t *testing.T) {
 	watchProgressSignal()
 	if progressSignalCh == nil {
 		t.Fatal("watchProgressSignal must set progressSignalCh")
 	}
-	stopProgressSignal()
-	if progressSignalCh != nil {
-		t.Error("stopProgressSignal must clear progressSignalCh so the watcher exits")
+	safepointInterrupt() // stops the watcher, re-registers for safepoint draining
+	if progressSignalCh == nil {
+		t.Fatal("safepointInterrupt must keep a channel registered for draining")
 	}
-	stopProgressSignal() // idempotent
+	safepointInterrupt() // idempotent: stops the prior channel, registers a fresh one
 }

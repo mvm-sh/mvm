@@ -173,6 +173,17 @@ func TestNumericWidening(t *testing.T) {
 		// overflow the later int64 negation.
 		{n: "untyped_const_multi_context", src: `const c = 1 << 63; func f(n uint64) int64 { if n == c { return -c }; return 0 }; f(1 << 63)`, res: "-9223372036854775808"},
 
+		// Named untyped const (Type==nil, value carries the kind) must convert to
+		// the destination type, not pass raw float/int bits.
+		{n: "named_float_const_to_int_var", src: `const c = 6.0; var x int = c; x`, res: "6"},
+		{n: "named_int_const_to_float_var", src: `const k = 5; var y float64 = k; y`, res: "5"},
+		{n: "named_float_const_make_len", src: `const n = 6.0; len(make([]float64, n))`, res: "6"},
+		{n: "named_float_const_func_arg", src: `func f(n int) int { return n }; const c = 6.0; f(c)`, res: "6"},
+		{n: "named_float_const_slice_elem", src: `const c = 6.0; []int{c, 3}[0]`, res: "6"},
+		{n: "named_int_const_array_elem", src: `const k = 3; [2]float64{k, 6.0}[0]`, res: "3"},
+		// make with a float exponent literal length (gonum distuv pattern).
+		{n: "float_exp_const_make_len", src: `len(make([]int, 3e3))`, res: "3000"},
+
 		// #30: two differently-typed numeric vars error like gc (no implicit
 		// widen); only an untyped constant operand widens.
 		{n: "int_var_div_float_var", src: `a := 10; b := 12.5; a / b`, err: "mismatched types int and float64"},

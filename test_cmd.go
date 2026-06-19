@@ -143,7 +143,7 @@ func rewriteTestFlags(args []string) []string {
 }
 
 func testCmd(arg []string) error {
-	stopProgressSignal() // its goroutine would trip tests' leak checks
+	safepointInterrupt() // drain Ctrl-C at VM safepoints; no goroutine to trip leak checks
 	var (
 		trace traceFlag
 		stat  bool

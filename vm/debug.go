@@ -544,6 +544,33 @@ var dumpRequested atomic.Bool
 // VM goroutine. Fires only while some machine is executing interpreted code.
 func RequestStateDump() { dumpRequested.Store(true) }
 
+// safepointHook, if non-nil, drains OS interrupts (Ctrl-C) on the call opcodes.
+// mvm test uses it instead of a parked watcher goroutine, which would otherwise
+// appear in runtime.Stack(all) and trip interpreted goroutine-leak checks. Set
+// once before execution; read-only while the VM runs. The poll lives only on the
+// call path (not the loop back-edge) so a pure compute loop runs at full speed.
+var safepointHook func()
+
+// safepointPollMask throttles the poll so a call pays only a counter increment
+// and mask test, running the hook roughly every 4096 calls.
+const safepointPollMask = 0xFFF
+
+// SetSafepointHook installs the throttled safepoint callback (nil disables it).
+func SetSafepointHook(f func()) { safepointHook = f }
+
+// callSafepoint, invoked from the call opcodes only when a hook is installed,
+// drains a pending interrupt (throttled by ctr) and services a state-dump
+// request. Out of line so the call cases stay small and the loop back-edge is
+// untouched.
+func (m *Machine) callSafepoint(ip, fp int, mem []Value, ctr *uint) {
+	if *ctr++; *ctr&safepointPollMask == 0 {
+		safepointHook()
+		if dumpRequested.Load() {
+			m.handleDumpReq(ip, fp, mem)
+		}
+	}
+}
+
 // handleDumpReq services a request; the CAS lets exactly one machine dump. Out of
 // line so the safepoint check stays a cheap load+branch.
 func (m *Machine) handleDumpReq(ip, fp int, mem []Value) {

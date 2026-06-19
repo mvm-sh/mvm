@@ -355,7 +355,10 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 				next = src[i+1]
 			}
 			hexFrac := isHex && ((next >= 'a' && next <= 'f') || (next >= 'A' && next <= 'F'))
-			isSelector := !hexFrac && ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') || next == '_')
+			// After the dot 'e'/'E' is the decimal exponent (1.e-282) and 'i'
+			// the imaginary suffix (1.i), not a selector.
+			numCont := (!isHex && (next == 'e' || next == 'E')) || next == 'i'
+			isSelector := !hexFrac && !numCont && ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') || next == '_')
 			if isSelector {
 				return src[:i], tok
 			}

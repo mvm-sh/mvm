@@ -1079,6 +1079,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 	sp := len(mem) - 1
 	// Extend mem to full capacity so all writes up to cap are in bounds.
 	mem = mem[:cap(mem)]
+	var safepointCtr uint // throttles the interrupt poll on the call opcodes
 
 	defer func() {
 		m.mem, m.ip, m.fp = mem[:sp+1], ip, fp
@@ -1147,6 +1148,11 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// State-dump safepoint: covers recursion that never hits a back-edge.
 			if dumpRequested.Load() {
 				m.handleDumpReq(ip, fp, mem)
+			}
+			// Interrupt poll, gated so mvm run (no hook) pays only a predicted
+			// branch; off the loop back-edge so pure compute loops are unaffected.
+			if safepointHook != nil {
+				m.callSafepoint(ip, fp, mem, &safepointCtr)
 			}
 			narg := int(c.A)
 			fval := mem[sp-narg]
@@ -1276,6 +1282,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			ip = nip
 			continue
 		case CallImm:
+			if safepointHook != nil {
+				m.callSafepoint(ip, fp, mem, &safepointCtr)
+			}
 			narg := int(c.B) >> 16
 			nret := int(c.B) & 0xFFFF
 			fpVal := uint64(fp)
@@ -1318,6 +1327,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case CallImmFast:
 			// Fast-path CallImm: emitted when no callee param has reflect Kind
 			// Struct or Array, so detachByValueArgs would be a no-op.
+			if safepointHook != nil {
+				m.callSafepoint(ip, fp, mem, &safepointCtr)
+			}
 			narg := int(c.B) >> 16
 			nret := int(c.B) & 0xFFFF
 			fpVal := uint64(fp)
@@ -2077,7 +2089,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp -= 2
 		case Jump:
 			// State-dump safepoint at loop back-edges (backward jumps), avoiding a
-			// per-instruction poll.
+			// per-instruction poll. No interrupt poll here: it would tax the hottest
+			// path of a pure compute loop. The poll lives on the call opcodes, which
+			// any non-trivial loop body reaches.
 			if c.A < 0 && dumpRequested.Load() {
 				m.handleDumpReq(ip, fp, mem)
 			}

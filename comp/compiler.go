@@ -1751,7 +1751,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					argSym := stack[len(stack)-narg+k]
 					if argSym.Type == nil {
 						if k < nFixed || (spread && k == nFixed) {
-							c.emitNilCoerce(t, argSym, typ.ParamType(k), narg-1-k)
+							paramTyp := typ.ParamType(k)
+							c.emitNilCoerce(t, argSym, paramTyp, narg-1-k)
+							if !paramTyp.IsInterface() {
+								c.emitConstConvert(t, argSym, paramTyp, narg-1-k)
+							}
 						}
 						continue
 					}
@@ -1843,7 +1847,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					argSym := stack[len(stack)-narg+k]
 					if argSym.Type == nil {
 						if k < nFixed || (spread && k == nFixed) {
-							c.emitNilCoerce(t, argSym, &vm.Type{Rtype: rtyp.In(k)}, narg-1-k)
+							paramTyp := &vm.Type{Rtype: rtyp.In(k)}
+							c.emitNilCoerce(t, argSym, paramTyp, narg-1-k)
+							if !paramTyp.IsInterface() {
+								c.emitConstConvert(t, argSym, paramTyp, narg-1-k)
+							}
 						}
 						continue
 					}
@@ -1928,7 +1936,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if ft != nil && ft.Kind() == reflect.Func {
 					c.emit(t, vm.WrapFunc, c.typeIndex(ft))
 				}
-				c.emitNumConvert(t, ft, vs.Type, 0)
+				c.emitNumConvert(t, ft, symbol.Vtype(vs), 0)
 				c.emitIfaceWrap(t, ft, vs.Type)
 				c.emit(t, vm.FieldSet, j...)
 				break
@@ -1944,7 +1952,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// The key may be any kind of expression, so this must come before the ks.Kind switch.
 			if ts.Type != nil && ts.Type.Kind() == reflect.Map {
 				elemTyp := ts.Type.Elem()
-				c.emitNumConvert(t, ts.Type.Key(), ks.Type, 1)
+				c.emitNumConvert(t, ts.Type.Key(), symbol.Vtype(ks), 1)
 				// Elided composite key for a *T key type denotes &T{...}; key is at depth 1.
 				if ts.Type.Key().IsPtr() && ks.Kind == symbol.Type {
 					c.emit(t, vm.Swap, 0, 1)
@@ -1954,7 +1962,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if elemTyp.IsPtr() && vs.Kind == symbol.Type {
 					c.emit(t, vm.Addr)
 				}
-				c.emitNumConvert(t, elemTyp, vs.Type, 0)
+				c.emitNumConvert(t, elemTyp, symbol.Vtype(vs), 0)
 				c.emitMapValueWrap(t, elemTyp, vs)
 				c.emit(t, vm.MapSet)
 				break
@@ -1970,7 +1978,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							if ft != nil && ft.Kind() == reflect.Func {
 								c.emit(t, vm.WrapFunc, c.typeIndex(ft))
 							}
-							c.emitNumConvert(t, ft, vs.Type, 0)
+							c.emitNumConvert(t, ft, symbol.Vtype(vs), 0)
 							c.emitIfaceWrap(t, ft, vs.Type)
 						}
 						c.emit(t, vm.FieldFset)
@@ -1979,7 +1987,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if ts.Type.Elem().IsPtr() && vs.Kind == symbol.Type {
 						c.emit(t, vm.Addr)
 					}
-					c.emitNumConvert(t, ts.Type.Elem(), vs.Type, 0)
+					c.emitNumConvert(t, ts.Type.Elem(), symbol.Vtype(vs), 0)
 					c.emitIfaceWrap(t, ts.Type.Elem(), vs.Type)
 					c.emit(t, vm.IndexSet)
 				}
@@ -2003,7 +2011,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if ft != nil && ft.Kind() == reflect.Func {
 					c.emit(t, vm.WrapFunc, c.typeIndex(ft))
 				}
-				c.emitNumConvert(t, ft, vs.Type, 0)
+				c.emitNumConvert(t, ft, symbol.Vtype(vs), 0)
 				c.emitIfaceWrap(t, ft, vs.Type)
 				c.emit(t, vm.FieldSet, j...)
 
@@ -2027,7 +2035,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				if ft != nil && ft.Kind() == reflect.Func {
 					c.emit(t, vm.WrapFunc, c.typeIndex(ft))
 				}
-				c.emitNumConvert(t, ft, vs.Type, 0)
+				c.emitNumConvert(t, ft, symbol.Vtype(vs), 0)
 				c.emitIfaceWrap(t, ft, vs.Type)
 				c.emit(t, vm.FieldSet, j...)
 			}
@@ -2190,7 +2198,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						continue
 					}
 					c.emitIfaceWrap(t, lhss[i].Type, rhss[i].Type)
-					c.emitNumConvert(t, lhss[i].Type, rhss[i].Type, 0)
+					c.emitNumConvert(t, lhss[i].Type, symbol.Vtype(rhss[i]), 0)
 					switch {
 					case lhss[i].Kind == symbol.LocalVar && freeVarIndex(lhss[i].Name) >= 0:
 						// Captured variable: write through the closure's heap cell.
@@ -2267,7 +2275,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				// Wrap concrete value in Iface when assigning to interface local.
 				c.emitIfaceWrap(t, lhs.Type, rhs.Type)
-				c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
+				c.emitNumConvert(t, lhs.Type, symbol.Vtype(rhs), 0)
 				switch {
 				case lhs.CellSlot:
 					c.emit(t, vm.CellSet, lhs.Index)
@@ -2285,14 +2293,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				break
 			}
-			c.emitNumConvert(t, lhs.Type, rhs.Type, 0)
+			c.emitNumConvert(t, lhs.Type, symbol.Vtype(rhs), 0)
 			if lhs.Index != symbol.UnsetAddr {
 				if v := c.Data[lhs.Index]; !v.IsValid() {
 					// A declared LHS type owns the (deferred) slot; infer from the
 					// RHS only for an untyped var, else a typed global retypes wrong.
 					typ := lhs.Type
 					if typ == nil {
-						typ = rhs.Type
+						typ = symbol.Vtype(rhs)
 					}
 					if typ != nil {
 						c.Data[lhs.Index] = c.typeSlotValue(lhs.Index, typ, false)
@@ -4441,6 +4449,15 @@ func (c *Compiler) compileBuiltin(
 		if typeSym.Kind != symbol.Type {
 			return true, errors.New("first argument to make must be a type")
 		}
+		// Coerce float-valued size args to int.
+		for k := 1; k < narg; k++ {
+			arg := (*stack)[len(*stack)-narg+k]
+			if vt := symbol.Vtype(arg); vt != nil {
+				if kd := vt.Kind(); kd == reflect.Float32 || kd == reflect.Float64 {
+					c.emitNumConvert(t, c.Symbols["int"].Type, vt, narg-1-k)
+				}
+			}
+		}
 		c.removeFnew(typeSym.Index)
 		for range narg {
 			pop()
@@ -4871,8 +4888,6 @@ var intrinsicOp = map[string]intrinsicInfo{
 	"math/bits.RotateLeft64": {vm.Rotl64, 2},
 }
 
-// compileIntrinsic replaces known native function calls with direct VM opcodes,
-// avoiding the overhead of reflection-based calls.
 func (c *Compiler) compileIntrinsic(
 	s *symbol.Symbol, narg int, t goparser.Token,
 	push func(*symbol.Symbol), pop func() *symbol.Symbol,
@@ -4900,10 +4915,11 @@ func (c *Compiler) compileIntrinsic(
 		for k := range narg {
 			argSym := stack[len(stack)-narg+k]
 			paramType := funcType.In(k)
-			if argSym.Type == nil || (argSym.Type.Rtype != nil && argSym.Type.Rtype == paramType) {
+			srcTyp := symbol.Vtype(argSym)
+			if srcTyp == nil || (srcTyp.Rtype != nil && srcTyp.Rtype == paramType) {
 				continue
 			}
-			c.emitNumConvert(t, &vm.Type{Rtype: paramType}, argSym.Type, narg-1-k)
+			c.emitNumConvert(t, &vm.Type{Rtype: paramType}, srcTyp, narg-1-k)
 		}
 	}
 	// Pop function symbol and argument symbols, push return type.
