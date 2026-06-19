@@ -136,6 +136,39 @@ func (m *Machine) normalizeIfaceWritebacks(wb []ifaceWriteback) {
 	}
 }
 
+// storeIfaceFromReflect writes src into the addressable synth-interface slot dst in
+// mvm's interface form (an eface boxing vm.Iface), so a later interpreted method
+// dispatch on dst reads a proper Iface.
+// A native reflect write would store a native iface (itab+data) the interpreter can't decode.
+func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
+	if !dst.CanAddr() {
+		return
+	}
+	loc := reflect.NewAt(AnyRtype, dst.Addr().UnsafePointer()).Elem()
+	el := src
+	for el.IsValid() && el.Kind() == reflect.Interface {
+		if el.IsNil() {
+			loc.Set(reflect.Zero(AnyRtype))
+			return
+		}
+		el = el.Elem()
+	}
+	if !el.IsValid() {
+		loc.Set(reflect.Zero(AnyRtype))
+		return
+	}
+	el = Exportable(el)
+	if el.Type() == ifaceRtype { // already an mvm Iface
+		loc.Set(reflect.ValueOf(el.Interface()))
+		return
+	}
+	if t := m.typeByRtype(el.Type()); t != nil {
+		loc.Set(reflect.ValueOf(any(Iface{Typ: t, Val: FromReflect(el)})))
+		return
+	}
+	loc.Set(el)
+}
+
 func synthIfaceRtype(t *Type) reflect.Type {
 	return cachedSynthIface(t, func() reflect.Type {
 		ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))

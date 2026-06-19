@@ -345,6 +345,7 @@ func TestCompare(t *testing.T) {
 		{n: "nil_in_native_eface", src: `import "reflect"; type S struct{ V []string }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return x == nil }; f()`, res: "false"},
 		{n: "nil_in_native_eface_lhs", src: `import "reflect"; type S struct{ V map[string]int }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return nil == x }; f()`, res: "false"},
 		{n: "nil_native_eface_isnil", src: `import "reflect"; type S struct{ V []string }; func f() bool { x := reflect.ValueOf(&S{}).Elem().Field(0).Interface(); return reflect.ValueOf(x).IsNil() }; f()`, res: "true"},
+		{n: "reflect_setitervalue_iface", src: `import "reflect"; type N interface{ ID() int64 }; type node int64; func (n node) ID() int64 { return int64(n) }; func f() int64 { m := map[int64]N{1: node(10), 2: node(20)}; var cur N; v := reflect.ValueOf(&cur).Elem(); it := reflect.ValueOf(m).MapRange(); var s int64; for it.Next() { v.SetIterValue(it); s += cur.ID() }; return s }; f()`, res: "30"},
 	})
 }
 

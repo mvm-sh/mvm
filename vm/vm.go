@@ -2376,9 +2376,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					case ci.Cell:
 						setCell(mem[fp-1+ci.Slot].ref.Interface().(*Value), v)
 					case ci.Local:
-						// reflect.Select returns an unaddressable value; copy
-						// into the New'd addressable slot so a later field/elem
-						// assignment on the recv var works (gradient.go:100).
+						// reflect.Select returns an unaddressable value.
 						m.assignSlot(&mem[fp-1+ci.Slot], v)
 					default:
 						m.assignSlot(&m.globals[ci.Slot], v)
