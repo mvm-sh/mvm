@@ -4066,6 +4066,13 @@ func TestBuiltin(t *testing.T) {
 		{n: "complex128_real", src: `real(complex(float64(12),float64(34)))`, res: "12"},
 		{n: "complex128_imag", src: `imag(complex(float64(12),float64(34)))`, res: "34"},
 
+		// Untyped const operands (no concrete Type on the symbol).
+		{n: "complex128_const_real", src: `const b = -1.0 / 4.0; complex(b, 0)`, res: "(-0.25+0i)"},
+		{n: "complex128_const_both", src: `const r, i = 0.5, 1.5; complex(r, i)`, res: "(0.5+1.5i)"},
+		{n: "complex128_const_mixed", src: `const r, i = 1, 0.5; complex(r, i)`, res: "(1+0.5i)"},
+		// Degenerate const with no Type, Cval, or Value must error, not crash.
+		{n: "complex_bare_iota", src: `complex(iota, 0)`, err: "expected floating-point"},
+
 		{n: "complex128_promotion_0", src: `complex(1, 'A')`, res: "(1+65i)"},
 		{n: "complex128_promotion_1", src: `complex(1.2, 'A')`, res: "(1.2+65i)"},
 		{n: "complex128_promotion_2", src: `complex('A', 1)`, res: "(65+1i)"},

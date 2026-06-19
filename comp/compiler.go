@@ -4510,13 +4510,23 @@ func (c *Compiler) compileBuiltin(
 		}
 		deref := func(sym *symbol.Symbol) (reflect.Kind, bool) {
 			if sym.IsConst() {
-				k := sym.Type.Kind()
-				if reflect.Int <= k && k <= reflect.Float64 {
-					return reflect.Float64, true
+				if sym.Type != nil {
+					if k := sym.Type.Kind(); reflect.Int <= k && k <= reflect.Float64 {
+						return reflect.Float64, true
+					}
+				} else if sym.Cval != nil {
+					// Untyped numeric const: per spec it defaults to float64.
+					switch sym.Cval.Kind() {
+					case constant.Int, constant.Float:
+						return reflect.Float64, true
+					}
 				}
 			}
 			if sym.Type != nil {
 				return sym.Type.Kind(), false
+			}
+			if !sym.Value.IsValid() {
+				return reflect.Invalid, false
 			}
 			return sym.Value.Type().Kind(), false
 		}
