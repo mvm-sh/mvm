@@ -179,20 +179,22 @@ func (p *Parser) inferDefineType(rhs Tokens, scopedName string) {
 			return
 		}
 	}
-	// General fallback: type the RHS expression itself (make/new, slice-expr,
-	// index, etc.) so a later generic call can infer its type params from this
-	// local. postfixType is pure - rhs is already-parsed postfix.
 	if t, _ := p.postfixType(rhs); t != nil {
 		sym.Type = t
 	}
 }
 
+func (p *Parser) inferCommaOkDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []int, out Tokens) {
+	if t, _ := p.postfixType(rhs); t != nil {
+		p.setLHSType(0, t, lhs, lhsPositions, out)
+	}
+	p.setLHSType(1, p.Symbols["bool"].Type, lhs, lhsPositions, out)
+}
+
 func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []int, out Tokens) {
 	ft := p.callFuncType(rhs)
 	if ft == nil {
-		// Builtin or conversion call (make([]T, n), T(x), ...): no func symbol to
-		// read a return tuple from. Type a single LHS local from the whole
-		// expression so a later generic call can infer its type params.
+		// Builtin or conversion call (make([]T, n), T(x), ...): no func symbol to read a return tuple from.
 		if len(lhs) == 1 {
 			if t, _ := p.postfixType(rhs); t != nil {
 				p.setLHSType(0, t, lhs, lhsPositions, out)

@@ -658,6 +658,9 @@ func TestGenericImplicit(t *testing.T) {
 		{n: "infer_iface_method_result_via_temp", src: `import "cmp"; type N interface{ ID() int64 }; type n int64; func (x n) ID() int64 { return int64(x) }; var a N = n(5); v := a.ID(); cmp.Compare(v, v)`, res: "0"},
 		// Infer a type param from a len/cap builtin call result.
 		{n: "infer_len_builtin_arg", src: `import "cmp"; func f(a, b []int) int { return cmp.Compare(len(a), len(b)) }; f([]int{1, 2, 3}, []int{1})`, res: "1"},
+		// Comma-ok type assertion types its value local, so a downstream interface-
+		// method-result slice flows into generic inference (gonum order.ByID).
+		{n: "infer_commaok_assert_iface_slice", src: `type N interface{ ID() int64 }; type nd int64; func (x nd) ID() int64 { return int64(x) }; type Slicer interface{ Slice() []N }; type nds []N; func (s nds) Slice() []N { return []N(s) }; func cnt[S ~[]E, E N](s S) int { return len(s) }; func f() int { var it interface{} = nds{nd(1), nd(2)}; s, _ := it.(Slicer); got := s.Slice(); return cnt(got) }; f()`, res: "2"},
 	})
 }
 

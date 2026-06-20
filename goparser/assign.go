@@ -98,6 +98,8 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 					// call's return tuple so later passes (generic inference)
 					// see them. Composite/other single-value RHS falls through.
 					p.inferCallDefineTypes(toks, lhs, lhsPositions, out)
+				case len(lhs) == 2 && isCommaOkRHS(toks):
+					p.inferCommaOkDefineTypes(toks, lhs, lhsPositions, out)
 				case len(lhs) == 1:
 					p.inferDefineType(toks, out[lhsPositions[0]].Str)
 				}
@@ -108,11 +110,6 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 	return p.parseAssignMultiRHS(in, lhs, rhs, aindex, define)
 }
 
-// bindDefineLHS registers one `:=` LHS element and resets its token in out to
-// a clean binding target: when the LHS name shadows an outer type (e.g.
-// `poser := &poser{}`), parseExpr resolved the type onto the token (Arg
-// carries the *vm.Type), which would make the compiler treat the define
-// target as a type. Returns the scoped name. A non-ident LHS is an error.
 func (p *Parser) bindDefineLHS(at Token, e Tokens, out Tokens, lhsPos int) (string, error) {
 	if len(e) > 0 {
 		at = e[0]
@@ -171,9 +168,6 @@ func (p *Parser) parseAssignSingleRHSViaTemps(lhs []Tokens, rhsExpr Tokens, opTo
 	return out, nil
 }
 
-// parseRangeAssignViaTemps rewrites an assign-form range clause to a `:=`
-// range over per-position temps (blanks stay blank); the `<lhs> = <temp>`
-// assigns go to p.rangeAssign for parseFor to emit after the Next opcode.
 func (p *Parser) parseRangeAssignViaTemps(in Tokens, lhs []Tokens, aindex int) (out Tokens, err error) {
 	pos := in[aindex].Pos
 	init := make(Tokens, 0, len(in)+2)
@@ -220,9 +214,6 @@ func allBlankIdents(lhs []Tokens) bool {
 	return true
 }
 
-// checkSingleRHSArity rejects `a, b := <single-valued expr>`: a multi-LHS,
-// single-RHS assignment requires the RHS to yield multiple values (a function
-// call, a range, or a comma-ok form when lhs has 2 entries).
 func (p *Parser) checkSingleRHSArity(opTok Token, nLHS int, rhsToks Tokens) error {
 	if nLHS <= 1 || len(rhsToks) == 0 {
 		return nil
@@ -231,14 +222,23 @@ func (p *Parser) checkSingleRHSArity(opTok Token, nLHS int, rhsToks Tokens) erro
 	if last == lang.Call || last == lang.Range {
 		return nil
 	}
-	if nLHS == 2 && (last == lang.TypeAssert || last == lang.Index || last == lang.Arrow) {
+	if nLHS == 2 && isCommaOkRHS(rhsToks) {
 		return nil
 	}
 	return p.errAt(opTok, "assignment mismatch: %d variables but 1 value", nLHS)
 }
 
-// setCommaOkForm flags a 2-value RHS (type assertion, map index, channel receive)
-// to yield its (value, ok) pair for a 2-LHS assignment.
+func isCommaOkRHS(toks Tokens) bool {
+	if len(toks) == 0 {
+		return false
+	}
+	switch toks[len(toks)-1].Tok {
+	case lang.TypeAssert, lang.Index, lang.Arrow:
+		return true
+	}
+	return false
+}
+
 func setCommaOkForm(toks Tokens) {
 	if len(toks) == 0 {
 		return
@@ -427,8 +427,6 @@ func (p *Parser) parseIncDec(in Tokens) (Tokens, error) {
 	return append(prefix, out...), nil
 }
 
-// hoistCompoundLHS rewrites an index-form lhs of a compound
-// assignment or ++/-- so a side-effecting index evaluates exactly once.
 func (p *Parser) hoistCompoundLHS(lhs Tokens, pos int) (prefix, newLHS Tokens, err error) {
 	if len(lhs) < 2 || lhs[len(lhs)-1].Tok != lang.BracketBlock {
 		return nil, lhs, nil
