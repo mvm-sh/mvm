@@ -93,6 +93,27 @@ func TestCompatibleTypeNegatives(t *testing.T) {
 	}
 }
 
+// TestNativeSigCompatibleSym checks that an un-materialized interface (im.Rtype nil)
+// asserted against a native type rejects Unwrap() error for interface{ Unwrap() []error }.
+// Native method types carry the receiver as In(0).
+func TestNativeSigCompatibleSym(t *testing.T) {
+	errT := &Type{kind: reflect.Interface, Name: "error", Rtype: reflect.TypeFor[error]()}
+	sliceErr := &Type{kind: reflect.Slice, ElemType: errT, Rtype: reflect.TypeFor[[]error]()}
+	sig := &Type{kind: reflect.Func, Returns: []*Type{sliceErr}} // Unwrap() []error
+
+	single := reflect.TypeFor[func(int) error]()
+	if nativeSigCompatibleSym(sig, single, true) {
+		t.Error("Unwrap() error must not satisfy interface{ Unwrap() []error }")
+	}
+	multi := reflect.TypeFor[func(int) []error]()
+	if !nativeSigCompatibleSym(sig, multi, true) {
+		t.Error("Unwrap() []error must satisfy interface{ Unwrap() []error }")
+	}
+	if !nativeSigCompatibleSym(nil, single, true) {
+		t.Error("nil symbolic sig should stay lenient")
+	}
+}
+
 // TestSigTypeCompatibleErasedReturn is the protoreflect.Message.Type() MessageType
 // shape: the interface sig erases the return to interface{}, the concrete keeps it.
 func TestSigTypeCompatibleErasedReturn(t *testing.T) {

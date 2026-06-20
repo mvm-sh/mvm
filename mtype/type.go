@@ -263,6 +263,59 @@ func nativeSigCompatible(want, mt reflect.Type, hasRecv bool) bool {
 	return true
 }
 
+func nativeSigCompatibleSym(sig *Type, mt reflect.Type, hasRecv bool) bool {
+	if sig == nil || sig.Kind() != reflect.Func || mt.Kind() != reflect.Func {
+		return true
+	}
+	off := 0
+	if hasRecv {
+		off = 1
+	}
+	if mt.NumIn()-off != len(sig.Params) || mt.NumOut() != len(sig.Returns) || mt.IsVariadic() != sig.IsVariadic() {
+		return false
+	}
+	for i, p := range sig.Params {
+		if !symTypeMatchesNative(p, mt.In(i+off)) {
+			return false
+		}
+	}
+	for i, r := range sig.Returns {
+		if !symTypeMatchesNative(r, mt.Out(i)) {
+			return false
+		}
+	}
+	return true
+}
+
+func symTypeMatchesNative(a *Type, have reflect.Type) bool {
+	if a == nil || have == nil {
+		return true
+	}
+	ak, hk := a.Kind(), have.Kind()
+	if ak == reflect.Interface && hk == reflect.Interface {
+		return true
+	}
+	if ak != hk {
+		return false
+	}
+	switch ak {
+	case reflect.Pointer, reflect.Slice, reflect.Chan:
+		return symTypeMatchesNative(a.ElemType, have.Elem())
+	case reflect.Array:
+		return a.Len() == have.Len() && symTypeMatchesNative(a.ElemType, have.Elem())
+	case reflect.Map:
+		return symTypeMatchesNative(a.KeyType, have.Key()) && symTypeMatchesNative(a.ElemType, have.Elem())
+	}
+	return true
+}
+
+func ifaceMethodMatchesNative(im IfaceMethod, mt reflect.Type, hasRecv bool) bool {
+	if im.Rtype != nil {
+		return nativeSigCompatible(im.Rtype, mt, hasRecv)
+	}
+	return nativeSigCompatibleSym(im.Sig, mt, hasRecv)
+}
+
 func nativeTypeCompatible(want, have reflect.Type) bool {
 	if want == have {
 		return true
@@ -325,8 +378,8 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 		if !ok {
 			return im.Name
 		}
-		// Method present by name; if both signatures are known they must match.
-		if !nativeSigCompatible(im.Rtype, m.Type, hasRecv) {
+		// Method present by name; signatures must match when known.
+		if !ifaceMethodMatchesNative(im, m.Type, hasRecv) {
 			return im.Name
 		}
 	}
