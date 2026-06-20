@@ -29,14 +29,13 @@ Try it in the browser at the [mvm playground](https://mvm.sh/playground).
 ## Compatibility
 
 Mvm aims to run real Go, so we measure it.
-A matrix refreshed weekly (and at every release) records how the standard
-library and a curated set of popular external packages fare when their own
-test suites run under `mvm test`.
+A matrix records how the standard library and a curated set of popular external
+packages fare when their own test suites run under `mvm test`.
 Each package gets a tier (all tests pass, some pass, fails to load, or no
 runnable tests) and a tests-passing ratio, with an aggregate trend over time.
 
 <!-- compat:start -->
-Stdlib: 92/169 packages fully pass; external: 43/50 fully pass (as of 2026-06-15).
+Stdlib: 94/169 packages fully pass; external: 80/106 fully pass (as of 2026-06-20).
 See the full matrix at https://mvm.sh/compat.
 <!-- compat:end -->
 

@@ -217,6 +217,12 @@ var Incompat = map[string]map[string]string{
 		"TestBestMatchAlloc": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	},
 
+	"golang.org/x/text/runes": {
+		"TestMapAlloc":              "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestRemoveAlloc":           "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestReplaceIllFormedAlloc": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+	},
+
 	"golang.org/x/text/unicode/norm": {
 		"TestWriter": "stress test: streams the static normTests corpus through Form.Writer across all 16 bufSizes x4 forms; ~150s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",
 		"TestReader": "stress test: streams the static normTests corpus through Form.Reader across all 16 bufSizes x4 forms; ~14s under the interpreter and ignores testing.Short (the same corpus runs via TestAppend/TestString)",
