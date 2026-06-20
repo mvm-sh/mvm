@@ -251,16 +251,30 @@ func nativeSigCompatible(want, mt reflect.Type, hasRecv bool) bool {
 		return false
 	}
 	for i := range want.NumIn() {
-		if want.In(i) != mt.In(i+off) {
+		if !nativeTypeCompatible(want.In(i), mt.In(i+off)) {
 			return false
 		}
 	}
 	for i := range want.NumOut() {
-		if want.Out(i) != mt.Out(i) {
+		if !nativeTypeCompatible(want.Out(i), mt.Out(i)) {
 			return false
 		}
 	}
 	return true
+}
+
+func nativeTypeCompatible(want, have reflect.Type) bool {
+	if want == have {
+		return true
+	}
+	if want == nil || have == nil ||
+		want.Kind() != reflect.Interface || have.Kind() != reflect.Interface {
+		return false
+	}
+	if want.NumMethod() == 0 || have.NumMethod() == 0 {
+		return true
+	}
+	return want.Implements(have) && have.Implements(want)
 }
 
 // IfaceMethodTypes returns the types carrying typ's method set.
@@ -712,7 +726,23 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			rf[i].Anonymous = embSet[i]
 		}
 	}
+	if rt, ok := tryStructOf(rf); ok {
+		return rt
+	}
+	// mvm promotes embedded methods itself, so retry with the embeds demoted to named fields.
+	for i := range rf {
+		rf[i].Anonymous = false
+	}
 	return reflect.StructOf(rf)
+}
+
+func tryStructOf(rf []reflect.StructField) (rt reflect.Type, ok bool) {
+	defer func() {
+		if recover() != nil {
+			rt, ok = nil, false
+		}
+	}()
+	return reflect.StructOf(rf), true
 }
 
 func structTypeKey(fields []*Type, embedded []EmbeddedField, tags []string) string {

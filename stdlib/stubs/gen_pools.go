@@ -120,27 +120,18 @@ var wordShapes = []wordShape{
 	{Params: "p", Results: "i"},
 	{Params: "pp", Results: "i"},
 	{Params: "i", Results: "i"},
-	// http.RoundTripper.RoundTrip: func(*http.Request) (*http.Response, error).
 	{Params: "p", Results: "ppp"},
-	// http.ResponseWriter.Header + protobuf func() *T getters (niladic ptr, like _pp/_i).
 	{Params: "", Results: "p", Size: 4096},
-	// http.ResponseWriter.WriteHeader(int) and func(int) setters.
 	{Params: "i", Results: "", Size: 1024},
-	// net.Conn.SetDeadline/SetReadDeadline/SetWriteDeadline(time.Time) error
-	// (time.Time = 3 words iip; error = pp).
 	{Params: "iip", Results: "pp"},
-	// net/http newClientConner.NewClientConn(net.Conn, func()) (http.RoundTripper, error).
 	{Params: "ppp", Results: "pppp"},
-	// grpc handler satisfaction (*health.Server -> HealthServer): unary Check/List
-	// func(ctx, *Req) (*Resp, error) = ppp_ppp; Watch func(*Req, stream) error = ppp_pp.
 	{Params: "ppp", Results: "ppp"},
 	{Params: "ppp", Results: "pp"},
-	// grpc streaming handlers + metadata/error-returning iface methods:
-	// func(stream) error = pp_pp. ~202 attaches in one grpc bidi program; 1024 = headroom.
 	{Params: "pp", Results: "pp", Size: 1024},
-	// func(*testing.T) value-receiver subtest methods (grpctest.RunSubTests),
-	// enumerated by reflect; pervasive across grpc test suites.
 	{Params: "p", Results: "", Size: 1024},
+	{Params: "i", Results: "pp"},
+	{Params: "ii", Results: "i"},
+	{Params: "ii", Results: "pp"},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

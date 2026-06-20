@@ -107,6 +107,7 @@ func LookupRuntimeFunc(rf *runtime.Func) *RuntimeFuncInfo {
 	return v.(*runtimeFuncEntry).info
 }
 
+// LookupRuntimeFuncByPC returns the runtime Func and info from program counter.
 func LookupRuntimeFuncByPC(pc uintptr) (*runtime.Func, *RuntimeFuncInfo) {
 	if pc == 0 {
 		return nil, nil
