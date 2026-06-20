@@ -1,18 +1,18 @@
 {
   "schema": 1,
-  "generatedAt": "2026-06-20T13:16:17Z",
-  "mvm": "662d5ac1382c",
+  "generatedAt": "2026-06-20T13:37:39Z",
+  "mvm": "dbd685de87e6",
   "go": "go1.26.4",
   "platform": "linux/arm64",
   "summary": {
     "external": {
       "green": 80,
-      "yellow": 13,
-      "red": 10,
+      "yellow": 12,
+      "red": 11,
       "gray": 3,
       "total": 106,
-      "testsPass": 25101,
-      "testsTotal": 25200
+      "testsPass": 25093,
+      "testsTotal": 25191
     },
     "stdlib": {
       "green": 94,
@@ -24,235 +24,2369 @@
       "testsTotal": 2074
     }
   },
+  "groups": [
+    {
+      "slug": "stdlib",
+      "label": "Standard library",
+      "kind": "stdlib",
+      "summary": {
+        "green": 94,
+        "yellow": 0,
+        "red": 0,
+        "gray": 75,
+        "total": 169,
+        "testsPass": 2074,
+        "testsTotal": 2074
+      }
+    },
+    {
+      "slug": "ids",
+      "label": "IDs",
+      "kind": "external",
+      "summary": {
+        "green": 5,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 5,
+        "testsPass": 382,
+        "testsTotal": 382
+      }
+    },
+    {
+      "slug": "errors",
+      "label": "Errors",
+      "kind": "external",
+      "summary": {
+        "green": 4,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 4,
+        "testsPass": 91,
+        "testsTotal": 91
+      }
+    },
+    {
+      "slug": "text",
+      "label": "Text and i18n",
+      "kind": "external",
+      "summary": {
+        "green": 4,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 4,
+        "testsPass": 7248,
+        "testsTotal": 7248
+      }
+    },
+    {
+      "slug": "diff",
+      "label": "Compare and diff",
+      "kind": "external",
+      "summary": {
+        "green": 2,
+        "yellow": 1,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 301,
+        "testsTotal": 315
+      }
+    },
+    {
+      "slug": "testutil",
+      "label": "Test utilities",
+      "kind": "external",
+      "summary": {
+        "green": 2,
+        "yellow": 1,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 523,
+        "testsTotal": 524
+      }
+    },
+    {
+      "slug": "json",
+      "label": "JSON",
+      "kind": "external",
+      "summary": {
+        "green": 6,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 6,
+        "testsPass": 660,
+        "testsTotal": 660
+      }
+    },
+    {
+      "slug": "numbers",
+      "label": "Numbers",
+      "kind": "external",
+      "summary": {
+        "green": 3,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 280,
+        "testsTotal": 280
+      }
+    },
+    {
+      "slug": "collections",
+      "label": "Collections and functional",
+      "kind": "external",
+      "summary": {
+        "green": 5,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 5,
+        "testsPass": 140,
+        "testsTotal": 140
+      }
+    },
+    {
+      "slug": "config",
+      "label": "Config and casting",
+      "kind": "external",
+      "summary": {
+        "green": 3,
+        "yellow": 1,
+        "red": 0,
+        "gray": 0,
+        "total": 4,
+        "testsPass": 9234,
+        "testsTotal": 9300
+      }
+    },
+    {
+      "slug": "semver",
+      "label": "Semver",
+      "kind": "external",
+      "summary": {
+        "green": 3,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 120,
+        "testsTotal": 120
+      }
+    },
+    {
+      "slug": "hashing",
+      "label": "Hashing",
+      "kind": "external",
+      "summary": {
+        "green": 2,
+        "yellow": 0,
+        "red": 0,
+        "gray": 1,
+        "total": 3,
+        "testsPass": 155,
+        "testsTotal": 155
+      }
+    },
+    {
+      "slug": "logging",
+      "label": "Logging and color",
+      "kind": "external",
+      "summary": {
+        "green": 3,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 583,
+        "testsTotal": 583
+      }
+    },
+    {
+      "slug": "validation",
+      "label": "Validation",
+      "kind": "external",
+      "summary": {
+        "green": 1,
+        "yellow": 0,
+        "red": 0,
+        "gray": 0,
+        "total": 1,
+        "testsPass": 184,
+        "testsTotal": 184
+      }
+    },
+    {
+      "slug": "markup",
+      "label": "Markdown and HTML",
+      "kind": "external",
+      "summary": {
+        "green": 2,
+        "yellow": 1,
+        "red": 0,
+        "gray": 0,
+        "total": 3,
+        "testsPass": 177,
+        "testsTotal": 179
+      }
+    },
+    {
+      "slug": "gonum",
+      "label": "gonum (numeric computing)",
+      "kind": "external",
+      "summary": {
+        "green": 13,
+        "yellow": 2,
+        "red": 5,
+        "gray": 2,
+        "total": 22,
+        "testsPass": 991,
+        "testsTotal": 993
+      }
+    },
+    {
+      "slug": "grpc",
+      "label": "gRPC",
+      "kind": "external",
+      "summary": {
+        "green": 9,
+        "yellow": 1,
+        "red": 0,
+        "gray": 0,
+        "total": 10,
+        "testsPass": 160,
+        "testsTotal": 162
+      }
+    },
+    {
+      "slug": "protobuf",
+      "label": "Protocol Buffers",
+      "kind": "external",
+      "summary": {
+        "green": 8,
+        "yellow": 4,
+        "red": 4,
+        "gray": 0,
+        "total": 16,
+        "testsPass": 3249,
+        "testsTotal": 3258
+      }
+    },
+    {
+      "slug": "grpcdeps",
+      "label": "Shared gRPC dependencies",
+      "kind": "external",
+      "summary": {
+        "green": 5,
+        "yellow": 1,
+        "red": 2,
+        "gray": 0,
+        "total": 8,
+        "testsPass": 615,
+        "testsTotal": 617
+      }
+    }
+  ],
   "packages": [
     {
       "path": "github.com/Masterminds/semver/v3",
       "category": "external",
+      "group": "semver",
       "tier": "green",
       "pass": 49,
       "fail": 0,
       "total": 49,
-      "durationMs": 295
+      "durationMs": 172
     },
     {
       "path": "github.com/agext/levenshtein",
       "category": "external",
+      "group": "diff",
       "tier": "green",
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 214
+      "durationMs": 170
     },
     {
       "path": "github.com/asaskevich/govalidator",
       "category": "external",
+      "group": "validation",
       "tier": "green",
       "pass": 184,
       "fail": 0,
       "total": 184,
-      "durationMs": 527
+      "durationMs": 775
     },
     {
       "path": "github.com/blang/semver/v4",
       "category": "external",
+      "group": "semver",
       "tier": "green",
       "pass": 37,
       "fail": 0,
       "total": 37,
-      "durationMs": 227
+      "durationMs": 143
     },
     {
       "path": "github.com/bmatcuk/doublestar/v4",
       "category": "external",
+      "group": "collections",
       "tier": "green",
       "pass": 29,
       "fail": 0,
       "total": 29,
-      "durationMs": 848
+      "durationMs": 672
     },
     {
       "path": "github.com/buger/jsonparser",
       "category": "external",
+      "group": "json",
       "tier": "green",
       "pass": 451,
       "fail": 0,
       "total": 451,
-      "durationMs": 367
+      "durationMs": 337
     },
     {
       "path": "github.com/cespare/xxhash/v2",
       "category": "external",
+      "group": "hashing",
       "tier": "green",
       "pass": 153,
       "fail": 0,
       "total": 153,
-      "durationMs": 315
+      "durationMs": 261
     },
     {
       "path": "github.com/davecgh/go-spew/spew",
       "category": "external",
+      "group": "testutil",
       "tier": "green",
       "pass": 14,
       "fail": 0,
       "total": 14,
-      "durationMs": 6633
+      "durationMs": 1720
     },
     {
       "path": "github.com/dustin/go-humanize",
       "category": "external",
+      "group": "numbers",
       "tier": "green",
       "pass": 28,
       "fail": 0,
       "total": 28,
-      "durationMs": 822
+      "durationMs": 719
     },
     {
       "path": "github.com/fatih/color",
       "category": "external",
+      "group": "logging",
       "tier": "green",
       "pass": 26,
       "fail": 0,
       "total": 26,
-      "durationMs": 391
+      "durationMs": 375
     },
     {
       "path": "github.com/gobwas/glob",
       "category": "external",
+      "group": "collections",
       "tier": "green",
       "pass": 78,
       "fail": 0,
       "total": 78,
-      "durationMs": 311
+      "durationMs": 4634
     },
     {
       "path": "github.com/gofrs/uuid",
       "category": "external",
+      "group": "ids",
       "tier": "green",
       "pass": 130,
       "fail": 0,
       "total": 130,
-      "durationMs": 388
+      "durationMs": 3496
     },
     {
       "path": "github.com/golang/protobuf/jsonpb",
       "category": "external",
+      "group": "protobuf",
       "tier": "green",
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 5193
+      "durationMs": 2899
     },
     {
       "path": "github.com/golang/protobuf/proto",
       "category": "external",
+      "group": "protobuf",
       "tier": "yellow",
       "pass": 168,
       "fail": 2,
       "total": 170,
-      "durationMs": 5585
+      "durationMs": 4392
     },
     {
       "path": "github.com/golang/protobuf/ptypes",
       "category": "external",
+      "group": "protobuf",
       "tier": "green",
       "pass": 16,
       "fail": 0,
       "total": 16,
-      "durationMs": 2478
+      "durationMs": 1206
     },
     {
       "path": "github.com/google/btree",
       "category": "external",
+      "group": "collections",
       "tier": "green",
       "pass": 18,
       "fail": 0,
       "total": 18,
-      "durationMs": 279
+      "durationMs": 183
     },
     {
       "path": "github.com/google/go-cmp/cmp",
       "category": "external",
+      "group": "diff",
       "tier": "yellow",
       "pass": 282,
       "fail": 14,
       "total": 296,
-      "durationMs": 1345
+      "durationMs": 6423
     },
     {
       "path": "github.com/google/shlex",
       "category": "external",
+      "group": "collections",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 125
+      "durationMs": 115
     },
     {
       "path": "github.com/google/uuid",
       "category": "external",
-      "tier": "yellow",
-      "pass": 52,
-      "fail": 1,
+      "group": "ids",
+      "tier": "green",
+      "pass": 53,
+      "fail": 0,
       "total": 53,
-      "durationMs": 1485
+      "durationMs": 1026
     },
     {
       "path": "github.com/hashicorp/errwrap",
       "category": "external",
+      "group": "errors",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 123
+      "durationMs": 119
     },
     {
       "path": "github.com/hashicorp/go-multierror",
       "category": "external",
+      "group": "errors",
       "tier": "green",
       "pass": 33,
       "fail": 0,
       "total": 33,
-      "durationMs": 185
+      "durationMs": 184
     },
     {
       "path": "github.com/hashicorp/go-uuid",
       "category": "external",
+      "group": "errors",
       "tier": "green",
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 129
+      "durationMs": 111
     },
     {
       "path": "github.com/hashicorp/go-version",
       "category": "external",
+      "group": "semver",
       "tier": "green",
       "pass": 34,
       "fail": 0,
       "total": 34,
-      "durationMs": 134
+      "durationMs": 131
     },
     {
       "path": "github.com/kr/pretty",
       "category": "external",
+      "group": "testutil",
       "tier": "yellow",
       "pass": 7,
       "fail": 1,
       "total": 8,
-      "durationMs": 336
+      "durationMs": 327
     },
     {
       "path": "github.com/microcosm-cc/bluemonday",
       "category": "external",
+      "group": "markup",
       "tier": "green",
       "pass": 79,
       "fail": 0,
       "total": 79,
-      "durationMs": 644
+      "durationMs": 657
     },
     {
       "path": "github.com/mitchellh/go-homedir",
       "category": "external",
+      "group": "config",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 118
+    },
+    {
+      "path": "github.com/mitchellh/mapstructure",
+      "category": "external",
+      "group": "config",
+      "tier": "green",
+      "pass": 134,
+      "fail": 0,
+      "total": 134,
+      "durationMs": 223
+    },
+    {
+      "path": "github.com/montanaflynn/stats",
+      "category": "external",
+      "group": "numbers",
+      "tier": "green",
+      "pass": 148,
+      "fail": 0,
+      "total": 148,
+      "durationMs": 321
+    },
+    {
+      "path": "github.com/oklog/ulid/v2",
+      "category": "external",
+      "group": "ids",
+      "tier": "green",
+      "pass": 106,
+      "fail": 0,
+      "total": 106,
+      "durationMs": 13146
+    },
+    {
+      "path": "github.com/pkg/errors",
+      "category": "external",
+      "group": "errors",
+      "tier": "green",
+      "pass": 51,
+      "fail": 0,
+      "total": 51,
+      "durationMs": 3786
+    },
+    {
+      "path": "github.com/pmezard/go-difflib/difflib",
+      "category": "external",
+      "group": "diff",
+      "tier": "green",
+      "pass": 17,
+      "fail": 0,
+      "total": 17,
+      "durationMs": 5574
+    },
+    {
+      "path": "github.com/rs/xid",
+      "category": "external",
+      "group": "ids",
+      "tier": "green",
+      "pass": 31,
+      "fail": 0,
+      "total": 31,
+      "durationMs": 1268
+    },
+    {
+      "path": "github.com/rs/zerolog",
+      "category": "external",
+      "group": "logging",
+      "tier": "green",
+      "pass": 462,
+      "fail": 0,
+      "total": 462,
+      "durationMs": 582
+    },
+    {
+      "path": "github.com/russross/blackfriday/v2",
+      "category": "external",
+      "group": "markup",
+      "tier": "green",
+      "pass": 65,
+      "fail": 0,
+      "total": 65,
+      "durationMs": 288
+    },
+    {
+      "path": "github.com/samber/lo",
+      "category": "external",
+      "group": "collections",
+      "tier": "green",
+      "pass": 11,
+      "fail": 0,
+      "total": 11,
+      "durationMs": 2465
+    },
+    {
+      "path": "github.com/segmentio/ksuid",
+      "category": "external",
+      "group": "ids",
+      "tier": "green",
+      "pass": 62,
+      "fail": 0,
+      "total": 62,
+      "durationMs": 883
+    },
+    {
+      "path": "github.com/shopspring/decimal",
+      "category": "external",
+      "group": "numbers",
+      "tier": "green",
+      "pass": 104,
+      "fail": 0,
+      "total": 104,
+      "durationMs": 4186
+    },
+    {
+      "path": "github.com/sirupsen/logrus",
+      "category": "external",
+      "group": "logging",
+      "tier": "green",
+      "pass": 95,
+      "fail": 0,
+      "total": 95,
+      "durationMs": 1993
+    },
+    {
+      "path": "github.com/spaolacci/murmur3",
+      "category": "external",
+      "group": "hashing",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 3577
+    },
+    {
+      "path": "github.com/spf13/cast",
+      "category": "external",
+      "group": "config",
+      "tier": "yellow",
+      "pass": 8921,
+      "fail": 66,
+      "total": 8987,
+      "durationMs": 890
+    },
+    {
+      "path": "github.com/spf13/pflag",
+      "category": "external",
+      "group": "config",
+      "tier": "green",
+      "pass": 177,
+      "fail": 0,
+      "total": 177,
+      "durationMs": 249
+    },
+    {
+      "path": "github.com/stretchr/testify/assert",
+      "category": "external",
+      "group": "testutil",
+      "tier": "green",
+      "pass": 502,
+      "fail": 0,
+      "total": 502,
+      "durationMs": 4519
+    },
+    {
+      "path": "github.com/tidwall/gjson",
+      "category": "external",
+      "group": "json",
+      "tier": "green",
+      "pass": 96,
+      "fail": 0,
+      "total": 96,
+      "durationMs": 3845
+    },
+    {
+      "path": "github.com/tidwall/match",
+      "category": "external",
+      "group": "json",
+      "tier": "green",
+      "pass": 9,
+      "fail": 0,
+      "total": 9,
+      "durationMs": 3355
+    },
+    {
+      "path": "github.com/tidwall/pretty",
+      "category": "external",
+      "group": "json",
+      "tier": "green",
+      "pass": 11,
+      "fail": 0,
+      "total": 11,
+      "durationMs": 34575
+    },
+    {
+      "path": "github.com/tidwall/sjson",
+      "category": "external",
+      "group": "json",
+      "tier": "green",
+      "pass": 9,
+      "fail": 0,
+      "total": 9,
+      "durationMs": 212
+    },
+    {
+      "path": "github.com/twmb/murmur3",
+      "category": "external",
+      "group": "hashing",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1570
+    },
+    {
+      "path": "github.com/valyala/fastjson",
+      "category": "external",
+      "group": "json",
+      "tier": "green",
+      "pass": 84,
+      "fail": 0,
+      "total": 84,
+      "durationMs": 9784
+    },
+    {
+      "path": "github.com/yuin/goldmark",
+      "category": "external",
+      "group": "markup",
+      "tier": "yellow",
+      "pass": 33,
+      "fail": 2,
+      "total": 35,
+      "durationMs": 24488
+    },
+    {
+      "path": "golang.org/x/net/html",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 326,
+      "errorClass": "panic",
+      "errorExcerpt": "panic: runtime error: index out of range [-1]"
+    },
+    {
+      "path": "golang.org/x/net/http2",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "green",
+      "pass": 577,
+      "fail": 0,
+      "total": 577,
+      "durationMs": 108039
+    },
+    {
+      "path": "golang.org/x/net/idna",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "green",
+      "pass": 10,
+      "fail": 0,
+      "total": 10,
+      "durationMs": 794
+    },
+    {
+      "path": "golang.org/x/net/publicsuffix",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "red",
+      "pass": 0,
+      "fail": 1,
+      "total": 1,
+      "durationMs": 359,
+      "errorClass": "tests-fail"
+    },
+    {
+      "path": "golang.org/x/sync/errgroup",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "green",
+      "pass": 6,
+      "fail": 0,
+      "total": 6,
+      "durationMs": 2032
+    },
+    {
+      "path": "golang.org/x/sync/semaphore",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "green",
+      "pass": 9,
+      "fail": 0,
+      "total": 9,
+      "durationMs": 6811
+    },
+    {
+      "path": "golang.org/x/sync/singleflight",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "yellow",
+      "pass": 10,
+      "fail": 1,
+      "total": 11,
+      "durationMs": 1237
+    },
+    {
+      "path": "golang.org/x/sync/syncmap",
+      "category": "external",
+      "group": "grpcdeps",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 3476
+    },
+    {
+      "path": "golang.org/x/text/cases",
+      "category": "external",
+      "group": "text",
+      "tier": "green",
+      "pass": 757,
+      "fail": 0,
+      "total": 757,
+      "durationMs": 5955
+    },
+    {
+      "path": "golang.org/x/text/language",
+      "category": "external",
+      "group": "text",
+      "tier": "green",
+      "pass": 333,
+      "fail": 0,
+      "total": 333,
+      "durationMs": 9282
+    },
+    {
+      "path": "golang.org/x/text/runes",
+      "category": "external",
+      "group": "text",
+      "tier": "green",
+      "pass": 10,
+      "fail": 0,
+      "total": 10,
+      "durationMs": 4380
+    },
+    {
+      "path": "golang.org/x/text/unicode/norm",
+      "category": "external",
+      "group": "text",
+      "tier": "green",
+      "pass": 6148,
+      "fail": 0,
+      "total": 6148,
+      "durationMs": 19102
+    },
+    {
+      "path": "gonum.org/v1/gonum/blas/blas64",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 41,
+      "fail": 0,
+      "total": 41,
+      "durationMs": 1228
+    },
+    {
+      "path": "gonum.org/v1/gonum/cmplxs",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 47,
+      "fail": 0,
+      "total": 47,
+      "durationMs": 388
+    },
+    {
+      "path": "gonum.org/v1/gonum/dsp/fourier",
+      "category": "external",
+      "group": "gonum",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 120002,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestFFT"
+    },
+    {
+      "path": "gonum.org/v1/gonum/floats",
+      "category": "external",
+      "group": "gonum",
+      "tier": "yellow",
+      "pass": 46,
+      "fail": 1,
+      "total": 47,
+      "durationMs": 422
+    },
+    {
+      "path": "gonum.org/v1/gonum/floats/scalar",
+      "category": "external",
+      "group": "gonum",
+      "tier": "yellow",
+      "pass": 7,
+      "fail": 1,
+      "total": 8,
+      "durationMs": 981
+    },
+    {
+      "path": "gonum.org/v1/gonum/graph",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 13,
+      "fail": 0,
+      "total": 13,
+      "durationMs": 3805
+    },
+    {
+      "path": "gonum.org/v1/gonum/graph/path",
+      "category": "external",
+      "group": "gonum",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2293
+    },
+    {
+      "path": "gonum.org/v1/gonum/graph/simple",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 145,
+      "fail": 0,
+      "total": 145,
+      "durationMs": 18435
+    },
+    {
+      "path": "gonum.org/v1/gonum/graph/topo",
+      "category": "external",
+      "group": "gonum",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1520
+    },
+    {
+      "path": "gonum.org/v1/gonum/integrate",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 2703
+    },
+    {
+      "path": "gonum.org/v1/gonum/interp",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 28,
+      "fail": 0,
+      "total": 28,
+      "durationMs": 1994
+    },
+    {
+      "path": "gonum.org/v1/gonum/lapack/gonum",
+      "category": "external",
+      "group": "gonum",
+      "tier": "red",
+      "pass": 16,
+      "fail": 0,
+      "total": 16,
+      "durationMs": 120012,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestDbdsqr"
+    },
+    {
+      "path": "gonum.org/v1/gonum/mat",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 196,
+      "fail": 0,
+      "total": 196,
+      "durationMs": 46630
+    },
+    {
+      "path": "gonum.org/v1/gonum/mathext",
+      "category": "external",
+      "group": "gonum",
+      "tier": "red",
+      "pass": 81,
+      "fail": 0,
+      "total": 81,
+      "durationMs": 120001,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestAiry"
+    },
+    {
+      "path": "gonum.org/v1/gonum/num/dual",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 4,
+      "fail": 0,
+      "total": 4,
+      "durationMs": 511
+    },
+    {
+      "path": "gonum.org/v1/gonum/num/quat",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 25,
+      "fail": 0,
+      "total": 25,
+      "durationMs": 572
+    },
+    {
+      "path": "gonum.org/v1/gonum/optimize",
+      "category": "external",
+      "group": "gonum",
+      "tier": "red",
+      "pass": 16,
+      "fail": 0,
+      "total": 16,
+      "durationMs": 120008,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestCmaEsChol"
+    },
+    {
+      "path": "gonum.org/v1/gonum/spatial/kdtree",
+      "category": "external",
+      "group": "gonum",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 574,
+      "errorClass": "panic",
+      "errorExcerpt": "panic: runtime error: invalid memory address or nil pointer dereference"
+    },
+    {
+      "path": "gonum.org/v1/gonum/spatial/r3",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 38,
+      "fail": 0,
+      "total": 38,
+      "durationMs": 2401
+    },
+    {
+      "path": "gonum.org/v1/gonum/stat",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 88,
+      "fail": 0,
+      "total": 88,
+      "durationMs": 3149
+    },
+    {
+      "path": "gonum.org/v1/gonum/stat/combin",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 22,
+      "fail": 0,
+      "total": 22,
+      "durationMs": 1692
+    },
+    {
+      "path": "gonum.org/v1/gonum/stat/distuv",
+      "category": "external",
+      "group": "gonum",
+      "tier": "green",
+      "pass": 175,
+      "fail": 0,
+      "total": 175,
+      "durationMs": 29003
+    },
+    {
+      "path": "google.golang.org/grpc/attributes",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 12,
+      "fail": 0,
+      "total": 12,
+      "durationMs": 384
+    },
+    {
+      "path": "google.golang.org/grpc/codes",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 7,
+      "fail": 0,
+      "total": 7,
+      "durationMs": 2504
+    },
+    {
+      "path": "google.golang.org/grpc/credentials",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 11,
+      "fail": 0,
+      "total": 11,
+      "durationMs": 8626
+    },
+    {
+      "path": "google.golang.org/grpc/encoding",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 20,
+      "fail": 0,
+      "total": 20,
+      "durationMs": 13404
+    },
+    {
+      "path": "google.golang.org/grpc/mem",
+      "category": "external",
+      "group": "grpc",
+      "tier": "yellow",
+      "pass": 21,
+      "fail": 2,
+      "total": 23,
+      "durationMs": 825
+    },
+    {
+      "path": "google.golang.org/grpc/metadata",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 13,
+      "fail": 0,
+      "total": 13,
+      "durationMs": 811
+    },
+    {
+      "path": "google.golang.org/grpc/peer",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 7,
+      "fail": 0,
+      "total": 7,
+      "durationMs": 694
+    },
+    {
+      "path": "google.golang.org/grpc/resolver",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 20,
+      "fail": 0,
+      "total": 20,
+      "durationMs": 1710
+    },
+    {
+      "path": "google.golang.org/grpc/stats",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 22,
+      "fail": 0,
+      "total": 22,
+      "durationMs": 13271
+    },
+    {
+      "path": "google.golang.org/grpc/status",
+      "category": "external",
+      "group": "grpc",
+      "tier": "green",
+      "pass": 27,
+      "fail": 0,
+      "total": 27,
+      "durationMs": 10556
+    },
+    {
+      "path": "google.golang.org/protobuf/encoding/protodelim",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "yellow",
+      "pass": 3,
+      "fail": 2,
+      "total": 5,
+      "durationMs": 1133
+    },
+    {
+      "path": "google.golang.org/protobuf/encoding/protojson",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "yellow",
+      "pass": 126,
+      "fail": 2,
+      "total": 128,
+      "durationMs": 3482
+    },
+    {
+      "path": "google.golang.org/protobuf/encoding/prototext",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2273,
+      "errorClass": "compile",
+      "errorExcerpt": "loading \"google.golang.org/protobuf/encoding/prototext\": google.golang.org/protobuf/encoding/prototext/encode.go:374:26: undefined: ProtoReflect"
+    },
+    {
+      "path": "google.golang.org/protobuf/encoding/protowire",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 92,
+      "fail": 0,
+      "total": 92,
+      "durationMs": 6618
+    },
+    {
+      "path": "google.golang.org/protobuf/proto",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 2800,
+      "fail": 0,
+      "total": 2800,
+      "durationMs": 8752
+    },
+    {
+      "path": "google.golang.org/protobuf/reflect/protodesc",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 120017,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestGoFeatures_NotExpectedType"
+    },
+    {
+      "path": "google.golang.org/protobuf/reflect/protoreflect",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 6,
+      "fail": 0,
+      "total": 6,
+      "durationMs": 329
+    },
+    {
+      "path": "google.golang.org/protobuf/reflect/protoregistry",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "red",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 120008,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestFiles"
+    },
+    {
+      "path": "google.golang.org/protobuf/types/dynamicpb",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "yellow",
+      "pass": 15,
+      "fail": 1,
+      "total": 16,
+      "durationMs": 3810
+    },
+    {
+      "path": "google.golang.org/protobuf/types/known/anypb",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1283
+    },
+    {
+      "path": "google.golang.org/protobuf/types/known/durationpb",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1163
+    },
+    {
+      "path": "google.golang.org/protobuf/types/known/structpb",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "red",
+      "pass": 0,
+      "fail": 2,
+      "total": 2,
+      "durationMs": 1384,
+      "errorClass": "tests-fail"
+    },
+    {
+      "path": "google.golang.org/protobuf/types/known/timestamppb",
+      "category": "external",
+      "group": "protobuf",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1165
+    },
+    {
+      "path": "archive/tar",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 3390
+    },
+    {
+      "path": "archive/zip",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 3424
+    },
+    {
+      "path": "bufio",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 9,
+      "fail": 0,
+      "total": 9,
+      "durationMs": 2278
+    },
+    {
+      "path": "bytes",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 113,
+      "fail": 0,
+      "total": 113,
+      "durationMs": 5097
+    },
+    {
+      "path": "cmp",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 8,
+      "fail": 0,
+      "total": 8,
+      "durationMs": 160
+    },
+    {
+      "path": "compress/bzip2",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4848
+    },
+    {
+      "path": "compress/flate",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 5550
+    },
+    {
+      "path": "compress/gzip",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 3794
+    },
+    {
+      "path": "compress/lzw",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2106
+    },
+    {
+      "path": "compress/zlib",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1723
+    },
+    {
+      "path": "container/heap",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 6317
+    },
+    {
+      "path": "container/list",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 6039
+    },
+    {
+      "path": "container/ring",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 7,
+      "fail": 0,
+      "total": 7,
+      "durationMs": 4458
+    },
+    {
+      "path": "context",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 2245
+    },
+    {
+      "path": "crypto",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 7,
+      "fail": 0,
+      "total": 7,
+      "durationMs": 3723
+    },
+    {
+      "path": "crypto/aes",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3793
+    },
+    {
+      "path": "crypto/cipher",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 7,
+      "fail": 0,
+      "total": 7,
+      "durationMs": 8105
+    },
+    {
+      "path": "crypto/des",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 6312
+    },
+    {
+      "path": "crypto/dsa",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1878
+    },
+    {
+      "path": "crypto/ecdh",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 47,
+      "fail": 0,
+      "total": 47,
+      "durationMs": 1947
+    },
+    {
+      "path": "crypto/ecdsa",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 5,
+      "fail": 0,
+      "total": 5,
+      "durationMs": 2511
+    },
+    {
+      "path": "crypto/ed25519",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1783
+    },
+    {
+      "path": "crypto/elliptic",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1640
+    },
+    {
+      "path": "crypto/fips140",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1796
+    },
+    {
+      "path": "crypto/hkdf",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2197
+    },
+    {
+      "path": "crypto/hmac",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1691
+    },
+    {
+      "path": "crypto/hpke",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1574
+    },
+    {
+      "path": "crypto/md5",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 3580
+    },
+    {
+      "path": "crypto/mlkem",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4601
+    },
+    {
+      "path": "crypto/pbkdf2",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1764
+    },
+    {
+      "path": "crypto/rand",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 297,
+      "fail": 0,
+      "total": 297,
+      "durationMs": 1787
+    },
+    {
+      "path": "crypto/rc4",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1767
+    },
+    {
+      "path": "crypto/rsa",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2530
+    },
+    {
+      "path": "crypto/sha1",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1874
+    },
+    {
+      "path": "crypto/sha256",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1661
+    },
+    {
+      "path": "crypto/sha3",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3723
+    },
+    {
+      "path": "crypto/sha512",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1632
+    },
+    {
+      "path": "crypto/subtle",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 4368
+    },
+    {
+      "path": "crypto/tls",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1663
+    },
+    {
+      "path": "crypto/x509",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1941
+    },
+    {
+      "path": "crypto/x509/pkix",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2190
+    },
+    {
+      "path": "database/sql",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2937
+    },
+    {
+      "path": "database/sql/driver",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4148
+    },
+    {
+      "path": "debug/buildinfo",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4362
+    },
+    {
+      "path": "debug/dwarf",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 32,
+      "fail": 0,
+      "total": 32,
+      "durationMs": 3106
+    },
+    {
+      "path": "debug/elf",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4774
+    },
+    {
+      "path": "debug/gosym",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2127
+    },
+    {
+      "path": "debug/macho",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1695
+    },
+    {
+      "path": "debug/pe",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3647
+    },
+    {
+      "path": "debug/plan9obj",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2004
+    },
+    {
+      "path": "embed",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1563
+    },
+    {
+      "path": "encoding",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1541
+    },
+    {
+      "path": "encoding/ascii85",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2752
+    },
+    {
+      "path": "encoding/asn1",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2755
+    },
+    {
+      "path": "encoding/base32",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 5,
+      "fail": 0,
+      "total": 5,
+      "durationMs": 1725
+    },
+    {
+      "path": "encoding/base64",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 6,
+      "fail": 0,
+      "total": 6,
+      "durationMs": 3132
+    },
+    {
+      "path": "encoding/binary",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 10,
+      "fail": 0,
+      "total": 10,
+      "durationMs": 1726
+    },
+    {
+      "path": "encoding/csv",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 5,
+      "fail": 0,
+      "total": 5,
+      "durationMs": 1763
+    },
+    {
+      "path": "encoding/gob",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 2255
+    },
+    {
+      "path": "encoding/hex",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 6,
+      "fail": 0,
+      "total": 6,
+      "durationMs": 1622
+    },
+    {
+      "path": "encoding/json",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 13,
+      "fail": 0,
+      "total": 13,
+      "durationMs": 1631
+    },
+    {
+      "path": "encoding/pem",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1619
+    },
+    {
+      "path": "encoding/xml",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 5,
+      "fail": 0,
+      "total": 5,
+      "durationMs": 1723
+    },
+    {
+      "path": "errors",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 92,
+      "fail": 0,
+      "total": 92,
+      "durationMs": 172
+    },
+    {
+      "path": "expvar",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1556
+    },
+    {
+      "path": "flag",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 27,
+      "fail": 0,
+      "total": 27,
+      "durationMs": 1561
+    },
+    {
+      "path": "fmt",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 79,
+      "fail": 0,
+      "total": 79,
+      "durationMs": 2121
+    },
+    {
+      "path": "go/ast",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 16,
+      "fail": 0,
+      "total": 16,
+      "durationMs": 3323
+    },
+    {
+      "path": "go/build",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4423
+    },
+    {
+      "path": "go/build/constraint",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 6735
+    },
+    {
+      "path": "go/constant",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 6,
+      "fail": 0,
+      "total": 6,
+      "durationMs": 1742
+    },
+    {
+      "path": "go/doc",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3347
+    },
+    {
+      "path": "go/doc/comment",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3245
+    },
+    {
+      "path": "go/format",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 2357
+    },
+    {
+      "path": "go/importer",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4796
+    },
+    {
+      "path": "go/parser",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 2256
+    },
+    {
+      "path": "go/printer",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 2682
+    },
+    {
+      "path": "go/scanner",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 1621
+    },
+    {
+      "path": "go/token",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 1829
+    },
+    {
+      "path": "go/types",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 3,
+      "fail": 0,
+      "total": 3,
+      "durationMs": 14064
+    },
+    {
+      "path": "go/version",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1729
+    },
+    {
+      "path": "hash",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 19,
+      "fail": 0,
+      "total": 19,
+      "durationMs": 3125
+    },
+    {
+      "path": "hash/adler32",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4130
+    },
+    {
+      "path": "hash/crc32",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 3688
+    },
+    {
+      "path": "hash/crc64",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1620
+    },
+    {
+      "path": "hash/fnv",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1641
+    },
+    {
+      "path": "hash/maphash",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 4160
+    },
+    {
+      "path": "html",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 1537
+    },
+    {
+      "path": "html/template",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 32,
+      "fail": 0,
+      "total": 32,
+      "durationMs": 1679
+    },
+    {
+      "path": "image",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 2,
+      "fail": 0,
+      "total": 2,
+      "durationMs": 2406
+    },
+    {
+      "path": "image/color",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1625
+    },
+    {
+      "path": "image/color/palette",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2105
+    },
+    {
+      "path": "image/draw",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 3570
+    },
+    {
+      "path": "image/gif",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1585
+    },
+    {
+      "path": "image/jpeg",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 1608
+    },
+    {
+      "path": "image/png",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 2048
+    },
+    {
+      "path": "index/suffixarray",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 1,
+      "fail": 0,
+      "total": 1,
+      "durationMs": 4872
+    },
+    {
+      "path": "io",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 32,
+      "fail": 0,
+      "total": 32,
+      "durationMs": 1781
+    },
+    {
+      "path": "io/fs",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 22,
+      "fail": 0,
+      "total": 22,
+      "durationMs": 2920
+    },
+    {
+      "path": "io/ioutil",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "green",
+      "pass": 30,
+      "fail": 0,
+      "total": 30,
+      "durationMs": 2382
+    },
+    {
+      "path": "iter",
+      "category": "stdlib",
+      "group": "stdlib",
+      "tier": "gray",
+      "pass": 0,
+      "fail": 0,
+      "total": 0,
+      "durationMs": 246
+    },
+    {
+      "path": "log",
+      "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 2,
       "fail": 0,
@@ -260,2263 +2394,674 @@
       "durationMs": 175
     },
     {
-      "path": "github.com/mitchellh/mapstructure",
-      "category": "external",
-      "tier": "green",
-      "pass": 134,
-      "fail": 0,
-      "total": 134,
-      "durationMs": 308
-    },
-    {
-      "path": "github.com/montanaflynn/stats",
-      "category": "external",
-      "tier": "green",
-      "pass": 148,
-      "fail": 0,
-      "total": 148,
-      "durationMs": 325
-    },
-    {
-      "path": "github.com/oklog/ulid/v2",
-      "category": "external",
-      "tier": "green",
-      "pass": 106,
-      "fail": 0,
-      "total": 106,
-      "durationMs": 26074
-    },
-    {
-      "path": "github.com/pkg/errors",
-      "category": "external",
-      "tier": "green",
-      "pass": 51,
-      "fail": 0,
-      "total": 51,
-      "durationMs": 1024
-    },
-    {
-      "path": "github.com/pmezard/go-difflib/difflib",
-      "category": "external",
-      "tier": "green",
-      "pass": 17,
-      "fail": 0,
-      "total": 17,
-      "durationMs": 415
-    },
-    {
-      "path": "github.com/rs/xid",
-      "category": "external",
-      "tier": "green",
-      "pass": 31,
-      "fail": 0,
-      "total": 31,
-      "durationMs": 1514
-    },
-    {
-      "path": "github.com/rs/zerolog",
-      "category": "external",
-      "tier": "green",
-      "pass": 462,
-      "fail": 0,
-      "total": 462,
-      "durationMs": 718
-    },
-    {
-      "path": "github.com/russross/blackfriday/v2",
-      "category": "external",
-      "tier": "green",
-      "pass": 65,
-      "fail": 0,
-      "total": 65,
-      "durationMs": 457
-    },
-    {
-      "path": "github.com/samber/lo",
-      "category": "external",
-      "tier": "green",
-      "pass": 11,
-      "fail": 0,
-      "total": 11,
-      "durationMs": 2492
-    },
-    {
-      "path": "github.com/segmentio/ksuid",
-      "category": "external",
-      "tier": "green",
-      "pass": 62,
-      "fail": 0,
-      "total": 62,
-      "durationMs": 1009
-    },
-    {
-      "path": "github.com/shopspring/decimal",
-      "category": "external",
-      "tier": "green",
-      "pass": 104,
-      "fail": 0,
-      "total": 104,
-      "durationMs": 4318
-    },
-    {
-      "path": "github.com/sirupsen/logrus",
-      "category": "external",
-      "tier": "green",
-      "pass": 95,
-      "fail": 0,
-      "total": 95,
-      "durationMs": 2301
-    },
-    {
-      "path": "github.com/spaolacci/murmur3",
-      "category": "external",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 249
-    },
-    {
-      "path": "github.com/spf13/cast",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 8921,
-      "fail": 66,
-      "total": 8987,
-      "durationMs": 902
-    },
-    {
-      "path": "github.com/spf13/pflag",
-      "category": "external",
-      "tier": "green",
-      "pass": 177,
-      "fail": 0,
-      "total": 177,
-      "durationMs": 294
-    },
-    {
-      "path": "github.com/stretchr/testify/assert",
-      "category": "external",
-      "tier": "green",
-      "pass": 502,
-      "fail": 0,
-      "total": 502,
-      "durationMs": 1650
-    },
-    {
-      "path": "github.com/tidwall/gjson",
-      "category": "external",
-      "tier": "green",
-      "pass": 96,
-      "fail": 0,
-      "total": 96,
-      "durationMs": 3897
-    },
-    {
-      "path": "github.com/tidwall/match",
-      "category": "external",
-      "tier": "green",
-      "pass": 9,
-      "fail": 0,
-      "total": 9,
-      "durationMs": 3338
-    },
-    {
-      "path": "github.com/tidwall/pretty",
-      "category": "external",
-      "tier": "green",
-      "pass": 11,
-      "fail": 0,
-      "total": 11,
-      "durationMs": 27070
-    },
-    {
-      "path": "github.com/tidwall/sjson",
-      "category": "external",
-      "tier": "green",
-      "pass": 9,
-      "fail": 0,
-      "total": 9,
-      "durationMs": 258
-    },
-    {
-      "path": "github.com/twmb/murmur3",
-      "category": "external",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 299
-    },
-    {
-      "path": "github.com/valyala/fastjson",
-      "category": "external",
-      "tier": "green",
-      "pass": 84,
-      "fail": 0,
-      "total": 84,
-      "durationMs": 11444
-    },
-    {
-      "path": "github.com/yuin/goldmark",
-      "category": "external",
-      "tier": "green",
-      "pass": 35,
-      "fail": 0,
-      "total": 35,
-      "durationMs": 12297
-    },
-    {
-      "path": "golang.org/x/net/html",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 1929,
-      "errorClass": "panic",
-      "errorExcerpt": "panic: runtime error: index out of range [-1]"
-    },
-    {
-      "path": "golang.org/x/net/http2",
-      "category": "external",
-      "tier": "green",
-      "pass": 577,
-      "fail": 0,
-      "total": 577,
-      "durationMs": 86967
-    },
-    {
-      "path": "golang.org/x/net/idna",
-      "category": "external",
-      "tier": "green",
-      "pass": 10,
-      "fail": 0,
-      "total": 10,
-      "durationMs": 9791
-    },
-    {
-      "path": "golang.org/x/net/publicsuffix",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 1,
-      "total": 1,
-      "durationMs": 12004,
-      "errorClass": "tests-fail"
-    },
-    {
-      "path": "golang.org/x/sync/errgroup",
-      "category": "external",
-      "tier": "green",
-      "pass": 6,
-      "fail": 0,
-      "total": 6,
-      "durationMs": 255
-    },
-    {
-      "path": "golang.org/x/sync/semaphore",
-      "category": "external",
-      "tier": "green",
-      "pass": 9,
-      "fail": 0,
-      "total": 9,
-      "durationMs": 13420
-    },
-    {
-      "path": "golang.org/x/sync/singleflight",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 10,
-      "fail": 1,
-      "total": 11,
-      "durationMs": 4178
-    },
-    {
-      "path": "golang.org/x/sync/syncmap",
-      "category": "external",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 12326
-    },
-    {
-      "path": "golang.org/x/text/cases",
-      "category": "external",
-      "tier": "green",
-      "pass": 757,
-      "fail": 0,
-      "total": 757,
-      "durationMs": 3329
-    },
-    {
-      "path": "golang.org/x/text/language",
-      "category": "external",
-      "tier": "green",
-      "pass": 333,
-      "fail": 0,
-      "total": 333,
-      "durationMs": 1912
-    },
-    {
-      "path": "golang.org/x/text/runes",
-      "category": "external",
-      "tier": "green",
-      "pass": 10,
-      "fail": 0,
-      "total": 10,
-      "durationMs": 1044
-    },
-    {
-      "path": "golang.org/x/text/unicode/norm",
-      "category": "external",
-      "tier": "green",
-      "pass": 6148,
-      "fail": 0,
-      "total": 6148,
-      "durationMs": 13800
-    },
-    {
-      "path": "gonum.org/v1/gonum/blas/blas64",
-      "category": "external",
-      "tier": "green",
-      "pass": 41,
-      "fail": 0,
-      "total": 41,
-      "durationMs": 15563
-    },
-    {
-      "path": "gonum.org/v1/gonum/cmplxs",
-      "category": "external",
-      "tier": "green",
-      "pass": 47,
-      "fail": 0,
-      "total": 47,
-      "durationMs": 12761
-    },
-    {
-      "path": "gonum.org/v1/gonum/dsp/fourier",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 120032,
-      "errorClass": "timeout",
-      "errorExcerpt": "=== RUN   TestFFT"
-    },
-    {
-      "path": "gonum.org/v1/gonum/floats",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 46,
-      "fail": 1,
-      "total": 47,
-      "durationMs": 389
-    },
-    {
-      "path": "gonum.org/v1/gonum/floats/scalar",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 7,
-      "fail": 1,
-      "total": 8,
-      "durationMs": 7907
-    },
-    {
-      "path": "gonum.org/v1/gonum/graph",
-      "category": "external",
-      "tier": "green",
-      "pass": 13,
-      "fail": 0,
-      "total": 13,
-      "durationMs": 12347
-    },
-    {
-      "path": "gonum.org/v1/gonum/graph/path",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 7217,
-      "errorClass": "compile",
-      "errorExcerpt": "loading \"gonum.org/v1/gonum/graph/path\": gonum.org/v1/gonum/graph/complement.go:38:30: internal: call of non-func  (type graph.empty)"
-    },
-    {
-      "path": "gonum.org/v1/gonum/graph/simple",
-      "category": "external",
-      "tier": "green",
-      "pass": 145,
-      "fail": 0,
-      "total": 145,
-      "durationMs": 16287
-    },
-    {
-      "path": "gonum.org/v1/gonum/graph/topo",
-      "category": "external",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 6094
-    },
-    {
-      "path": "gonum.org/v1/gonum/integrate",
-      "category": "external",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 7501
-    },
-    {
-      "path": "gonum.org/v1/gonum/interp",
-      "category": "external",
-      "tier": "green",
-      "pass": 28,
-      "fail": 0,
-      "total": 28,
-      "durationMs": 11323
-    },
-    {
-      "path": "gonum.org/v1/gonum/lapack/gonum",
-      "category": "external",
-      "tier": "red",
-      "pass": 37,
-      "fail": 0,
-      "total": 37,
-      "durationMs": 120017,
-      "errorClass": "timeout",
-      "errorExcerpt": "=== RUN   TestDbdsqr"
-    },
-    {
-      "path": "gonum.org/v1/gonum/mat",
-      "category": "external",
-      "tier": "green",
-      "pass": 196,
-      "fail": 0,
-      "total": 196,
-      "durationMs": 25365
-    },
-    {
-      "path": "gonum.org/v1/gonum/mathext",
-      "category": "external",
-      "tier": "green",
-      "pass": 82,
-      "fail": 0,
-      "total": 82,
-      "durationMs": 100616
-    },
-    {
-      "path": "gonum.org/v1/gonum/num/dual",
-      "category": "external",
-      "tier": "green",
-      "pass": 4,
-      "fail": 0,
-      "total": 4,
-      "durationMs": 15429
-    },
-    {
-      "path": "gonum.org/v1/gonum/num/quat",
-      "category": "external",
-      "tier": "green",
-      "pass": 25,
-      "fail": 0,
-      "total": 25,
-      "durationMs": 20305
-    },
-    {
-      "path": "gonum.org/v1/gonum/optimize",
-      "category": "external",
-      "tier": "red",
-      "pass": 4,
-      "fail": 0,
-      "total": 4,
-      "durationMs": 120001,
-      "errorClass": "timeout",
-      "errorExcerpt": "=== RUN   TestCmaEsChol"
-    },
-    {
-      "path": "gonum.org/v1/gonum/spatial/kdtree",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 7176,
-      "errorClass": "panic",
-      "errorExcerpt": "panic: runtime error: invalid memory address or nil pointer dereference"
-    },
-    {
-      "path": "gonum.org/v1/gonum/spatial/r3",
-      "category": "external",
-      "tier": "green",
-      "pass": 38,
-      "fail": 0,
-      "total": 38,
-      "durationMs": 59488
-    },
-    {
-      "path": "gonum.org/v1/gonum/stat",
-      "category": "external",
-      "tier": "green",
-      "pass": 88,
-      "fail": 0,
-      "total": 88,
-      "durationMs": 6844
-    },
-    {
-      "path": "gonum.org/v1/gonum/stat/combin",
-      "category": "external",
-      "tier": "green",
-      "pass": 22,
-      "fail": 0,
-      "total": 22,
-      "durationMs": 10087
-    },
-    {
-      "path": "gonum.org/v1/gonum/stat/distuv",
-      "category": "external",
-      "tier": "green",
-      "pass": 175,
-      "fail": 0,
-      "total": 175,
-      "durationMs": 27471
-    },
-    {
-      "path": "google.golang.org/grpc/attributes",
-      "category": "external",
-      "tier": "green",
-      "pass": 12,
-      "fail": 0,
-      "total": 12,
-      "durationMs": 2574
-    },
-    {
-      "path": "google.golang.org/grpc/codes",
-      "category": "external",
-      "tier": "green",
-      "pass": 7,
-      "fail": 0,
-      "total": 7,
-      "durationMs": 2671
-    },
-    {
-      "path": "google.golang.org/grpc/credentials",
-      "category": "external",
-      "tier": "green",
-      "pass": 11,
-      "fail": 0,
-      "total": 11,
-      "durationMs": 7047
-    },
-    {
-      "path": "google.golang.org/grpc/encoding",
-      "category": "external",
-      "tier": "green",
-      "pass": 20,
-      "fail": 0,
-      "total": 20,
-      "durationMs": 10215
-    },
-    {
-      "path": "google.golang.org/grpc/mem",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 21,
-      "fail": 2,
-      "total": 23,
-      "durationMs": 58677
-    },
-    {
-      "path": "google.golang.org/grpc/metadata",
-      "category": "external",
-      "tier": "green",
-      "pass": 13,
-      "fail": 0,
-      "total": 13,
-      "durationMs": 58691
-    },
-    {
-      "path": "google.golang.org/grpc/peer",
-      "category": "external",
-      "tier": "green",
-      "pass": 7,
-      "fail": 0,
-      "total": 7,
-      "durationMs": 2760
-    },
-    {
-      "path": "google.golang.org/grpc/resolver",
-      "category": "external",
-      "tier": "green",
-      "pass": 20,
-      "fail": 0,
-      "total": 20,
-      "durationMs": 2477
-    },
-    {
-      "path": "google.golang.org/grpc/stats",
-      "category": "external",
-      "tier": "green",
-      "pass": 22,
-      "fail": 0,
-      "total": 22,
-      "durationMs": 57896
-    },
-    {
-      "path": "google.golang.org/grpc/status",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 24,
-      "fail": 2,
-      "total": 26,
-      "durationMs": 19595
-    },
-    {
-      "path": "google.golang.org/protobuf/encoding/protodelim",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 3,
-      "fail": 2,
-      "total": 5,
-      "durationMs": 7081
-    },
-    {
-      "path": "google.golang.org/protobuf/encoding/protojson",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 126,
-      "fail": 2,
-      "total": 128,
-      "durationMs": 2525
-    },
-    {
-      "path": "google.golang.org/protobuf/encoding/prototext",
-      "category": "external",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 1917
-    },
-    {
-      "path": "google.golang.org/protobuf/encoding/protowire",
-      "category": "external",
-      "tier": "green",
-      "pass": 92,
-      "fail": 0,
-      "total": 92,
-      "durationMs": 353
-    },
-    {
-      "path": "google.golang.org/protobuf/proto",
-      "category": "external",
-      "tier": "green",
-      "pass": 2800,
-      "fail": 0,
-      "total": 2800,
-      "durationMs": 8413
-    },
-    {
-      "path": "google.golang.org/protobuf/reflect/protodesc",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 120027,
-      "errorClass": "timeout",
-      "errorExcerpt": "=== RUN   TestGoFeatures_NotExpectedType"
-    },
-    {
-      "path": "google.golang.org/protobuf/reflect/protoreflect",
-      "category": "external",
-      "tier": "green",
-      "pass": 6,
-      "fail": 0,
-      "total": 6,
-      "durationMs": 5891
-    },
-    {
-      "path": "google.golang.org/protobuf/reflect/protoregistry",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 120011,
-      "errorClass": "timeout",
-      "errorExcerpt": "=== RUN   TestFiles"
-    },
-    {
-      "path": "google.golang.org/protobuf/types/dynamicpb",
-      "category": "external",
-      "tier": "yellow",
-      "pass": 15,
-      "fail": 1,
-      "total": 16,
-      "durationMs": 7120
-    },
-    {
-      "path": "google.golang.org/protobuf/types/known/anypb",
-      "category": "external",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 3135
-    },
-    {
-      "path": "google.golang.org/protobuf/types/known/durationpb",
-      "category": "external",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 10125
-    },
-    {
-      "path": "google.golang.org/protobuf/types/known/structpb",
-      "category": "external",
-      "tier": "red",
-      "pass": 0,
-      "fail": 2,
-      "total": 2,
-      "durationMs": 11551,
-      "errorClass": "tests-fail"
-    },
-    {
-      "path": "google.golang.org/protobuf/types/known/timestamppb",
-      "category": "external",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 11339
-    },
-    {
-      "path": "archive/tar",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 368
-    },
-    {
-      "path": "archive/zip",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 380
-    },
-    {
-      "path": "bufio",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 9,
-      "fail": 0,
-      "total": 9,
-      "durationMs": 459
-    },
-    {
-      "path": "bytes",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 113,
-      "fail": 0,
-      "total": 113,
-      "durationMs": 1912
-    },
-    {
-      "path": "cmp",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 8,
-      "fail": 0,
-      "total": 8,
-      "durationMs": 202
-    },
-    {
-      "path": "compress/bzip2",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 347
-    },
-    {
-      "path": "compress/flate",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 318
-    },
-    {
-      "path": "compress/gzip",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 315
-    },
-    {
-      "path": "compress/lzw",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 302
-    },
-    {
-      "path": "compress/zlib",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 304
-    },
-    {
-      "path": "container/heap",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 366
-    },
-    {
-      "path": "container/list",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 344
-    },
-    {
-      "path": "container/ring",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 7,
-      "fail": 0,
-      "total": 7,
-      "durationMs": 358
-    },
-    {
-      "path": "context",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 573
-    },
-    {
-      "path": "crypto",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 7,
-      "fail": 0,
-      "total": 7,
-      "durationMs": 413
-    },
-    {
-      "path": "crypto/aes",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 305
-    },
-    {
-      "path": "crypto/cipher",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 7,
-      "fail": 0,
-      "total": 7,
-      "durationMs": 772
-    },
-    {
-      "path": "crypto/des",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 495
-    },
-    {
-      "path": "crypto/dsa",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 321
-    },
-    {
-      "path": "crypto/ecdh",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 47,
-      "fail": 0,
-      "total": 47,
-      "durationMs": 546
-    },
-    {
-      "path": "crypto/ecdsa",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 5,
-      "fail": 0,
-      "total": 5,
-      "durationMs": 376
-    },
-    {
-      "path": "crypto/ed25519",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 518
-    },
-    {
-      "path": "crypto/elliptic",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 359
-    },
-    {
-      "path": "crypto/fips140",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 515
-    },
-    {
-      "path": "crypto/hkdf",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 510
-    },
-    {
-      "path": "crypto/hmac",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 356
-    },
-    {
-      "path": "crypto/hpke",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 371
-    },
-    {
-      "path": "crypto/md5",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 317
-    },
-    {
-      "path": "crypto/mlkem",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 614
-    },
-    {
-      "path": "crypto/pbkdf2",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 505
-    },
-    {
-      "path": "crypto/rand",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 297,
-      "fail": 0,
-      "total": 297,
-      "durationMs": 529
-    },
-    {
-      "path": "crypto/rc4",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 358
-    },
-    {
-      "path": "crypto/rsa",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 1316
-    },
-    {
-      "path": "crypto/sha1",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 356
-    },
-    {
-      "path": "crypto/sha256",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 333
-    },
-    {
-      "path": "crypto/sha3",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 449
-    },
-    {
-      "path": "crypto/sha512",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 313
-    },
-    {
-      "path": "crypto/subtle",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 1009
-    },
-    {
-      "path": "crypto/tls",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 381
-    },
-    {
-      "path": "crypto/x509",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 591
-    },
-    {
-      "path": "crypto/x509/pkix",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 503
-    },
-    {
-      "path": "database/sql",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 390
-    },
-    {
-      "path": "database/sql/driver",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 460
-    },
-    {
-      "path": "debug/buildinfo",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 487
-    },
-    {
-      "path": "debug/dwarf",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 32,
-      "fail": 0,
-      "total": 32,
-      "durationMs": 618
-    },
-    {
-      "path": "debug/elf",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 324
-    },
-    {
-      "path": "debug/gosym",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 343
-    },
-    {
-      "path": "debug/macho",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 353
-    },
-    {
-      "path": "debug/pe",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 361
-    },
-    {
-      "path": "debug/plan9obj",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 375
-    },
-    {
-      "path": "embed",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 252
-    },
-    {
-      "path": "encoding",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 250
-    },
-    {
-      "path": "encoding/ascii85",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 315
-    },
-    {
-      "path": "encoding/asn1",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 344
-    },
-    {
-      "path": "encoding/base32",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 5,
-      "fail": 0,
-      "total": 5,
-      "durationMs": 351
-    },
-    {
-      "path": "encoding/base64",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 6,
-      "fail": 0,
-      "total": 6,
-      "durationMs": 410
-    },
-    {
-      "path": "encoding/binary",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 10,
-      "fail": 0,
-      "total": 10,
-      "durationMs": 328
-    },
-    {
-      "path": "encoding/csv",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 5,
-      "fail": 0,
-      "total": 5,
-      "durationMs": 368
-    },
-    {
-      "path": "encoding/gob",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 373
-    },
-    {
-      "path": "encoding/hex",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 6,
-      "fail": 0,
-      "total": 6,
-      "durationMs": 323
-    },
-    {
-      "path": "encoding/json",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 13,
-      "fail": 0,
-      "total": 13,
-      "durationMs": 372
-    },
-    {
-      "path": "encoding/pem",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 341
-    },
-    {
-      "path": "encoding/xml",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 5,
-      "fail": 0,
-      "total": 5,
-      "durationMs": 325
-    },
-    {
-      "path": "errors",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 92,
-      "fail": 0,
-      "total": 92,
-      "durationMs": 208
-    },
-    {
-      "path": "expvar",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 257
-    },
-    {
-      "path": "flag",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 27,
-      "fail": 0,
-      "total": 27,
-      "durationMs": 261
-    },
-    {
-      "path": "fmt",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 79,
-      "fail": 0,
-      "total": 79,
-      "durationMs": 831
-    },
-    {
-      "path": "go/ast",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 16,
-      "fail": 0,
-      "total": 16,
-      "durationMs": 328
-    },
-    {
-      "path": "go/build",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 356
-    },
-    {
-      "path": "go/build/constraint",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 418
-    },
-    {
-      "path": "go/constant",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 6,
-      "fail": 0,
-      "total": 6,
-      "durationMs": 361
-    },
-    {
-      "path": "go/doc",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 440
-    },
-    {
-      "path": "go/doc/comment",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 453
-    },
-    {
-      "path": "go/format",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 363
-    },
-    {
-      "path": "go/importer",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 311
-    },
-    {
-      "path": "go/parser",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 371
-    },
-    {
-      "path": "go/printer",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 351
-    },
-    {
-      "path": "go/scanner",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 355
-    },
-    {
-      "path": "go/token",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 539
-    },
-    {
-      "path": "go/types",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 3,
-      "fail": 0,
-      "total": 3,
-      "durationMs": 5049
-    },
-    {
-      "path": "go/version",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 416
-    },
-    {
-      "path": "hash",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 19,
-      "fail": 0,
-      "total": 19,
-      "durationMs": 223
-    },
-    {
-      "path": "hash/adler32",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 369
-    },
-    {
-      "path": "hash/crc32",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 355
-    },
-    {
-      "path": "hash/crc64",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 361
-    },
-    {
-      "path": "hash/fnv",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 400
-    },
-    {
-      "path": "hash/maphash",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 353
-    },
-    {
-      "path": "html",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 253
-    },
-    {
-      "path": "html/template",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 32,
-      "fail": 0,
-      "total": 32,
-      "durationMs": 367
-    },
-    {
-      "path": "image",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 944
-    },
-    {
-      "path": "image/color",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 360
-    },
-    {
-      "path": "image/color/palette",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 488
-    },
-    {
-      "path": "image/draw",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 367
-    },
-    {
-      "path": "image/gif",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 345
-    },
-    {
-      "path": "image/jpeg",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 310
-    },
-    {
-      "path": "image/png",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 313
-    },
-    {
-      "path": "index/suffixarray",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 1,
-      "fail": 0,
-      "total": 1,
-      "durationMs": 374
-    },
-    {
-      "path": "io",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 32,
-      "fail": 0,
-      "total": 32,
-      "durationMs": 481
-    },
-    {
-      "path": "io/fs",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 22,
-      "fail": 0,
-      "total": 22,
-      "durationMs": 507
-    },
-    {
-      "path": "io/ioutil",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 30,
-      "fail": 0,
-      "total": 30,
-      "durationMs": 374
-    },
-    {
-      "path": "iter",
-      "category": "stdlib",
-      "tier": "gray",
-      "pass": 0,
-      "fail": 0,
-      "total": 0,
-      "durationMs": 269
-    },
-    {
-      "path": "log",
-      "category": "stdlib",
-      "tier": "green",
-      "pass": 2,
-      "fail": 0,
-      "total": 2,
-      "durationMs": 191
-    },
-    {
       "path": "log/slog",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 378
+      "durationMs": 4283
     },
     {
       "path": "log/syslog",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 312
+      "durationMs": 3480
     },
     {
       "path": "maps",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 24,
       "fail": 0,
       "total": 24,
-      "durationMs": 210
+      "durationMs": 182
     },
     {
       "path": "math",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 111,
       "fail": 0,
       "total": 111,
-      "durationMs": 247
+      "durationMs": 3447
     },
     {
       "path": "math/big",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 46,
       "fail": 0,
       "total": 46,
-      "durationMs": 392
+      "durationMs": 3325
     },
     {
       "path": "math/bits",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 62,
       "fail": 0,
       "total": 62,
-      "durationMs": 423
+      "durationMs": 1678
     },
     {
       "path": "math/cmplx",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 365
+      "durationMs": 1780
     },
     {
       "path": "math/rand",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 689
+      "durationMs": 1818
     },
     {
       "path": "math/rand/v2",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 500
+      "durationMs": 1733
     },
     {
       "path": "mime",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 202
+      "durationMs": 1716
     },
     {
       "path": "mime/multipart",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 352
+      "durationMs": 4784
     },
     {
       "path": "mime/quotedprintable",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 410
+      "durationMs": 5181
     },
     {
       "path": "net",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 32,
       "fail": 0,
       "total": 32,
-      "durationMs": 638
+      "durationMs": 3908
     },
     {
       "path": "net/http",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 58,
       "fail": 0,
       "total": 58,
-      "durationMs": 2963
+      "durationMs": 9960
     },
     {
       "path": "net/http/cgi",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 473
+      "durationMs": 3192
     },
     {
       "path": "net/http/cookiejar",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 525
+      "durationMs": 3400
     },
     {
       "path": "net/http/fcgi",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 467
+      "durationMs": 2336
     },
     {
       "path": "net/http/httptest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 463
+      "durationMs": 1777
     },
     {
       "path": "net/http/httptrace",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 443
+      "durationMs": 1752
     },
     {
       "path": "net/http/httputil",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 456
+      "durationMs": 3886
     },
     {
       "path": "net/http/pprof",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 425
+      "durationMs": 1764
     },
     {
       "path": "net/mail",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 396
+      "durationMs": 3092
     },
     {
       "path": "net/netip",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 422
+      "durationMs": 2929
     },
     {
       "path": "net/rpc",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 323
+      "durationMs": 2322
     },
     {
       "path": "net/rpc/jsonrpc",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 508
+      "durationMs": 4407
     },
     {
       "path": "net/smtp",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 377
+      "durationMs": 1630
     },
     {
       "path": "net/textproto",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 365
+      "durationMs": 1720
     },
     {
       "path": "net/url",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 28,
       "fail": 0,
       "total": 28,
-      "durationMs": 368
+      "durationMs": 1651
     },
     {
       "path": "os",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 37,
       "fail": 0,
       "total": 37,
-      "durationMs": 3357
+      "durationMs": 12487
     },
     {
       "path": "os/exec",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 15,
       "fail": 0,
       "total": 15,
-      "durationMs": 805
+      "durationMs": 8699
     },
     {
       "path": "os/signal",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 350
+      "durationMs": 1650
     },
     {
       "path": "os/user",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 293
+      "durationMs": 2397
     },
     {
       "path": "path",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 172
+      "durationMs": 231
     },
     {
       "path": "path/filepath",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 867
+      "durationMs": 3570
     },
     {
       "path": "reflect",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 3535
+      "durationMs": 702
     },
     {
       "path": "regexp",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 31,
       "fail": 0,
       "total": 31,
-      "durationMs": 254
+      "durationMs": 1582
     },
     {
       "path": "regexp/syntax",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 359
+      "durationMs": 2030
     },
     {
       "path": "runtime",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2
+      "durationMs": 4
     },
     {
       "path": "runtime/cgo",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 328
+      "durationMs": 4872
     },
     {
       "path": "runtime/coverage",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 361
+      "durationMs": 1600
     },
     {
       "path": "runtime/debug",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 386
+      "durationMs": 1829
     },
     {
       "path": "runtime/metrics",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 471
+      "durationMs": 1762
     },
     {
       "path": "runtime/pprof",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 311
+      "durationMs": 1665
     },
     {
       "path": "runtime/trace",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 622
+      "durationMs": 3158
     },
     {
       "path": "slices",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 41,
       "fail": 0,
       "total": 41,
-      "durationMs": 249
+      "durationMs": 254
     },
     {
       "path": "sort",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 60,
       "fail": 0,
       "total": 60,
-      "durationMs": 486
+      "durationMs": 1662
     },
     {
       "path": "strconv",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 43,
       "fail": 0,
       "total": 43,
-      "durationMs": 1520
+      "durationMs": 2963
     },
     {
       "path": "strings",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 121,
       "fail": 0,
       "total": 121,
-      "durationMs": 5867
+      "durationMs": 3599
     },
     {
       "path": "structs",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 241
+      "durationMs": 1626
     },
     {
       "path": "sync",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 20,
       "fail": 0,
       "total": 20,
-      "durationMs": 1026
+      "durationMs": 3684
     },
     {
       "path": "sync/atomic",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 107,
       "fail": 0,
       "total": 107,
-      "durationMs": 2585
+      "durationMs": 4097
     },
     {
       "path": "testing",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 325
+      "durationMs": 304
     },
     {
       "path": "testing/cryptotest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 410
+      "durationMs": 3185
     },
     {
       "path": "testing/fstest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 405
+      "durationMs": 4957
     },
     {
       "path": "testing/iotest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 381
+      "durationMs": 1662
     },
     {
       "path": "testing/slogtest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 19,
       "fail": 0,
       "total": 19,
-      "durationMs": 403
+      "durationMs": 1668
     },
     {
       "path": "testing/synctest",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 12,
       "fail": 0,
       "total": 12,
-      "durationMs": 391
+      "durationMs": 1755
     },
     {
       "path": "text/scanner",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 389
+      "durationMs": 7187
     },
     {
       "path": "text/tabwriter",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 369
+      "durationMs": 6898
     },
     {
       "path": "text/template",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 504
+      "durationMs": 8057
     },
     {
       "path": "text/template/parse",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 481
+      "durationMs": 10335
     },
     {
       "path": "time",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 36,
       "fail": 0,
       "total": 36,
-      "durationMs": 1142
+      "durationMs": 5092
     },
     {
       "path": "unicode",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 42,
       "fail": 0,
       "total": 42,
-      "durationMs": 225
+      "durationMs": 1530
     },
     {
       "path": "unicode/utf16",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 551
+      "durationMs": 1868
     },
     {
       "path": "unicode/utf8",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "green",
       "pass": 30,
       "fail": 0,
       "total": 30,
-      "durationMs": 411
+      "durationMs": 3467
     },
     {
       "path": "unique",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 230
+      "durationMs": 317
     },
     {
       "path": "weak",
       "category": "stdlib",
+      "group": "stdlib",
       "tier": "gray",
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 304
+      "durationMs": 3345
     }
   ]
 }

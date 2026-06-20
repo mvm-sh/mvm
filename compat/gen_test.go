@@ -1,6 +1,76 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestExternalPackages(t *testing.T) {
+	const data = `# header comment
+#: ids Unique IDs
+github.com/google/uuid
+github.com/rs/xid  # inline comment
+
+#: gonum gonum (numeric)
+# plain comment, not a group
+gonum.org/v1/gonum/mat
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "external.txt")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refs, groups, err := externalPackages(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRefs := []pkgRef{
+		{path: "github.com/google/uuid", category: "external", group: "ids"},
+		{path: "github.com/rs/xid", category: "external", group: "ids"},
+		{path: "gonum.org/v1/gonum/mat", category: "external", group: "gonum"},
+	}
+	if len(refs) != len(wantRefs) {
+		t.Fatalf("got %d refs, want %d: %+v", len(refs), len(wantRefs), refs)
+	}
+	for i, w := range wantRefs {
+		if refs[i] != w {
+			t.Errorf("ref[%d] = %+v, want %+v", i, refs[i], w)
+		}
+	}
+	wantGroups := []Group{
+		{Slug: "ids", Label: "Unique IDs", Kind: "external"},
+		{Slug: "gonum", Label: "gonum (numeric)", Kind: "external"},
+	}
+	if len(groups) != len(wantGroups) {
+		t.Fatalf("got %d groups, want %d: %+v", len(groups), len(wantGroups), groups)
+	}
+	for i, w := range wantGroups {
+		if groups[i] != w {
+			t.Errorf("group[%d] = %+v, want %+v", i, groups[i], w)
+		}
+	}
+}
+
+func TestFillGroups(t *testing.T) {
+	groups := []Group{
+		{Slug: "stdlib", Kind: "stdlib"},
+		{Slug: "ids", Kind: "external"},
+		{Slug: "empty", Kind: "external"}, // no packages -> dropped
+	}
+	pkgs := []Pkg{
+		{Group: "stdlib", Tier: "green", Pass: 3, Total: 3},
+		{Group: "ids", Tier: "green", Pass: 2, Total: 2},
+		{Group: "ids", Tier: "red", Total: 0},
+	}
+	got := fillGroups(groups, pkgs)
+	if len(got) != 2 {
+		t.Fatalf("got %d groups, want 2: %+v", len(got), got)
+	}
+	if got[1].Slug != "ids" || got[1].Summary.Green != 1 || got[1].Summary.Red != 1 || got[1].Summary.Total != 2 {
+		t.Errorf("ids summary = %+v", got[1].Summary)
+	}
+}
 
 func TestClassify(t *testing.T) {
 	cases := []struct {

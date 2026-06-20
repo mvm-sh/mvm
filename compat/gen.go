@@ -3,7 +3,9 @@
 // It runs "mvm test <pkg>" for every bridged standard-library package (parsed
 // from stdlib/gen.go) plus the curated external list (compat/external.txt),
 // classifies each result into a tier (green/yellow/red/gray) with a
-// tests-passing ratio, and writes three data files consumed by the
+// tests-passing ratio, tags it with a coarse category (stdlib/external) and a
+// fine group (the "#:" sections of external.txt, e.g. gonum or grpc), and
+// writes three data files consumed by the
 // mvm.sh/compat page: compat.json (the full latest matrix), history.jsonl (one
 // appended summary line per run, for the trend chart) and badge.json (a
 // shields.io endpoint badge). It also rewrites the compatibility summary block
@@ -49,23 +51,35 @@ const schemaVersion = 1
 // have runnable tests, so the matrix includes them.
 var extraStdlib = []string{"cmp", "iter", "maps", "slices", "log"}
 
-// pkgRef is one package to test, tagged with its matrix category.
+// pkgRef is one package to test, tagged with its matrix category and group.
 type pkgRef struct {
 	path     string
 	category string // "stdlib" or "external"
+	group    string // fine-grained slug, e.g. "gonum", "grpc", "ids"
 }
 
 // Pkg is the per-package result recorded in compat.json.
 type Pkg struct {
 	Path         string `json:"path"`
-	Category     string `json:"category"`
-	Tier         string `json:"tier"` // green, yellow, red, gray
+	Category     string `json:"category"` // coarse: "stdlib" or "external"
+	Group        string `json:"group"`    // fine slug, e.g. "gonum", "grpc"
+	Tier         string `json:"tier"`     // green, yellow, red, gray
 	Pass         int    `json:"pass"`
 	Fail         int    `json:"fail"`
 	Total        int    `json:"total"`
 	DurationMs   int64  `json:"durationMs"`
 	ErrorClass   string `json:"errorClass,omitempty"`   // compile, panic, timeout, tests-fail
 	ErrorExcerpt string `json:"errorExcerpt,omitempty"` // first error line, truncated
+}
+
+// Group is one fine-grained section of the matrix (a "#:" block of
+// external.txt, or the whole standard library), with its own tier tally. The
+// slice is ordered for display; Kind keeps the coarse stdlib/external split.
+type Group struct {
+	Slug    string  `json:"slug"`
+	Label   string  `json:"label"`
+	Kind    string  `json:"kind"` // "stdlib" or "external"
+	Summary Summary `json:"summary"`
 }
 
 // Summary aggregates one category's tier counts and test totals.
@@ -86,9 +100,11 @@ type Matrix struct {
 	Mvm         string             `json:"mvm"`
 	Go          string             `json:"go"`
 	Platform    string             `json:"platform"`
-	Summary     map[string]Summary `json:"summary"`
+	Summary     map[string]Summary `json:"summary"` // coarse, keyed by category
+	Groups      []Group            `json:"groups"`  // fine-grained, ordered
 	Packages    []Pkg              `json:"packages"`
 }
+
 
 // historyEntry is one compact line appended to history.jsonl per run.
 type historyEntry struct {
@@ -129,7 +145,7 @@ func main() {
 	)
 	flag.Parse()
 
-	refs, err := collectPackages(*root, *only)
+	refs, groups, err := collectPackages(*root, *only)
 	if err != nil {
 		fail(err)
 	}
@@ -157,6 +173,7 @@ func main() {
 		}
 		return results[i].Path < results[j].Path
 	})
+	groups = fillGroups(groups, results)
 
 	mvmVer, goVer, platform := mvmVersion(*mvmBin)
 	matrix := Matrix{
@@ -166,6 +183,7 @@ func main() {
 		Go:          goVer,
 		Platform:    platform,
 		Summary:     summarize(results),
+		Groups:      groups,
 		Packages:    results,
 	}
 
@@ -177,32 +195,34 @@ func main() {
 			fmt.Fprintf(os.Stderr, "compat: README not updated: %v\n", err)
 		}
 	}
-	printSummary(matrix.Summary)
+	printSummary(matrix.Summary, matrix.Groups)
 }
 
-// collectPackages builds the package list from stdlib/gen.go and
-// compat/external.txt, filtered by the -only selector.
-func collectPackages(root, only string) ([]pkgRef, error) {
+// collectPackages builds the package list and the ordered group list from
+// stdlib/gen.go and compat/external.txt, filtered by the -only selector. The
+// returned groups carry no counts yet; fillGroups tallies them after the run.
+func collectPackages(root, only string) ([]pkgRef, []Group, error) {
 	var refs []pkgRef
+	var groups []Group
 	if only == "all" || only == "stdlib" {
 		std, err := stdlibPackages(root)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, p := range std {
-			refs = append(refs, pkgRef{path: p, category: "stdlib"})
+			refs = append(refs, pkgRef{path: p, category: "stdlib", group: "stdlib"})
 		}
+		groups = append(groups, Group{Slug: "stdlib", Label: "Standard library", Kind: "stdlib"})
 	}
 	if only == "all" || only == "external" {
-		ext, err := externalPackages(filepath.Join(root, "compat", "external.txt"))
+		ext, extGroups, err := externalPackages(filepath.Join(root, "compat", "external.txt"))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		for _, p := range ext {
-			refs = append(refs, pkgRef{path: p, category: "external"})
-		}
+		refs = append(refs, ext...)
+		groups = append(groups, extGroups...)
 	}
-	return refs, nil
+	return refs, groups, nil
 }
 
 // stdlibPackages returns the bridged stdlib import paths, parsed from the
@@ -231,25 +251,77 @@ func stdlibPackages(root string) ([]string, error) {
 }
 
 // externalPackages reads compat/external.txt: one import path per line, with
-// "#" comments and blank lines ignored. A missing file yields no packages.
-func externalPackages(path string) ([]string, error) {
+// "#" comments and blank lines ignored. A "#: <slug> <label>" directive opens a
+// group; packages below it are tagged with that slug until the next directive.
+// It returns the package refs and the groups in file order. A missing file
+// yields nothing.
+func externalPackages(path string) ([]pkgRef, []Group, error) {
 	buf, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+		return nil, nil, fmt.Errorf("reading %s: %w", path, err)
 	}
-	var out []string
+	var refs []pkgRef
+	var groups []Group
+	cur := Group{Slug: "external", Label: "External", Kind: "external"}
+	seen := map[string]bool{}
+	flush := func() {
+		if seen[cur.Slug] {
+			return
+		}
+		seen[cur.Slug] = true
+		groups = append(groups, cur)
+	}
 	for line := range strings.SplitSeq(string(buf), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "#:"); ok {
+			slug, label, _ := strings.Cut(strings.TrimSpace(rest), " ")
+			cur = Group{Slug: slug, Label: strings.TrimSpace(label), Kind: "external"}
+			continue
+		}
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
 		}
-		if line = strings.TrimSpace(line); line != "" {
-			out = append(out, line)
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		flush()
+		refs = append(refs, pkgRef{path: line, category: "external", group: cur.Slug})
+	}
+	return refs, groups, nil
+}
+
+// fillGroups tallies each group's tier counts from the results and drops groups
+// with no packages (e.g. filtered out by -match), preserving file order.
+func fillGroups(groups []Group, pkgs []Pkg) []Group {
+	sums := map[string]Summary{}
+	for _, p := range pkgs {
+		s := sums[p.Group]
+		s.Total++
+		s.TestsPass += p.Pass
+		s.TestsTotal += p.Total
+		switch p.Tier {
+		case "green":
+			s.Green++
+		case "yellow":
+			s.Yellow++
+		case "red":
+			s.Red++
+		case "gray":
+			s.Gray++
+		}
+		sums[p.Group] = s
+	}
+	out := groups[:0]
+	for _, g := range groups {
+		if s, ok := sums[g.Slug]; ok {
+			g.Summary = s
+			out = append(out, g)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // runAll tests every package through a fixed worker pool. Each package runs as
@@ -306,6 +378,7 @@ func runOne(ref pkgRef, mvmBin string, timeout time.Duration) Pkg {
 	r := classify(exitCode, timedOut, string(output))
 	r.Path = ref.path
 	r.Category = ref.category
+	r.Group = ref.group
 	r.DurationMs = dur.Milliseconds()
 	return r
 }
@@ -507,14 +580,20 @@ func updateReadme(path string, m Matrix) error {
 	return os.WriteFile(path, []byte(updated), 0o600)
 }
 
-// printSummary writes a short human summary of the run to stderr.
-func printSummary(sum map[string]Summary) {
+// printSummary writes a short human summary of the run to stderr: one line per
+// group in display order, then the coarse stdlib/external totals.
+func printSummary(sum map[string]Summary, groups []Group) {
+	for _, g := range groups {
+		s := g.Summary
+		fmt.Fprintf(os.Stderr, "  %-12s green=%d yellow=%d red=%d gray=%d total=%d tests=%d/%d\n",
+			g.Slug, s.Green, s.Yellow, s.Red, s.Gray, s.Total, s.TestsPass, s.TestsTotal)
+	}
 	for _, cat := range []string{"stdlib", "external"} {
 		s, ok := sum[cat]
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "%-8s green=%d yellow=%d red=%d gray=%d total=%d tests=%d/%d\n",
+		fmt.Fprintf(os.Stderr, "%-14s green=%d yellow=%d red=%d gray=%d total=%d tests=%d/%d\n",
 			cat, s.Green, s.Yellow, s.Red, s.Gray, s.Total, s.TestsPass, s.TestsTotal)
 	}
 }
