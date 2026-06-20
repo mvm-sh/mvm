@@ -1,18 +1,18 @@
 {
   "schema": 1,
-  "generatedAt": "2026-06-20T13:37:39Z",
-  "mvm": "dbd685de87e6",
+  "generatedAt": "2026-06-20T14:07:36Z",
+  "mvm": "fdb009cb6d1c",
   "go": "go1.26.4",
   "platform": "linux/arm64",
   "summary": {
     "external": {
-      "green": 80,
-      "yellow": 12,
-      "red": 11,
-      "gray": 3,
+      "green": 79,
+      "yellow": 13,
+      "red": 12,
+      "gray": 2,
       "total": 106,
-      "testsPass": 25093,
-      "testsTotal": 25191
+      "testsPass": 25133,
+      "testsTotal": 25232
     },
     "stdlib": {
       "green": 94,
@@ -231,7 +231,7 @@
         "red": 0,
         "gray": 0,
         "total": 3,
-        "testsPass": 177,
+        "testsPass": 178,
         "testsTotal": 179
       }
     },
@@ -242,11 +242,11 @@
       "summary": {
         "green": 13,
         "yellow": 2,
-        "red": 5,
-        "gray": 2,
+        "red": 6,
+        "gray": 1,
         "total": 22,
-        "testsPass": 991,
-        "testsTotal": 993
+        "testsPass": 1033,
+        "testsTotal": 1035
       }
     },
     {
@@ -254,13 +254,13 @@
       "label": "gRPC",
       "kind": "external",
       "summary": {
-        "green": 9,
-        "yellow": 1,
+        "green": 8,
+        "yellow": 2,
         "red": 0,
         "gray": 0,
         "total": 10,
-        "testsPass": 160,
-        "testsTotal": 162
+        "testsPass": 157,
+        "testsTotal": 161
       }
     },
     {
@@ -301,7 +301,7 @@
       "pass": 49,
       "fail": 0,
       "total": 49,
-      "durationMs": 172
+      "durationMs": 314
     },
     {
       "path": "github.com/agext/levenshtein",
@@ -311,7 +311,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 170
+      "durationMs": 256
     },
     {
       "path": "github.com/asaskevich/govalidator",
@@ -321,7 +321,7 @@
       "pass": 184,
       "fail": 0,
       "total": 184,
-      "durationMs": 775
+      "durationMs": 550
     },
     {
       "path": "github.com/blang/semver/v4",
@@ -331,7 +331,7 @@
       "pass": 37,
       "fail": 0,
       "total": 37,
-      "durationMs": 143
+      "durationMs": 258
     },
     {
       "path": "github.com/bmatcuk/doublestar/v4",
@@ -341,7 +341,7 @@
       "pass": 29,
       "fail": 0,
       "total": 29,
-      "durationMs": 672
+      "durationMs": 866
     },
     {
       "path": "github.com/buger/jsonparser",
@@ -351,7 +351,7 @@
       "pass": 451,
       "fail": 0,
       "total": 451,
-      "durationMs": 337
+      "durationMs": 387
     },
     {
       "path": "github.com/cespare/xxhash/v2",
@@ -361,7 +361,7 @@
       "pass": 153,
       "fail": 0,
       "total": 153,
-      "durationMs": 261
+      "durationMs": 323
     },
     {
       "path": "github.com/davecgh/go-spew/spew",
@@ -371,7 +371,7 @@
       "pass": 14,
       "fail": 0,
       "total": 14,
-      "durationMs": 1720
+      "durationMs": 5275
     },
     {
       "path": "github.com/dustin/go-humanize",
@@ -381,7 +381,7 @@
       "pass": 28,
       "fail": 0,
       "total": 28,
-      "durationMs": 719
+      "durationMs": 834
     },
     {
       "path": "github.com/fatih/color",
@@ -391,7 +391,7 @@
       "pass": 26,
       "fail": 0,
       "total": 26,
-      "durationMs": 375
+      "durationMs": 516
     },
     {
       "path": "github.com/gobwas/glob",
@@ -401,7 +401,7 @@
       "pass": 78,
       "fail": 0,
       "total": 78,
-      "durationMs": 4634
+      "durationMs": 355
     },
     {
       "path": "github.com/gofrs/uuid",
@@ -411,7 +411,7 @@
       "pass": 130,
       "fail": 0,
       "total": 130,
-      "durationMs": 3496
+      "durationMs": 388
     },
     {
       "path": "github.com/golang/protobuf/jsonpb",
@@ -421,7 +421,7 @@
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 2899
+      "durationMs": 5573
     },
     {
       "path": "github.com/golang/protobuf/proto",
@@ -431,7 +431,7 @@
       "pass": 168,
       "fail": 2,
       "total": 170,
-      "durationMs": 4392
+      "durationMs": 6948
     },
     {
       "path": "github.com/golang/protobuf/ptypes",
@@ -441,7 +441,7 @@
       "pass": 16,
       "fail": 0,
       "total": 16,
-      "durationMs": 1206
+      "durationMs": 2985
     },
     {
       "path": "github.com/google/btree",
@@ -451,7 +451,7 @@
       "pass": 18,
       "fail": 0,
       "total": 18,
-      "durationMs": 183
+      "durationMs": 288
     },
     {
       "path": "github.com/google/go-cmp/cmp",
@@ -461,7 +461,7 @@
       "pass": 282,
       "fail": 14,
       "total": 296,
-      "durationMs": 6423
+      "durationMs": 1436
     },
     {
       "path": "github.com/google/shlex",
@@ -471,7 +471,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 115
+      "durationMs": 162
     },
     {
       "path": "github.com/google/uuid",
@@ -481,7 +481,7 @@
       "pass": 53,
       "fail": 0,
       "total": 53,
-      "durationMs": 1026
+      "durationMs": 1438
     },
     {
       "path": "github.com/hashicorp/errwrap",
@@ -491,7 +491,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 119
+      "durationMs": 142
     },
     {
       "path": "github.com/hashicorp/go-multierror",
@@ -501,7 +501,7 @@
       "pass": 33,
       "fail": 0,
       "total": 33,
-      "durationMs": 184
+      "durationMs": 200
     },
     {
       "path": "github.com/hashicorp/go-uuid",
@@ -511,7 +511,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 111
+      "durationMs": 125
     },
     {
       "path": "github.com/hashicorp/go-version",
@@ -521,7 +521,7 @@
       "pass": 34,
       "fail": 0,
       "total": 34,
-      "durationMs": 131
+      "durationMs": 164
     },
     {
       "path": "github.com/kr/pretty",
@@ -531,7 +531,7 @@
       "pass": 7,
       "fail": 1,
       "total": 8,
-      "durationMs": 327
+      "durationMs": 385
     },
     {
       "path": "github.com/microcosm-cc/bluemonday",
@@ -541,7 +541,7 @@
       "pass": 79,
       "fail": 0,
       "total": 79,
-      "durationMs": 657
+      "durationMs": 725
     },
     {
       "path": "github.com/mitchellh/go-homedir",
@@ -551,7 +551,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 118
+      "durationMs": 194
     },
     {
       "path": "github.com/mitchellh/mapstructure",
@@ -561,7 +561,7 @@
       "pass": 134,
       "fail": 0,
       "total": 134,
-      "durationMs": 223
+      "durationMs": 341
     },
     {
       "path": "github.com/montanaflynn/stats",
@@ -571,7 +571,7 @@
       "pass": 148,
       "fail": 0,
       "total": 148,
-      "durationMs": 321
+      "durationMs": 374
     },
     {
       "path": "github.com/oklog/ulid/v2",
@@ -581,7 +581,7 @@
       "pass": 106,
       "fail": 0,
       "total": 106,
-      "durationMs": 13146
+      "durationMs": 28270
     },
     {
       "path": "github.com/pkg/errors",
@@ -591,7 +591,7 @@
       "pass": 51,
       "fail": 0,
       "total": 51,
-      "durationMs": 3786
+      "durationMs": 968
     },
     {
       "path": "github.com/pmezard/go-difflib/difflib",
@@ -601,7 +601,7 @@
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 5574
+      "durationMs": 510
     },
     {
       "path": "github.com/rs/xid",
@@ -611,7 +611,7 @@
       "pass": 31,
       "fail": 0,
       "total": 31,
-      "durationMs": 1268
+      "durationMs": 1695
     },
     {
       "path": "github.com/rs/zerolog",
@@ -621,7 +621,7 @@
       "pass": 462,
       "fail": 0,
       "total": 462,
-      "durationMs": 582
+      "durationMs": 845
     },
     {
       "path": "github.com/russross/blackfriday/v2",
@@ -631,7 +631,7 @@
       "pass": 65,
       "fail": 0,
       "total": 65,
-      "durationMs": 288
+      "durationMs": 462
     },
     {
       "path": "github.com/samber/lo",
@@ -641,7 +641,7 @@
       "pass": 11,
       "fail": 0,
       "total": 11,
-      "durationMs": 2465
+      "durationMs": 2611
     },
     {
       "path": "github.com/segmentio/ksuid",
@@ -651,7 +651,7 @@
       "pass": 62,
       "fail": 0,
       "total": 62,
-      "durationMs": 883
+      "durationMs": 1087
     },
     {
       "path": "github.com/shopspring/decimal",
@@ -661,7 +661,7 @@
       "pass": 104,
       "fail": 0,
       "total": 104,
-      "durationMs": 4186
+      "durationMs": 4429
     },
     {
       "path": "github.com/sirupsen/logrus",
@@ -671,7 +671,7 @@
       "pass": 95,
       "fail": 0,
       "total": 95,
-      "durationMs": 1993
+      "durationMs": 2404
     },
     {
       "path": "github.com/spaolacci/murmur3",
@@ -681,7 +681,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 3577
+      "durationMs": 427
     },
     {
       "path": "github.com/spf13/cast",
@@ -691,7 +691,7 @@
       "pass": 8921,
       "fail": 66,
       "total": 8987,
-      "durationMs": 890
+      "durationMs": 952
     },
     {
       "path": "github.com/spf13/pflag",
@@ -701,7 +701,7 @@
       "pass": 177,
       "fail": 0,
       "total": 177,
-      "durationMs": 249
+      "durationMs": 323
     },
     {
       "path": "github.com/stretchr/testify/assert",
@@ -711,7 +711,7 @@
       "pass": 502,
       "fail": 0,
       "total": 502,
-      "durationMs": 4519
+      "durationMs": 1870
     },
     {
       "path": "github.com/tidwall/gjson",
@@ -721,7 +721,7 @@
       "pass": 96,
       "fail": 0,
       "total": 96,
-      "durationMs": 3845
+      "durationMs": 4032
     },
     {
       "path": "github.com/tidwall/match",
@@ -731,7 +731,7 @@
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 3355
+      "durationMs": 3627
     },
     {
       "path": "github.com/tidwall/pretty",
@@ -741,7 +741,7 @@
       "pass": 11,
       "fail": 0,
       "total": 11,
-      "durationMs": 34575
+      "durationMs": 28412
     },
     {
       "path": "github.com/tidwall/sjson",
@@ -751,7 +751,7 @@
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 212
+      "durationMs": 303
     },
     {
       "path": "github.com/twmb/murmur3",
@@ -761,7 +761,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1570
+      "durationMs": 373
     },
     {
       "path": "github.com/valyala/fastjson",
@@ -771,17 +771,17 @@
       "pass": 84,
       "fail": 0,
       "total": 84,
-      "durationMs": 9784
+      "durationMs": 12020
     },
     {
       "path": "github.com/yuin/goldmark",
       "category": "external",
       "group": "markup",
       "tier": "yellow",
-      "pass": 33,
-      "fail": 2,
+      "pass": 34,
+      "fail": 1,
       "total": 35,
-      "durationMs": 24488
+      "durationMs": 12801
     },
     {
       "path": "golang.org/x/net/html",
@@ -791,7 +791,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 326,
+      "durationMs": 3500,
       "errorClass": "panic",
       "errorExcerpt": "panic: runtime error: index out of range [-1]"
     },
@@ -803,7 +803,7 @@
       "pass": 577,
       "fail": 0,
       "total": 577,
-      "durationMs": 108039
+      "durationMs": 107729
     },
     {
       "path": "golang.org/x/net/idna",
@@ -813,7 +813,7 @@
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 794
+      "durationMs": 3403
     },
     {
       "path": "golang.org/x/net/publicsuffix",
@@ -823,7 +823,7 @@
       "pass": 0,
       "fail": 1,
       "total": 1,
-      "durationMs": 359,
+      "durationMs": 4579,
       "errorClass": "tests-fail"
     },
     {
@@ -834,7 +834,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 2032
+      "durationMs": 1920
     },
     {
       "path": "golang.org/x/sync/semaphore",
@@ -844,7 +844,7 @@
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 6811
+      "durationMs": 8576
     },
     {
       "path": "golang.org/x/sync/singleflight",
@@ -854,7 +854,7 @@
       "pass": 10,
       "fail": 1,
       "total": 11,
-      "durationMs": 1237
+      "durationMs": 3334
     },
     {
       "path": "golang.org/x/sync/syncmap",
@@ -864,7 +864,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 3476
+      "durationMs": 9674
     },
     {
       "path": "golang.org/x/text/cases",
@@ -874,7 +874,7 @@
       "pass": 757,
       "fail": 0,
       "total": 757,
-      "durationMs": 5955
+      "durationMs": 2938
     },
     {
       "path": "golang.org/x/text/language",
@@ -884,7 +884,7 @@
       "pass": 333,
       "fail": 0,
       "total": 333,
-      "durationMs": 9282
+      "durationMs": 3888
     },
     {
       "path": "golang.org/x/text/runes",
@@ -894,7 +894,7 @@
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 4380
+      "durationMs": 1100
     },
     {
       "path": "golang.org/x/text/unicode/norm",
@@ -904,7 +904,7 @@
       "pass": 6148,
       "fail": 0,
       "total": 6148,
-      "durationMs": 19102
+      "durationMs": 14793
     },
     {
       "path": "gonum.org/v1/gonum/blas/blas64",
@@ -914,7 +914,7 @@
       "pass": 41,
       "fail": 0,
       "total": 41,
-      "durationMs": 1228
+      "durationMs": 14397
     },
     {
       "path": "gonum.org/v1/gonum/cmplxs",
@@ -924,7 +924,7 @@
       "pass": 47,
       "fail": 0,
       "total": 47,
-      "durationMs": 388
+      "durationMs": 5749
     },
     {
       "path": "gonum.org/v1/gonum/dsp/fourier",
@@ -934,7 +934,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 120002,
+      "durationMs": 120006,
       "errorClass": "timeout",
       "errorExcerpt": "=== RUN   TestFFT"
     },
@@ -946,7 +946,7 @@
       "pass": 46,
       "fail": 1,
       "total": 47,
-      "durationMs": 422
+      "durationMs": 7662
     },
     {
       "path": "gonum.org/v1/gonum/floats/scalar",
@@ -956,7 +956,7 @@
       "pass": 7,
       "fail": 1,
       "total": 8,
-      "durationMs": 981
+      "durationMs": 10840
     },
     {
       "path": "gonum.org/v1/gonum/graph",
@@ -966,17 +966,19 @@
       "pass": 13,
       "fail": 0,
       "total": 13,
-      "durationMs": 3805
+      "durationMs": 6857
     },
     {
       "path": "gonum.org/v1/gonum/graph/path",
       "category": "external",
       "group": "gonum",
-      "tier": "gray",
-      "pass": 0,
+      "tier": "red",
+      "pass": 31,
       "fail": 0,
-      "total": 0,
-      "durationMs": 2293
+      "total": 31,
+      "durationMs": 120009,
+      "errorClass": "timeout",
+      "errorExcerpt": "=== RUN   TestAStar"
     },
     {
       "path": "gonum.org/v1/gonum/graph/simple",
@@ -986,7 +988,7 @@
       "pass": 145,
       "fail": 0,
       "total": 145,
-      "durationMs": 18435
+      "durationMs": 44933
     },
     {
       "path": "gonum.org/v1/gonum/graph/topo",
@@ -996,7 +998,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1520
+      "durationMs": 9990
     },
     {
       "path": "gonum.org/v1/gonum/integrate",
@@ -1006,7 +1008,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 2703
+      "durationMs": 7819
     },
     {
       "path": "gonum.org/v1/gonum/interp",
@@ -1016,17 +1018,17 @@
       "pass": 28,
       "fail": 0,
       "total": 28,
-      "durationMs": 1994
+      "durationMs": 22722
     },
     {
       "path": "gonum.org/v1/gonum/lapack/gonum",
       "category": "external",
       "group": "gonum",
       "tier": "red",
-      "pass": 16,
+      "pass": 34,
       "fail": 0,
-      "total": 16,
-      "durationMs": 120012,
+      "total": 34,
+      "durationMs": 120007,
       "errorClass": "timeout",
       "errorExcerpt": "=== RUN   TestDbdsqr"
     },
@@ -1038,7 +1040,7 @@
       "pass": 196,
       "fail": 0,
       "total": 196,
-      "durationMs": 46630
+      "durationMs": 100518
     },
     {
       "path": "gonum.org/v1/gonum/mathext",
@@ -1060,7 +1062,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 511
+      "durationMs": 6943
     },
     {
       "path": "gonum.org/v1/gonum/num/quat",
@@ -1070,17 +1072,17 @@
       "pass": 25,
       "fail": 0,
       "total": 25,
-      "durationMs": 572
+      "durationMs": 16149
     },
     {
       "path": "gonum.org/v1/gonum/optimize",
       "category": "external",
       "group": "gonum",
       "tier": "red",
-      "pass": 16,
+      "pass": 9,
       "fail": 0,
-      "total": 16,
-      "durationMs": 120008,
+      "total": 9,
+      "durationMs": 120005,
       "errorClass": "timeout",
       "errorExcerpt": "=== RUN   TestCmaEsChol"
     },
@@ -1092,7 +1094,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 574,
+      "durationMs": 4520,
       "errorClass": "panic",
       "errorExcerpt": "panic: runtime error: invalid memory address or nil pointer dereference"
     },
@@ -1104,7 +1106,7 @@
       "pass": 38,
       "fail": 0,
       "total": 38,
-      "durationMs": 2401
+      "durationMs": 17708
     },
     {
       "path": "gonum.org/v1/gonum/stat",
@@ -1114,7 +1116,7 @@
       "pass": 88,
       "fail": 0,
       "total": 88,
-      "durationMs": 3149
+      "durationMs": 7184
     },
     {
       "path": "gonum.org/v1/gonum/stat/combin",
@@ -1124,7 +1126,7 @@
       "pass": 22,
       "fail": 0,
       "total": 22,
-      "durationMs": 1692
+      "durationMs": 6233
     },
     {
       "path": "gonum.org/v1/gonum/stat/distuv",
@@ -1134,7 +1136,7 @@
       "pass": 175,
       "fail": 0,
       "total": 175,
-      "durationMs": 29003
+      "durationMs": 18439
     },
     {
       "path": "google.golang.org/grpc/attributes",
@@ -1144,7 +1146,7 @@
       "pass": 12,
       "fail": 0,
       "total": 12,
-      "durationMs": 384
+      "durationMs": 2936
     },
     {
       "path": "google.golang.org/grpc/codes",
@@ -1154,7 +1156,7 @@
       "pass": 7,
       "fail": 0,
       "total": 7,
-      "durationMs": 2504
+      "durationMs": 6737
     },
     {
       "path": "google.golang.org/grpc/credentials",
@@ -1164,7 +1166,7 @@
       "pass": 11,
       "fail": 0,
       "total": 11,
-      "durationMs": 8626
+      "durationMs": 10295
     },
     {
       "path": "google.golang.org/grpc/encoding",
@@ -1174,7 +1176,7 @@
       "pass": 20,
       "fail": 0,
       "total": 20,
-      "durationMs": 13404
+      "durationMs": 27313
     },
     {
       "path": "google.golang.org/grpc/mem",
@@ -1184,7 +1186,7 @@
       "pass": 21,
       "fail": 2,
       "total": 23,
-      "durationMs": 825
+      "durationMs": 55687
     },
     {
       "path": "google.golang.org/grpc/metadata",
@@ -1194,7 +1196,7 @@
       "pass": 13,
       "fail": 0,
       "total": 13,
-      "durationMs": 811
+      "durationMs": 1131
     },
     {
       "path": "google.golang.org/grpc/peer",
@@ -1204,7 +1206,7 @@
       "pass": 7,
       "fail": 0,
       "total": 7,
-      "durationMs": 694
+      "durationMs": 3341
     },
     {
       "path": "google.golang.org/grpc/resolver",
@@ -1214,7 +1216,7 @@
       "pass": 20,
       "fail": 0,
       "total": 20,
-      "durationMs": 1710
+      "durationMs": 4262
     },
     {
       "path": "google.golang.org/grpc/stats",
@@ -1224,17 +1226,17 @@
       "pass": 22,
       "fail": 0,
       "total": 22,
-      "durationMs": 13271
+      "durationMs": 12941
     },
     {
       "path": "google.golang.org/grpc/status",
       "category": "external",
       "group": "grpc",
-      "tier": "green",
-      "pass": 27,
-      "fail": 0,
-      "total": 27,
-      "durationMs": 10556
+      "tier": "yellow",
+      "pass": 24,
+      "fail": 2,
+      "total": 26,
+      "durationMs": 17600
     },
     {
       "path": "google.golang.org/protobuf/encoding/protodelim",
@@ -1244,7 +1246,7 @@
       "pass": 3,
       "fail": 2,
       "total": 5,
-      "durationMs": 1133
+      "durationMs": 4623
     },
     {
       "path": "google.golang.org/protobuf/encoding/protojson",
@@ -1254,7 +1256,7 @@
       "pass": 126,
       "fail": 2,
       "total": 128,
-      "durationMs": 3482
+      "durationMs": 3287
     },
     {
       "path": "google.golang.org/protobuf/encoding/prototext",
@@ -1264,7 +1266,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2273,
+      "durationMs": 9385,
       "errorClass": "compile",
       "errorExcerpt": "loading \"google.golang.org/protobuf/encoding/prototext\": google.golang.org/protobuf/encoding/prototext/encode.go:374:26: undefined: ProtoReflect"
     },
@@ -1276,7 +1278,7 @@
       "pass": 92,
       "fail": 0,
       "total": 92,
-      "durationMs": 6618
+      "durationMs": 2062
     },
     {
       "path": "google.golang.org/protobuf/proto",
@@ -1286,7 +1288,7 @@
       "pass": 2800,
       "fail": 0,
       "total": 2800,
-      "durationMs": 8752
+      "durationMs": 14280
     },
     {
       "path": "google.golang.org/protobuf/reflect/protodesc",
@@ -1296,7 +1298,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 120017,
+      "durationMs": 120019,
       "errorClass": "timeout",
       "errorExcerpt": "=== RUN   TestGoFeatures_NotExpectedType"
     },
@@ -1308,7 +1310,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 329
+      "durationMs": 14050
     },
     {
       "path": "google.golang.org/protobuf/reflect/protoregistry",
@@ -1318,7 +1320,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 120008,
+      "durationMs": 120013,
       "errorClass": "timeout",
       "errorExcerpt": "=== RUN   TestFiles"
     },
@@ -1330,7 +1332,7 @@
       "pass": 15,
       "fail": 1,
       "total": 16,
-      "durationMs": 3810
+      "durationMs": 9388
     },
     {
       "path": "google.golang.org/protobuf/types/known/anypb",
@@ -1340,7 +1342,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1283
+      "durationMs": 3453
     },
     {
       "path": "google.golang.org/protobuf/types/known/durationpb",
@@ -1350,7 +1352,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1163
+      "durationMs": 9562
     },
     {
       "path": "google.golang.org/protobuf/types/known/structpb",
@@ -1360,7 +1362,7 @@
       "pass": 0,
       "fail": 2,
       "total": 2,
-      "durationMs": 1384,
+      "durationMs": 19808,
       "errorClass": "tests-fail"
     },
     {
@@ -1371,7 +1373,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1165
+      "durationMs": 8497
     },
     {
       "path": "archive/tar",
@@ -1381,7 +1383,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 3390
+      "durationMs": 564
     },
     {
       "path": "archive/zip",
@@ -1391,7 +1393,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 3424
+      "durationMs": 461
     },
     {
       "path": "bufio",
@@ -1401,7 +1403,7 @@
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 2278
+      "durationMs": 687
     },
     {
       "path": "bytes",
@@ -1411,7 +1413,7 @@
       "pass": 113,
       "fail": 0,
       "total": 113,
-      "durationMs": 5097
+      "durationMs": 2164
     },
     {
       "path": "cmp",
@@ -1421,7 +1423,7 @@
       "pass": 8,
       "fail": 0,
       "total": 8,
-      "durationMs": 160
+      "durationMs": 228
     },
     {
       "path": "compress/bzip2",
@@ -1431,7 +1433,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4848
+      "durationMs": 383
     },
     {
       "path": "compress/flate",
@@ -1441,7 +1443,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 5550
+      "durationMs": 463
     },
     {
       "path": "compress/gzip",
@@ -1451,7 +1453,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 3794
+      "durationMs": 459
     },
     {
       "path": "compress/lzw",
@@ -1461,7 +1463,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2106
+      "durationMs": 422
     },
     {
       "path": "compress/zlib",
@@ -1471,7 +1473,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1723
+      "durationMs": 438
     },
     {
       "path": "container/heap",
@@ -1481,7 +1483,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 6317
+      "durationMs": 410
     },
     {
       "path": "container/list",
@@ -1491,7 +1493,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 6039
+      "durationMs": 448
     },
     {
       "path": "container/ring",
@@ -1501,7 +1503,7 @@
       "pass": 7,
       "fail": 0,
       "total": 7,
-      "durationMs": 4458
+      "durationMs": 440
     },
     {
       "path": "context",
@@ -1511,7 +1513,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 2245
+      "durationMs": 644
     },
     {
       "path": "crypto",
@@ -1521,7 +1523,7 @@
       "pass": 7,
       "fail": 0,
       "total": 7,
-      "durationMs": 3723
+      "durationMs": 435
     },
     {
       "path": "crypto/aes",
@@ -1531,7 +1533,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3793
+      "durationMs": 430
     },
     {
       "path": "crypto/cipher",
@@ -1541,7 +1543,7 @@
       "pass": 7,
       "fail": 0,
       "total": 7,
-      "durationMs": 8105
+      "durationMs": 999
     },
     {
       "path": "crypto/des",
@@ -1551,7 +1553,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 6312
+      "durationMs": 648
     },
     {
       "path": "crypto/dsa",
@@ -1561,7 +1563,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1878
+      "durationMs": 394
     },
     {
       "path": "crypto/ecdh",
@@ -1571,7 +1573,7 @@
       "pass": 47,
       "fail": 0,
       "total": 47,
-      "durationMs": 1947
+      "durationMs": 625
     },
     {
       "path": "crypto/ecdsa",
@@ -1581,7 +1583,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 2511
+      "durationMs": 470
     },
     {
       "path": "crypto/ed25519",
@@ -1591,7 +1593,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1783
+      "durationMs": 619
     },
     {
       "path": "crypto/elliptic",
@@ -1601,7 +1603,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1640
+      "durationMs": 443
     },
     {
       "path": "crypto/fips140",
@@ -1611,7 +1613,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1796
+      "durationMs": 643
     },
     {
       "path": "crypto/hkdf",
@@ -1621,7 +1623,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2197
+      "durationMs": 557
     },
     {
       "path": "crypto/hmac",
@@ -1631,7 +1633,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1691
+      "durationMs": 422
     },
     {
       "path": "crypto/hpke",
@@ -1641,7 +1643,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1574
+      "durationMs": 452
     },
     {
       "path": "crypto/md5",
@@ -1651,7 +1653,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 3580
+      "durationMs": 534
     },
     {
       "path": "crypto/mlkem",
@@ -1661,7 +1663,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4601
+      "durationMs": 789
     },
     {
       "path": "crypto/pbkdf2",
@@ -1671,7 +1673,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1764
+      "durationMs": 613
     },
     {
       "path": "crypto/rand",
@@ -1681,7 +1683,7 @@
       "pass": 297,
       "fail": 0,
       "total": 297,
-      "durationMs": 1787
+      "durationMs": 542
     },
     {
       "path": "crypto/rc4",
@@ -1691,7 +1693,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1767
+      "durationMs": 488
     },
     {
       "path": "crypto/rsa",
@@ -1701,7 +1703,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2530
+      "durationMs": 1497
     },
     {
       "path": "crypto/sha1",
@@ -1711,7 +1713,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1874
+      "durationMs": 416
     },
     {
       "path": "crypto/sha256",
@@ -1721,7 +1723,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1661
+      "durationMs": 402
     },
     {
       "path": "crypto/sha3",
@@ -1731,7 +1733,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3723
+      "durationMs": 590
     },
     {
       "path": "crypto/sha512",
@@ -1741,7 +1743,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1632
+      "durationMs": 410
     },
     {
       "path": "crypto/subtle",
@@ -1751,7 +1753,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 4368
+      "durationMs": 1127
     },
     {
       "path": "crypto/tls",
@@ -1761,7 +1763,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1663
+      "durationMs": 389
     },
     {
       "path": "crypto/x509",
@@ -1771,7 +1773,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1941
+      "durationMs": 666
     },
     {
       "path": "crypto/x509/pkix",
@@ -1781,7 +1783,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2190
+      "durationMs": 579
     },
     {
       "path": "database/sql",
@@ -1791,7 +1793,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2937
+      "durationMs": 448
     },
     {
       "path": "database/sql/driver",
@@ -1801,7 +1803,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4148
+      "durationMs": 593
     },
     {
       "path": "debug/buildinfo",
@@ -1811,7 +1813,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4362
+      "durationMs": 1815
     },
     {
       "path": "debug/dwarf",
@@ -1821,7 +1823,7 @@
       "pass": 32,
       "fail": 0,
       "total": 32,
-      "durationMs": 3106
+      "durationMs": 738
     },
     {
       "path": "debug/elf",
@@ -1831,7 +1833,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4774
+      "durationMs": 394
     },
     {
       "path": "debug/gosym",
@@ -1841,7 +1843,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2127
+      "durationMs": 375
     },
     {
       "path": "debug/macho",
@@ -1851,7 +1853,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1695
+      "durationMs": 379
     },
     {
       "path": "debug/pe",
@@ -1861,7 +1863,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3647
+      "durationMs": 342
     },
     {
       "path": "debug/plan9obj",
@@ -1871,7 +1873,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2004
+      "durationMs": 423
     },
     {
       "path": "embed",
@@ -1881,7 +1883,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1563
+      "durationMs": 320
     },
     {
       "path": "encoding",
@@ -1891,7 +1893,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1541
+      "durationMs": 331
     },
     {
       "path": "encoding/ascii85",
@@ -1901,7 +1903,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2752
+      "durationMs": 530
     },
     {
       "path": "encoding/asn1",
@@ -1911,7 +1913,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2755
+      "durationMs": 418
     },
     {
       "path": "encoding/base32",
@@ -1921,7 +1923,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 1725
+      "durationMs": 436
     },
     {
       "path": "encoding/base64",
@@ -1931,7 +1933,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 3132
+      "durationMs": 433
     },
     {
       "path": "encoding/binary",
@@ -1941,7 +1943,7 @@
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 1726
+      "durationMs": 401
     },
     {
       "path": "encoding/csv",
@@ -1951,7 +1953,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 1763
+      "durationMs": 489
     },
     {
       "path": "encoding/gob",
@@ -1961,7 +1963,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 2255
+      "durationMs": 402
     },
     {
       "path": "encoding/hex",
@@ -1971,7 +1973,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 1622
+      "durationMs": 398
     },
     {
       "path": "encoding/json",
@@ -1981,7 +1983,7 @@
       "pass": 13,
       "fail": 0,
       "total": 13,
-      "durationMs": 1631
+      "durationMs": 505
     },
     {
       "path": "encoding/pem",
@@ -1991,7 +1993,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1619
+      "durationMs": 418
     },
     {
       "path": "encoding/xml",
@@ -2001,7 +2003,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 1723
+      "durationMs": 462
     },
     {
       "path": "errors",
@@ -2011,7 +2013,7 @@
       "pass": 92,
       "fail": 0,
       "total": 92,
-      "durationMs": 172
+      "durationMs": 208
     },
     {
       "path": "expvar",
@@ -2021,7 +2023,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1556
+      "durationMs": 298
     },
     {
       "path": "flag",
@@ -2031,7 +2033,7 @@
       "pass": 27,
       "fail": 0,
       "total": 27,
-      "durationMs": 1561
+      "durationMs": 275
     },
     {
       "path": "fmt",
@@ -2041,7 +2043,7 @@
       "pass": 79,
       "fail": 0,
       "total": 79,
-      "durationMs": 2121
+      "durationMs": 894
     },
     {
       "path": "go/ast",
@@ -2051,7 +2053,7 @@
       "pass": 16,
       "fail": 0,
       "total": 16,
-      "durationMs": 3323
+      "durationMs": 451
     },
     {
       "path": "go/build",
@@ -2061,7 +2063,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4423
+      "durationMs": 465
     },
     {
       "path": "go/build/constraint",
@@ -2071,7 +2073,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 6735
+      "durationMs": 602
     },
     {
       "path": "go/constant",
@@ -2081,7 +2083,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 1742
+      "durationMs": 419
     },
     {
       "path": "go/doc",
@@ -2091,7 +2093,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3347
+      "durationMs": 564
     },
     {
       "path": "go/doc/comment",
@@ -2101,7 +2103,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3245
+      "durationMs": 538
     },
     {
       "path": "go/format",
@@ -2111,7 +2113,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 2357
+      "durationMs": 430
     },
     {
       "path": "go/importer",
@@ -2121,7 +2123,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4796
+      "durationMs": 403
     },
     {
       "path": "go/parser",
@@ -2131,7 +2133,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 2256
+      "durationMs": 469
     },
     {
       "path": "go/printer",
@@ -2141,7 +2143,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 2682
+      "durationMs": 407
     },
     {
       "path": "go/scanner",
@@ -2151,7 +2153,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 1621
+      "durationMs": 422
     },
     {
       "path": "go/token",
@@ -2161,7 +2163,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 1829
+      "durationMs": 712
     },
     {
       "path": "go/types",
@@ -2171,7 +2173,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 14064
+      "durationMs": 6256
     },
     {
       "path": "go/version",
@@ -2181,7 +2183,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1729
+      "durationMs": 437
     },
     {
       "path": "hash",
@@ -2191,7 +2193,7 @@
       "pass": 19,
       "fail": 0,
       "total": 19,
-      "durationMs": 3125
+      "durationMs": 376
     },
     {
       "path": "hash/adler32",
@@ -2201,7 +2203,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4130
+      "durationMs": 436
     },
     {
       "path": "hash/crc32",
@@ -2211,7 +2213,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 3688
+      "durationMs": 431
     },
     {
       "path": "hash/crc64",
@@ -2221,7 +2223,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1620
+      "durationMs": 413
     },
     {
       "path": "hash/fnv",
@@ -2231,7 +2233,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1641
+      "durationMs": 451
     },
     {
       "path": "hash/maphash",
@@ -2241,7 +2243,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4160
+      "durationMs": 429
     },
     {
       "path": "html",
@@ -2251,7 +2253,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 1537
+      "durationMs": 264
     },
     {
       "path": "html/template",
@@ -2261,7 +2263,7 @@
       "pass": 32,
       "fail": 0,
       "total": 32,
-      "durationMs": 1679
+      "durationMs": 442
     },
     {
       "path": "image",
@@ -2271,7 +2273,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 2406
+      "durationMs": 1044
     },
     {
       "path": "image/color",
@@ -2281,7 +2283,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1625
+      "durationMs": 431
     },
     {
       "path": "image/color/palette",
@@ -2291,7 +2293,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2105
+      "durationMs": 592
     },
     {
       "path": "image/draw",
@@ -2301,7 +2303,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3570
+      "durationMs": 420
     },
     {
       "path": "image/gif",
@@ -2311,7 +2313,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1585
+      "durationMs": 490
     },
     {
       "path": "image/jpeg",
@@ -2321,7 +2323,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1608
+      "durationMs": 452
     },
     {
       "path": "image/png",
@@ -2331,7 +2333,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2048
+      "durationMs": 500
     },
     {
       "path": "index/suffixarray",
@@ -2341,7 +2343,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 4872
+      "durationMs": 496
     },
     {
       "path": "io",
@@ -2351,7 +2353,7 @@
       "pass": 32,
       "fail": 0,
       "total": 32,
-      "durationMs": 1781
+      "durationMs": 648
     },
     {
       "path": "io/fs",
@@ -2361,7 +2363,7 @@
       "pass": 22,
       "fail": 0,
       "total": 22,
-      "durationMs": 2920
+      "durationMs": 577
     },
     {
       "path": "io/ioutil",
@@ -2371,7 +2373,7 @@
       "pass": 30,
       "fail": 0,
       "total": 30,
-      "durationMs": 2382
+      "durationMs": 478
     },
     {
       "path": "iter",
@@ -2381,7 +2383,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 246
+      "durationMs": 265
     },
     {
       "path": "log",
@@ -2391,7 +2393,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 175
+      "durationMs": 246
     },
     {
       "path": "log/slog",
@@ -2401,7 +2403,7 @@
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 4283
+      "durationMs": 507
     },
     {
       "path": "log/syslog",
@@ -2411,7 +2413,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3480
+      "durationMs": 455
     },
     {
       "path": "maps",
@@ -2421,7 +2423,7 @@
       "pass": 24,
       "fail": 0,
       "total": 24,
-      "durationMs": 182
+      "durationMs": 260
     },
     {
       "path": "math",
@@ -2431,7 +2433,7 @@
       "pass": 111,
       "fail": 0,
       "total": 111,
-      "durationMs": 3447
+      "durationMs": 355
     },
     {
       "path": "math/big",
@@ -2441,7 +2443,7 @@
       "pass": 46,
       "fail": 0,
       "total": 46,
-      "durationMs": 3325
+      "durationMs": 495
     },
     {
       "path": "math/bits",
@@ -2451,7 +2453,7 @@
       "pass": 62,
       "fail": 0,
       "total": 62,
-      "durationMs": 1678
+      "durationMs": 521
     },
     {
       "path": "math/cmplx",
@@ -2461,7 +2463,7 @@
       "pass": 3,
       "fail": 0,
       "total": 3,
-      "durationMs": 1780
+      "durationMs": 498
     },
     {
       "path": "math/rand",
@@ -2471,7 +2473,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 1818
+      "durationMs": 753
     },
     {
       "path": "math/rand/v2",
@@ -2481,7 +2483,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1733
+      "durationMs": 576
     },
     {
       "path": "mime",
@@ -2491,7 +2493,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 1716
+      "durationMs": 310
     },
     {
       "path": "mime/multipart",
@@ -2501,7 +2503,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 4784
+      "durationMs": 495
     },
     {
       "path": "mime/quotedprintable",
@@ -2511,7 +2513,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 5181
+      "durationMs": 482
     },
     {
       "path": "net",
@@ -2521,7 +2523,7 @@
       "pass": 32,
       "fail": 0,
       "total": 32,
-      "durationMs": 3908
+      "durationMs": 698
     },
     {
       "path": "net/http",
@@ -2531,7 +2533,7 @@
       "pass": 58,
       "fail": 0,
       "total": 58,
-      "durationMs": 9960
+      "durationMs": 3473
     },
     {
       "path": "net/http/cgi",
@@ -2541,7 +2543,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3192
+      "durationMs": 599
     },
     {
       "path": "net/http/cookiejar",
@@ -2551,7 +2553,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 3400
+      "durationMs": 599
     },
     {
       "path": "net/http/fcgi",
@@ -2561,7 +2563,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2336
+      "durationMs": 560
     },
     {
       "path": "net/http/httptest",
@@ -2571,7 +2573,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 1777
+      "durationMs": 611
     },
     {
       "path": "net/http/httptrace",
@@ -2581,7 +2583,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1752
+      "durationMs": 550
     },
     {
       "path": "net/http/httputil",
@@ -2591,7 +2593,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 3886
+      "durationMs": 574
     },
     {
       "path": "net/http/pprof",
@@ -2601,7 +2603,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1764
+      "durationMs": 586
     },
     {
       "path": "net/mail",
@@ -2611,7 +2613,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 3092
+      "durationMs": 403
     },
     {
       "path": "net/netip",
@@ -2621,7 +2623,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2929
+      "durationMs": 497
     },
     {
       "path": "net/rpc",
@@ -2631,7 +2633,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2322
+      "durationMs": 445
     },
     {
       "path": "net/rpc/jsonrpc",
@@ -2641,7 +2643,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4407
+      "durationMs": 529
     },
     {
       "path": "net/smtp",
@@ -2651,7 +2653,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1630
+      "durationMs": 430
     },
     {
       "path": "net/textproto",
@@ -2661,7 +2663,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1720
+      "durationMs": 376
     },
     {
       "path": "net/url",
@@ -2671,7 +2673,7 @@
       "pass": 28,
       "fail": 0,
       "total": 28,
-      "durationMs": 1651
+      "durationMs": 545
     },
     {
       "path": "os",
@@ -2681,7 +2683,7 @@
       "pass": 37,
       "fail": 0,
       "total": 37,
-      "durationMs": 12487
+      "durationMs": 3716
     },
     {
       "path": "os/exec",
@@ -2691,7 +2693,7 @@
       "pass": 15,
       "fail": 0,
       "total": 15,
-      "durationMs": 8699
+      "durationMs": 1084
     },
     {
       "path": "os/signal",
@@ -2701,7 +2703,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 1650
+      "durationMs": 412
     },
     {
       "path": "os/user",
@@ -2711,7 +2713,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2397
+      "durationMs": 384
     },
     {
       "path": "path",
@@ -2731,7 +2733,7 @@
       "pass": 10,
       "fail": 0,
       "total": 10,
-      "durationMs": 3570
+      "durationMs": 984
     },
     {
       "path": "reflect",
@@ -2741,7 +2743,7 @@
       "pass": 17,
       "fail": 0,
       "total": 17,
-      "durationMs": 702
+      "durationMs": 6589
     },
     {
       "path": "regexp",
@@ -2751,7 +2753,7 @@
       "pass": 31,
       "fail": 0,
       "total": 31,
-      "durationMs": 1582
+      "durationMs": 249
     },
     {
       "path": "regexp/syntax",
@@ -2761,7 +2763,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 2030
+      "durationMs": 450
     },
     {
       "path": "runtime",
@@ -2771,7 +2773,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4
+      "durationMs": 1
     },
     {
       "path": "runtime/cgo",
@@ -2781,7 +2783,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4872
+      "durationMs": 442
     },
     {
       "path": "runtime/coverage",
@@ -2791,7 +2793,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1600
+      "durationMs": 412
     },
     {
       "path": "runtime/debug",
@@ -2801,7 +2803,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 1829
+      "durationMs": 460
     },
     {
       "path": "runtime/metrics",
@@ -2811,7 +2813,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1762
+      "durationMs": 529
     },
     {
       "path": "runtime/pprof",
@@ -2821,7 +2823,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1665
+      "durationMs": 388
     },
     {
       "path": "runtime/trace",
@@ -2831,7 +2833,7 @@
       "pass": 2,
       "fail": 0,
       "total": 2,
-      "durationMs": 3158
+      "durationMs": 702
     },
     {
       "path": "slices",
@@ -2841,7 +2843,7 @@
       "pass": 41,
       "fail": 0,
       "total": 41,
-      "durationMs": 254
+      "durationMs": 312
     },
     {
       "path": "sort",
@@ -2851,7 +2853,7 @@
       "pass": 60,
       "fail": 0,
       "total": 60,
-      "durationMs": 1662
+      "durationMs": 487
     },
     {
       "path": "strconv",
@@ -2861,7 +2863,7 @@
       "pass": 43,
       "fail": 0,
       "total": 43,
-      "durationMs": 2963
+      "durationMs": 1604
     },
     {
       "path": "strings",
@@ -2871,7 +2873,7 @@
       "pass": 121,
       "fail": 0,
       "total": 121,
-      "durationMs": 3599
+      "durationMs": 5435
     },
     {
       "path": "structs",
@@ -2881,7 +2883,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1626
+      "durationMs": 266
     },
     {
       "path": "sync",
@@ -2891,7 +2893,7 @@
       "pass": 20,
       "fail": 0,
       "total": 20,
-      "durationMs": 3684
+      "durationMs": 1102
     },
     {
       "path": "sync/atomic",
@@ -2901,7 +2903,7 @@
       "pass": 107,
       "fail": 0,
       "total": 107,
-      "durationMs": 4097
+      "durationMs": 2531
     },
     {
       "path": "testing",
@@ -2911,7 +2913,7 @@
       "pass": 5,
       "fail": 0,
       "total": 5,
-      "durationMs": 304
+      "durationMs": 407
     },
     {
       "path": "testing/cryptotest",
@@ -2921,7 +2923,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3185
+      "durationMs": 390
     },
     {
       "path": "testing/fstest",
@@ -2931,7 +2933,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 4957
+      "durationMs": 391
     },
     {
       "path": "testing/iotest",
@@ -2941,7 +2943,7 @@
       "pass": 1,
       "fail": 0,
       "total": 1,
-      "durationMs": 1662
+      "durationMs": 386
     },
     {
       "path": "testing/slogtest",
@@ -2951,7 +2953,7 @@
       "pass": 19,
       "fail": 0,
       "total": 19,
-      "durationMs": 1668
+      "durationMs": 426
     },
     {
       "path": "testing/synctest",
@@ -2961,7 +2963,7 @@
       "pass": 12,
       "fail": 0,
       "total": 12,
-      "durationMs": 1755
+      "durationMs": 338
     },
     {
       "path": "text/scanner",
@@ -2971,7 +2973,7 @@
       "pass": 4,
       "fail": 0,
       "total": 4,
-      "durationMs": 7187
+      "durationMs": 416
     },
     {
       "path": "text/tabwriter",
@@ -2981,7 +2983,7 @@
       "pass": 6,
       "fail": 0,
       "total": 6,
-      "durationMs": 6898
+      "durationMs": 415
     },
     {
       "path": "text/template",
@@ -2991,7 +2993,7 @@
       "pass": 9,
       "fail": 0,
       "total": 9,
-      "durationMs": 8057
+      "durationMs": 436
     },
     {
       "path": "text/template/parse",
@@ -3001,7 +3003,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 10335
+      "durationMs": 482
     },
     {
       "path": "time",
@@ -3011,7 +3013,7 @@
       "pass": 36,
       "fail": 0,
       "total": 36,
-      "durationMs": 5092
+      "durationMs": 1249
     },
     {
       "path": "unicode",
@@ -3021,7 +3023,7 @@
       "pass": 42,
       "fail": 0,
       "total": 42,
-      "durationMs": 1530
+      "durationMs": 264
     },
     {
       "path": "unicode/utf16",
@@ -3031,7 +3033,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 1868
+      "durationMs": 693
     },
     {
       "path": "unicode/utf8",
@@ -3041,7 +3043,7 @@
       "pass": 30,
       "fail": 0,
       "total": 30,
-      "durationMs": 3467
+      "durationMs": 446
     },
     {
       "path": "unique",
@@ -3051,7 +3053,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 317
+      "durationMs": 263
     },
     {
       "path": "weak",
@@ -3061,7 +3063,7 @@
       "pass": 0,
       "fail": 0,
       "total": 0,
-      "durationMs": 3345
+      "durationMs": 294
     }
   ]
 }
