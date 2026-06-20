@@ -3075,9 +3075,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				continue
 			}
 			mt := mapVal.Type()
-			// Exportable: key or value may carry flagRO from an unexported field read.
+			// adoptNamedType: an untyped constant value keeps its base type. Adopt it.
 			mapVal.SetMapIndex(Exportable(m.mapKey(mt.Key(), mem[sp-1])),
-				Exportable(m.wrapForFunc(mem[sp], mt.Elem())))
+				Exportable(adoptNamedType(m.wrapForFunc(mem[sp], mt.Elem()), mt.Elem())))
 			sp -= 2
 		case SetS:
 			n := int(c.A)

@@ -2761,11 +2761,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				case ok && sym.Index != symbol.UnsetAddr:
 					l = sym.Index
 				case ok:
-					// Symbol exists (e.g. a Const placeholder registered with
-					// UnsetAddr) but has no Data slot yet. Allocate one now so
-					// the emitted GetGlobal lands on a valid global index.
+					// Symbol exists but has no Data slot yet.
+					// Allocate one now so the emitted op lands on a valid global index.
+					dv := v
+					if rtype, isType := v.UnwrapType(); isType {
+						dv = vm.NewValue(rtype)
+					}
 					l = len(c.Data)
-					c.Data = append(c.Data, v)
+					c.Data = append(c.Data, dv)
 					sym.Index = l
 				default:
 					l = len(c.Data)
@@ -4438,7 +4441,14 @@ func (c *Compiler) compileBuiltin(
 		pop() // type arg
 		pop() // new symbol
 		push(&symbol.Symbol{Kind: symbol.Value, Type: vm.PointerTo(typeSym.Type)})
-		c.emit(t, vm.PtrNew, typeSym.Index)
+		// The zero-value slot collapses interface/func types to AnyRtype (see
+		// NewValue), which would make new(io.Reader) a *interface{}; use the
+		// precise type descriptor so the pointer keeps the declared element type.
+		newIdx := typeSym.Index
+		if k := typeSym.Type.Kind(); k == reflect.Interface || k == reflect.Func {
+			newIdx = c.typeSym(typeSym.Type).Index
+		}
+		c.emit(t, vm.PtrNew, newIdx)
 		return true, nil
 
 	case "make":
@@ -4528,7 +4538,8 @@ func (c *Compiler) compileBuiltin(
 		deref := func(sym *symbol.Symbol) (reflect.Kind, bool) {
 			if sym.IsConst() {
 				if sym.Type != nil {
-					if k := sym.Type.Kind(); reflect.Int <= k && k <= reflect.Float64 {
+					// Flexible untyped const: an integer/float default that adopts the typed operand's kind.
+					if k := sym.Type.Kind(); reflect.Int <= k && k <= reflect.Float64 && k != reflect.Float32 {
 						return reflect.Float64, true
 					}
 				} else if sym.Cval != nil {
