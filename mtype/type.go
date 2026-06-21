@@ -1018,6 +1018,13 @@ func (t *Type) resolveFieldByPath(path []int) *Type {
 	}
 	if len(rest) == 0 {
 		clone := *sub
+		// A field type cloned at parse time can be an empty forward placeholder.
+		// Its Base now holds the materialized type, so adopt Base's structure.
+		if clone.Kind() == reflect.Invalid && clone.Base != nil && clone.Base != sub && clone.Base.Kind() != reflect.Invalid {
+			adopted := *clone.Base
+			adopted.Base = clone.Base
+			return &adopted
+		}
 		return &clone
 	}
 	next := sub

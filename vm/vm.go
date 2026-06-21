@@ -5497,6 +5497,9 @@ func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {
 			}
 			rv = rv.Field(idx)
 		}
+		if method.PtrRecv && rv.CanAddr() {
+			rv = Exportable(rv).Addr()
+		}
 		*cell = FromReflect(rv)
 	}
 	return cell, Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
