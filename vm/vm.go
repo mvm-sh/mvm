@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe" // to allow setting unexported struct fields
 	"weak"
 
@@ -1209,7 +1210,25 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					rv = rv.Elem()
 				}
 				rv = Exportable(rv)
-				if rv.Kind() == reflect.Func {
+				if codeAddr, ok := m.methodExprBypass(rv, narg >= 1 && c.B&CallSpreadFlag == 0); ok {
+					// Dispatch a method expression T.M through the interpreter:
+					// bind the first arg as the receiver heap cell, drop it from
+					// the arg list, then fall through to the closure frame setup.
+					recv := mem[sp-narg+1]
+					if k := recv.ref.Kind(); k == reflect.Struct || k == reflect.Array {
+						nv := reflect.New(recv.ref.Type()).Elem() // value receiver gets a copy
+						nv.Set(Exportable(recv.ref))
+						recv.ref = nv
+					}
+					cell := new(Value)
+					*cell = recv
+					copy(mem[sp-narg+1:sp], mem[sp-narg+2:sp+1]) // shift args over receiver slot
+					mem[sp] = Value{}
+					sp--
+					narg--
+					m.heap = []*Value{cell}
+					nip = codeAddr
+				} else if rv.Kind() == reflect.Func {
 					funcType := rv.Type()
 					in := make([]reflect.Value, narg)
 					for i := range in {
@@ -1243,9 +1262,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						mem[sp] = FromReflect(v)
 					}
 					break
+				} else {
+					nip = int(fval.num)
+					m.heap = nil
 				}
-				nip = int(fval.num)
-				m.heap = nil
 			}
 			if nip == nilFuncAddr {
 				m.raiseNilDeref()
@@ -4105,6 +4125,14 @@ func (m *Machine) mvmFuncFor(pf MvmFunc, funcType reflect.Type) reflect.Value {
 // reflect.MakeFunc value back to the mvm func Value it represents.
 type funcRef struct{ val Value }
 
+// methodExpr marks a funcFields entry as a method-expression wrapper carrying
+// its body code address, so the Call opcode dispatches it through the
+// interpreter (binding the first arg as receiver) instead of reflect.Call.
+// Going via reflect.Call would require boxing the args into the wrapper's
+// (possibly synthetic) interface param types, which reflect rejects when an
+// interpreted concrete does not carry the interface's method set in its rtype.
+type methodExpr struct{ code int }
+
 type funcFieldEntry struct {
 	strong Value
 	weak   weak.Pointer[funcRef]
@@ -4113,9 +4141,10 @@ type funcFieldEntry struct {
 }
 
 type funcFieldsTable struct {
-	mu  sync.RWMutex
-	m   map[uintptr]funcFieldEntry
-	gen uint64
+	mu            sync.RWMutex
+	m             map[uintptr]funcFieldEntry
+	gen           uint64
+	hasMethodExpr atomic.Bool // any methodExpr entry registered; gates the Call-opcode lookup
 }
 
 func newFuncFieldsTable() *funcFieldsTable {
@@ -4193,6 +4222,32 @@ func (t *funcFieldsTable) prune(p uintptr) {
 		delete(t.m, p)
 	}
 	t.mu.Unlock()
+}
+
+// setMethodExpr records p as a method-expression wrapper for body code.
+// The entry is strong and permanent: makeMethodExprFunc caches the wrapper, so
+// its address is stable and the entry count is bounded by distinct method exprs.
+func (t *funcFieldsTable) setMethodExpr(p uintptr, code int) {
+	t.mu.Lock()
+	t.m[p] = funcFieldEntry{strong: Value{ref: reflect.ValueOf(methodExpr{code})}}
+	t.mu.Unlock()
+	t.hasMethodExpr.Store(true)
+}
+
+// methodExprCode returns the body code address if p is a method-expression wrapper.
+// Cheaply gated by hasMethodExpr so non-method-expr programs skip it.
+func (t *funcFieldsTable) methodExprCode(p uintptr) (int, bool) {
+	if !t.hasMethodExpr.Load() {
+		return 0, false
+	}
+	t.mu.RLock()
+	e, ok := t.m[p]
+	t.mu.RUnlock()
+	if !ok || e.isWeak || !e.strong.ref.IsValid() || !e.strong.ref.CanInterface() {
+		return 0, false
+	}
+	me, ok := e.strong.ref.Interface().(methodExpr)
+	return me.code, ok
 }
 
 // funcWrapTable memoises the MakeFunc wrapper for a heap-less mvm func, keyed by
@@ -4635,7 +4690,21 @@ func (m *Machine) buildCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 	return w
 }
 
+// makeMethodExprFunc returns the func value for a method expression T.M.
+// The wrapper is cached (heap-less, keyed by code+type) and registered in
+// funcFields so the Call opcode can dispatch it through the interpreter; see
+// methodExpr. Registration happens only on the build (cache-miss) path.
 func (m *Machine) makeMethodExprFunc(codeAddr int, exprType reflect.Type) reflect.Value {
+	m.ensureSharedTables()
+	return m.funcWrappers.getOrBuild(funcWrapKey{code: codeAddr, rtype: exprType},
+		func() reflect.Value {
+			w := m.buildMethodExprFunc(codeAddr, exprType)
+			m.funcFields.setMethodExpr(funcDataPtr(w), codeAddr)
+			return w
+		})
+}
+
+func (m *Machine) buildMethodExprFunc(codeAddr int, exprType reflect.Type) reflect.Value {
 	ins := make([]reflect.Type, exprType.NumIn()-1)
 	for i := range ins {
 		ins[i] = exprType.In(i + 1)
@@ -5072,9 +5141,27 @@ func forceSettable(fv reflect.Value) reflect.Value {
 	return fv
 }
 
+// methodExprBypass reports whether rv is one of this Machine's method-expression
+// wrappers (and dispatch is allowed), returning the method body code address.
+// The atomic gate keeps the cost at one load for programs with no method exprs.
+func (m *Machine) methodExprBypass(rv reflect.Value, allowed bool) (int, bool) {
+	if !allowed || m.funcFields == nil || !m.funcFields.hasMethodExpr.Load() {
+		return 0, false
+	}
+	if rv.Kind() != reflect.Func || rv.IsNil() {
+		return 0, false
+	}
+	return m.funcFields.methodExprCode(funcDataPtr(rv))
+}
+
 func (m *Machine) resolveFuncField(v Value) Value {
 	if v.ref.Kind() == reflect.Func && v.ref.CanAddr() && !v.ref.IsNil() && m.funcFields != nil {
 		if pf, ok := m.funcFields.get(funcValuePtr(v.ref)); ok {
+			if m.funcFields.hasMethodExpr.Load() && pf.ref.IsValid() && pf.ref.CanInterface() {
+				if _, isME := pf.ref.Interface().(methodExpr); isME {
+					return v // keep the wrapper; the Call opcode handles method-expr dispatch
+				}
+			}
 			return pf
 		}
 	}

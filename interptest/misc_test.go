@@ -407,6 +407,70 @@ func main() {
 	}
 }
 
+// TestFloat32ConstRounds checks that a constant converted to float32 is rounded
+// to float32 precision before further folding, matching Go.
+// Regression for structpb's TestToStruct: it computes the want value as
+// float64(float32(123.456)), which mvm folded as 123.456 (full precision)
+// because constConvert kept the untyped constant unrounded for float32.
+func TestFloat32ConstRounds(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func main() {
+	const c = 123.456
+	fmt.Println(float64(float32(c)))
+	fmt.Println(float64(float32(123.456)))
+	fmt.Println(complex128(complex64(complex(0.1, 0.2))))
+}
+`
+	want := "123.45600128173828\n123.45600128173828\n(0.10000000149011612+0.20000000298023224i)\n"
+	if got := evalOut(t, "f32.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
+// TestMethodExprInterfaceArg checks that a method expression stored in a variable
+// and then called dispatches through the interpreter, even when a parameter is an
+// interface satisfied by an interpreted concrete.
+// Regression for structpb: protojson calls encoder.marshalStruct (a method
+// expression of type func(encoder, protoreflect.Message) error) via a variable.
+// The old path used reflect.Call, which rejected the synthetic concrete as the
+// synthetic interface param; the bypass binds the receiver and runs interpreted.
+func TestMethodExprInterfaceArg(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Stringer interface{ String() string }
+
+type Named struct{ name string }
+
+func (n Named) String() string { return n.name }
+
+type printer struct{ prefix string }
+
+func (p printer) write(s Stringer) string { return p.prefix + s.String() }
+
+type Counter struct{ n int }
+
+func (c Counter) Add(x int) int { c.n += x; return c.n } // value recv copy
+
+func main() {
+	w := printer.write // method expr with interface param
+	fmt.Println(w(printer{"> "}, Named{"hello"}))
+
+	c := Counter{n: 10}
+	add := Counter.Add
+	fmt.Println(add(c, 5), c.n) // receiver copy must leave c.n at 10
+}
+`
+	want := "> hello\n15 10\n"
+	if got := evalOut(t, "methexpr.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestIssue9MultiReturnTupleAssignCrossPkg is the regression test for
 // github.com/mvm-sh/mvm/issues/9. parseImportLine used to register `_` as a
 // Kind=symbol.Pkg entry for `import _ "path"`, polluting the symbol table; a

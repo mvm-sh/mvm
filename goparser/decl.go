@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/token"
+	"math"
 	"reflect"
 	"strings"
 
@@ -489,6 +490,9 @@ func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 		return false
 	}
 	k := typ.Kind()
+	if k == reflect.Float32 || k == reflect.Complex64 {
+		return overflowsFloat32(cv, k)
+	}
 	signed := k >= reflect.Int && k <= reflect.Int64
 	unsigned := isUnsignedKind(k)
 	if !signed && !unsigned {
@@ -510,6 +514,25 @@ func OverflowsType(cv constant.Value, typ *vm.Type) bool {
 	hiBound := constant.BinaryOp(hi, token.SUB, constant.MakeInt64(1)) // 2^(bits-1)-1
 	loBound := constant.UnaryOp(token.SUB, hi, 0)                      // -2^(bits-1)
 	return constant.Compare(i, token.LSS, loBound) || constant.Compare(i, token.GTR, hiBound)
+}
+
+// overflowsFloat32 reports whether a finite constant rounds to +/-Inf in float32
+// (or complex64), which gc rejects.
+// constant.Float32Val maps an over-range value to Inf, and constants are never
+// themselves Inf, so an Inf result means overflow.
+func overflowsFloat32(cv constant.Value, k reflect.Kind) bool {
+	inf := func(v constant.Value) bool {
+		f, _ := constant.Float32Val(v)
+		return math.IsInf(float64(f), 0)
+	}
+	if k == reflect.Complex64 {
+		cc := constant.ToComplex(cv)
+		return inf(constant.Real(cc)) || inf(constant.Imag(cc))
+	}
+	if cv.Kind() == constant.Complex {
+		return false // complex -> float32 is illegal; handled as a separate error
+	}
+	return inf(constant.ToFloat(cv))
 }
 
 func (p *Parser) isUnsafePkgIdent(t Token) bool {
@@ -787,9 +810,26 @@ func constConvert(cv constant.Value, typ *vm.Type) constant.Value {
 		// go/constant has no ToUint; extract int64 bits for correct wraparound.
 		v, _ := constant.Int64Val(constant.ToInt(cv))
 		return constant.MakeUint64(uint64(v)) // intentional wraparound
-	case k == reflect.Float32 || k == reflect.Float64:
+	case k == reflect.Float32:
+		// Round to float32 precision so later folding sees the narrowed value.
+		// Keep the unrounded value if it overflows (Inf), so we never produce an
+		// Unknown constant; OverflowsType errors such conversions like gc.
+		f, _ := constant.Float32Val(constant.ToFloat(cv))
+		if math.IsInf(float64(f), 0) {
+			return constant.ToFloat(cv)
+		}
+		return constant.MakeFloat64(float64(f))
+	case k == reflect.Float64:
 		return constant.ToFloat(cv)
-	case k == reflect.Complex64 || k == reflect.Complex128:
+	case k == reflect.Complex64:
+		cc := constant.ToComplex(cv)
+		re, _ := constant.Float32Val(constant.Real(cc))
+		im, _ := constant.Float32Val(constant.Imag(cc))
+		if math.IsInf(float64(re), 0) || math.IsInf(float64(im), 0) {
+			return cc
+		}
+		return constant.BinaryOp(constant.MakeFloat64(float64(re)), token.ADD, constant.MakeImag(constant.MakeFloat64(float64(im))))
+	case k == reflect.Complex128:
 		return constant.ToComplex(cv)
 	case k == reflect.String:
 		if cv.Kind() == constant.Int {

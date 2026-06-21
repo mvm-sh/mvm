@@ -862,6 +862,8 @@ f()`, res: "start"},
 		{n: "const_uint_overflow", src: `uint8(256)`, err: "overflows uint8"},
 		{n: "const_neg_into_unsigned", src: `uint8(-1)`, err: "overflows uint8"},
 		{n: "const_shift_overflow", src: `int64(1) << 70`, err: "overflows int64"},
+		{n: "const_float32_overflow", src: `float32(1e40)`, err: "overflows float32"},
+		{n: "const_complex64_overflow", src: `complex64(1e40)`, err: "overflows complex64"},
 	})
 }
 
