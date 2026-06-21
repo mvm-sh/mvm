@@ -115,6 +115,7 @@ var wordShapes = []wordShape{
 	{Params: "", Results: "piipp"},
 	{Params: "", Results: "pi"},
 	{Params: "pii", Results: "ipp"},
+	{Params: "", Results: "ipp"}, // io.ByteReader.ReadByte: func() (byte, error)
 	{Params: "", Results: "iip"},
 	{Params: "pi", Results: "i"},
 	{Params: "p", Results: "i"},
