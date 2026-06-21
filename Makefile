@@ -30,17 +30,17 @@ clean_generate:
 # coverage answer different questions at different cadences, so they live in
 # separate targets -- do not recombine them.
 test:
-	go test -race ./interp
+	go test -race ./interptest ./interp
 
 # Like `test` but `-short` skips the heavy x/text network integration test
 # (~4s under race). The default `all` target uses this for a quick inner loop;
 # run `make test` to also exercise the remote-import path.
 fast:
-	go test -short -race ./interp
+	go test -short -race ./interptest ./interp
 
 # Measure cross-package coverage (no race; see the note on `test`).
 cover:
-	go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./interp
+	go test -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./interptest ./interp
 
 # Open coverage info in browser
 cover-html: cover
