@@ -110,6 +110,50 @@ func TestCrossUnitFuncValueAddress(t *testing.T) {
 	}
 }
 
+// An external `package X_test` may declare a top-level func whose name also
+// exists, unexported, in X. `mvm test` compiles X first; aliasTargetTopLevel
+// bare-aliases X's top-level symbols (incl. the unexported one) for the test
+// driver. The external test then compiles as a second unit at bare keys, so
+// its own decl must shadow that foreign alias rather than be dropped -- else
+// the alias's signature wins and the body references undefined params
+// (grpc/mem: newBuffer(data, pool) vs unexported newBuffer() -> "undefined:
+// data", then a freed-buffer panic when the call resolved to X's newBuffer).
+func TestExternalUnitFuncShadowsTargetAlias(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/buf",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/buf\n",
+			"buf.go": `package buf
+
+func newBuffer() int { return -1 }
+
+func Pub() int { return newBuffer() }
+`,
+		},
+	})
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	i.AutoImportPackages()
+
+	// Unit 1: load X. aliasTargetTopLevel leaves a bare `newBuffer` alias.
+	if _, err := i.Eval("example.com/x/buf", ""); err != nil {
+		t.Fatalf("load target: %v", err)
+	}
+	i.PublishCompiledPackage("example.com/x/buf")
+
+	// Unit 2 (the external-test stand-in): redeclare newBuffer with real params
+	// and call it. Without shadowing this is "undefined: x".
+	r, err := i.Eval("buf_test", `func newBuffer(x int) int { return x * 10 }; newBuffer(5)`)
+	if err != nil {
+		t.Fatalf("external unit: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "50" {
+		t.Errorf("newBuffer(5) = %q, want 50", got)
+	}
+}
+
 // Exact prefix ("Test", as grpc/codes declares) and digit/"_" continuations
 // match; lower-case continuations ("Testify") do not. Mirrors cmd/go's isTest.
 func TestFuncNamesMatchesGoIsTest(t *testing.T) {

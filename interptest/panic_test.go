@@ -26,6 +26,13 @@ func TestOpPanicRecoverable(t *testing.T) {
 		{"alive_after", `s := []int{1}; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = s[3]; return }; f(); len(s)`, "1"},
 		// gc message shape: gonum/mat checks HasPrefix(msg, "runtime error: index out of range").
 		{"index_oob_msg", `s := []int{1}; f := func() (m string) { defer func() { m = fmt.Sprint(recover()) }(); _ = s[3]; return }; f()`, "runtime error: index out of range"},
+		// A slice expression's bounds panic comes from reflect.Value.Slice
+		// ("reflect.Value.Slice: slice index out of bounds"), a different prefix
+		// than index ops' "reflect:"; it must still be recoverable (grpc/mem
+		// TestBuffer_SliceBoundsCheck).
+		{"slice_oob", `s := []int{1}; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = s[0:9]; return }; f()`, "true"},
+		{"slice_oob_msg", `s := []int{1}; f := func() (m string) { defer func() { m = fmt.Sprint(recover()) }(); _ = s[0:9]; return }; f()`, "runtime error: slice bounds out of range"},
+		{"slice3_oob", `s := []int{1, 2, 3}; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = s[0:1:9]; return }; f()`, "true"},
 		{"index_oob_is_error", `s := []int{1}; f := func() (ok bool) { defer func() { _, ok = recover().(error) }(); _ = s[3]; return }; f()`, "true"},
 		// *nilptr read and write must raise a recoverable nil deref, not a raw
 		// reflect panic ("Set/Type on zero Value") that escapes recover().

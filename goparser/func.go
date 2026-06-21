@@ -128,7 +128,15 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 			}
 			return false, ErrRedeclared{Name: fname, Loc: p.Sources.FormatPos(nameTok.Pos), Pos: nameTok.Pos}
 		}
-		return false, nil
+		// A prior unit's bare alias of an import-path target's symbol (made by
+		// aliasTargetTopLevel for the test driver) must not shadow this unit's
+		// own same-named top-level func: an external `package X_test` legally
+		// shares a name with an unexported X func. Re-register so this decl wins.
+		if !p.bareAliases[key] {
+			return false, nil
+		}
+		delete(p.bareAliases, key)
+		ok = false // fall through to fresh registration, replacing the alias
 	}
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}

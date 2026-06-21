@@ -1039,8 +1039,10 @@ func (m *Machine) Run() (err error) {
 func opPanicCatchable(r any) bool {
 	switch v := r.(type) {
 	case string:
-		return strings.HasPrefix(v, "reflect:") &&
-			(strings.Contains(v, "out of range") || strings.Contains(v, "slice bounds"))
+		// Index ops panic "reflect: ... out of range"; Slice/Slice3 panic
+		// "reflect.Value.Slice: slice index out of bounds" (a different prefix).
+		return (strings.HasPrefix(v, "reflect:") || strings.HasPrefix(v, "reflect.Value.Slice")) &&
+			(strings.Contains(v, "out of range") || strings.Contains(v, "out of bounds") || strings.Contains(v, "slice bounds"))
 	case runtime.Error:
 		s := v.Error()
 		return strings.Contains(s, "index out of range") ||
@@ -1057,15 +1059,16 @@ type opRuntimeError string
 func (e opRuntimeError) Error() string { return "runtime error: " + string(e) }
 func (e opRuntimeError) RuntimeError() {}
 
-// normalizeOpPanic maps a reflect string panic ("reflect: slice index out of
-// range") to gc's runtime.Error shape; genuine runtime.Error values (e.g.
-// divide by zero) pass through unchanged.
+// normalizeOpPanic maps a reflect string panic (index ops' "reflect: slice
+// index out of range" or Slice's "reflect.Value.Slice: ... out of bounds") to
+// gc's runtime.Error shape; genuine runtime.Error values (e.g. divide by zero)
+// pass through unchanged.
 func normalizeOpPanic(r any) any {
 	s, ok := r.(string)
 	if !ok {
 		return r
 	}
-	if strings.Contains(s, "slice bounds") {
+	if strings.Contains(s, "slice bounds") || strings.Contains(s, "out of bounds") {
 		return opRuntimeError("slice bounds out of range")
 	}
 	return opRuntimeError("index out of range")

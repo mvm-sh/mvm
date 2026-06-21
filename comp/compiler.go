@@ -261,6 +261,7 @@ func (c *Compiler) aliasTargetTopLevel(pkgPath string) {
 		}
 		c.Symbols[short] = s // mvm:symkey-ok: deliberate bare-key alias for the test driver
 		c.Seg.Add(short)
+		c.RecordBareAlias(short)
 	}
 }
 

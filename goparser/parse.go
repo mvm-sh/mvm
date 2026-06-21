@@ -40,6 +40,7 @@ type Parser struct {
 	CompilingPkg    string                            // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
 	importingPkg    string                            // while parseSrc is running for an imported package: its full import path; "" outside any import. Used by pkgKey to qualify top-level Type/Func/Method/Generic symbol keys at definition time (Path B); also probed as a fallback in symGet for Phase-1 lookups.
 	fileAliases     map[int]map[string]*symbol.Symbol // per-file import scope: srcIndex (Sources.SourceIndex) -> alias name -> Pkg symbol; lets sibling files import the same alias to different paths (see pkgAlias)
+	bareAliases     map[string]bool                   // bare keys aliased to an import-path target's top-level symbols (aliasTargetTopLevel); a later unit's own same-named decl shadows the alias rather than being dropped
 
 	funcScope      string
 	framelen       map[string]int      // length of function frames indexed by funcScope
@@ -73,6 +74,16 @@ type Parser struct {
 	instDepth      int                   // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
 	buildCtx       *buildContext         // build constraint context for file filtering
 	embeds         map[string][]byte     // //go:embed file bytes by canonical var key (single-file []byte/string only); see embed.go
+}
+
+// RecordBareAlias marks key as a bare alias of an import-path target's
+// top-level symbol, so a later unit's own same-named top-level func shadows it
+// (see batchFuncDecl) instead of being dropped.
+func (p *Parser) RecordBareAlias(key string) {
+	if p.bareAliases == nil {
+		p.bareAliases = map[string]bool{}
+	}
+	p.bareAliases[key] = true
 }
 
 // SymSet inserts sym at key in the symbol table, recording the key for potential rollback.
