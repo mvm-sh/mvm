@@ -3349,7 +3349,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Fast path (unnamed or named-but-not-captured): the result
 				// can't be modified by a defer, so the pushed values are the
 				// result. Unchanged from the original return path.
-				if len(hasDefer) == 0 || hasDefer[len(hasDefer)-1] || !c.fuseGetLocal(vm.GetLocalReturn, 0) {
+				// A merge label at the Return position means a short-circuit jump
+				// (JumpSetTrue/JumpSetFalse from `return a || b`) targets it; fusing
+				// GetLocal -> GetLocalReturn would elide the Return those jumps land on.
+				if len(hasDefer) == 0 || hasDefer[len(hasDefer)-1] || c.labelAtPos[len(c.Code)] || !c.fuseGetLocal(vm.GetLocalReturn, 0) {
 					c.emit(t, vm.Return)
 				}
 				break
