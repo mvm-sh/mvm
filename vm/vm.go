@@ -5338,7 +5338,7 @@ func numSet(dst reflect.Value, src Value) {
 	if !s.IsValid() {
 		s = reflect.Zero(dst.Type())
 	}
-	dst.Set(s)
+	dst.Set(adoptNamedType(s, dst.Type()))
 }
 
 func derefArray(v reflect.Value) reflect.Value {
