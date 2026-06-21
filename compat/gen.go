@@ -105,7 +105,6 @@ type Matrix struct {
 	Packages    []Pkg              `json:"packages"`
 }
 
-
 // historyEntry is one compact line appended to history.jsonl per run.
 type historyEntry struct {
 	GeneratedAt string             `json:"generatedAt"`

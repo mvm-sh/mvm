@@ -15,9 +15,10 @@ func (p *Parser) EmbedBytes(symKey string) ([]byte, bool) {
 	return b, ok
 }
 
-// scanEmbeds reads the file named by each single-file []byte/string //go:embed
-// directive in src (relative to dir) and records it by var key for allocGlobalSlots.
-// Globs, multi-pattern and embed.FS directives are skipped; the scan is line-based.
+// scanEmbeds reads the file named by each single-file //go:embed directive in src
+// (relative to dir) and records it by var key for allocGlobalSlots. The var type may
+// be string, []byte or a named variant (e.g. uint40String); only globs, multi-pattern
+// and embed.FS directives are skipped. The scan is line-based.
 func (p *Parser) scanEmbeds(fsys fs.FS, dir, src string) {
 	if !strings.Contains(src, "//go:embed") {
 		return // fast path: most files have no directive; skip the line scan
@@ -97,15 +98,15 @@ func embedVarLine(line string) (name, typ string) {
 	if len(fields) < 2 {
 		return "", ""
 	}
-	return fields[0], fields[1] // []byte, string and embed.FS are all single tokens
+	return fields[0], fields[1] // []byte, string, named types and embed.FS are single tokens
 }
 
 func (p *Parser) recordEmbed(fsys fs.FS, dir string, patterns []string, name, typ string) {
 	if len(patterns) != 1 || strings.ContainsAny(patterns[0], "*?[") {
 		return // globs / multiple patterns imply embed.FS, unsupported
 	}
-	if typ != "[]byte" && typ != "string" {
-		return
+	if typ == "embed.FS" || strings.HasSuffix(typ, ".FS") {
+		return // embed.FS unsupported; string/[]byte and their named variants are recorded
 	}
 	data, err := fs.ReadFile(fsys, path.Join(dir, patterns[0]))
 	if err != nil {

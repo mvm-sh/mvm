@@ -388,8 +388,11 @@ func isInitDecl(toks goparser.Tokens) bool {
 
 // finishCompile runs Phase 2 over the deferred declarations.
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag string) error {
-	c.allocGlobalSlots()
+	// Methods must be registered before allocGlobalSlots: a //go:embed var of a named
+	// string/[]byte type materializes its rtype there, and an unregistered method set
+	// would reserve a method-less identity, breaking the type's later ptr-method attach.
 	c.preregisterMethods()
+	c.allocGlobalSlots()
 	c.materializeIfaceMethods()
 	c.propagateEmbeddedMethods()
 
@@ -613,7 +616,7 @@ func (c *Compiler) allocGlobalSlots() {
 		case symbol.Var:
 			s.Index = len(c.Data)
 			v := s.Value
-			if data, ok := c.EmbedBytes(s.Name); ok && s.Type != nil {
+			if data, ok := c.EmbedBytes(s.Name); ok && s.Type != nil && c.embeddableKind(s.Type) {
 				// //go:embed var: the file bytes are the initial (and final) slot value.
 				v = c.embedValue(s.Type, data)
 			} else if s.Type != nil {
@@ -706,6 +709,16 @@ func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Valu
 		return vm.TypeValue(c.rtype(typ))
 	}
 	return vm.NewValue(c.rtype(typ))
+}
+
+// embeddableKind reports whether typ can hold //go:embed bytes: string or []byte,
+// including named variants (e.g. uint40String). embed.FS and other kinds are rejected.
+func (c *Compiler) embeddableKind(typ *vm.Type) bool {
+	rt := c.rtype(typ)
+	if rt == nil {
+		return false
+	}
+	return rt.Kind() == reflect.String || (rt.Kind() == reflect.Slice && rt.Elem().Kind() == reflect.Uint8)
 }
 
 // embedValue returns an addressable slot value of typ holding data (string or []byte).
