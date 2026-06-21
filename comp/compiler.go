@@ -152,6 +152,10 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 
 func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *symbol.Symbol {
 	ifaceTyp = c.canonicalIfaceType(ifaceTyp, methodName)
+	// Prefer the interface's own symbolic method signature.
+	if interpSig := ifaceMethodInterpSig(ifaceTyp, methodName); interpSig != nil && len(interpSig.Returns) > 0 {
+		return &symbol.Symbol{Kind: symbol.Value, Type: interpSig}
+	}
 	ifaceSig := ifaceMethodSig(ifaceTyp, methodName)
 	methodSym := c.findConcreteFuncSym(methodName)
 	if methodSym != nil && ifaceSig != nil && !concreteMatchesIface(methodSym.Type, ifaceSig) {
@@ -159,9 +163,6 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 	}
 	if methodSym != nil {
 		return methodSym
-	}
-	if interpSig := ifaceMethodInterpSig(ifaceTyp, methodName); interpSig != nil && len(interpSig.Returns) > 0 {
-		return &symbol.Symbol{Kind: symbol.Value, Type: interpSig}
 	}
 	if ifaceSig != nil {
 		return &symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: ifaceSig}}
