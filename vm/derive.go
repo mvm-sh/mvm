@@ -111,8 +111,6 @@ func isPendingGeom(rt reflect.Type) bool {
 	return pendingGeom[rt]
 }
 
-// propagateGeom marks a named map/array carrier pending when the unnamed layout it
-// copied is pending: reserveMap/reserveArray copy the stale geometry by value.
 func propagateGeom(layoutRT, carrier reflect.Type) reflect.Type {
 	if k := layoutRT.Kind(); k != reflect.Map && k != reflect.Array {
 		return carrier
@@ -275,7 +273,7 @@ func byValueDepInFlight(t *mtype.Type) bool {
 // FinalizeDeferred re-patches once the cycle settles; otherwise clear the in-flight
 // bookkeeping. Returns ph either way (its identity is stable across the re-patch).
 func finishStructOrDefer(t *mtype.Type, ph reflect.Type) reflect.Type {
-	if byValueDepInFlight(t) || anyFieldPending(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) {
 		markPending(t)
 		return ph
 	}
@@ -319,6 +317,7 @@ func FinalizeDeferred() {
 			for _, t := range pending {
 				clearMaterializing(t.Rtype)
 				clearPending(t)
+				clearFuncElemDeferred(t)
 			}
 			break
 		}
@@ -470,10 +469,6 @@ func lookupReservation(t *mtype.Type) *synthReservation {
 	return reservations[t]
 }
 
-// typeForReservedRtype recovers the interpreted *Type for a reserved synth rtype
-// from the reservation registry, the fallback when a value-only type round-tripped
-// through native reflect and its *Type is absent from the Machine globals.
-// Reserved rtypes are minted per name, so the first match is sound.
 func typeForReservedRtype(rt reflect.Type) *mtype.Type {
 	if rt == nil {
 		return nil
@@ -500,8 +495,6 @@ func isFieldClone(t *mtype.Type) bool {
 	if t.Base == nil || t.Base.Name == "" || t.Base.Kind() != t.Kind() {
 		return false
 	}
-	// Method-bearing or pkg-scoped named base: the clone resolves to Base's
-	// identity rather than minting one under its own (possibly field-derived) name.
 	return len(t.Base.Methods) > 0 || t.Base.PkgName != ""
 }
 
@@ -514,6 +507,10 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		return t.Rtype
 	}
 	if isFieldClone(t) {
+		if isMaterializingFunc(t.Base) {
+			markPending(t)
+			return layoutRT
+		}
 		return materialize(t.Base)
 	}
 	if !hasReservableMethods(t) {
@@ -533,8 +530,6 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	return propagateGeom(layoutRT, reserveValueAndPtr(t, layoutRT))
 }
 
-// reserveNamedCarrier gives a methodless defined non-struct type its own named
-// rtype, so reflect-visible identity (%T, %#v, DeepEqual) matches gc.
 func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	name := qualifiedTypeName(t)
 	key := sharedStructKey{name: name, layoutSig: layoutRT.String()}
@@ -644,12 +639,13 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		// stored into native code (e.g. log.Logger -> http.Server.ErrorLog).
 		realLayout = mtype.BuildStructRtypeKeepIface(t.Fields, t.Embedded, t.Tags)
 	}
-	if byValueDepInFlight(t) || anyFieldPending(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) {
 		// An embedded by-value struct is still a word-sized placeholder, so realLayout's
 		// size is provisional; or a func field's interface IO erased before its sigs were
-		// ready. Fill the reserved rtype to this best-effort shape (so compile-time walks
+		// ready; or a named func field is mid-materialization (signature erased to func()).
+		// Fill the reserved rtype to this best-effort shape (so compile-time walks
 		// see a real struct) and defer the share-publish + final fill to FinalizeDeferred,
-		// which re-enters once the cycle settles / the IO synths.
+		// which re-enters once the cycle settles / the IO synths / the signature settles.
 		runtype.FillStructLayout(reserved, realLayout)
 		markPending(t)
 		t.Rtype = reserved
@@ -759,9 +755,85 @@ func definedOverBase(t *mtype.Type) bool {
 	return false
 }
 
-// selfRefFuncPlaceholder stands in for the self-referencing positions of a
-// self-referential func type; a func value is word-sized, so it's layout-correct.
 var selfRefFuncPlaceholder = reflect.FuncOf(nil, nil, false)
+
+var (
+	materializingFuncs     = map[*mtype.Type]bool{}
+	materializingFuncCount atomic.Int64
+)
+
+var funcElemDeferred = map[*mtype.Type]bool{}
+
+func markFuncElemDeferred(t *mtype.Type) {
+	derivedMu.Lock()
+	funcElemDeferred[t] = true
+	derivedMu.Unlock()
+}
+
+func clearFuncElemDeferred(t *mtype.Type) {
+	derivedMu.Lock()
+	delete(funcElemDeferred, t)
+	derivedMu.Unlock()
+}
+
+func isFuncElemDeferred(t *mtype.Type) bool {
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	return funcElemDeferred[t]
+}
+
+func markMaterializingFunc(t *mtype.Type) {
+	derivedMu.Lock()
+	if !materializingFuncs[t] {
+		materializingFuncs[t] = true
+		materializingFuncCount.Add(1)
+	}
+	derivedMu.Unlock()
+}
+
+func clearMaterializingFunc(t *mtype.Type) {
+	derivedMu.Lock()
+	if materializingFuncs[t] {
+		delete(materializingFuncs, t)
+		materializingFuncCount.Add(-1)
+	}
+	derivedMu.Unlock()
+}
+
+func isMaterializingFunc(t *mtype.Type) bool {
+	if t == nil || materializingFuncCount.Load() == 0 {
+		return false
+	}
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	return materializingFuncs[t]
+}
+
+func funcTypeInFlight(t *mtype.Type) bool {
+	if t == nil || materializingFuncCount.Load() == 0 {
+		return false
+	}
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	// Depth-capped like the other Base walks (embTypeHasMethods, canonicalBase):
+	// a multi-node Base cycle would otherwise spin here holding derivedMu.
+	for i, c := 0, t; c != nil && i < canonicalTypeMaxDepth; i, c = i+1, c.Base {
+		if materializingFuncs[c] {
+			return true
+		}
+		if c.Base == c {
+			break
+		}
+	}
+	return false
+}
+
+func anyFuncFieldInFlight(t *mtype.Type) bool {
+	if materializingFuncCount.Load() == 0 {
+		return false
+	}
+	return slices.ContainsFunc(t.Fields, funcTypeInFlight)
+}
 
 // MaterializeRtype is the public entry to materialization. It serializes the
 // pass under materializeMu (see that var) so concurrent compilations don't race
@@ -870,8 +942,17 @@ func materialize(t *mtype.Type) reflect.Type {
 			// A named func type may be self-referential (type parseFn func() parseFn),
 			// which reflect.FuncOf can't build. Pre-set a placeholder a self-reference
 			// in Params/Returns resolves to; when t isn't self-referential nothing
-			// reads it and the real signature below overwrites it unobserved.
+			// reads it and the real signature below overwrites it unobserved. While the
+			// placeholder is live a struct field sharing this *Type would bake the erased
+			// func(); mark it in-flight so such a struct defers (see anyFuncFieldInFlight)
+			// and FinalizeDeferred re-patches it once the real signature settles.
 			t.Rtype = selfRefFuncPlaceholder
+			markMaterializingFunc(t)
+			// Clear via defer so a panic in the IO materialization below (or any
+			// recovered compile panic) can't leak the entry and leave the count
+			// elevated for later Evals. Fires at this materialize call's return,
+			// after the full signature (incl. nested cycle re-entry) is built.
+			defer clearMaterializingFunc(t)
 		}
 		in := make([]reflect.Type, len(t.Params))
 		for i, p := range t.Params {
@@ -941,15 +1022,8 @@ func materialize(t *mtype.Type) reflect.Type {
 				t.Rtype = nil
 				return nil
 			}
-			// Patch ph to the current best-effort layout (struct-shaped with the real
-			// field types) so compile-time walks -- e.g. embedded-method resolution --
-			// see a valid struct. If an embedded by-value struct is still an in-flight
-			// placeholder its size is wrong here; defer to FinalizeDeferred, which
-			// re-patches once the cycle settles. Use the non-memoized builder so the
-			// re-patch is not served the stale first layout.
+			// Patch ph to the current best-effort layout.
 			mtype.PatchRtype(ph, mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags))
-			// PatchRtype copies the real layout's TFlag (clearing tflagNamed) but
-			// preserves ph's Str; re-stamp to restore the named flag in place.
 			if named {
 				runtype.StampName(ph, qualifiedTypeName(t))
 			}
@@ -990,8 +1064,7 @@ func materialize(t *mtype.Type) reflect.Type {
 			}
 		}
 		ph := t.Rtype
-		// Patch ph to the current best-effort layout so compile-time walks see a real
-		// struct shape; re-patch in FinalizeDeferred if an embedded field is in-flight.
+		// Patch ph to the current best-effort layout.
 		layout := mtype.FinalizeStruct(t)
 		runtype.StampName(ph, layout.String()) // PatchRtype keeps ph's Str; restore the anon shape
 		return finishStructOrDefer(t, ph)
@@ -1048,14 +1121,18 @@ func materializeSelfRef(t *mtype.Type) (rt reflect.Type, handled bool) {
 	default:
 		return nil, false
 	}
-	if !compositeReachesSelf(t.ElemType, t, map[*mtype.Type]bool{}) {
-		if k != reflect.Map {
-			return nil, false
+	elemReaches := compositeReachesSelf(t.ElemType, t, map[*mtype.Type]bool{})
+	// A named func elem/key still mid-materialization is a *timing* self-reference:
+	// resolving it now bakes the erased func() placeholder. Take the same
+	// reserve+SetElem path and defer the real signature. funcElemDeferred keeps us
+	// here on the FinalizeDeferred re-entry, after the func has settled and
+	// funcTypeInFlight no longer reports it.
+	funcInFlight := funcTypeInFlight(t.ElemType) || (k == reflect.Map && funcTypeInFlight(t.KeyType))
+	if !elemReaches && !funcInFlight && !isFuncElemDeferred(t) {
+		if k == reflect.Map && compositeReachesSelf(t.KeyType, t, map[*mtype.Type]bool{}) {
+			return nil, true // self-referential map key: not materializable
 		}
-		if !compositeReachesSelf(t.KeyType, t, map[*mtype.Type]bool{}) {
-			return nil, false
-		}
-		return nil, true // self-referential map key: not materializable
+		return nil, false
 	}
 	var donor reflect.Type
 	switch k {
@@ -1087,13 +1164,16 @@ func materializeSelfRef(t *mtype.Type) (rt reflect.Type, handled bool) {
 		return nil, true
 	}
 	runtype.SetElem(rt, elem)
+	if funcInFlight {
+		markFuncElemDeferred(t)
+		markPending(t)
+	} else {
+		clearFuncElemDeferred(t)
+		clearPending(t)
+	}
 	return rt, true
 }
 
-// reserveSelfRef reserves t's named identity over the donor layout, never via
-// the shared-carrier cache: the donor erases the real layout, so same-named
-// self-ref types would collide and the second SetElem would corrupt the first.
-// The reservations entry makes a deferred retry reuse the same identity.
 func reserveSelfRef(t *mtype.Type, donor reflect.Type) reflect.Type {
 	if res := lookupReservation(t); res != nil {
 		return res.value.Type()

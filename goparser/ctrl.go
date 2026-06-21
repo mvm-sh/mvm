@@ -383,12 +383,8 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 		return nil, err
 	}
 	sc := p.caseClauses(clauses)
-	// A condSwitch keeps its operand on the stack while the EqualSet chain
-	// runs (consumed on match, by the default's Drop otherwise). Without a
-	// default, the no-match exit must drop it or it leaks a stack slot per
-	// execution (overflowing the frame in a hot loop).
-	needDrop := condSwitch && (len(sc) == 0 || sc[len(sc)-1][0].Tok != lang.Default)
-	// Process each clause.
+	hasDefault := len(sc) > 0 && len(sc[len(sc)-1]) >= 2 && sc[len(sc)-1][1].Tok == lang.Colon
+	needDrop := condSwitch && !hasDefault
 	nc := len(sc) - 1
 	prevFallthrough := false
 	for i, cl := range sc {
