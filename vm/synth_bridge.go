@@ -169,31 +169,111 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	loc.Set(el)
 }
 
+// synthIfaceRtype returns t's method-bearing synthetic interface rtype, building
+// and caching it on first use (nil if a method signature cannot be built; the
+// any bridge stays and a later call retries). Clones of one named interface
+// dedupe by synthIfaceNameKey to a single rtype identity.
+//
+// When some method signature is still unmaterialized, t's rtype is reserved and
+// cached before the signatures are built, so a self- or mutually-recursive
+// reference within them (type EnumType <-> Enum) resolves to this final pointer
+// rather than erasing a cycle-breaking back-edge whose location -- and thus a
+// later reflect.Implements -- would depend on materialization order. That path
+// materializes signatures and so requires materializeMu; the only caller that
+// may pass unmaterialized signatures (materializeFuncIO) holds it, while callers
+// off the lock (bridgePtrToIface) pre-materialize first, taking the atomic path.
 func synthIfaceRtype(t *Type) reflect.Type {
-	return cachedSynthIface(t, func() reflect.Type {
-		ims := make([]runtype.Imethod, 0, len(t.IfaceMethods))
-		for _, im := range t.IfaceMethods {
-			if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
-				return nil
-			}
-			ims = append(ims, runtype.Imethod{
-				Name:     im.Name,
-				Exported: isExportedName(im.Name),
-				Sig:      im.Rtype,
-			})
+	derivedMu.Lock()
+	if st := synthIfaceCache[t]; st != nil {
+		derivedMu.Unlock()
+		return st
+	}
+	key := synthIfaceNameKey(t)
+	if key != "" {
+		if st := synthIfaceNamed[key]; st != nil {
+			synthIfaceCache[t] = st
+			derivedMu.Unlock()
+			return st
 		}
-		if len(ims) == 0 {
-			return nil
+	}
+	name := synthIfaceName(t)
+	if name == "" {
+		derivedMu.Unlock()
+		return nil
+	}
+	if ims, ok := collectImethods(t, false); ok {
+		// All signatures materialized: no cycle to break, build atomically.
+		rt := runtype.InterfaceOf(name, t.PkgName, ims)
+		cacheSynthIface(t, key, rt)
+		derivedMu.Unlock()
+		return rt
+	}
+	h := runtype.ReserveInterface(name, t.PkgName)
+	rt := h.Type()
+	cacheSynthIface(t, key, rt)
+	derivedMu.Unlock()
+
+	ims, ok := collectImethods(t, true)
+	if !ok {
+		derivedMu.Lock()
+		uncacheSynthIface(t, key)
+		derivedMu.Unlock()
+		return nil
+	}
+	h.FillMethods(ims)
+	return rt
+}
+
+// cacheSynthIface records rt as t's synth interface rtype and under its
+// cross-clone dedupe key. Caller holds derivedMu.
+func cacheSynthIface(t *Type, key string, rt reflect.Type) {
+	synthIfaceCache[t] = rt
+	if key != "" {
+		synthIfaceNamed[key] = rt
+	}
+}
+
+// uncacheSynthIface rolls back a reservation whose method sigs could not be
+// built. Caller holds derivedMu.
+func uncacheSynthIface(t *Type, key string) {
+	delete(synthIfaceCache, t)
+	if key != "" {
+		delete(synthIfaceNamed, key)
+	}
+}
+
+// synthIfaceName is t's interface name for the synth rtype, falling back to the
+// reflect string of an already-bound rtype for an unnamed interface.
+func synthIfaceName(t *Type) string {
+	if name := qualifiedTypeName(t); name != "" {
+		return name
+	}
+	if t.Rtype != nil {
+		return t.Rtype.String()
+	}
+	return ""
+}
+
+// collectImethods builds the runtype.Imethod set from t's interface methods.
+// With materializeSigs it fills an unset im.Rtype from im.Sig (needs materializeMu).
+// ok is false if any method signature is still missing or non-func.
+func collectImethods(t *Type, materializeSigs bool) (ims []runtype.Imethod, ok bool) {
+	ims = make([]runtype.Imethod, 0, len(t.IfaceMethods))
+	for i := range t.IfaceMethods {
+		im := &t.IfaceMethods[i]
+		if materializeSigs && im.Rtype == nil && im.Sig != nil {
+			im.Rtype = materialize(im.Sig)
 		}
-		name := qualifiedTypeName(t)
-		if name == "" {
-			if t.Rtype == nil {
-				return nil
-			}
-			name = t.Rtype.String()
+		if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
+			return nil, false
 		}
-		return runtype.InterfaceOf(name, t.PkgName, ims)
-	})
+		ims = append(ims, runtype.Imethod{
+			Name:     im.Name,
+			Exported: isExportedName(im.Name),
+			Sig:      im.Rtype,
+		})
+	}
+	return ims, len(ims) > 0
 }
 
 func isGenericInstanceName(name string) bool {

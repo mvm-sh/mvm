@@ -27,14 +27,42 @@ func InterfaceOf(name, pkgPath string, methods []Imethod) reflect.Type {
 	if len(methods) == 0 {
 		return reflect.TypeFor[any]()
 	}
+	h := ReserveInterface(name, pkgPath)
+	h.FillMethods(methods)
+	return h.Type()
+}
+
+// IfaceHandle is a reserved synth interface rtype whose method set is filled by
+// FillMethods only after the rtype pointer exists. A self- or mutually-recursive
+// interface (type EnumType <-> Enum) can then build its method signatures with a
+// reference that resolves to this final pointer rather than to a cycle-breaking
+// erasure whose choice depends on materialization order.
+type IfaceHandle struct{ si *synthIface }
+
+// Type returns the reserved interface rtype. It is usable as an element type
+// before FillMethods runs; only its method set is incomplete until then.
+func (h *IfaceHandle) Type() reflect.Type { return asReflectType(&h.si.t.abiType) }
+
+// ReserveInterface allocates a synth interface rtype with an empty method set.
+// FillMethods completes it in place (same rtype pointer).
+func ReserveInterface(name, pkgPath string) *IfaceHandle {
 	// error: a non-empty interface, correct layout/GCData/Equal for the 2-word iface.
 	proto := rtypePtr(reflect.TypeFor[error]())
-
 	b := new(synthIface)
 	b.t.abiType = *proto
 	stampIfaceHeader(&b.t.abiType, name)
 	b.t.PkgPath = encodeName(pkgPath, false)
+	b.t.Methods = nil // filled by FillMethods
+	registerLayout(&b.t.abiType, proto)
+	return &IfaceHandle{si: b}
+}
 
+// FillMethods sets the reserved interface's required method set in place. Each
+// Imethod.Sig must be the canonical no-receiver func type (see InterfaceOf).
+func (h *IfaceHandle) FillMethods(methods []Imethod) {
+	if len(methods) == 0 {
+		return
+	}
 	order := make([]int, len(methods))
 	for i := range order {
 		order[i] = i
@@ -50,11 +78,8 @@ func InterfaceOf(name, pkgPath string, methods []Imethod) reflect.Type {
 			Typ:  addReflectOff(unsafe.Pointer(rtypePtr(mm.Sig))),
 		}
 	}
-	b.methods = ims
-	b.t.Methods = ims
-
-	registerLayout(&b.t.abiType, proto)
-	return asReflectType(&b.t.abiType)
+	h.si.methods = ims
+	h.si.t.Methods = ims
 }
 
 // methods keeps the abiImethod backing array alive alongside the rtype.

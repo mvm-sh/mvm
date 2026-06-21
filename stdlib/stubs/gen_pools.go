@@ -132,6 +132,12 @@ var wordShapes = []wordShape{
 	{Params: "i", Results: "pp"},
 	{Params: "ii", Results: "i"},
 	{Params: "ii", Results: "pp"},
+	// 3-word by-value structs (e.g. protoreflect.Value: pragma+typ+ptr+num -> ppi)
+	// in method signatures, exercised by protobuf reflect's ExtensionType.
+	{Params: "", Results: "ppi"},   // New/Zero() Value
+	{Params: "ppi", Results: "i"},  // IsValidValue(Value) bool
+	{Params: "pp", Results: "ppi"}, // ValueOf(any) Value
+	{Params: "ppi", Results: "pp"}, // InterfaceOf(Value) any
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

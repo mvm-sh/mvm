@@ -14,12 +14,18 @@ import (
 // This is the x/net/http2 Server.NewWriteScheduler erasure (WriteScheduler.Push/Pop
 // referenced a forward struct, so they were nil when Server materialized).
 func TestFuncIfaceResultDeferredSynth(t *testing.T) {
-	// WS interface { Pop() bool }, with Pop's sig initially unmaterialized.
+	// WS interface { Pop() Fwd }, where Fwd is a still-forward struct so Pop's sig
+	// cannot materialize yet (materialize returns nil for a placeholder). WS thus
+	// has no buildable synth rtype until the sig fills, exactly the http2 case.
+	fwd := mtype.SymStruct(nil, nil, nil)
+	fwd.Name = "Fwd"
+	fwd.PkgName = "example.com/fnfield"
+	fwd.Placeholder = true
 	ws := mtype.SymBasic(reflect.Interface)
 	ws.Name = "WS"
 	ws.PkgName = "example.com/fnfield"
 	ws.IfaceMethods = []mtype.IfaceMethod{
-		{Name: "Pop", ID: -1, Rtype: nil, Sig: mtype.SymFunc(nil, []*mtype.Type{mtype.SymBasic(reflect.Bool)}, false)},
+		{Name: "Pop", ID: -1, Rtype: nil, Sig: mtype.SymFunc(nil, []*mtype.Type{fwd}, false)},
 	}
 
 	// Struct fnfield.Srv { New func() WS }: the field is a clone of the func type

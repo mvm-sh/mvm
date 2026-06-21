@@ -75,6 +75,13 @@ func classifyStruct(t reflect.Type) (string, bool) {
 	expect := uintptr(0)
 	for i := range t.NumField() {
 		f := t.Field(i)
+		if f.Type.Size() == 0 {
+			// A zero-size field (e.g. a [0]func() / [0]T marker like
+			// pragma.DoNotCompare in protoreflect.Value) occupies no register word
+			// and no memory, so it neither shifts the layout nor needs marshaling.
+			// Skipping keeps the struct classifiable as its real-word fields alone.
+			continue
+		}
 		if f.Offset != expect {
 			return "", false // padding or sub-word packing
 		}

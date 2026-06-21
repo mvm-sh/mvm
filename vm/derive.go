@@ -1400,50 +1400,40 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 	return d.ptr
 }
 
-// cachedSynthIface returns t's cached method-bearing synth interface rtype,
-// building it via build on first use; a nil result is not cached (the AnyRtype
-// bridge stays and a later call retries). A named interface also dedupes by
-// synthIfaceNameKey so clone *Types share one rtype identity.
-func cachedSynthIface(t *mtype.Type, build func() reflect.Type) reflect.Type {
-	derivedMu.Lock()
-	defer derivedMu.Unlock()
-	if st := synthIfaceCache[t]; st != nil {
-		return st
-	}
-	nameKey := synthIfaceNameKey(t)
-	if nameKey != "" {
-		if st := synthIfaceNamed[nameKey]; st != nil {
-			synthIfaceCache[t] = st
-			return st
-		}
-	}
-	if st := build(); st != nil {
-		synthIfaceCache[t] = st
-		if nameKey != "" {
-			synthIfaceNamed[nameKey] = st
-		}
-		return st
-	}
-	return nil
-}
-
 // synthIfaceNameKey fingerprints a named interface for cross-clone dedupe:
 // package, name, and sorted method name:signature pairs, so a same-named
 // interface with different sigs never adopts the other's rtype. Returns ""
-// (no dedupe) for unnamed interfaces or while any method sig is unmaterialized.
+// (no dedupe) for unnamed interfaces or while any method signature is unknown.
 func synthIfaceNameKey(t *mtype.Type) string {
 	if t == nil || t.Name == "" {
 		return ""
 	}
 	names := make([]string, 0, len(t.IfaceMethods))
 	for _, im := range t.IfaceMethods {
-		if im.Rtype == nil {
+		sig := imethodSigString(im)
+		if sig == "" {
 			return ""
 		}
-		names = append(names, im.Name+":"+im.Rtype.String())
+		names = append(names, im.Name+":"+sig)
 	}
 	sort.Strings(names)
 	return t.PkgName + "." + t.Name + "{" + strings.Join(names, ",") + "}"
+}
+
+// imethodSigString renders im's signature for the dedupe key. The symbolic Sig
+// names a nested interface by pkg.Name regardless of erasure, whereas im.Rtype
+// prints a cyclic position as interface{} or its name depending on build order
+// (type EnumType <-> Enum); a per-build-order key would split clones and break
+// reflect.Implements non-deterministically. Prefer Sig; native-bridged methods
+// carry only Rtype.
+func imethodSigString(im mtype.IfaceMethod) string {
+	if im.Sig != nil {
+		return im.Sig.String()
+	}
+	if im.Rtype != nil {
+		return im.Rtype.String()
+	}
+	return ""
 }
 
 // AttachPtrDerived records newPtrRT (a *T-with-methods rtype) as t's derived
