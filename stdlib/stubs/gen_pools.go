@@ -139,6 +139,26 @@ var wordShapes = []wordShape{
 	{Params: "ppi", Results: "i"},  // IsValidValue(Value) bool
 	{Params: "pp", Results: "ppi"}, // ValueOf(any) Value
 	{Params: "ppi", Results: "pp"}, // InterfaceOf(Value) any
+	// Float-word shapes ('f' = a float64 carried in an FP register). gonum/plot's
+	// vg.Canvas geometry (vg.Length = float64, vg.Point/Rectangle = float structs)
+	// needs these for vgimg.PngCanvas to satisfy vg.CanvasWriterTo.
+	{Params: "f", Results: ""},        // SetLineWidth(Length), Rotate(float64)
+	{Params: "", Results: "f"},        // float getter, e.g. func() float64
+	{Params: "f", Results: "f"},       // unary float op, e.g. func(float64) float64
+	{Params: "ff", Results: ""},       // Translate(Point), Scale(float64,float64)
+	{Params: "", Results: "ff"},       // Size() (Length, Length)
+	{Params: "piif", Results: ""},     // SetLineDash([]Length, Length)
+	{Params: "ppffpi", Results: ""},   // FillString(font.Face, Point, string)
+	{Params: "ffffpp", Results: ""},   // DrawImage(Rectangle, image.Image)
+	// Integer-word shapes the drops report flagged as missing pools.
+	{Params: "pp", Results: ""},       // SetColor(color.Color)
+	{Params: "pii", Results: ""},      // Stroke(Path), Fill(Path)
+	{Params: "pp", Results: "ipp"},    // io.WriterTo.WriteTo(io.Writer) (int64, error)
+	// Large mixed shape: FillString(font.Face, vg.Point, string). font.Face is an
+	// 8-word struct, so this needs 9 integer + 3 float arg words; it only attaches
+	// where they fit the arch's argument registers (arm64), and is dropped on amd64
+	// (9 int + receiver > 9 regs) -- see wordsFitRegs.
+	{Params: "pipiiifpffpi", Results: ""},
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
@@ -172,50 +192,63 @@ func main() {
 }
 
 // wordParamParts builds the typed param list, the dispatch arg list, the scatter
-// statements (each param word into pw[]/sw[]), and the pointer/integer counts.
-func wordParamParts(classes string) (decl, args, scatter string, npw, nsw int) {
+// statements (each param word into pw[]/sw[]/fw[]), and the pointer/integer/float
+// counts. A 'p' word is typed unsafe.Pointer and an 'i' word uint64 (both land in
+// integer registers); an 'f' word is typed float64 so the Go compiler places it
+// in an FP register, matching the real signature's float arg ABI.
+func wordParamParts(classes string) (decl, args, scatter string, npw, nsw, nfw int) {
 	for k, c := range classes {
 		name := fmt.Sprintf("w%d", k)
-		if c == 'p' {
+		switch c {
+		case 'p':
 			decl += fmt.Sprintf(", %s unsafe.Pointer", name)
 			scatter += fmt.Sprintf("\tpw[%d] = %s\n", npw, name)
 			npw++
-		} else {
+		case 'f':
+			decl += fmt.Sprintf(", %s float64", name)
+			scatter += fmt.Sprintf("\tfw[%d] = %s\n", nfw, name)
+			nfw++
+		default:
 			decl += fmt.Sprintf(", %s uint64", name)
 			scatter += fmt.Sprintf("\tsw[%d] = %s\n", nsw, name)
 			nsw++
 		}
 		args += ", " + name
 	}
-	return decl, args, scatter, npw, nsw
+	return decl, args, scatter, npw, nsw, nfw
 }
 
 // wordResultParts builds the result type list (no names) and the gather return
-// statement reading from rpw[]/rsw[], plus the pointer/integer counts.
-func wordResultParts(classes string) (decl, gather string, nrpw, nrsw int) {
+// statement reading from rpw[]/rsw[]/rfw[], plus the pointer/integer/float counts.
+func wordResultParts(classes string) (decl, gather string, nrpw, nrsw, nrfw int) {
 	if classes == "" {
-		return "", "", 0, 0
+		return "", "", 0, 0, 0
 	}
 	var types, vals []string
 	for _, c := range classes {
-		if c == 'p' {
+		switch c {
+		case 'p':
 			types = append(types, "unsafe.Pointer")
 			vals = append(vals, fmt.Sprintf("rpw[%d]", nrpw))
 			nrpw++
-		} else {
+		case 'f':
+			types = append(types, "float64")
+			vals = append(vals, fmt.Sprintf("rfw[%d]", nrfw))
+			nrfw++
+		default:
 			types = append(types, "uint64")
 			vals = append(vals, fmt.Sprintf("rsw[%d]", nrsw))
 			nrsw++
 		}
 	}
-	return "(" + strings.Join(types, ", ") + ")", "return " + strings.Join(vals, ", "), nrpw, nrsw
+	return "(" + strings.Join(types, ", ") + ")", "return " + strings.Join(vals, ", "), nrpw, nrsw, nrfw
 }
 
 func emitWord(w wordShape) {
 	sz := w.size()
 	id := w.ident()
-	pDecl, pArgs, scatter, npw, nsw := wordParamParts(w.Params)
-	rDecl, gather, nrpw, nrsw := wordResultParts(w.Results)
+	pDecl, pArgs, scatter, npw, nsw, nfw := wordParamParts(w.Params)
+	rDecl, gather, nrpw, nrsw, nrfw := wordResultParts(w.Results)
 	ret := ""
 	if rDecl != "" {
 		ret = "return "
@@ -241,14 +274,14 @@ func emitWord(w wordShape) {
 	}
 	fmt.Fprintf(&b, "}\n\n")
 
-	// The per-shape dispatcher: scatter the native words into pw/sw, invoke the
+	// The per-shape dispatcher: scatter the native words into pw/sw/fw, invoke the
 	// vm-supplied core, gather the result words back out.
 	fmt.Fprintf(&b, "func dispatch%s(slot uint32, recv unsafe.Pointer%s) %s {\n", id, pDecl, rDecl)
-	fmt.Fprintf(&b, "\tvar pw [%d]unsafe.Pointer\n\tvar sw [%d]uint64\n", npw, nsw)
+	fmt.Fprintf(&b, "\tvar pw [%d]unsafe.Pointer\n\tvar sw [%d]uint64\n\tvar fw [%d]float64\n", npw, nsw, nfw)
 	b.WriteString(scatter)
-	fmt.Fprintf(&b, "\tvar rpw [%d]unsafe.Pointer\n\tvar rsw [%d]uint64\n", nrpw, nrsw)
+	fmt.Fprintf(&b, "\tvar rpw [%d]unsafe.Pointer\n\tvar rsw [%d]uint64\n\tvar rfw [%d]float64\n", nrpw, nrsw, nrfw)
 	fmt.Fprintf(&b, "\tif core := slotPool%s[slot]; core != nil {\n", id)
-	fmt.Fprintf(&b, "\t\tcore(recv, pw[:], sw[:], rpw[:], rsw[:])\n\t}\n")
+	fmt.Fprintf(&b, "\t\tcore(recv, pw[:], sw[:], fw[:], rpw[:], rsw[:], rfw[:])\n\t}\n")
 	if gather != "" {
 		fmt.Fprintf(&b, "\t%s\n", gather)
 	}

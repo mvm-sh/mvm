@@ -41,6 +41,69 @@ func main() {
 	}
 }
 
+// TestSynthFloatMethodIface exercises the float word-class dispatch: an interface
+// whose methods carry float64 params/results and a float-field struct param/result
+// (Vec) is satisfied by an interpreted concrete, and the concrete is returned as
+// that interface across a reflect.Call (MakeFunc) boundary -- so its synth rtype
+// must actually implement the interface (reflect.Implements), which needs the
+// float methods installed. Pre-float-words, float methods dropped (classifyType
+// rejected floats), so Shape's rtype lacked Area/MoveTo/At/Scale and the boxing
+// panicked "not assignable". Shapes: Scale -> "f_f", MoveTo(Vec) -> "ff_",
+// At() Vec -> "_ff", Area() -> "_f".
+func TestSynthFloatMethodIface(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Vec struct{ X, Y float64 }
+
+type Shape interface {
+	Area() float64
+	Scale(f float64) float64
+	MoveTo(v Vec)
+	At() Vec
+}
+
+type Circle struct {
+	c Vec
+	r float64
+}
+
+func (s *Circle) Area() float64          { return 3.14159 * s.r * s.r }
+func (s *Circle) Scale(f float64) float64 { s.r *= f; return s.r }
+func (s *Circle) MoveTo(v Vec)           { s.c = v }
+func (s *Circle) At() Vec                 { return s.c }
+
+func makeShape() Shape { return &Circle{r: 2} }
+
+func main() {
+	// reflect.Call forces makeShape through a MakeFunc wrapper, boxing the
+	// concrete *Circle into the Shape interface return -- requires *Circle's
+	// synth rtype to implement Shape (all four float methods present).
+	out := reflect.ValueOf(makeShape).Call(nil)
+	s := out[0].Interface().(Shape)
+	s.MoveTo(Vec{X: 1.5, Y: -2.5})
+	r := s.Scale(3)
+	at := s.At()
+	fmt.Printf("area=%.2f r=%.1f at=%.1f,%.1f", s.Area(), r, at.X, at.Y)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("synth_float_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "area=113.10 r=6.0 at=1.5,-2.5"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 // TestSynthPtrStringerEndToEnd is the pointer-receiver counterpart of
 // TestSynthStringerEndToEnd: the reserve path synthesizes a *T rtype and wires
 // PtrToThis so &T satisfies fmt.Stringer.

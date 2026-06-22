@@ -1047,10 +1047,12 @@ var stubsW_pi = [poolSizeW_pi]uintptr{
 func dispatchW_pi(slot uint32, recv unsafe.Pointer) (unsafe.Pointer, uint64) {
 	var pw [0]unsafe.Pointer
 	var sw [0]uint64
+	var fw [0]float64
 	var rpw [1]unsafe.Pointer
 	var rsw [1]uint64
+	var rfw [0]float64
 	if core := slotPoolW_pi[slot]; core != nil {
-		core(recv, pw[:], sw[:], rpw[:], rsw[:])
+		core(recv, pw[:], sw[:], fw[:], rpw[:], rsw[:], rfw[:])
 	}
 	return rpw[0], rsw[0]
 }

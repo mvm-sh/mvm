@@ -16,7 +16,7 @@ type sizer interface{ Size() int64 }
 // TestWordShapeIntResult routes an int64 through the "_i" result word.
 func TestWordShapeIntResult(t *testing.T) {
 	const want = int64(0x1122334455667788)
-	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, _ []unsafe.Pointer, rsw []uint64) {
+	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, _ []float64, _ []unsafe.Pointer, rsw []uint64, _ []float64) {
 		rsw[0] = uint64(want)
 	}
 	rt, err := mkSynth(reflect.TypeOf(int(0)), "SizT", "test", []Method{{
@@ -36,6 +36,35 @@ func TestWordShapeIntResult(t *testing.T) {
 	}
 }
 
+type scaler interface{ Scale(float64) float64 }
+
+// TestWordShapeFloatRoundTrip routes a float64 in (FP-register arg word) and a
+// float64 out (FP-register result word) through "f_f", validating that the
+// generated stub places the float in an FP register matching the real method ABI
+// -- the core sees the exact arg, and its float result reaches the native caller.
+func TestWordShapeFloatRoundTrip(t *testing.T) {
+	const in = 3.14159265358979
+	const factor = 2.5
+	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, fw []float64, _ []unsafe.Pointer, _ []uint64, rfw []float64) {
+		rfw[0] = fw[0] * factor
+	}
+	rt, err := mkSynth(reflect.TypeOf(int(0)), "ScaleT", "test", []Method{{
+		Name: "Scale", Exported: true,
+		Sig:     reflect.TypeOf((func(float64) float64)(nil)),
+		WordKey: "f_f", Core: core,
+	}})
+	if err != nil {
+		t.Fatalf("mkSynth: %v", err)
+	}
+	s, ok := reflect.New(rt).Elem().Interface().(scaler)
+	if !ok {
+		t.Fatal("synth type does not satisfy scaler")
+	}
+	if got, want := s.Scale(in), in*factor; got != want {
+		t.Errorf("Scale(%v) = %v, want %v", in, got, want)
+	}
+}
+
 type opener interface {
 	Open(string) (any, error)
 }
@@ -44,7 +73,7 @@ type opener interface {
 // and an interface result out (type+data words) through "pi_pppp", then forces a
 // GC to surface a mis-typed (unscanned) pointer word.
 func TestWordShapeStringParamIfaceResult(t *testing.T) {
-	core := func(_ unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, rpw []unsafe.Pointer, _ []uint64) {
+	core := func(_ unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, _ []float64, rpw []unsafe.Pointer, _ []uint64, _ []float64) {
 		in := unsafe.String((*byte)(pw[0]), int(sw[0]))
 		var boxed any = "got:" + in // fresh heap allocation
 		w := *(*[2]unsafe.Pointer)(unsafe.Pointer(&boxed))
@@ -93,7 +122,7 @@ type tripler interface{ M() triple }
 func TestWordShapeStructResult(t *testing.T) {
 	target := 99
 	want := triple{a: 0xAABBCCDD, b: -42, c: &target}
-	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, rpw []unsafe.Pointer, rsw []uint64) {
+	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, _ []uint64, _ []float64, rpw []unsafe.Pointer, rsw []uint64, _ []float64) {
 		rsw[0] = want.a
 		rsw[1] = uint64(want.b)
 		rpw[0] = unsafe.Pointer(want.c)

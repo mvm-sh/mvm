@@ -28,9 +28,11 @@ func TestClassifyType(t *testing.T) {
 		{reflect.TypeOf([]int(nil)), "pii", true},
 		{reflect.TypeOf((*any)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf((*error)(nil)).Elem(), "pp", true},
-		{reflect.TypeOf(float64(0)), "", false},    // floats dropped
-		{reflect.TypeOf(complex128(0)), "", false}, // and complex
+		{reflect.TypeOf(float64(0)), "f", true},    // float64 is an FP-register word
+		{reflect.TypeOf(float32(0)), "", false},    // float32 is sub-word, dropped
+		{reflect.TypeOf(complex128(0)), "", false}, // complex dropped
 		{reflect.TypeOf([2]int{}), "", false},      // and arrays
+		{reflect.TypeOf(struct{ X, Y float64 }{}), "ff", true}, // all-float struct
 		// word-sized-leaf structs flatten to their leaves' words.
 		{reflect.TypeOf(struct{ a, b int }{}), "ii", true},
 		{reflect.TypeOf(struct {
@@ -97,6 +99,13 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		reflect.TypeOf(0), // a non-nil interface value
 		errors.New("boom"),
 		time.Date(2026, 6, 2, 10, 30, 0, 0, time.UTC), // word-sized-leaf struct
+		float64(3.14159265358979),                     // 'f' word
+		struct{ X, Y float64 }{1.5, -2.5},             // all-float struct -> "ff"
+		struct {                                       // mixed int/float/ptr -> "ifp"
+			A int64
+			B float64
+			C *int
+		}{42, 6.022e23, &n},
 	}
 	for _, v := range values {
 		rt := reflect.TypeOf(v)
@@ -106,13 +115,14 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		}
 		pw := make([]unsafe.Pointer, strings.Count(classes, "p"))
 		sw := make([]uint64, strings.Count(classes, "i"))
+		fw := make([]float64, strings.Count(classes, "f"))
 
 		src := reflect.New(rt)
 		src.Elem().Set(reflect.ValueOf(v))
-		readWords(rt, classes, src.UnsafePointer(), pw, sw, 0, 0)
+		readWords(rt, classes, src.UnsafePointer(), pw, sw, fw, 0, 0, 0)
 
 		dst := reflect.New(rt)
-		writeWords(rt, classes, dst.UnsafePointer(), pw, sw, 0, 0)
+		writeWords(rt, classes, dst.UnsafePointer(), pw, sw, fw, 0, 0, 0)
 
 		if !reflect.DeepEqual(dst.Elem().Interface(), v) {
 			t.Errorf("round-trip %v: got %v want %v", rt, dst.Elem().Interface(), v)

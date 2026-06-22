@@ -1539,10 +1539,12 @@ var stubsW_iip = [poolSizeW_iip]uintptr{
 func dispatchW_iip(slot uint32, recv unsafe.Pointer) (uint64, uint64, unsafe.Pointer) {
 	var pw [0]unsafe.Pointer
 	var sw [0]uint64
+	var fw [0]float64
 	var rpw [1]unsafe.Pointer
 	var rsw [2]uint64
+	var rfw [0]float64
 	if core := slotPoolW_iip[slot]; core != nil {
-		core(recv, pw[:], sw[:], rpw[:], rsw[:])
+		core(recv, pw[:], sw[:], fw[:], rpw[:], rsw[:], rfw[:])
 	}
 	return rsw[0], rsw[1], rpw[0]
 }

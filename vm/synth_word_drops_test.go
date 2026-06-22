@@ -16,16 +16,16 @@ func TestWordShapeDropReport(t *testing.T) {
 	wordDropLog.Store(true)
 	defer wordDropLog.Store(false)
 
-	// "iii_i" has no generated pool; a float param is unclassifiable. Both use
-	// signatures no real method has, so the assertions are immune to drops other
-	// tests record into the shared collectors.
+	// "iii_i" has no generated pool; a complex128 param is unclassifiable. Both
+	// use signatures no real method has, so the assertions are immune to drops
+	// other tests record into the shared collectors.
 	noPool := reflect.TypeOf((func(uintptr, uintptr, uintptr) bool)(nil))
 	if _, ok := detectWordShape(noPool); ok {
 		t.Fatalf("expected %v to drop (no pool)", noPool)
 	}
-	hasFloat := reflect.TypeOf((func(float64) bool)(nil))
-	if _, ok := detectWordShape(hasFloat); ok {
-		t.Fatalf("expected %v to drop (float)", hasFloat)
+	unclassifiable := reflect.TypeOf((func(complex128) bool)(nil))
+	if _, ok := detectWordShape(unclassifiable); ok {
+		t.Fatalf("expected %v to drop (unclassifiable)", unclassifiable)
 	}
 
 	r := WordShapeDropReport()

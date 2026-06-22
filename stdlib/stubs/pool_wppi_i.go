@@ -1559,13 +1559,15 @@ var stubsWppi_i = [poolSizeWppi_i]uintptr{
 func dispatchWppi_i(slot uint32, recv unsafe.Pointer, w0 unsafe.Pointer, w1 unsafe.Pointer, w2 uint64) uint64 {
 	var pw [2]unsafe.Pointer
 	var sw [1]uint64
+	var fw [0]float64
 	pw[0] = w0
 	pw[1] = w1
 	sw[0] = w2
 	var rpw [0]unsafe.Pointer
 	var rsw [1]uint64
+	var rfw [0]float64
 	if core := slotPoolWppi_i[slot]; core != nil {
-		core(recv, pw[:], sw[:], rpw[:], rsw[:])
+		core(recv, pw[:], sw[:], fw[:], rpw[:], rsw[:], rfw[:])
 	}
 	return rsw[0]
 }

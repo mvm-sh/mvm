@@ -9,14 +9,16 @@ import (
 
 // CoreFunc marshals one synth method call across the word boundary.
 // The generated per-shape dispatcher (dispatchW*) scatters the native register
-// words into pw (pointer-class words) and sw (integer-class words), invokes
-// core, then gathers the result words back from rpw/rsw.
+// words into pw (pointer-class words), sw (integer-class words), and fw
+// (float-class words, carried in FP registers), invokes core, then gathers the
+// result words back from rpw/rsw/rfw.
 //
 // pw/rpw are typed []unsafe.Pointer so the GC scans the pointer words; sw/rsw
-// carry integer words as raw bits. recv is the receiver pointer per Go's
-// iface-dispatch convention. The vm builds core; it does the reflect-driven
-// value<->word marshaling and owns the error policy (a failed dispatch panics).
-type CoreFunc = func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, rpw []unsafe.Pointer, rsw []uint64)
+// carry integer words as raw bits; fw/rfw carry float64 words (the value held
+// in the FP register). recv is the receiver pointer per Go's iface-dispatch
+// convention. The vm builds core; it does the reflect-driven value<->word
+// marshaling and owns the error policy (a failed dispatch panics).
+type CoreFunc = func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64)
 
 // wordPool is one word-shape's stub-PC pool and parallel slot table.
 // The generated pool_w*.go file owns the backing arrays and registers a *wordPool

@@ -1559,11 +1559,13 @@ var stubsWi_pp = [poolSizeWi_pp]uintptr{
 func dispatchWi_pp(slot uint32, recv unsafe.Pointer, w0 uint64) (unsafe.Pointer, unsafe.Pointer) {
 	var pw [0]unsafe.Pointer
 	var sw [1]uint64
+	var fw [0]float64
 	sw[0] = w0
 	var rpw [2]unsafe.Pointer
 	var rsw [0]uint64
+	var rfw [0]float64
 	if core := slotPoolWi_pp[slot]; core != nil {
-		core(recv, pw[:], sw[:], rpw[:], rsw[:])
+		core(recv, pw[:], sw[:], fw[:], rpw[:], rsw[:], rfw[:])
 	}
 	return rpw[0], rpw[1]
 }
