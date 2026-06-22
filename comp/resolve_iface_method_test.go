@@ -51,3 +51,52 @@ func TestResolveIfaceMethodPrefersSymbolicReturn(t *testing.T) {
 		t.Fatalf("GetB return type = %v, want the symbolic B (%v); the spurious concrete won", got, wantB)
 	}
 }
+
+// A method call on an interface-typed receiver whose own clone lost its method
+// set must recover the canonical interface by PACKAGE, not name alone: two
+// packages can each declare a same-named interface.
+//
+// Mirrors `mvm test gonum.org/v1/gonum/graph/path`: gonum has both graph.Graph
+// (5 methods) and traverse.Graph (2 methods). A Complement field `g.Graph` is
+// typed graph.Graph but its field clone carries no IfaceMethods, so the
+// canonical had to be looked up. Keyed by name only, the two same-named
+// interfaces were "ambiguous" -> no signature -> an arbitrary same-named
+// concrete From() (wrong arity) was used, corrupting the compile stack
+// non-deterministically (map order). Disambiguating by package fixes it.
+func TestResolveIfaceMethodDisambiguatesByPackage(t *testing.T) {
+	ifaceRtype := reflect.TypeFor[any]()
+	nodesT := &vm.Type{Name: "Nodes", Rtype: ifaceRtype}
+
+	// The canonical graph.Graph: From() returns Nodes.
+	graphIface := &vm.Type{
+		Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph", PkgName: "graph", Rtype: ifaceRtype,
+		IfaceMethods: []vm.IfaceMethod{{Name: "From", Sig: &vm.Type{Returns: []*vm.Type{nodesT}}}},
+	}
+	// A foreign same-named interface in another package; must not hijack.
+	traverseIface := &vm.Type{
+		Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph/traverse", PkgName: "traverse", Rtype: ifaceRtype,
+		IfaceMethods: []vm.IfaceMethod{{Name: "From", Sig: &vm.Type{Returns: nil}}},
+	}
+
+	c := NewCompiler(golang.GoSpec)
+	c.Symbols["gonum.org/v1/gonum/graph.Graph"] = &symbol.Symbol{Kind: symbol.Type, Name: "Graph", Type: graphIface}
+	c.Symbols["gonum.org/v1/gonum/graph/traverse.Graph"] = &symbol.Symbol{Kind: symbol.Type, Name: "Graph", Type: traverseIface}
+	// A same-named concrete From with a NO-return signature: picked arbitrarily by
+	// map order when no interface signature is recovered, it drops the call result.
+	noRet := reflect.FuncOf(nil, nil, false) // func()
+	c.Symbols["band.From"] = &symbol.Symbol{Kind: symbol.Func, Name: "band.From", Type: &vm.Type{Rtype: noRet}}
+
+	// The receiver: a graph.Graph clone with package info but no method set.
+	clone := &vm.Type{Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph", PkgName: "graph", Rtype: ifaceRtype}
+
+	sym := c.resolveIfaceMethodSym(clone, "From")
+	if sym == nil {
+		t.Fatal("resolveIfaceMethodSym returned nil for a declared method")
+	}
+	if sym.Type.NumOut() != 1 {
+		t.Fatalf("From signature NumOut = %d, want 1; a foreign/concrete same-named method hijacked it (type %v)", sym.Type.NumOut(), sym.Type)
+	}
+	if got := sym.Type.ReturnType(0); got != nodesT {
+		t.Fatalf("From return type = %v, want graph.Nodes (%v)", got, nodesT)
+	}
+}

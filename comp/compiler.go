@@ -177,11 +177,18 @@ func (c *Compiler) canonicalIfaceType(t *vm.Type, methodName string) *vm.Type {
 	if c.canonIface == nil {
 		c.canonIface = map[string]*vm.Type{}
 	}
-	canon, ok := c.canonIface[t.Name]
+	// Key by package + name: two packages can each declare an interface named
+	// "Graph" (gonum's graph.Graph and traverse.Graph), so the name alone is
+	// ambiguous and would let one hijack the other.
+	key := t.ImportPath + "." + t.Name
+	if t.ImportPath == "" {
+		key = t.PkgName + "." + t.Name
+	}
+	canon, ok := c.canonIface[key]
 	if !ok {
-		canon = c.findCanonicalIface(t.Name)
+		canon = c.findCanonicalIface(t)
 		if canon != nil {
-			c.canonIface[t.Name] = canon // negatives stay uncached: symbols grow during compile
+			c.canonIface[key] = canon // negatives stay uncached: symbols grow during compile
 		}
 	}
 	if canon != nil && ifaceDeclares(canon, methodName) {
@@ -190,16 +197,23 @@ func (c *Compiler) canonicalIfaceType(t *vm.Type, methodName string) *vm.Type {
 	return t
 }
 
-func (c *Compiler) findCanonicalIface(name string) *vm.Type {
+func (c *Compiler) findCanonicalIface(t *vm.Type) *vm.Type {
+	// When the receiver carries package info, restrict candidates to the same
+	// package so a foreign same-named interface (traverse.Graph vs graph.Graph)
+	// can't hijack it; without package info fall back to name-only matching.
+	hasPkg := t.ImportPath != "" || t.PkgName != ""
 	var found *vm.Type
 	for _, sym := range c.Symbols {
 		st := sym.Type
 		if sym.Kind != symbol.Type || st == nil || !st.IsInterface() ||
-			st.Name != name || len(st.IfaceMethods) == 0 {
+			st.Name != t.Name || len(st.IfaceMethods) == 0 {
 			continue
 		}
-		if found != nil && found != st {
-			return nil // two distinct same-named interfaces; cannot disambiguate
+		if hasPkg && !st.SameNamedType(t) {
+			continue
+		}
+		if found != nil && found != st && !found.SameNamedType(st) {
+			return nil // two genuinely distinct same-named interfaces; cannot disambiguate
 		}
 		found = st
 	}
