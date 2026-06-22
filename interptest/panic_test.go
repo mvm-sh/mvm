@@ -154,6 +154,40 @@ func TestRuntimeErrorStillPanicError(t *testing.T) {
 	}
 }
 
+// TestRuntimeGoexit checks that a direct interpreted runtime.Goexit() unwinds
+// the goroutine's frame chain running its deferred funcs (LIFO), that a defer's
+// recover() sees no panic (returns nil), and that code after Goexit does not
+// run -- the contract golang.org/x/sync/singleflight's TestGoexitDo relies on.
+// Native runtime.Goexit would kill the goroutine with the VM defers unran.
+func TestRuntimeGoexit(t *testing.T) {
+	i := newAutoImportInterp(t)
+	src := `var order []string
+done := make(chan bool)
+go func() {
+	defer func() { done <- true }()
+	defer func() { order = append(order, "deferA") }()
+	defer func() {
+		if recover() == nil {
+			order = append(order, "recover-nil")
+		} else {
+			order = append(order, "recover-non-nil")
+		}
+	}()
+	order = append(order, "before")
+	runtime.Goexit()
+	order = append(order, "after")
+}()
+<-done
+strings.Join(order, ",")`
+	r, err := i.Eval("goexit", src)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if got, want := fmt.Sprintf("%v", r), "before,recover-nil,deferA"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // TestGoroutinePanicSurfacesAsExit checks an unrecovered goroutine panic is
 // surfaced (logged) and turned into a non-zero exit instead of being silently
 // swallowed -- here while main is blocked on a channel the dead goroutine owned,

@@ -409,6 +409,7 @@ type Machine struct {
 	panicVal      Value       // value passed to panic()
 	panicInfo     *PanicError // diagnostic snapshot (source pos + mvm stack) captured at panic before unwind
 	panicReraised bool        // panicInfo was adopted from a re-entrant run via invokeNative
+	goexiting     bool        // true while unwinding due to runtime.Goexit (recover sees no panic)
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
@@ -916,6 +917,12 @@ func (m *Machine) posPrefix(pos Pos) string {
 	return ""
 }
 
+// goexitFuncPC is the code pointer of runtime.Goexit, used to intercept a
+// direct interpreted call so the VM unwinds its own frame chain (running
+// interpreted defers) instead of letting native Goexit kill the goroutine
+// with the VM defers unran.
+var goexitFuncPC = reflect.ValueOf(runtime.Goexit).Pointer()
+
 const heapSavedFlag = uint64(1) << 63
 
 // CallSpreadFlag is set in the B operand of Call to indicate a spread call
@@ -1237,6 +1244,15 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					m.heap = []*Value{cell}
 					nip = codeAddr
 				} else if rv.Kind() == reflect.Func {
+					if rv.Pointer() == goexitFuncPC {
+						// runtime.Goexit: unwind this goroutine's interpreted frame
+						// chain running its defers, then terminate. recover() in a
+						// defer sees no panic and returns nil (Go semantics).
+						sp -= narg + 1
+						m.goexiting = true
+						ip = m.panicAddr()
+						continue
+					}
 					funcType := rv.Type()
 					in := make([]reflect.Value, narg)
 					for i := range in {
@@ -3582,8 +3598,12 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 	deferRetBits := uint64(panicAddr - 1)
 	*mem = (*mem)[:*sp+1]
 	if *fp == 0 {
-		// Top-level panic: no call frame to unwind.
+		// Top-level: no call frame to unwind.
 		m.mem, m.ip, m.fp = *mem, 0, 0
+		if m.goexiting && !m.panicking {
+			m.goexiting = false
+			return true, nil // goroutine terminated cleanly
+		}
 		return true, m.escapeErr()
 	}
 	dh := int((*mem)[*fp-3].num)
@@ -3673,7 +3693,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		return false, nil
 	}
 	// No more defers in this frame.
-	if !m.panicking {
+	if !m.panicking && !m.goexiting {
 		// Recovered: produce the result values and tear down the frame.
 		retIPInfo := (*mem)[*fp-2].num
 		nret := int((retIPInfo >> 32) & retNretMask)
@@ -3697,14 +3717,18 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		*mem = (*mem)[:cap(*mem)]
 		return false, nil
 	}
-	// Still panicking: tear down frame, continue unwinding parent.
+	// Still panicking (or goexiting): tear down frame, continue unwinding parent.
 	frameBase := int((*mem)[*fp-2].num >> 48)
 	ofp := *fp
 	m.dropIterFrames(ofp)
 	*fp = m.restoreFP((*mem)[*fp-1].num)
 	if *fp == 0 {
-		// Top of stack: return panic as error.
+		// Top of stack.
 		m.mem, m.ip, m.fp = *mem, 0, 0
+		if m.goexiting && !m.panicking {
+			m.goexiting = false
+			return true, nil // goroutine terminated cleanly
+		}
 		return true, m.escapeErr()
 	}
 	newBase := ofp - frameBase
