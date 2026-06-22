@@ -37,4 +37,7 @@ func init() {
 		"SplitFunc":            reflect.ValueOf((*bufio.SplitFunc)(nil)),
 		"Writer":               reflect.ValueOf((*bufio.Writer)(nil)),
 	}
+	stdlib.ConstValues["bufio"] = map[string]string{
+		"MaxScanTokenSize": "65536",
+	}
 }

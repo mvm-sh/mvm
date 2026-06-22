@@ -31,4 +31,10 @@ func init() {
 		"ValidRune":              reflect.ValueOf(utf8.ValidRune),
 		"ValidString":            reflect.ValueOf(utf8.ValidString),
 	}
+	stdlib.ConstValues["unicode/utf8"] = map[string]string{
+		"MaxRune":   "1114111",
+		"RuneError": "65533",
+		"RuneSelf":  "128",
+		"UTFMax":    "4",
+	}
 }

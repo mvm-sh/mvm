@@ -37,4 +37,7 @@ func init() {
 		"RoundingMode":  reflect.ValueOf((*big.RoundingMode)(nil)),
 		"Word":          reflect.ValueOf((*big.Word)(nil)),
 	}
+	stdlib.ConstValues["math/big"] = map[string]string{
+		"MaxBase": "62",
+	}
 }

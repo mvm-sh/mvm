@@ -24,4 +24,10 @@ func init() {
 		"IEEETable":    reflect.ValueOf(&crc32.IEEETable),
 		"Table":        reflect.ValueOf((*crc32.Table)(nil)),
 	}
+	stdlib.ConstValues["hash/crc32"] = map[string]string{
+		"Castagnoli": "2197175160",
+		"IEEE":       "3988292384",
+		"Koopman":    "3945912366",
+		"Size":       "4",
+	}
 }

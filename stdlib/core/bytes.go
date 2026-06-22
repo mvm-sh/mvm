@@ -76,4 +76,7 @@ func init() {
 		"Buffer":          reflect.ValueOf((*bytes.Buffer)(nil)),
 		"Reader":          reflect.ValueOf((*bytes.Reader)(nil)),
 	}
+	stdlib.ConstValues["bytes"] = map[string]string{
+		"MinRead": "512",
+	}
 }

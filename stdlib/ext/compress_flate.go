@@ -28,4 +28,11 @@ func init() {
 		"WriteError":         reflect.ValueOf((*flate.WriteError)(nil)),
 		"Writer":             reflect.ValueOf((*flate.Writer)(nil)),
 	}
+	stdlib.ConstValues["compress/flate"] = map[string]string{
+		"BestCompression":    "9",
+		"BestSpeed":          "1",
+		"DefaultCompression": "-1",
+		"HuffmanOnly":        "-2",
+		"NoCompression":      "0",
+	}
 }

@@ -43,4 +43,20 @@ func init() {
 		"Reader":             reflect.ValueOf((*tar.Reader)(nil)),
 		"Writer":             reflect.ValueOf((*tar.Writer)(nil)),
 	}
+	stdlib.ConstValues["archive/tar"] = map[string]string{
+		"TypeBlock":         "52",
+		"TypeChar":          "51",
+		"TypeCont":          "55",
+		"TypeDir":           "53",
+		"TypeFifo":          "54",
+		"TypeGNULongLink":   "75",
+		"TypeGNULongName":   "76",
+		"TypeGNUSparse":     "83",
+		"TypeLink":          "49",
+		"TypeReg":           "48",
+		"TypeRegA":          "0",
+		"TypeSymlink":       "50",
+		"TypeXGlobalHeader": "103",
+		"TypeXHeader":       "120",
+	}
 }

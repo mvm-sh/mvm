@@ -15,4 +15,7 @@ func init() {
 		"NewCipher":    reflect.ValueOf(aes.NewCipher),
 		"KeySizeError": reflect.ValueOf((*aes.KeySizeError)(nil)),
 	}
+	stdlib.ConstValues["crypto/aes"] = map[string]string{
+		"BlockSize": "16",
+	}
 }

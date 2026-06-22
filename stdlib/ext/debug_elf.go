@@ -1558,4 +1558,16 @@ func init() {
 		"Version":                                   reflect.ValueOf((*elf.Version)(nil)),
 		"VersionIndex":                              reflect.ValueOf((*elf.VersionIndex)(nil)),
 	}
+	stdlib.ConstValues["debug/elf"] = map[string]string{
+		"ARM_MAGIC_TRAMP_NUMBER": "1543503875",
+		"EI_ABIVERSION":          "8",
+		"EI_CLASS":               "4",
+		"EI_DATA":                "5",
+		"EI_NIDENT":              "16",
+		"EI_OSABI":               "7",
+		"EI_PAD":                 "9",
+		"EI_VERSION":             "6",
+		"Sym32Size":              "16",
+		"Sym64Size":              "24",
+	}
 }

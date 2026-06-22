@@ -19,4 +19,9 @@ func init() {
 		"Sum224":    reflect.ValueOf(sha256.Sum224),
 		"Sum256":    reflect.ValueOf(sha256.Sum256),
 	}
+	stdlib.ConstValues["crypto/sha256"] = map[string]string{
+		"BlockSize": "64",
+		"Size":      "32",
+		"Size224":   "28",
+	}
 }

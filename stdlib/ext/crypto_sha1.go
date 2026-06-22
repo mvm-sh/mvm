@@ -16,4 +16,8 @@ func init() {
 		"Size":      reflect.ValueOf(sha1.Size),
 		"Sum":       reflect.ValueOf(sha1.Sum),
 	}
+	stdlib.ConstValues["crypto/sha1"] = map[string]string{
+		"BlockSize": "64",
+		"Size":      "20",
+	}
 }

@@ -114,4 +114,8 @@ func init() {
 		"UnixListener":               reflect.ValueOf((*net.UnixListener)(nil)),
 		"UnknownNetworkError":        reflect.ValueOf((*net.UnknownNetworkError)(nil)),
 	}
+	stdlib.ConstValues["net"] = map[string]string{
+		"IPv4len": "4",
+		"IPv6len": "16",
+	}
 }

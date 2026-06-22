@@ -34,4 +34,9 @@ func init() {
 		"AppendByteOrder": reflect.ValueOf((*binary.AppendByteOrder)(nil)),
 		"ByteOrder":       reflect.ValueOf((*binary.ByteOrder)(nil)),
 	}
+	stdlib.ConstValues["encoding/binary"] = map[string]string{
+		"MaxVarintLen16": "3",
+		"MaxVarintLen32": "5",
+		"MaxVarintLen64": "10",
+	}
 }

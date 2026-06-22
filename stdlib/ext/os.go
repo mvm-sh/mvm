@@ -130,4 +130,8 @@ func init() {
 		"Signal":              reflect.ValueOf((*os.Signal)(nil)),
 		"SyscallError":        reflect.ValueOf((*os.SyscallError)(nil)),
 	}
+	stdlib.ConstValues["os"] = map[string]string{
+		"PathListSeparator": "58",
+		"PathSeparator":     "47",
+	}
 }

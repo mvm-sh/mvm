@@ -62,4 +62,7 @@ func init() {
 		"TrailingZeros8":  reflect.ValueOf(bits.TrailingZeros8),
 		"UintSize":        reflect.ValueOf(bits.UintSize),
 	}
+	stdlib.ConstValues["math/bits"] = map[string]string{
+		"UintSize": "64",
+	}
 }

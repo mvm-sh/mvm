@@ -303,4 +303,15 @@ func init() {
 		"RangeTable":                         reflect.ValueOf((*unicode.RangeTable)(nil)),
 		"SpecialCase":                        reflect.ValueOf((*unicode.SpecialCase)(nil)),
 	}
+	stdlib.ConstValues["unicode"] = map[string]string{
+		"LowerCase":       "1",
+		"MaxASCII":        "127",
+		"MaxCase":         "3",
+		"MaxLatin1":       "255",
+		"MaxRune":         "1114111",
+		"ReplacementChar": "65533",
+		"TitleCase":       "2",
+		"UpperCase":       "0",
+		"UpperLower":      "1114112",
+	}
 }

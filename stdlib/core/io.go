@@ -64,4 +64,9 @@ func init() {
 		"WriterAt":         reflect.ValueOf((*io.WriterAt)(nil)),
 		"WriterTo":         reflect.ValueOf((*io.WriterTo)(nil)),
 	}
+	stdlib.ConstValues["io"] = map[string]string{
+		"SeekCurrent": "1",
+		"SeekEnd":     "2",
+		"SeekStart":   "0",
+	}
 }

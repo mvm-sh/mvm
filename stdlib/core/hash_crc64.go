@@ -20,4 +20,9 @@ func init() {
 		"Update":    reflect.ValueOf(crc64.Update),
 		"Table":     reflect.ValueOf((*crc64.Table)(nil)),
 	}
+	stdlib.ConstValues["hash/crc64"] = map[string]string{
+		"ECMA": "14514072000185962306",
+		"ISO":  "15564440312192434176",
+		"Size": "8",
+	}
 }

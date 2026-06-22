@@ -48,4 +48,28 @@ func init() {
 		"StructuralError":      reflect.ValueOf((*asn1.StructuralError)(nil)),
 		"SyntaxError":          reflect.ValueOf((*asn1.SyntaxError)(nil)),
 	}
+	stdlib.ConstValues["encoding/asn1"] = map[string]string{
+		"ClassApplication":     "1",
+		"ClassContextSpecific": "2",
+		"ClassPrivate":         "3",
+		"ClassUniversal":       "0",
+		"TagBMPString":         "30",
+		"TagBitString":         "3",
+		"TagBoolean":           "1",
+		"TagEnum":              "10",
+		"TagGeneralString":     "27",
+		"TagGeneralizedTime":   "24",
+		"TagIA5String":         "22",
+		"TagInteger":           "2",
+		"TagNull":              "5",
+		"TagNumericString":     "18",
+		"TagOID":               "6",
+		"TagOctetString":       "4",
+		"TagPrintableString":   "19",
+		"TagSequence":          "16",
+		"TagSet":               "17",
+		"TagT61String":         "20",
+		"TagUTCTime":           "23",
+		"TagUTF8String":        "12",
+	}
 }

@@ -20,4 +20,7 @@ func init() {
 		"Reader":           reflect.ValueOf((*jpeg.Reader)(nil)),
 		"UnsupportedError": reflect.ValueOf((*jpeg.UnsupportedError)(nil)),
 	}
+	stdlib.ConstValues["image/jpeg"] = map[string]string{
+		"DefaultQuality": "75",
+	}
 }

@@ -16,4 +16,7 @@ func init() {
 		"NewTripleDESCipher": reflect.ValueOf(des.NewTripleDESCipher),
 		"KeySizeError":       reflect.ValueOf((*des.KeySizeError)(nil)),
 	}
+	stdlib.ConstValues["crypto/des"] = map[string]string{
+		"BlockSize": "8",
+	}
 }

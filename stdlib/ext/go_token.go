@@ -108,4 +108,9 @@ func init() {
 		"Position":       reflect.ValueOf((*token.Position)(nil)),
 		"Token":          reflect.ValueOf((*token.Token)(nil)),
 	}
+	stdlib.ConstValues["go/token"] = map[string]string{
+		"HighestPrec": "7",
+		"LowestPrec":  "0",
+		"UnaryPrec":   "6",
+	}
 }

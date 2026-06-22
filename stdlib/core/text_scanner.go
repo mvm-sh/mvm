@@ -33,4 +33,24 @@ func init() {
 		"Position":       reflect.ValueOf((*scanner.Position)(nil)),
 		"Scanner":        reflect.ValueOf((*scanner.Scanner)(nil)),
 	}
+	stdlib.ConstValues["text/scanner"] = map[string]string{
+		"Char":           "-5",
+		"Comment":        "-8",
+		"EOF":            "-1",
+		"Float":          "-4",
+		"GoTokens":       "1012",
+		"GoWhitespace":   "4294977024",
+		"Ident":          "-2",
+		"Int":            "-3",
+		"RawString":      "-7",
+		"ScanChars":      "32",
+		"ScanComments":   "256",
+		"ScanFloats":     "16",
+		"ScanIdents":     "4",
+		"ScanInts":       "8",
+		"ScanRawStrings": "128",
+		"ScanStrings":    "64",
+		"SkipComments":   "512",
+		"String":         "-6",
+	}
 }

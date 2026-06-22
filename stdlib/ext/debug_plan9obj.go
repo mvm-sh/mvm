@@ -24,4 +24,10 @@ func init() {
 		"SectionHeader": reflect.ValueOf((*plan9obj.SectionHeader)(nil)),
 		"Sym":           reflect.ValueOf((*plan9obj.Sym)(nil)),
 	}
+	stdlib.ConstValues["debug/plan9obj"] = map[string]string{
+		"Magic386":   "491",
+		"Magic64":    "32768",
+		"MagicAMD64": "35479",
+		"MagicARM":   "1607",
+	}
 }

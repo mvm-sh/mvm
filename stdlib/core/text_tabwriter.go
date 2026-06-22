@@ -21,4 +21,7 @@ func init() {
 		"TabIndent":           reflect.ValueOf(tabwriter.TabIndent),
 		"Writer":              reflect.ValueOf((*tabwriter.Writer)(nil)),
 	}
+	stdlib.ConstValues["text/tabwriter"] = map[string]string{
+		"Escape": "255",
+	}
 }

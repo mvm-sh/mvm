@@ -163,10 +163,9 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[strin
 		symbol.Func:  {},
 	}
 	typedConsts := map[string]string{}
-	// constExacts records the exact arbitrary-precision form of floating-point
-	// constants, whose reflect.ValueOf bridge rounds to float64 and loses the
-	// extra digits Go keeps (e.g. math.Pi). Integer constants are exact through
-	// reflect already and need no entry. See stdlib.ConstValues.
+
+	// constExacts records the exact arbitrary-precision form of a constant so the
+	// compiler can rebuild it as an untyped Cval.
 	constExacts := map[string]string{}
 
 	for name, sym := range p.Symbols {
@@ -186,8 +185,13 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[strin
 			if w := constWrapFor(sym); w != "" {
 				typedConsts[name] = w
 			}
-			if sym.Cval != nil && sym.Cval.Kind() == constant.Float {
-				constExacts[name] = sym.Cval.ExactString()
+			if sym.Cval != nil {
+				switch k := sym.Cval.Kind(); {
+				case k == constant.Float:
+					constExacts[name] = sym.Cval.ExactString()
+				case k == constant.Int && sym.Type == nil:
+					constExacts[name] = sym.Cval.ExactString()
+				}
 			}
 		}
 	}

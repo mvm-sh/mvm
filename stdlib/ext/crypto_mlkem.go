@@ -28,4 +28,12 @@ func init() {
 		"EncapsulationKey1024":     reflect.ValueOf((*mlkem.EncapsulationKey1024)(nil)),
 		"EncapsulationKey768":      reflect.ValueOf((*mlkem.EncapsulationKey768)(nil)),
 	}
+	stdlib.ConstValues["crypto/mlkem"] = map[string]string{
+		"CiphertextSize1024":       "1568",
+		"CiphertextSize768":        "1088",
+		"EncapsulationKeySize1024": "1568",
+		"EncapsulationKeySize768":  "1184",
+		"SeedSize":                 "64",
+		"SharedKeySize":            "32",
+	}
 }

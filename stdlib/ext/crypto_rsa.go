@@ -35,4 +35,8 @@ func init() {
 		"PrivateKey":                reflect.ValueOf((*rsa.PrivateKey)(nil)),
 		"PublicKey":                 reflect.ValueOf((*rsa.PublicKey)(nil)),
 	}
+	stdlib.ConstValues["crypto/rsa"] = map[string]string{
+		"PSSSaltLengthAuto":       "0",
+		"PSSSaltLengthEqualsHash": "-1",
+	}
 }

@@ -22,4 +22,9 @@ func init() {
 		"GIF":                reflect.ValueOf((*gif.GIF)(nil)),
 		"Options":            reflect.ValueOf((*gif.Options)(nil)),
 	}
+	stdlib.ConstValues["image/gif"] = map[string]string{
+		"DisposalBackground": "2",
+		"DisposalNone":       "1",
+		"DisposalPrevious":   "3",
+	}
 }

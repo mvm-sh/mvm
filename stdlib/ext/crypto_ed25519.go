@@ -24,4 +24,10 @@ func init() {
 		"PrivateKey":        reflect.ValueOf((*ed25519.PrivateKey)(nil)),
 		"PublicKey":         reflect.ValueOf((*ed25519.PublicKey)(nil)),
 	}
+	stdlib.ConstValues["crypto/ed25519"] = map[string]string{
+		"PrivateKeySize": "64",
+		"PublicKeySize":  "32",
+		"SeedSize":       "32",
+		"SignatureSize":  "64",
+	}
 }

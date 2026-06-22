@@ -127,4 +127,11 @@ func init() {
 		"SessionState":                                  reflect.ValueOf((*tls.SessionState)(nil)),
 		"SignatureScheme":                               reflect.ValueOf((*tls.SignatureScheme)(nil)),
 	}
+	stdlib.ConstValues["crypto/tls"] = map[string]string{
+		"VersionSSL30": "768",
+		"VersionTLS10": "769",
+		"VersionTLS11": "770",
+		"VersionTLS12": "771",
+		"VersionTLS13": "772",
+	}
 }

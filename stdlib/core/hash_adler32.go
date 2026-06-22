@@ -15,4 +15,7 @@ func init() {
 		"New":      reflect.ValueOf(adler32.New),
 		"Size":     reflect.ValueOf(adler32.Size),
 	}
+	stdlib.ConstValues["hash/adler32"] = map[string]string{
+		"Size": "4",
+	}
 }
