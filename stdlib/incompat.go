@@ -141,6 +141,10 @@ var Incompat = map[string]map[string]string{
 		"TestCholeskySymRankOne": "too long under the interpreter",
 	},
 
+	"gonum.org/v1/plot": {
+		"TestDrawGlyphBoxes": "FMA fusion: the interpreter doesn't fuse a*b+c (native arm64 does), so the text rasterizer's antialiasing differs by <=5/255 at 465 title-edge pixels; mvm's render is byte-identical to the amd64 (non-FMA) golden, which itself differs from glyphbox_arm64 by exactly those pixels",
+	},
+
 	"gonum.org/v1/gonum/stat/distuv": {
 		"TestGumbelRight":         "too long under the interpreter",
 		"TestGamma":               "too long under the interpreter",
