@@ -354,6 +354,11 @@ const (
 	MulComplex // c1 c2 -- prod
 	DivComplex // c1 c2 -- quot
 	NegComplex // c -- -c
+
+	// Float <= and >=. Distinct from !(>) and !(<): NaN makes every ordered
+	// comparison false, so the negated forms are wrong for floats.
+	GreaterEqualFloat // n1 n2 -- n1 >= n2
+	LowerEqualFloat   // n1 n2 -- n1 <= n2
 )
 
 // Memory attributes.
@@ -3420,6 +3425,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp--
 		case LowerFloat32, LowerFloat64:
 			mem[sp-1] = boolVal(math.Float64frombits(mem[sp-1].num) < math.Float64frombits(mem[sp].num))
+			sp--
+		case GreaterEqualFloat:
+			mem[sp-1] = boolVal(math.Float64frombits(mem[sp-1].num) >= math.Float64frombits(mem[sp].num))
+			sp--
+		case LowerEqualFloat:
+			mem[sp-1] = boolVal(math.Float64frombits(mem[sp-1].num) <= math.Float64frombits(mem[sp].num))
 			sp--
 
 		// Immediate operand ops: right-hand constant is in Arg[0].

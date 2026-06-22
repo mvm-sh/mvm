@@ -1503,13 +1503,22 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					vm.LowerIntImm, vm.LowerUintImm,
 					vm.GetLocalLowerIntImm, vm.GetLocalLowerUintImm, vm.LowerStr, false)
 			case lang.GreaterEqual:
-				c.emitComparisonOp(t, s2, typ, vm.LowerInt,
-					vm.LowerIntImm, vm.LowerUintImm,
-					vm.GetLocalLowerIntImm, vm.GetLocalLowerUintImm, vm.LowerStr, true)
+				if isFloatKind(typ) {
+					c.emit(t, vm.GreaterEqualFloat)
+				} else {
+					// Integers/strings have no NaN: >= is !(<).
+					c.emitComparisonOp(t, s2, typ, vm.LowerInt,
+						vm.LowerIntImm, vm.LowerUintImm,
+						vm.GetLocalLowerIntImm, vm.GetLocalLowerUintImm, vm.LowerStr, true)
+				}
 			case lang.LessEqual:
-				c.emitComparisonOp(t, s2, typ, vm.GreaterInt,
-					vm.GreaterIntImm, vm.GreaterUintImm,
-					vm.GetLocalGreaterIntImm, vm.GetLocalGreaterUintImm, vm.GreaterStr, true)
+				if isFloatKind(typ) {
+					c.emit(t, vm.LowerEqualFloat)
+				} else {
+					c.emitComparisonOp(t, s2, typ, vm.GreaterInt,
+						vm.GreaterIntImm, vm.GreaterUintImm,
+						vm.GetLocalGreaterIntImm, vm.GetLocalGreaterUintImm, vm.GreaterStr, true)
+				}
 			}
 
 		case lang.NotEqual:
@@ -3969,6 +3978,14 @@ func isUint64Kind(typ *vm.Type) bool {
 	}
 	k := typ.Kind()
 	return k == reflect.Uint || k == reflect.Uint64
+}
+
+func isFloatKind(typ *vm.Type) bool {
+	if typ == nil {
+		return false
+	}
+	k := typ.Kind()
+	return k == reflect.Float32 || k == reflect.Float64
 }
 
 // isNumericConvType reports whether typ is a numeric type (including complex and
