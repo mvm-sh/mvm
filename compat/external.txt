@@ -73,7 +73,6 @@ github.com/hashicorp/go-version
 #: hashing Hashing
 github.com/cespare/xxhash/v2
 github.com/spaolacci/murmur3
-github.com/twmb/murmur3
 
 #: logging Logging and color
 github.com/sirupsen/logrus

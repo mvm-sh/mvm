@@ -361,6 +361,15 @@ func (t *Type) ResolveMethodType(id int) *Type {
 	return nil
 }
 
+func hasUnexportedIfaceMethod(ms []IfaceMethod) bool {
+	for _, m := range ms {
+		if len(m.Name) > 0 && !unicode.IsUpper(rune(m.Name[0])) {
+			return true
+		}
+	}
+	return false
+}
+
 // NativeImplements reports whether rt has all the methods required by interface type t.
 func (t *Type) NativeImplements(rt reflect.Type) bool {
 	if !t.IsInterface() {
@@ -372,6 +381,12 @@ func (t *Type) NativeImplements(rt reflect.Type) bool {
 // MissingMethod returns the name of the first missing method that rt does not have.
 func (t *Type) MissingMethod(rt reflect.Type) string {
 	t.EnsureIfaceMethods()
+	// An interface with unexported methods can only be satisfied by native types from the method's own package,
+	// and reflect cannot enumerate those methods, so the loops below always report them missing.
+	if t.Rtype != nil && t.Rtype != AnyRtype && t.Rtype.Kind() == reflect.Interface &&
+		hasUnexportedIfaceMethod(t.IfaceMethods) && rt.Implements(t.Rtype) {
+		return ""
+	}
 	hasRecv := rt.Kind() != reflect.Interface
 	for _, im := range t.IfaceMethods {
 		m, ok := rt.MethodByName(im.Name)
