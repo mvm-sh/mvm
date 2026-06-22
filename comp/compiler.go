@@ -1379,6 +1379,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			}
 			srcType := pop().Type
+			if srcType == nil {
+				return c.errAt(t, "cannot take address of value with unknown type")
+			}
 			push(&symbol.Symbol{Kind: symbol.Value, Type: vm.PointerTo(srcType)})
 			// AddrLocal aliases the frame slot directly, which is only safe
 			// when the slot's reflect type matches the language type. Interface-

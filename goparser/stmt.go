@@ -116,10 +116,14 @@ func (p *Parser) sortByDeps(decls []DeferredDecl) []DeferredDecl {
 	if len(decls) <= 1 {
 		return decls
 	}
+	savedPkg := p.importingPkg
+	defer func() { p.importingPkg = savedPkg }()
+
 	// Key nameSet by the canonical Symbol key so it matches sym.Name from walkRefs.
 	nameSet := map[string]int{}
 	for i, decl := range decls {
 		if len(decl.Toks) >= 2 && decl.Toks[1].Tok == lang.Ident {
+			p.importingPkg = decl.PkgPath
 			nameSet[p.pkgKey(decl.Toks[1].Str)] = i
 		}
 	}
@@ -136,6 +140,7 @@ func (p *Parser) sortByDeps(decls []DeferredDecl) []DeferredDecl {
 		if j := rhs.Index(lang.Assign); j >= 0 {
 			rhs = rhs[j+1:]
 		}
+		p.importingPkg = decl.PkgPath
 		p.collectIdents(rhs, nameSet, seen)
 		for dep := range seen {
 			rdeps[dep] = append(rdeps[dep], i)

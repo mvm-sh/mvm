@@ -19,11 +19,6 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// Two packages each declare a same-named func containing a closure: the
-// closures share the anon name "#panics.func1", and a bare symbol-table key
-// made the second parse reuse the first package's closure Symbol, leaking its
-// FreeVars (gonum/mat's panics vs blas/testblas's panics: "undefined:
-// panics/b"). Closure symbols are now keyed per-package (anonFuncKey).
 func TestClosurePkgKeyCollision(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/check",
@@ -85,14 +80,6 @@ func main() {
 	}
 }
 
-// TestCrossUnitFuncValueAddress guards code/address alignment across successive
-// top-level Evals. Each Eval leaves its init/main call shims in the VM code;
-// those shims are not in the compiler's Code, so a later Eval's code must be
-// trimmed back into alignment before being pushed. Otherwise a function defined
-// in the later unit and called by VALUE (its stored compiler-code offset) lands
-// at the wrong VM address -- exactly how `mvm test` ran external-package
-// examples (referenced as testing.InternalExample.F) after the internal unit's
-// init shims shifted m.code. See interp.evalCompiled / vm.Machine.TrimCode.
 func TestCrossUnitFuncValueAddress(t *testing.T) {
 	i := newAutoImportInterp(t)
 	// Unit 1: an init func leaves init-call shims in m.code after the run.
@@ -110,14 +97,6 @@ func TestCrossUnitFuncValueAddress(t *testing.T) {
 	}
 }
 
-// An external `package X_test` may declare a top-level func whose name also
-// exists, unexported, in X. `mvm test` compiles X first; aliasTargetTopLevel
-// bare-aliases X's top-level symbols (incl. the unexported one) for the test
-// driver. The external test then compiles as a second unit at bare keys, so
-// its own decl must shadow that foreign alias rather than be dropped -- else
-// the alias's signature wins and the body references undefined params
-// (grpc/mem: newBuffer(data, pool) vs unexported newBuffer() -> "undefined:
-// data", then a freed-buffer panic when the call resolved to X's newBuffer).
 func TestExternalUnitFuncShadowsTargetAlias(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/buf",
@@ -154,8 +133,54 @@ func Pub() int { return newBuffer() }
 	}
 }
 
-// Exact prefix ("Test", as grpc/codes declares) and digit/"_" continuations
-// match; lower-case continuations ("Testify") do not. Mirrors cmd/go's isTest.
+func TestImportedForwardRefVarOrder(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/fwd",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/fwd\n",
+			"fwd.go": `package fwd
+
+type T struct{ name string }
+
+var Ptr *T = &c
+
+var c = T{name: "ibm"}
+
+func (t *T) Name() string { return t.name }
+`,
+		},
+	})
+
+	// The importer declares a top-level ` + "`name`" + ` that collides with the
+	// composite field key in fwd.c, reproducing the spurious-edge flip.
+	src := `package main
+
+import (
+	"fmt"
+	"example.com/x/fwd"
+)
+
+var name = "importer"
+
+func main() {
+	fmt.Println(fwd.Ptr.Name(), name)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "ibm importer\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 func TestFuncNamesMatchesGoIsTest(t *testing.T) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	src := `func Test() {}
@@ -188,18 +213,6 @@ func helper() {}`
 	}
 }
 
-// Regression for `mvm test github.com/samber/lo` -> ExampleNewDebounceBy panic
-// `index out of range [-1]`.
-//
-// A func TYPE's parameter names are documentation only, but parseTypeExpr's func
-// case registered them as locals in the enclosing scope (it shares that code with
-// real func-literal signatures). When a func-type param name collided with an
-// outer param -- here `[]func(key string, count int){}` inside a method
-// `reset(key string)` -- the leaked `key` rebound the method's `key` to a wrong
-// frame slot (the receiver shifts param indices, so the slots no longer coincide).
-// A later use of `key` then loaded garbage (a func value), corrupting the call.
-// Fixed by registering func-signature params only for a genuine declaration/
-// literal (parseFunc sets regFuncSig); a func TYPE leaves it unset.
 func TestFuncTypeParamNameNoLeak(t *testing.T) {
 	src := `package main
 
@@ -248,12 +261,6 @@ func main() {
 	}
 }
 
-// Regression for go-cmp TestDiff/Project2: a promoted method resolved through
-// an embedded field probed the BARE "<recvName>.<method>" symbol key, so a
-// same-named unit-local type hijacked an imported receiver (cmp_test.Stringer's
-// String, body `string(s)`, ran with a testprotos.Stringer struct receiver ->
-// reflect.Value.Convert panic). promotedMethod/MethodByName now verify the bare
-// key's Type symbol is the receiver's own type before trusting the bare probe.
 func TestPromotedMethodSameNameOtherPkg(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/protos",
@@ -383,9 +390,6 @@ func TestRedeclareVsAutoImport(t *testing.T) {
 	}
 }
 
-// A failed Eval must not corrupt a later Eval that reuses a generic the failed
-// one had begun to instantiate (the failed unit left half-registered instance
-// state on the shared, reused Compiler). Regression for the cross-eval leak.
 func TestEvalRollback_GenericReuseAfterError(t *testing.T) {
 	i := newAutoImportInterp(t)
 	if _, err := i.Eval("e1", `var p atomic.Pointer[int]; var bad = undefXYZ; _ = p`); err == nil {
@@ -396,7 +400,6 @@ func TestEvalRollback_GenericReuseAfterError(t *testing.T) {
 	}
 }
 
-// A failed Eval must leave a clean slate: a later unrelated Eval still works.
 func TestEvalRollback_PlainEvalAfterError(t *testing.T) {
 	i := newAutoImportInterp(t)
 	_, _ = i.Eval("e1", `var p atomic.Pointer[int]; var bad = undefXYZ; _ = p`)
@@ -409,8 +412,6 @@ func TestEvalRollback_PlainEvalAfterError(t *testing.T) {
 	}
 }
 
-// Rollback must not discard state from PRIOR successful Evals (REPL semantics:
-// good lines accumulate, only the failed line is undone).
 func TestEvalRollback_KeepsPriorGoodState(t *testing.T) {
 	i := newAutoImportInterp(t)
 	if _, err := i.Eval("e1", `func add(a, b int) int { return a + b }`); err != nil {
@@ -428,9 +429,6 @@ func TestEvalRollback_KeepsPriorGoodState(t *testing.T) {
 	}
 }
 
-// newExtUnitInterp loads module files via a fake proxy and evaluates the
-// target package (tests included), returning the interp ready for the
-// external `package X_test` unit. Mirrors `mvm test <import-path>`.
 func newExtUnitInterp(t *testing.T, files map[string]string) (*interp.Interp, *bytes.Buffer) {
 	t.Helper()
 	url, _ := startFakeProxy(t, remoteModule{
@@ -480,13 +478,6 @@ func SetLevel(level Level) { std = level }
 func GetLevel() Level { return std }
 `
 
-// Regression for sirupsen/logrus TestLevelMarshalText. Once unit 1 (the
-// package + its internal tests) triggers AttachSynthMethods, the materialized
-// rtype carries UnmarshalText as a reflect-visible method. MethodByName's
-// native-method probe must not mistake that synth-attached method for a
-// stdlib bridge: the native dispatch path mutates a boxed copy of the
-// receiver, so `cmp.UnmarshalText(b)` in the external unit silently lost the
-// ptr-recv write-back.
 func TestExtUnitSynthAttachedMethodStaysInterpreted(t *testing.T) {
 	i, stderr := newExtUnitInterp(t, map[string]string{
 		"go.mod": "module example.com/x/lvl\n",
@@ -524,11 +515,6 @@ func TestExternal(t *testing.T) {}
 	}
 }
 
-// Regression for logrus internal/testutils: dot-importing an interpreted
-// package that was published with PublishCompiledPackage. A published func's
-// value is its code address (an int), so the dot-import must bind the
-// pkg-qualified symbol (real kind/type), not synthesize a Value symbol of
-// type int ("reflect: IsVariadic of non-func type int" at the call).
 func TestExtUnitDotImportInterpretedFunc(t *testing.T) {
 	i, stderr := newExtUnitInterp(t, map[string]string{
 		"go.mod": "module example.com/x/lvl\n",
@@ -563,11 +549,6 @@ func TestExternal(t *testing.T) {}
 	}
 }
 
-// Regression for the logrus SetLevel crash ("value of type *mtype.Type cannot
-// be converted to uint32"). A failed external-unit compile allocated a Data
-// slot for the imported const and recorded it on the SHARED symbol; the
-// rollback truncated Data but could not undo the in-place Index mutation, so
-// the retry's GetGlobal read whatever the retry compiled into that slot.
 func TestExtUnitConstSlotRollback(t *testing.T) {
 	i, stderr := newExtUnitInterp(t, map[string]string{
 		"go.mod": "module example.com/x/lvl\n",
@@ -640,12 +621,6 @@ func TestGood(t *testing.T) {}
 	}
 }
 
-// Regression for logrus's ReportCaller tests: external test sources must be
-// registered under Go's external-test pseudo package path
-// ("<importPath>_test/<file>") so virtualized runtime.Caller frames qualify
-// as "<importPath>_test.Func"; and the virtualized Callers stack must end
-// with a goexit sentinel so the `for f, more := frames.Next(); more;` idiom
-// still examines the outermost interpreted frame.
 func TestExtUnitCallerQualification(t *testing.T) {
 	i, stderr := newExtUnitInterp(t, map[string]string{
 		"go.mod": "module example.com/x/lvl\n",
@@ -701,12 +676,6 @@ func TestExternal(t *testing.T) {}
 	}
 }
 
-// Regression for recompiling a unit on the reused Compiler (the `mvm test`
-// drop-retry loop). Two recompile bugs: a stale func "_end" Label symbol skipped
-// the funcexit stack restore (leaking body locals so the `r.Run(...)` call
-// resolved to a body local: "call of non-func"), and the per-scope label counter
-// drifted (for0 -> for1) so a captured loop var resolved "undefined".
-// Compiles thrice without running (a re-emitted func label would hang the VM).
 func TestRecompileForLoopClosureFuncexit(t *testing.T) {
 	src := `package main
 
@@ -755,11 +724,6 @@ func main() {}
 	}
 }
 
-// Regression for recompiling a unit on the reused Compiler (the `mvm test`
-// drop-retry loop): a func-body skip jump (at Start-1) resolved against a stale
-// _end Label from a prior committed compile, landing inside the re-emitted body.
-// Top-level fall-through then ran the body inline on top of the init-shim call,
-// so a package var-init (proto bench_test.go's flag.Bool) ran twice.
 func TestRecompileFuncSkipJumpSkipsBody(t *testing.T) {
 	src := `package main
 
@@ -799,10 +763,6 @@ func main() { _ = registered }
 	}
 }
 
-// Regression for recompiling a closure with its own parameters (proto's
-// `func unknown() func(m proto.Message)` helpers). The recompile took the
-// registerParamsFromSym path over the closure's empty InNames, registering no
-// params, so the body's `m` resolved "undefined: m".
 func TestRecompileClosureParam(t *testing.T) {
 	src := `package main
 
@@ -828,13 +788,6 @@ func main() { _ = unknown() }
 	}
 }
 
-// Regression for oklog/ulid TestMonotonicSafe. In an external `package X_test`
-// unit, a `var name = expr` whose name also denotes an (unexported) type in the
-// package under test -- ulid's `type rng` vs the test's `var rng = rand.New(..)`
-// -- must declare a variable with its type inferred from expr, not be read as an
-// unnamed var of that type. Before the fix, `rng` got the interface type (nil
-// value), so `ulid.Monotonic(rng, 0)` received a nil reader and the 100-goroutine
-// loop nil-deref'd inside bufio.
 func TestExternalTestVarNameMatchesPkgType(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/rmod",
@@ -895,16 +848,6 @@ func TestRng(t *testing.T) {
 	}
 }
 
-// mvm test's drop-retry loop recompiles a test unit several times on one interp,
-// minting a fresh *Type for each declared method-bearing type each pass. Those
-// passes must converge on ONE rtype within a Machine: a value captured in one
-// pass (e.g. reflect.TypeOf((*T)(nil)) stored in a native MessageInfo
-// .GoReflectType) otherwise no longer == a value built in a later pass, which
-// crashed proto's noenforceutf8 MessageOf "type mismatch: got *T, want *T".
-//
-// This mirrors the second pass: a fresh *Type for the same Go type (same name,
-// layout, method set) is materialized under the same Machine and must adopt the
-// first pass's reserved rtype rather than reserving a distinct one.
 func TestMethodBearingRtypeSharedWithinMachine(t *testing.T) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	i.ImportPackageValues(stdlib.Values)
@@ -941,9 +884,6 @@ func TestMethodBearingRtypeSharedWithinMachine(t *testing.T) {
 	}
 }
 
-// Regression for grpc/internal/transport: a func-local variable's scoped symbol
-// key ("New/if0/r") carries no package qualifier, so it leaked across compile
-// units.
 func TestExtUnitScopedLocalNoCrossUnitLeak(t *testing.T) {
 	files := map[string]string{
 		"go.mod": "module example.com/x/lvl\n",
