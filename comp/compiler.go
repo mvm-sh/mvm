@@ -2831,6 +2831,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// retracted if the expression folds.
 				if cv, isConst := p.Cvals[t.Str[1:]]; isConst && cv != nil {
 					push(&symbol.Symbol{Kind: symbol.Const, Value: sym.Value, Cval: cv, Type: sym.Type})
+				} else if sym.Kind == symbol.Const {
+					// Copy so a per-use fold can't retype the shared package const
+					// (a re-exported untyped int folded to float64 in its owning pkg
+					// must not corrupt a later field assign). Mirrors lang.Ident above.
+					cs := *sym
+					push(&cs)
 				} else {
 					push(sym)
 				}

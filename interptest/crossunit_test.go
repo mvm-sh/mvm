@@ -181,6 +181,83 @@ func main() {
 	}
 }
 
+// TestImportedUntypedConstFloatField pins the gonum/plot axis-title bug.
+// A re-exported untyped int const folded to float64 in its owning package must
+// not retype the SHARED symbol, else a later assign of it to a float64 field
+// stores int bits (5e-324) not 1.0. text defines it, draw re-exports it (nulling
+// Cval), box folds it in a float switch; pre-fix this corrupted draw.Right.
+func TestImportedUntypedConstFloatField(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/g",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/g\n",
+			"text/text.go": `package text
+
+const (
+	Center = 0
+	Right  = +1
+)
+`,
+			"draw/draw.go": `package draw
+
+import "example.com/x/g/text"
+
+const (
+	Center = text.Center
+	Right  = text.Right
+)
+`,
+			"box/box.go": `package box
+
+import "example.com/x/g/draw"
+
+type Box struct{ Pos float64 }
+
+func classify(p float64) int {
+	switch p {
+	case draw.Center:
+		return 0
+	case draw.Right:
+		return 1
+	}
+	return -1
+}
+
+func Classify(b Box) int { return classify(b.Pos) }
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	"example.com/x/g/box"
+	"example.com/x/g/draw"
+)
+
+func main() {
+	var b box.Box
+	b.Pos = draw.Right // the field assign that mis-stored pre-fix
+	fmt.Printf("%v %d", b.Pos, box.Classify(b))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	// 1 = converted value (not 5e-324); Classify hits the Right case.
+	if got, want := stdout.String(), "1 1"; got != want {
+		t.Errorf("stdout: got %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 func TestFuncNamesMatchesGoIsTest(t *testing.T) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	src := `func Test() {}
