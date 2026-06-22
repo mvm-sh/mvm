@@ -40,12 +40,12 @@ func TestClassifyType(t *testing.T) {
 			n int
 		}{}), "pii", true},
 		{reflect.TypeOf(time.Time{}), "iip", true}, // {wall uint64; ext int64; loc *Location}
-		// a sub-word leaf breaks word-striding -> dropped.
-		{reflect.TypeOf(struct{ a, b uint32 }{}), "", false},
+		// sub-word-packed and padded leaves each take one register word.
+		{reflect.TypeOf(struct{ a, b uint32 }{}), "ii", true}, // fixed.Point26_6-like
 		{reflect.TypeOf(struct {
 			a bool
 			b *int
-		}{}), "", false},
+		}{}), "ip", true}, // bool@0, ptr@8 (padding between)
 	}
 	for _, tc := range cases {
 		c, ok := classifyType(tc.rt)
@@ -68,8 +68,8 @@ func TestDetectWordShape(t *testing.T) {
 		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true}, // word-sized-leaf struct result
 		// no generated pool for this word-shape -> drop (not error).
 		{reflect.TypeOf((func() (int, int))(nil)), "", false},
-		// a struct with a sub-word leaf is unclassifiable -> drop.
-		{reflect.TypeOf((func() struct{ a, b uint32 })(nil)), "", false},
+		// a sub-word-packed struct param flattens to its leaves' words (ii) -> "ii_i".
+		{reflect.TypeOf((func(struct{ X, Y int32 }) int32)(nil)), "ii_i", true},
 		// over the register-word budget -> drop.
 		{reflect.TypeOf((func(*int, *int, *int, *int, *int, *int, *int))(nil)), "", false},
 		{nil, "", false},
@@ -85,8 +85,8 @@ func TestDetectWordShape(t *testing.T) {
 // TestWordMarshalRoundTrip verifies readWords and writeWords are inverse for
 // every classifiable type: a value's register words, read out and written back
 // into a fresh allocation, reproduce the value. This pins the word<->memory
-// mapping (the core marshaling) independent of the call ABI; run under
-// GOARCH=amd64 too for cross-arch coverage.
+// mapping (the core marshaling) independent of the call ABI, including sub-word
+// packing and inter-field padding; run under GOARCH=amd64 too for cross-arch.
 func TestWordMarshalRoundTrip(t *testing.T) {
 	n := 7
 	values := []any{
@@ -106,23 +106,33 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 			B float64
 			C *int
 		}{42, 6.022e23, &n},
+		struct{ X, Y int32 }{7, -9}, // sub-word packed (two int32 in one word) -> "ii"
+		struct {                     // sub-word + padding before the pointer -> "iip"
+			A int16
+			B int64
+			C *int
+		}{-5, 1 << 40, &n},
+		struct { // bool@0, ptr@8 (padding between) -> "ip"
+			Flag bool
+			P    *int
+		}{true, &n},
 	}
 	for _, v := range values {
 		rt := reflect.TypeOf(v)
-		classes, ok := classifyType(rt)
+		lay, ok := wordLayoutOf(rt)
 		if !ok {
-			t.Fatalf("classifyType(%v) not ok", rt)
+			t.Fatalf("wordLayoutOf(%v) not ok", rt)
 		}
-		pw := make([]unsafe.Pointer, strings.Count(classes, "p"))
-		sw := make([]uint64, strings.Count(classes, "i"))
-		fw := make([]float64, strings.Count(classes, "f"))
+		pw := make([]unsafe.Pointer, strings.Count(lay.classes, "p"))
+		sw := make([]uint64, strings.Count(lay.classes, "i"))
+		fw := make([]float64, strings.Count(lay.classes, "f"))
 
 		src := reflect.New(rt)
 		src.Elem().Set(reflect.ValueOf(v))
-		readWords(rt, classes, src.UnsafePointer(), pw, sw, fw, 0, 0, 0)
+		readWords(lay, src.UnsafePointer(), pw, sw, fw, 0, 0, 0)
 
 		dst := reflect.New(rt)
-		writeWords(rt, classes, dst.UnsafePointer(), pw, sw, fw, 0, 0, 0)
+		writeWords(lay, dst.UnsafePointer(), pw, sw, fw, 0, 0, 0)
 
 		if !reflect.DeepEqual(dst.Elem().Interface(), v) {
 			t.Errorf("round-trip %v: got %v want %v", rt, dst.Elem().Interface(), v)

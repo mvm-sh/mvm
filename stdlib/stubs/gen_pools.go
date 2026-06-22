@@ -154,6 +154,13 @@ var wordShapes = []wordShape{
 	{Params: "pp", Results: ""},       // SetColor(color.Color)
 	{Params: "pii", Results: ""},      // Stroke(Path), Fill(Path)
 	{Params: "pp", Results: "ipp"},    // io.WriterTo.WriteTo(io.Writer) (int64, error)
+	// freetype raster.Adder: fixed.Point26_6 is struct{X,Y int32}, a sub-word-packed
+	// "ii" leaf pair. *raster.Rasterizer must satisfy raster.Adder across the native
+	// boundary (text rendering in gonum/plot).
+	{Params: "ii", Results: ""},     // Start(Point26_6), Add1(Point26_6)
+	{Params: "iiii", Results: ""},   // Add2(Point26_6, Point26_6)
+	{Params: "iiiiii", Results: ""}, // Add3(Point26_6, Point26_6, Point26_6)
+	{Params: "", Results: "iiii"},   // color.Color.RGBA() (r,g,b,a uint32)
 	// Large mixed shape: FillString(font.Face, vg.Point, string). font.Face is an
 	// 8-word struct, so this needs 9 integer + 3 float arg words; it only attaches
 	// where they fit the arch's argument registers (arm64), and is dropped on amd64
@@ -162,7 +169,8 @@ var wordShapes = []wordShape{
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
-// strings over {p,i} (p = pointer word, i = integer word), in signature order.
+// strings over {p,i,f} (p = pointer word, i = integer word, f = FP-register
+// word), in signature order.
 type wordShape struct {
 	Params  string
 	Results string

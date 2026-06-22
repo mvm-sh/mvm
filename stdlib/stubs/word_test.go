@@ -65,6 +65,40 @@ func TestWordShapeFloatRoundTrip(t *testing.T) {
 	}
 }
 
+// point is a sub-word-packed struct (two int32 in one 8-byte word), like
+// golang/freetype's fixed.Point26_6. The register ABI assigns each leaf field
+// its own integer register, so this passes as TWO int words -- the same ABI as
+// "ii" -- even though it occupies one memory word. This test pins that fact: the
+// core sees the two fields as sw[0]/sw[1] in field order.
+type point struct{ X, Y int32 }
+
+type adder interface{ Add(point) int32 }
+
+// TestWordShapeSubWordStructParam validates that a struct{X,Y int32} param
+// decomposes to two integer registers in field order, reusing the existing
+// "ii_i" stub. If Go packed the two int32 into a single register (or spilled to
+// the stack), sw[0]/sw[1] would not hold X/Y and this would fail.
+func TestWordShapeSubWordStructParam(t *testing.T) {
+	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, sw []uint64, _ []float64, _ []unsafe.Pointer, rsw []uint64, _ []float64) {
+		rsw[0] = uint64(int32(sw[0]) + int32(sw[1])*1000)
+	}
+	rt, err := mkSynth(reflect.TypeOf(int(0)), "AddT", "test", []Method{{
+		Name: "Add", Exported: true,
+		Sig:     reflect.TypeOf((func(point) int32)(nil)),
+		WordKey: "ii_i", Core: core,
+	}})
+	if err != nil {
+		t.Fatalf("mkSynth: %v", err)
+	}
+	a, ok := reflect.New(rt).Elem().Interface().(adder)
+	if !ok {
+		t.Fatal("synth type does not satisfy adder")
+	}
+	if got, want := a.Add(point{X: 7, Y: 9}), int32(9007); got != want {
+		t.Errorf("Add({7,9}) = %d, want %d (X + Y*1000)", got, want)
+	}
+}
+
 type opener interface {
 	Open(string) (any, error)
 }

@@ -16,15 +16,18 @@ import (
 // classification of the params and results, not their exact Go types, so many
 // distinct signatures share one stub family. classifyType maps a type to its
 // ABI words: p = a pointer-containing register word, i = an integer register
-// word. The generated pools (stdlib/stubs/pool_w*.go) carry one stub family +
-// one generic dispatcher per word-shape; makeWordCore supplies the per-method
-// marshaling the dispatcher calls back into.
+// word, f = an FP-register word. The generated pools (stdlib/stubs/pool_w*.go)
+// carry one stub family + one generic dispatcher per word-shape; makeWordCore
+// supplies the per-method marshaling the dispatcher calls back into.
 //
 // A float64 leaf is an 'f' word, carried in an FP register (the stub/dispatcher
 // types it float64 so Go's register allocator places it there). float32, complex,
 // and arrays are still dropped (returns !ok), so detectWordShape falls through to
-// "drop" -- never a misclassification. Structs are flattened when every leaf is
-// exactly one register word (classifyStruct); a sub-word leaf drops the type.
+// "drop" -- never a misclassification. A struct flattens to one word per leaf
+// field: each scalar/pointer field takes a whole register even when sub-word in
+// memory (Go's register ABI), so fixed.Point26_6 (struct{X,Y int32}) is "ii".
+// wordLayoutOf records each leaf's true byte offset and width, so packed fields
+// and inter-field padding marshal back to the right place (not a uniform stride).
 //
 // The path requires a 64-bit little-endian target (see wordShapesSupported); on
 // any other arch detectWordShape drops everything and only the typed shapes
@@ -37,73 +40,94 @@ var forceWordShape bool
 // SetForceWordShape toggles the benchmark-only word-path preference.
 func SetForceWordShape(v bool) { forceWordShape = v }
 
-// classifyType returns t's ABI register words as a string over {p, i}, or
-// ok=false for a type that is not register-safe (float, complex, array, or a
-// struct with a sub-word/float leaf). Every classifiable type has 8-byte-strided
-// words: a top-level sub-word scalar is a single i word; string is (p,i); slice
-// is (p,i,i); interface is (p,p); a struct is its leaves flattened.
+// classifyType returns t's ABI register words as a string over {p, i, f}, or
+// ok=false for a non-register-safe type (float32, complex, array, or a struct
+// containing one). It is wordLayoutOf's classes string; see appendWordLeaves for
+// the per-leaf rules. A scalar is one i word; a pointer-ish is p; float64 is f;
+// string is (p,i); slice is (p,i,i); interface is (p,p); a struct is its leaves
+// flattened (one word per leaf field, sub-word and padded fields included).
 func classifyType(t reflect.Type) (classes string, ok bool) {
+	lay, ok := wordLayoutOf(t)
+	if !ok {
+		return "", false
+	}
+	return lay.classes, true
+}
+
+// wordLayout is a type's flattened register-word layout: classes[k] is the k-th
+// word's class (p/i/f) and offs[k]/sizes[k] are that word's leaf byte offset and
+// meaningful byte width in the value's memory. The per-leaf offsets (not a
+// uniform 8-byte stride) place sub-word-packed and padded struct fields correctly.
+type wordLayout struct {
+	classes string
+	offs    []uintptr
+	sizes   []uintptr
+}
+
+// wordLayoutOf computes t's register-word layout, or ok=false if t (or a field)
+// is not register-safe. The classes string equals classifyType(t); offs/sizes
+// drive writeWords/readWords. Computed once per method at attach, never per call.
+func wordLayoutOf(t reflect.Type) (wordLayout, bool) {
+	var lay wordLayout
+	var b strings.Builder
+	if !appendWordLeaves(t, 0, &b, &lay) {
+		return wordLayout{}, false
+	}
+	lay.classes = b.String()
+	return lay, true
+}
+
+// appendWordLeaves walks t at memory offset base, appending one entry per
+// register word. A scalar/pointer leaf takes a whole register regardless of its
+// byte size (Go's register ABI), so a struct flattens to one word per leaf field
+// at that field's true offset and width -- inter-field padding and sub-word
+// packing are fine, since each word reads/writes only its own bytes. float32,
+// complex, and arrays have no leaf rule and drop the whole type.
+//
+// Example: time.Time -> "iip"; vg.Point{X,Y float64} -> "ff";
+// fixed.Point26_6{X,Y int32} -> "ii" (two int words at offsets 0 and 4).
+func appendWordLeaves(t reflect.Type, base uintptr, b *strings.Builder, lay *wordLayout) bool {
+	push := func(class byte, off, size uintptr) {
+		b.WriteByte(class)
+		lay.offs = append(lay.offs, off)
+		lay.sizes = append(lay.sizes, size)
+	}
 	switch t.Kind() {
 	case reflect.Bool,
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Uintptr:
-		return "i", true
+		push('i', base, t.Size())
 	case reflect.Pointer, reflect.UnsafePointer, reflect.Chan, reflect.Map, reflect.Func:
-		return "p", true
+		push('p', base, wordSize)
 	case reflect.Float64:
-		// One 8-byte FP-register word. float32 is sub-word (4 bytes) and breaks
-		// the whole-word stride, so it stays dropped.
-		return "f", true
+		push('f', base, wordSize)
 	case reflect.String:
-		return "pi", true
+		push('p', base, wordSize)          // data
+		push('i', base+wordSize, wordSize) // len
 	case reflect.Slice:
-		return "pii", true
+		push('p', base, wordSize)            // data
+		push('i', base+wordSize, wordSize)   // len
+		push('i', base+2*wordSize, wordSize) // cap
 	case reflect.Interface:
-		return "pp", true
+		push('p', base, wordSize)          // type/itab
+		push('p', base+wordSize, wordSize) // data
 	case reflect.Struct:
-		return classifyStruct(t)
-	}
-	return "", false
-}
-
-// classifyStruct flattens a struct to its register words, accepting it only when
-// every field starts on a word boundary and occupies a whole number of register
-// words (so each leaf scalar is exactly one word). Under that condition the
-// register-word sequence equals the memory layout, which is what lets
-// writeWords/readWords reconstruct the value from words at k*wordSize. A sub-word
-// leaf (e.g. struct{a, b uint32} or a float32 field), an array, or trailing
-// padding fails the invariant and drops the type. A float64 field is a whole
-// word ('f', an FP register).
-//
-// Example: time.Time{wall uint64; ext int64; loc *Location} -> "iip";
-// gonum vg.Point{X, Y float64} -> "ff".
-func classifyStruct(t reflect.Type) (string, bool) {
-	var b strings.Builder
-	expect := uintptr(0)
-	for i := range t.NumField() {
-		f := t.Field(i)
-		if f.Type.Size() == 0 {
-			// A zero-size field (e.g. a [0]func() / [0]T marker like
-			// pragma.DoNotCompare in protoreflect.Value) occupies no register word
-			// and no memory, so it neither shifts the layout nor needs marshaling.
-			// Skipping keeps the struct classifiable as its real-word fields alone.
-			continue
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if f.Type.Size() == 0 {
+				// A zero-size field (e.g. a [0]T marker like pragma.DoNotCompare
+				// in protoreflect.Value) occupies no register and no memory; skip.
+				continue
+			}
+			if !appendWordLeaves(f.Type, base+f.Offset, b, lay) {
+				return false
+			}
 		}
-		if f.Offset != expect {
-			return "", false // padding or sub-word packing
-		}
-		c, ok := classifyType(f.Type)
-		if !ok || uintptr(len(c))*wordSize != f.Type.Size() {
-			return "", false // unclassifiable, or a sub-word leaf (size < its words)
-		}
-		b.WriteString(c)
-		expect += uintptr(len(c)) * wordSize
+	default:
+		return false
 	}
-	if expect != t.Size() {
-		return "", false // trailing padding
-	}
-	return b.String(), true
+	return true
 }
 
 // argIntRegs / argFloatRegs are the running arch's integer and float
@@ -225,16 +249,16 @@ func wordShapeAvailable(sig reflect.Type) bool {
 	return ok
 }
 
-// sigWordClasses precomputes the per-param and per-result class strings once at
-// attach, so per-call marshaling never re-classifies (classifyStruct allocates).
-func sigWordClasses(sig reflect.Type) (in, out []string) {
-	in = make([]string, sig.NumIn())
+// sigWordLayouts precomputes the per-param and per-result word layouts once at
+// attach, so per-call marshaling never re-walks the types (wordLayoutOf allocates).
+func sigWordLayouts(sig reflect.Type) (in, out []wordLayout) {
+	in = make([]wordLayout, sig.NumIn())
 	for i := range in {
-		in[i], _ = classifyType(sig.In(i))
+		in[i], _ = wordLayoutOf(sig.In(i))
 	}
-	out = make([]string, sig.NumOut())
+	out = make([]wordLayout, sig.NumOut())
 	for j := range out {
-		out[j], _ = classifyType(sig.Out(j))
+		out[j], _ = wordLayoutOf(sig.Out(j))
 	}
 	return in, out
 }
@@ -245,10 +269,10 @@ func sigWordClasses(sig reflect.Type) (in, out []string) {
 // unless swallowErr (see shapeSwallowsDispatchErr): then results stay zero.
 func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
 	methodSig := method.Rtype
-	inClasses, outClasses := sigWordClasses(methodSig)
+	inLayouts, outLayouts := sigWordLayouts(methodSig)
 	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
 		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := marshalArgs(methodSig, inClasses, pw, sw, fw)
+		argv := marshalArgs(methodSig, inLayouts, pw, sw, fw)
 		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
 		if err != nil {
 			if !swallowErr {
@@ -256,7 +280,7 @@ func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvFor
 			}
 			out = nil // zero result words
 		}
-		marshalResults(methodSig, outClasses, out, rpw, rsw, rfw)
+		marshalResults(methodSig, outLayouts, out, rpw, rsw, rfw)
 	}
 }
 
@@ -264,7 +288,7 @@ func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvFor
 // words, consumed left-to-right in signature order (matching the generated
 // dispatcher's scatter). Each arg is built in a fresh reflect.New allocation
 // (typed, so the GC scans its pointer words) before its words are written in.
-func marshalArgs(sig reflect.Type, classes []string, pw []unsafe.Pointer, sw []uint64, fw []float64) []reflect.Value {
+func marshalArgs(sig reflect.Type, layouts []wordLayout, pw []unsafe.Pointer, sw []uint64, fw []float64) []reflect.Value {
 	n := sig.NumIn()
 	if n == 0 {
 		return nil
@@ -272,9 +296,8 @@ func marshalArgs(sig reflect.Type, classes []string, pw []unsafe.Pointer, sw []u
 	argv := make([]reflect.Value, n)
 	pi, si, fi := 0, 0, 0
 	for i := range n {
-		t := sig.In(i)
-		av := reflect.New(t)
-		pi, si, fi = writeWords(t, classes[i], av.UnsafePointer(), pw, sw, fw, pi, si, fi)
+		av := reflect.New(sig.In(i))
+		pi, si, fi = writeWords(layouts[i], av.UnsafePointer(), pw, sw, fw, pi, si, fi)
 		argv[i] = av.Elem()
 	}
 	return argv
@@ -285,7 +308,7 @@ func marshalArgs(sig reflect.Type, classes []string, pw []unsafe.Pointer, sw []u
 // scalar or pointer result of the exact type is read straight off the value (no
 // allocation); anything needing a typed buffer (conversion, composite, interface)
 // falls back to a reflect.New scratch.
-func marshalResults(sig reflect.Type, classes []string, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
+func marshalResults(sig reflect.Type, layouts []wordLayout, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
 	pi, si, fi := 0, 0, 0
 	for j := range sig.NumOut() {
 		t := sig.Out(j)
@@ -309,7 +332,7 @@ func marshalResults(sig reflect.Type, classes []string, out []reflect.Value, rpw
 		if j < len(out) {
 			setResultValue(tmp.Elem(), out[j])
 		}
-		pi, si, fi = readWords(t, classes[j], tmp.UnsafePointer(), rpw, rsw, rfw, pi, si, fi)
+		pi, si, fi = readWords(layouts[j], tmp.UnsafePointer(), rpw, rsw, rfw, pi, si, fi)
 	}
 }
 
@@ -352,16 +375,15 @@ func scalarWord(v reflect.Value) uint64 {
 	}
 }
 
-// writeWords writes t's words from pw/sw into the value at dst (a *t allocation),
-// returning the advanced pointer/integer cursors. A pointer word is written
-// through a pointer-typed slot so it stays GC-visible; an integer word writes
-// only its meaningful low bytes (min(8, size-off)) so a sub-word scalar does not
-// overrun its allocation.
-func writeWords(t reflect.Type, classes string, dst unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, pi, si, fi int) (int, int, int) {
-	size := t.Size()
-	for k := range len(classes) {
-		off := uintptr(k) * wordSize
-		switch classes[k] {
+// writeWords writes lay's words from pw/sw/fw into the value at dst (a *t
+// allocation), each at its leaf offset, returning the advanced cursors. A pointer
+// word is written through a pointer-typed slot so it stays GC-visible; an integer
+// word writes only its leaf's meaningful low bytes (lay.sizes[k]) so a sub-word
+// field does not overrun its neighbour or the allocation.
+func writeWords(lay wordLayout, dst unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, pi, si, fi int) (int, int, int) {
+	for k := range len(lay.classes) {
+		off := lay.offs[k]
+		switch lay.classes[k] {
 		case 'p':
 			*(*unsafe.Pointer)(unsafe.Add(dst, off)) = pw[pi]
 			pi++
@@ -369,20 +391,19 @@ func writeWords(t reflect.Type, classes string, dst unsafe.Pointer, pw []unsafe.
 			*(*float64)(unsafe.Add(dst, off)) = fw[fi]
 			fi++
 		default:
-			writeIntWord(unsafe.Add(dst, off), sw[si], wordBytes(size, off))
+			writeIntWord(unsafe.Add(dst, off), sw[si], lay.sizes[k])
 			si++
 		}
 	}
 	return pi, si, fi
 }
 
-// readWords reads t's words from the value at src (a *t allocation) into rpw/rsw/rfw,
-// symmetric to writeWords.
-func readWords(t reflect.Type, classes string, src unsafe.Pointer, rpw []unsafe.Pointer, rsw []uint64, rfw []float64, pi, si, fi int) (int, int, int) {
-	size := t.Size()
-	for k := range len(classes) {
-		off := uintptr(k) * wordSize
-		switch classes[k] {
+// readWords reads lay's words from the value at src (a *t allocation) into
+// rpw/rsw/rfw, symmetric to writeWords.
+func readWords(lay wordLayout, src unsafe.Pointer, rpw []unsafe.Pointer, rsw []uint64, rfw []float64, pi, si, fi int) (int, int, int) {
+	for k := range len(lay.classes) {
+		off := lay.offs[k]
+		switch lay.classes[k] {
 		case 'p':
 			rpw[pi] = *(*unsafe.Pointer)(unsafe.Add(src, off))
 			pi++
@@ -390,7 +411,7 @@ func readWords(t reflect.Type, classes string, src unsafe.Pointer, rpw []unsafe.
 			rfw[fi] = *(*float64)(unsafe.Add(src, off))
 			fi++
 		default:
-			rsw[si] = readIntWord(unsafe.Add(src, off), wordBytes(size, off))
+			rsw[si] = readIntWord(unsafe.Add(src, off), lay.sizes[k])
 			si++
 		}
 	}
@@ -398,15 +419,6 @@ func readWords(t reflect.Type, classes string, src unsafe.Pointer, rpw []unsafe.
 }
 
 const wordSize = unsafe.Sizeof(uintptr(0))
-
-// wordBytes is the meaningful byte count of the integer word at off in a value
-// of the given size (a full word, or the remaining bytes of a sub-word scalar).
-func wordBytes(size, off uintptr) uintptr {
-	if n := size - off; n < wordSize {
-		return n
-	}
-	return wordSize
-}
 
 // writeIntWord copies the low n bytes of w into dst (little-endian; amd64/arm64).
 func writeIntWord(dst unsafe.Pointer, w uint64, n uintptr) {

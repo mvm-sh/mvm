@@ -104,6 +104,67 @@ func main() {
 	}
 }
 
+// TestSynthSubWordPointIface exercises the sub-word-packed struct word path:
+// fixed.Point26_6 is struct{X,Y int32}, two int32 in one 8-byte word, so its
+// register-ABI words are "ii" with leaves at offsets 0 and 4. An interface whose
+// methods take one and two such points (like freetype's raster.Adder) is
+// satisfied by an interpreted concrete, and the methods are invoked through
+// reflect (a NATIVE-boundary call), forcing the synth stub + marshalArgs layout
+// -- not interpreted dispatch. Adversarial negative/large coords pin that each
+// leaf lands at its true byte offset (a uniform 8-byte stride would corrupt Y).
+// Shapes: Start(Pt) -> "ii_", Add2(Pt,Pt) -> "iiii_", Sum() int64 -> "_i".
+func TestSynthSubWordPointIface(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Pt struct{ X, Y int32 }
+
+type Path interface {
+	Start(a Pt)
+	Add2(b, c Pt)
+	Sum() int64
+}
+
+type rec struct{ sum int64 }
+
+func (r *rec) Start(a Pt)   { r.sum += int64(a.X)*1 + int64(a.Y)*10 }
+func (r *rec) Add2(b, c Pt) { r.sum += int64(b.X)*100 + int64(b.Y)*1000 + int64(c.X)*10000 + int64(c.Y)*100000 }
+func (r *rec) Sum() int64   { return r.sum }
+
+func makePath() Path { return &rec{} }
+
+func main() {
+	p := reflect.ValueOf(makePath).Call(nil)[0].Interface().(Path)
+	// reflect method calls dispatch through the synth stub (native boundary),
+	// unlike interpreted p.Start(...) which never touches the stub.
+	pv := reflect.ValueOf(p)
+	pv.MethodByName("Start").Call([]reflect.Value{reflect.ValueOf(Pt{X: -3, Y: 5})})
+	pv.MethodByName("Add2").Call([]reflect.Value{
+		reflect.ValueOf(Pt{X: -7, Y: 11}),
+		reflect.ValueOf(Pt{X: 13, Y: -17}),
+	})
+	fmt.Print(p.Sum())
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("synth_subword_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	// Start: -3*1 + 5*10 = 47. Add2: -7*100 + 11*1000 + 13*10000 - 17*100000
+	// = -1559700. Total = -1559653.
+	if got, want := stdout.String(), "-1559653"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 // TestSynthPtrStringerEndToEnd is the pointer-receiver counterpart of
 // TestSynthStringerEndToEnd: the reserve path synthesizes a *T rtype and wires
 // PtrToThis so &T satisfies fmt.Stringer.
