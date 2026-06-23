@@ -4477,6 +4477,36 @@ capture()`
 	}
 }
 
+// runtime.Caller/Callers with a single-PC buffer and a skip past the
+// interpreted stack must reach the genuine host frames below the VM boundary
+// (runtime.goexit), matching Go. Repro of zap's getCallerFrame caller-skip
+// tests (TestLoggerAddCaller/Function, TestSugarAddCaller), which feed a large
+// AddCallerSkip so the caller lands in the runtime.
+func TestRuntimeCallerReachesHostGoexit(t *testing.T) {
+	src := `import "runtime"
+found := false
+for skip := 0; skip < 40; skip++ {
+	pc := make([]uintptr, 1)
+	if runtime.Callers(skip, pc) < 1 {
+		continue
+	}
+	f, _ := runtime.CallersFrames(pc).Next()
+	if f.Function == "runtime.goexit" {
+		found = true
+	}
+}
+found`
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	r, err := intp.Eval("caller_host", src)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "true" {
+		t.Fatalf("runtime.Caller never reached host runtime.goexit (got %q); host tail not appended", got)
+	}
+}
+
 // TestRepl exercises the re-entrant interpreter (REPL mode), where a single
 // Interp is used across multiple sequential Eval calls.
 func TestRepl(t *testing.T) {

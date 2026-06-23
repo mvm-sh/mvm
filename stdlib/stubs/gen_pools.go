@@ -142,18 +142,19 @@ var wordShapes = []wordShape{
 	// Float-word shapes ('f' = a float64 carried in an FP register). gonum/plot's
 	// vg.Canvas geometry (vg.Length = float64, vg.Point/Rectangle = float structs)
 	// needs these for vgimg.PngCanvas to satisfy vg.CanvasWriterTo.
-	{Params: "f", Results: ""},        // SetLineWidth(Length), Rotate(float64)
-	{Params: "", Results: "f"},        // float getter, e.g. func() float64
-	{Params: "f", Results: "f"},       // unary float op, e.g. func(float64) float64
-	{Params: "ff", Results: ""},       // Translate(Point), Scale(float64,float64)
-	{Params: "", Results: "ff"},       // Size() (Length, Length)
-	{Params: "piif", Results: ""},     // SetLineDash([]Length, Length)
-	{Params: "ppffpi", Results: ""},   // FillString(font.Face, Point, string)
-	{Params: "ffffpp", Results: ""},   // DrawImage(Rectangle, image.Image)
+	{Params: "f", Results: ""},      // SetLineWidth(Length), Rotate(float64)
+	{Params: "", Results: "f"},      // float getter, e.g. func() float64
+	{Params: "f", Results: "f"},     // unary float op, e.g. func(float64) float64
+	{Params: "ff", Results: ""},     // Translate(Point), Scale(float64,float64)
+	{Params: "", Results: "ff"},     // Size() (Length, Length)
+	{Params: "piif", Results: ""},   // SetLineDash([]Length, Length)
+	{Params: "ppffpi", Results: ""}, // FillString(font.Face, Point, string)
+	{Params: "ffffpp", Results: ""}, // DrawImage(Rectangle, image.Image)
 	// Integer-word shapes the drops report flagged as missing pools.
-	{Params: "pp", Results: ""},       // SetColor(color.Color)
-	{Params: "pii", Results: ""},      // Stroke(Path), Fill(Path)
-	{Params: "pp", Results: "ipp"},    // io.WriterTo.WriteTo(io.Writer) (int64, error)
+	{Params: "ppp", Results: ""},   // http.Handler.ServeHTTP(ResponseWriter, *Request)
+	{Params: "pp", Results: ""},    // SetColor(color.Color)
+	{Params: "pii", Results: ""},   // Stroke(Path), Fill(Path)
+	{Params: "pp", Results: "ipp"}, // io.WriterTo.WriteTo(io.Writer) (int64, error)
 	// freetype raster.Adder: fixed.Point26_6 is struct{X,Y int32}, a sub-word-packed
 	// "ii" leaf pair. *raster.Rasterizer must satisfy raster.Adder across the native
 	// boundary (text rendering in gonum/plot).

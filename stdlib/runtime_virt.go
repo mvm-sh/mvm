@@ -3,6 +3,7 @@ package stdlib
 import (
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"unsafe"
@@ -60,27 +61,20 @@ func patchRuntime(_ *vm.Machine, values map[string]vm.Value) {
 }
 
 // mvmCaller mirrors runtime.Caller for the live interpreter stack.
+// runtime.Caller(skip) counts skip 0 as the caller of Caller -- the first
+// interpreted frame -- so it indexes the combined stack directly.
 func mvmCaller(m *vm.Machine, skip int) (pc uintptr, file string, line int, ok bool) {
-	di := m.DebugInfo()
-	if di == nil {
+	pcs := mvmStackPCs(m)
+	i := max(skip, 0)
+	if i >= len(pcs) {
 		return 0, "", 0, false
 	}
-	drop := max(skip, 0)
-	m.WalkCallStack(func(f vm.StackFrame) bool {
-		if drop > 0 {
-			drop--
-			return true
-		}
-		rf := internSentinel(m, di, f)
-		pc = uintptr(unsafe.Pointer(rf)) + 1
-		if info := vm.LookupRuntimeFunc(rf); info != nil {
-			file = info.File
-			line = info.Line
-		}
-		ok = true
-		return false
-	})
-	return pc, file, line, ok
+	pc = pcs[i]
+	if _, info := vm.LookupRuntimeFuncByPC(pc); info != nil {
+		file = info.File
+		line = info.Line
+	}
+	return pc, file, line, true
 }
 
 // mvmFrames replaces *runtime.Frames for code that consumes PCs produced
@@ -119,64 +113,103 @@ func mvmCallersFrames(callers []uintptr) *mvmFrames {
 }
 
 // mvmCallers fills pcs with synthetic PCs for the live interpreter stack.
+// runtime.Callers(skip) counts skip 0 as Callers itself (off the interpreted
+// stack) and skip 1 as its caller (the first interpreted frame), so the start
+// index into the combined stack is skip-1.
 func mvmCallers(m *vm.Machine, skip int, pcs []uintptr) int {
 	if len(pcs) == 0 {
 		return 0
 	}
-	di := m.DebugInfo()
-	if di == nil {
-		return 0
-	}
-	drop := max(skip-1, 0)
+	all := mvmStackPCs(m)
 	n := 0
-	m.WalkCallStack(func(f vm.StackFrame) bool {
-		if drop > 0 {
-			drop--
-			return true
-		}
-		if n >= len(pcs) {
-			return false
-		}
-		rf := internSentinel(m, di, f)
-		// pkg/errors' Frame.pc() does (uintptr(f) - 1) so we add 1.
-		pcs[n] = uintptr(unsafe.Pointer(rf)) + 1
-		n++
-		return true
-	})
-	// A real goroutine stack continues below the outermost frame
-	// (runtime.goexit), and the (*Frames).Next idiom `for f, more := ...; more;`
-	// drops the final frame. Append a goexit sentinel so the outermost
-	// interpreted frame is still examined by such loops.
-	if n > 0 && n < len(pcs) {
-		pcs[n] = uintptr(unsafe.Pointer(goexitSentinel())) + 1
+	for i := max(skip-1, 0); i < len(all) && n < len(pcs); i++ {
+		pcs[n] = all[i]
 		n++
 	}
 	return n
 }
 
-var goexitOnce struct {
-	sync.Once
-	rf *runtime.Func
+// mvmStackPCs returns sentinel PCs for the full logical call stack: the
+// interpreted frames (innermost first) followed by the genuine host frames
+// below the VM boundary (testing.tRunner, runtime.goexit, ...). The host tail
+// lets runtime.Caller/Callers with a skip past the interpreted depth reach the
+// real runtime frames, matching Go (zap's caller-skip-into-runtime tests).
+func mvmStackPCs(m *vm.Machine) []uintptr {
+	di := m.DebugInfo()
+	if di == nil {
+		return nil
+	}
+	var pcs []uintptr
+	m.WalkCallStack(func(f vm.StackFrame) bool {
+		rf := internSentinel(m, di, f)
+		// pkg/errors' Frame.pc() does (uintptr(f) - 1) so we add 1.
+		pcs = append(pcs, uintptr(unsafe.Pointer(rf))+1)
+		return true
+	})
+	for _, f := range hostTailFrames() {
+		rf := hostFrameSentinel(f)
+		pcs = append(pcs, uintptr(unsafe.Pointer(rf))+1)
+	}
+	return pcs
 }
 
-func goexitSentinel() *runtime.Func {
-	goexitOnce.Do(func() {
-		// Borrow the host goexit's file/line; consumers parse the location
-		// (e.g. pkg/errors' format tests group stack lines by a `\.` match).
-		file, line := "runtime/asm.s", 1
-		hostPCs := make([]uintptr, 64)
-		var last uintptr
-		for _, pc := range hostPCs[:runtime.Callers(0, hostPCs)] {
-			last = pc
+var hostSentinelByPC sync.Map // uintptr (host pc) -> *runtime.Func
+
+// hostFrameSentinel returns a sentinel *runtime.Func carrying the real host
+// frame's Name/File/Line, cached per host PC so the metadata path stays
+// uniform with interpreted-frame sentinels.
+func hostFrameSentinel(f runtime.Frame) *runtime.Func {
+	if v, ok := hostSentinelByPC.Load(f.PC); ok {
+		return v.(*runtime.Func)
+	}
+	rf := vm.NewRuntimeFuncSentinel()
+	vm.RegisterRuntimeFunc(rf, f.Function, f.File, f.Line)
+	actual, _ := hostSentinelByPC.LoadOrStore(f.PC, rf)
+	return actual.(*runtime.Func)
+}
+
+// hostTailFrames returns the genuine host frames below the VM boundary,
+// innermost first. It walks the real host stack from the bottom
+// (runtime.goexit) upward, keeping frames until the first mvm/reflect bridge
+// frame that separates the interpreted stack from its host caller.
+func hostTailFrames() []runtime.Frame {
+	pcs := make([]uintptr, 64)
+	for {
+		n := runtime.Callers(2, pcs)
+		if n < len(pcs) {
+			pcs = pcs[:n]
+			break
 		}
-		if fn := runtime.FuncForPC(last); fn != nil && strings.HasSuffix(fn.Name(), "goexit") {
-			file, line = fn.FileLine(last)
+		pcs = make([]uintptr, 2*len(pcs))
+	}
+	var all []runtime.Frame
+	frames := runtime.CallersFrames(pcs)
+	for {
+		f, more := frames.Next()
+		all = append(all, f)
+		if !more {
+			break
 		}
-		rf := vm.NewRuntimeFuncSentinel()
-		vm.RegisterRuntimeFunc(rf, "runtime.goexit", file, line)
-		goexitOnce.rf = rf
-	})
-	return goexitOnce.rf
+	}
+	var tail []runtime.Frame
+	for _, f := range slices.Backward(all) {
+		if isHostBoundary(f.Function) {
+			break
+		}
+		tail = append(tail, f)
+	}
+	for l, r := 0, len(tail)-1; l < r; l, r = l+1, r-1 {
+		tail[l], tail[r] = tail[r], tail[l]
+	}
+	return tail
+}
+
+// isHostBoundary reports whether name belongs to the mvm/reflect bridge that
+// sits between the interpreted stack and its genuine host caller.
+func isHostBoundary(name string) bool {
+	return strings.HasPrefix(name, "github.com/mvm-sh/mvm/") ||
+		strings.HasPrefix(name, "reflect.") ||
+		strings.HasPrefix(name, "main.")
 }
 
 // internSentinel returns a *runtime.Func sentinel for the given frame,
