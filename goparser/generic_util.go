@@ -43,8 +43,7 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 			}
 		}
 		return false
-	// elemInterface is handled by checkConstraint (it needs the parser's symbol
-	// table to see interpreted method sets), so it never reaches here.
+	// elemInterface is handled by checkConstraint, so it never reaches here.
 	case elemApprox:
 		return e.typ != nil && arg.Kind() == e.typ.Kind()
 	case elemTypeParamRef:
@@ -56,8 +55,6 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 	return false
 }
 
-// isTypeParamLeaf reports whether shape is an unqualified reference to a type
-// parameter; PkgName!="" means a concrete type that merely shares the name.
 func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
 	if shape.Name == "" || shape.PkgName != "" {
 		return false
@@ -66,8 +63,6 @@ func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
 	return ok
 }
 
-// argElem/argKey return a composite's element/key type, nil when it carries
-// neither an mvm-level link nor an Rtype (Type.Elem/Key would deref nil Rtype).
 func argElem(t *vm.Type) *vm.Type {
 	if t.ElemType != nil {
 		return t.ElemType
@@ -88,13 +83,10 @@ func argKey(t *vm.Type) *vm.Type {
 	return nil
 }
 
-// shapeContainsTypeParam reports whether shape names any type param in tpArgs
-// (e.g. `*P`, `map[K]V`) -- a core-type element checked by substitution.
 func shapeContainsTypeParam(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
 	return shapeContainsTP(shape, tpArgs, nil)
 }
 
-// seen breaks self-referential types (`type Rec []Rec`); a revisited node yielded no param.
 func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Type]bool) bool {
 	if shape == nil || len(tpArgs) == 0 {
 		return false
@@ -125,14 +117,10 @@ func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Ty
 	return false
 }
 
-// coreTypeArgMatches reports whether arg structurally matches the core-type
-// shape with each type-param leaf resolved to its arg; approx (`~T`) relaxes
-// the leaf to underlying-kind. An unresolved (nil) arg is accepted leniently.
 func coreTypeArgMatches(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool) bool {
 	return coreTypeArgMatchesSeen(shape, arg, tpArgs, approx, nil)
 }
 
-// seen breaks self-referential shapes (`type Rec []Rec`): a revisited level already matched.
 func coreTypeArgMatchesSeen(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool, seen map[*vm.Type]bool) bool {
 	if shape == nil || arg == nil {
 		return true
@@ -214,9 +202,6 @@ func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
 	return typeArgCompositeSeen(t, renderLeaf, nil)
 }
 
-// seen (path-scoped via delete-on-exit) breaks self-referential types
-// (`type Rec []Rec`): a node already on the stack renders as a leaf. Acyclic
-// output is unchanged.
 func typeArgCompositeSeen(t *vm.Type, renderLeaf func(*vm.Type) string, seen map[*vm.Type]bool) string {
 	if seen[t] {
 		return renderLeaf(t)
@@ -302,15 +287,10 @@ func recvGenericBaseName(recvr Tokens) (string, bool) {
 	return "", false
 }
 
-// isGenericInstance reports whether t is a monomorphized generic instantiation,
-// identified by the '#' the name mangler inserts before each type argument (see
-// mangledName). A user type name can never contain '#', so this is unambiguous.
 func isGenericInstance(t *vm.Type) bool {
 	return t != nil && strings.IndexByte(t.Name, '#') >= 0
 }
 
-// mangledBase returns the template name of a mangled instance name, i.e. the
-// part before the first '#' ("node#int" -> "node"); unchanged if not mangled.
 func mangledBase(name string) string {
 	base, _, _ := strings.Cut(name, "#")
 	return base
@@ -330,9 +310,7 @@ func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.T
 	case reflect.Map:
 		return hasUnboundTP(t.KeyType, tpNames, inferred, seen) || hasUnboundTP(t.ElemType, tpNames, inferred, seen)
 	case reflect.Func:
-		// Type params can be nested in a func-typed parameter, e.g.
-		// slices.Collect[E](seq iter.Seq[E]) where iter.Seq[E] is
-		// func(func(E) bool).
+		// Type params can be nested in a func-typed parameter.
 		for _, pt := range t.Params {
 			if hasUnboundTP(pt, tpNames, inferred, seen) {
 				return true
@@ -345,9 +323,7 @@ func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.T
 		}
 		return false
 	case reflect.Struct:
-		// A named generic struct instantiation (e.g. node[T]) carries its type
-		// args inside its fields, not in ElemType. Walk them to surface any
-		// unbound param. seen guards self-referential shapes.
+		// Walk struct fields to surface any unbound param. seen guards self-referential shapes.
 		if !isGenericInstance(t) {
 			break
 		}
@@ -376,9 +352,6 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 	return unifyTP(pType, argType, tpNames, inferred, nil)
 }
 
-// isUntypedConstArg reports whether a call argument is a bare untyped constant
-// literal (int/float/char/string). Such args defer type-param inference: their
-// default type is used only as a fallback, after typed args and constraints.
 func isUntypedConstArg(argExpr Tokens) bool {
 	if len(argExpr) != 1 {
 		return false
@@ -525,6 +498,40 @@ func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
 	}
 	if shape.Name == paramName && shape.ElemType == nil && shape.KeyType == nil && len(shape.Params) == 0 && len(shape.Returns) == 0 {
 		return concrete
+	}
+	return nil
+}
+
+func coreConstraintShape(c tpConstraint) *vm.Type {
+	var shape *vm.Type
+	for _, e := range c.elems {
+		if e.kind != elemExact && e.kind != elemApprox {
+			continue
+		}
+		if e.typ == nil || shape != nil {
+			return nil // a second type element: no single core type
+		}
+		shape = e.typ
+	}
+	return shape
+}
+
+func constructFromShape(shape *vm.Type, tpSet, inferred map[string]*vm.Type) *vm.Type {
+	if shape == nil {
+		return nil
+	}
+	if isTypeParamLeaf(shape, tpSet) {
+		return inferred[shape.Name] // nil until that param is inferred
+	}
+	if shape.Kind() == reflect.Pointer {
+		if elem := constructFromShape(shape.ElemType, tpSet, inferred); elem != nil {
+			return vm.PointerTo(elem)
+		}
+		return nil
+	}
+	// No type-param leaves remain: the shape is already a concrete type.
+	if !shapeContainsTypeParam(shape, tpSet) {
+		return shape
 	}
 	return nil
 }

@@ -884,6 +884,31 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		}
 	}
 
+	// Third pass: constraint type inference. A param that appears only in its own
+	// constraint's core type (e.g. P in [T any, P *T], or P ObjectMarshalerPtr[T]
+	// = interface{ *T; ... }) is constructed by substituting the inferred params
+	// into that core type. Iterated to a fixed point for chained constraints.
+	tpSet := make(map[string]*vm.Type, len(tmpl.typeParams))
+	for _, tp := range tmpl.typeParams {
+		tpSet[tp.name] = nil
+	}
+	for progress := len(inferred) < len(tmpl.typeParams); progress; {
+		progress = false
+		for _, tp := range tmpl.typeParams {
+			if _, done := inferred[tp.name]; done {
+				continue
+			}
+			shape := coreConstraintShape(tp.constraint)
+			if shape == nil {
+				continue
+			}
+			if t := constructFromShape(shape, tpSet, inferred); t != nil {
+				inferred[tp.name] = t
+				progress = true
+			}
+		}
+	}
+
 	// Fallback: any type param still unbound after the constraint pass takes a
 	// deferred untyped-constant arg's default type (Go's rule when no typed arg
 	// or constraint fixes it, e.g. F(5) -> int).
@@ -960,6 +985,25 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		}
 		if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: leftTyp.Name, Type: leftTyp}, fieldName, p.Seg); ms != nil {
 			return ms.Type, 1 + ln
+		}
+		// Interface receiver: methods live in IfaceMethods, not as method decls,
+		// so MethodByName misses them. Return the declared method signature so a
+		// method value `iface.M` types as its func -- callFuncType reads its return
+		// tuple for a multi-value `a, b := iface.M()` define. Mirrors the Call case.
+		if structTyp.IsInterface() {
+			structTyp.EnsureIfaceMethods()
+			for _, im := range structTyp.IfaceMethods {
+				if im.Name != fieldName {
+					continue
+				}
+				if im.Sig != nil {
+					return im.Sig, 1 + ln
+				}
+				if im.Rtype != nil {
+					return &vm.Type{Rtype: im.Rtype}, 1 + ln
+				}
+				break
+			}
 		}
 		return nil, 0
 

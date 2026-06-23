@@ -208,6 +208,101 @@ func main() {
 	}
 }
 
+// `a, _ := iface.Method()` must type `a` from the interface method's return
+// tuple so a later generic call can infer from it. Repro of jwt v5's
+// verifyAudience: `aud, _ := claims.GetAudience(); slices.Contains(aud, x)`
+// where claims is an interface and GetAudience returns a named []string + error.
+// callFuncType returned nil for method calls (only pkg-qualified/free funcs),
+// and postfixType's bare method-value path missed interface methods.
+func TestGenericInferFromInterfaceMethodMultiReturn(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"slices"
+)
+
+type ClaimStrings []string
+
+type Claims interface {
+	GetAudience() (ClaimStrings, error)
+}
+
+type myClaims struct{}
+
+func (myClaims) GetAudience() (ClaimStrings, error) { return ClaimStrings{"a", "b"}, nil }
+
+func check(c Claims, want string) bool {
+	aud, _ := c.GetAudience()
+	return slices.Contains(aud, want)
+}
+
+func main() {
+	fmt.Println(check(myClaims{}, "b"))
+	fmt.Println(check(myClaims{}, "z"))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("iface_method_multireturn_infer.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true\nfalse\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (stderr: %s)", got, want, stderr.String())
+	}
+}
+
+// Constraint type inference: a type param appearing only in its own constraint's
+// core type (P in [T any, P PtrMarshaler[T]] where PtrMarshaler[T] = interface{*T;...})
+// is constructed by substituting the inferred T -> *T. Repro of zap's
+// ObjectValues[T any, P ObjectMarshalerPtr[T]] (array_test.go, example_test.go),
+// covering both partial-explicit (Values[obj]) and full inference (Values(arg)).
+func TestGenericConstraintTypeInference(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Marshaler interface{ Marshal() string }
+
+type PtrMarshaler[T any] interface {
+	*T
+	Marshaler
+}
+
+func Values[T any, P PtrMarshaler[T]](values []T) string {
+	var p P
+	_ = p
+	return fmt.Sprint(len(values))
+}
+
+func Direct[T any, P *T](values []T) int { return len(values) }
+
+type obj struct{ x int }
+
+func (o *obj) Marshal() string { return "obj" }
+
+func main() {
+	fmt.Println(Values[obj](nil))         // P inferred from *T (T explicit)
+	fmt.Println(Values([]obj{{1}, {2}}))  // T from arg, then P from *T
+	fmt.Println(Direct([]obj{{1}, {2}})) // direct [P *T] core-type constraint
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("constraint_type_inference.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "0\n2\n2\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (stderr: %s)", got, want, stderr.String())
+	}
+}
+
 // `type T[P *int]` is NOT a generic type: gc parses the brackets as an array size
 // `[P * int]`, so P is undefined in the body. Allowing Mul as a constraint-start
 // in the type-decl path wrongly accepted it as generic; beginsTypeConstraint must

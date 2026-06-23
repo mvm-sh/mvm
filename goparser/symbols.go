@@ -237,29 +237,35 @@ func (p *Parser) callFuncType(in Tokens) *vm.Type {
 	case lang.Period:
 		// pkg-qualified call `pkg.Func(...)`: callee is the Period selector,
 		// preceded by the package identifier.
-		if len(rest) < 2 || rest[len(rest)-2].Tok != lang.Ident {
-			return nil
-		}
-		pre := rest[len(rest)-2]
-		ps := p.Symbols[pre.Str]
-		if as, _, ok := p.pkgAlias(pre.Str, pre.Pos); ok {
-			ps = as
-		}
-		if ps == nil || ps.Kind != symbol.Pkg {
-			return nil
-		}
-		member := callee.Str[1:] // strip leading "."
-		if pkg := p.Packages[ps.PkgPath]; pkg != nil {
-			if v, ok := pkg.Values[member]; ok {
-				if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
-					return &vm.Type{Rtype: rv.Type()}
+		if len(rest) >= 2 && rest[len(rest)-2].Tok == lang.Ident {
+			pre := rest[len(rest)-2]
+			ps := p.Symbols[pre.Str]
+			if as, _, ok := p.pkgAlias(pre.Str, pre.Pos); ok {
+				ps = as
+			}
+			if ps != nil && ps.Kind == symbol.Pkg {
+				member := callee.Str[1:] // strip leading "."
+				if pkg := p.Packages[ps.PkgPath]; pkg != nil {
+					if v, ok := pkg.Values[member]; ok {
+						if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
+							return &vm.Type{Rtype: rv.Type()}
+						}
+					}
 				}
+				if qs, ok := p.Symbols[ps.PkgPath+"."+member]; ok {
+					if ft := symbol.Vtype(qs); ft.IsFunc() {
+						return ft
+					}
+				}
+				return nil
 			}
 		}
-		if qs, ok := p.Symbols[ps.PkgPath+"."+member]; ok {
-			if ft := symbol.Vtype(qs); ft.IsFunc() {
-				return ft
-			}
+		// Method call on a value/interface receiver (x.M(), f().M()): type the
+		// method-value selector to recover its full return tuple. Scoped to the
+		// Period case so a func-typed conversion `MyFunc(x)` (Ident callee) is
+		// not misread as a call returning MyFunc's result.
+		if ft, _ := p.postfixType(rest); ft != nil && ft.IsFunc() {
+			return ft
 		}
 	}
 	return nil
