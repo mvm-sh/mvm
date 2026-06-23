@@ -6,6 +6,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-23
+
+94 of 169 bridged standard-library packages and 104 of 108 curated
+external modules now pass their full upstream suite, newly including
+`gonum`, gRPC and Protocol Buffers.
+
+### Added
+
+- Arithmetic and comparison operators on complex numbers (`+`, `-`, `*`,
+  `/`, `==`, `!=`), completing the 0.4.0 complex-number support.
+- Float and sub-word struct shapes in word-class dispatch (ADR-022), so an
+  interpreted type whose methods take or return floats and small packed
+  structs satisfies a native interface (e.g. `gonum/plot`).
+- `//go:embed` directive support.
+- On-disk caching of network imports under `<UserCacheDir>/mvm/download`;
+  `MVMCACHE=off` disables it, `MVMCACHE=<dir>` relocates it.
+- Ctrl-C in `mvm run`/`test` dumps the interpreter stack; a second exits
+  with status 130.
+- `MVM_DEBUG_COMP` enables compile-phase tracing.
+
+### Changed
+
+- Native method dispatch falls back to word-class shapes keyed on ABI
+  register layout, so new interface surface no longer needs a
+  per-signature stub. See
+  [ADR-022](docs/decisions/ADR-022-word-class-dispatch.md).
+- Compatibility matrix groups external modules into labelled families and
+  adds `gonum`, gRPC and Protocol Buffers.
+- `stdlib.Incompat` gained allocation- and stress-dependent tests.
+- An untyped floating constant with no context defaults to `float64`.
+
+### Fixed
+
+- Reflect materialization of complex, recursive and self-referential
+  types: forward-declared pointer/array fields, self-embedding structs,
+  and mutual pointer cycles materialize without panicking or looping.
+- Interface method resolution goes through the symbolic type, fixing
+  embedded interfaces and methods promoted through an embedded interface
+  field.
+- Generics: instantiation in the template's package, self-referential and
+  forward-referenced types, reused type names, qualified composite type
+  args, and interface-method/constraint-type inference.
+- Promoted methods (named, unexported, on a nil pointer receiver) and
+  method-bearing derived structs dispatch correctly; a method receiver no
+  longer crashes the VM.
+- Numerics: `float32`/`complex64` constant overflow, `math.MaxInt32`
+  overflow, comparison operand-type misinference, and new
+  `GreaterEqualFloat`/`LowerEqualFloat` opcodes.
+- Maps/iterators: range over a map, `iter.Pull2` with fewer than two
+  variables, deep-interface map values, and interface-typed map keys.
+- A nil dereference raises a recoverable panic; typed-nil comparison and
+  asserting against a nil pointer are correct.
+- VM: funcval-field lifetime, reentrant-call trampolines, `runtime.Goexit`
+  interception, aliased parameters, `defer` receiver detachment, and named
+  return-slot zeroing.
+- `comp`: cross-package `init` ordering, `return` before a logical
+  expression, stack overflow in deferred-call expressions, and composite
+  literals with nil slice/map elements.
+- Parser: multi-assignment forms, spread calls, the global blank, a blank
+  `const`, `type`/`var` collisions from auto-import, forward types,
+  package qualifiers, deref type identity, and evaluating an op-assign LHS
+  once.
+
+### Performance
+
+- Faster local-variable indexing and method resolution; local symbols
+  refreshed at unit entry.
+
 ## [0.4.2] - 2026-06-11
 
 ### Added
