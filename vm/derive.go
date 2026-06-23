@@ -343,11 +343,10 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 			continue
 		}
 		if ft.Kind() == reflect.Interface || (emb.Type != nil && emb.Type.IsInterface()) {
-			// A multi-field struct embedding a method-bearing interface gets no
-			// reflect.StructOf promotion (BuildStructRtype leaves the field
-			// non-Anonymous to avoid a StructOf panic), so its promoted EmbedIface
-			// methods are synth-attached and the struct must be reserved. Single-field
-			// embeds are StructOf-promoted, but over-reserving is safe.
+			// A struct embedding a method-bearing interface may not get usable
+			// reflect.StructOf promotion, so its promoted EmbedIface methods are
+			// synth-attached and the struct must be reserved. Over-reserving when
+			// StructOf does promote the embed is safe.
 			if embIfaceHasShapedMethod(emb.Type) {
 				return true
 			}

@@ -435,6 +435,116 @@ func main() {
 	}
 }
 
+// TestImportedMethodEmbedJSONFlattens pins the jwt RegisteredClaims bug.
+// A struct embedding a method-bearing foreign struct as a NON-first field must
+// still flatten in encoding/json (marshal and unmarshal) and promote its method.
+// reflect.StructOf cannot promote a method-bearing embed off field 0, so mvm
+// gave the embed a methodless layout-equivalent to keep it Anonymous; before the
+// fix the embed was demoted to a named field ("Registered":{...} not flattened).
+func TestImportedMethodEmbedJSONFlattens(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/claims",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/claims\n",
+			"claims.go": "package claims\n\n" +
+				"type Registered struct {\n" +
+				"\tIssuer string `json:\"iss,omitempty\"`\n" +
+				"\tExpiry int64  `json:\"exp,omitempty\"`\n" +
+				"}\n\n" +
+				"func (r Registered) GetIssuer() string { return r.Issuer }\n",
+		},
+	})
+
+	src := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"example.com/x/claims"
+)
+
+type My struct {
+	Foo string ` + "`json:\"foo\"`" + `
+	claims.Registered
+}
+
+func main() {
+	m := My{Foo: "bar", Registered: claims.Registered{Issuer: "test", Expiry: 1516239022}}
+	b, _ := json.Marshal(m)
+	var out My
+	json.Unmarshal(b, &out)
+	fmt.Printf("%s|%s|%s", string(b), out.Issuer, out.GetIssuer())
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	want := `{"foo":"bar","iss":"test","exp":1516239022}|test|test`
+	if got := stdout.String(); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestImportedPtrMethodEmbedJSONFlattens covers the pointer-embed variant:
+// a *T embed where T has pointer-receiver methods, as a non-first field.
+// reflect.StructOf reads the pointee's uncommon method count (nonzero on a synth
+// rtype even when NumMethod reports 0), so methodlessLayout must rebuild the
+// pointee layout-only, not trust NumMethod.
+func TestImportedPtrMethodEmbedJSONFlattens(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/pclaims",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/pclaims\n",
+			"pclaims.go": "package pclaims\n\n" +
+				"type Registered struct {\n" +
+				"\tIssuer string `json:\"iss,omitempty\"`\n" +
+				"}\n\n" +
+				"func (r *Registered) GetIssuer() string { return r.Issuer }\n",
+		},
+	})
+
+	src := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"example.com/x/pclaims"
+)
+
+type My struct {
+	Foo string ` + "`json:\"foo\"`" + `
+	*pclaims.Registered
+}
+
+func main() {
+	m := My{Foo: "bar", Registered: &pclaims.Registered{Issuer: "test"}}
+	b, _ := json.Marshal(m)
+	fmt.Printf("%s|%s", string(b), m.GetIssuer())
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	want := `{"foo":"bar","iss":"test"}|test`
+	if got := stdout.String(); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 func TestPromotedMethodSameNameOtherPkg(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/protos",

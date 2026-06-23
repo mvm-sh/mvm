@@ -675,6 +675,45 @@ var (
 	structTypes   = map[string]*Type{} // memoization of StructOf. Process lifetime
 )
 
+func methodlessLayout(rt reflect.Type) reflect.Type { return methodlessLayoutAt(rt, 0) }
+
+func methodlessLayoutAt(rt reflect.Type, depth int) reflect.Type {
+	if depth > 32 {
+		return rt // self-referential embed; bail and let the demote-all fallback handle it
+	}
+	switch rt.Kind() {
+	case reflect.Pointer:
+		if elem := methodlessStruct(rt.Elem(), depth+1); elem != nil {
+			return reflect.PointerTo(elem)
+		}
+		return rt
+	case reflect.Struct:
+		if out := methodlessStruct(rt, depth+1); out != nil {
+			return out
+		}
+		return rt
+	default:
+		return rt
+	}
+}
+
+func methodlessStruct(rt reflect.Type, depth int) reflect.Type {
+	if rt.Kind() != reflect.Struct {
+		return nil
+	}
+	rf := make([]reflect.StructField, rt.NumField())
+	for i := range rf {
+		rf[i] = rt.Field(i)
+		if rf[i].Anonymous {
+			rf[i].Type = methodlessLayoutAt(rf[i].Type, depth)
+		}
+	}
+	if out, ok := tryStructOf(rf); ok {
+		return out
+	}
+	return nil
+}
+
 func embedFieldHasMethods(f *Type, rt reflect.Type) bool {
 	if rt != nil && rt.NumMethod() > 0 {
 		return true
@@ -787,9 +826,12 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}
-		case embSet[i] && len(rf) > 1 &&
+		case embSet[i] && i > 0 &&
 			(embedFieldHasMethods(f, rf[i].Type) || runtype.EmbedTripsStructOf(rf[i].Type)):
-			// Leave Anonymous unset: StructOf panics on such embeds in a multi-field struct.
+			// reflect.StructOf only promotes a method-bearing embed at field 0; a later one panics.
+			// Give it a methodless layout-equivalent so the field stays Anonymous (json/fmt flatten it); mvm promotes the methods itself.
+			rf[i].Type = methodlessLayout(rf[i].Type)
+			rf[i].Anonymous = true
 		default:
 			rf[i].Anonymous = embSet[i]
 		}
