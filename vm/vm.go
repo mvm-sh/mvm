@@ -1182,13 +1182,23 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					// dispatch interpreted so a synth-interface return is not boxed.
 					fval = mf
 				}
+			case reflect.Struct:
+				// Calling directly a an MvmFunc box dispatches its interpreted func.
+				if pf, ok := asMvmFunc(fval.ref); ok {
+					fval = pf.Val
+				}
 			case reflect.Interface:
 				// A wrapped mvm func boxed in an interface-typed slot (e.g. a func
 				// variable read from a map): unwrap and recover so the call runs
 				// interpreted rather than via reflect.Call.
-				if m.funcFields != nil && m.funcFields.hasWrappers.Load() && !fval.ref.IsNil() {
-					if mf, ok := m.recoverWrappedFunc(fval.ref.Elem()); ok {
-						fval = mf
+				if e := fval.ref; !e.IsNil() {
+					el := e.Elem()
+					if pf, ok := asMvmFunc(el); ok {
+						fval = pf.Val
+					} else if m.funcFields != nil && m.funcFields.hasWrappers.Load() {
+						if mf, ok := m.recoverWrappedFunc(el); ok {
+							fval = mf
+						}
 					}
 				}
 			}
@@ -2590,7 +2600,16 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// less func) execute safely; user-visible package vars follow Go's memory model.
 			typ := m.globals[int(c.A)].ref.Interface().(*Type)
 			fval := mem[sp-int(c.B)]
-			mem[sp-int(c.B)] = Value{ref: reflect.ValueOf(MvmFunc{Val: fval, GF: m.wrapForFunc(fval, typ.Rtype)})}
+			gf := m.wrapForFunc(fval, typ.Rtype)
+			if gf.Kind() == reflect.Func && gf.IsNil() {
+				// A nil source func must stay nil-comparable: store the zero func,
+				// not a (non-nil) MvmFunc box.
+				// A method call on it still resolves via the named rtype and panics
+				// on invocation, as in Go.
+				mem[sp-int(c.B)] = Value{ref: gf}
+			} else {
+				mem[sp-int(c.B)] = Value{ref: reflect.ValueOf(MvmFunc{Val: fval, GF: gf})}
+			}
 
 		case MkMethodExpr:
 			codeAddr := int(m.globals[int(c.A)].num)
@@ -3786,6 +3805,12 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 	}
 	if !rv.IsValid() {
 		return reflect.Value{}
+	}
+	// A method on a named func type (e.g. http.HandlerFunc.ServeHTTP): the
+	// receiver is an MvmFunc box; resolve on its native func wrapper, which
+	// carries the named rtype and its method set.
+	if pf, ok := asMvmFunc(rv); ok {
+		rv = pf.GF
 	}
 	if shim := runtimeFuncShim(rv, name); shim.IsValid() {
 		return shim

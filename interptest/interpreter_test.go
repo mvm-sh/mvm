@@ -3231,6 +3231,28 @@ func TestMethod(t *testing.T) {
 			f := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) { s = "done" })
 			t := &T{f}; t.Do(); s`, res: "done"},
 
+		// Native method on a named func type carrying an interpreted func.
+		// Regression (gorilla/mux ServeHTTP nil deref): the func value stayed a
+		// bare mvm func ref, so the receiver for the native method was garbage.
+		// Three forms: conversion-then-call, var declaration, and boxed return.
+		{n: "named_func_native_method_conv", src: `import "net/http"; import "net/http/httptest"
+			var s string
+			f := func(rw http.ResponseWriter, req *http.Request) { s = "ok" }
+			http.HandlerFunc(f).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil)); s`, res: "ok"},
+		{n: "named_func_native_method_var", src: `import "net/http"; import "net/http/httptest"
+			var s string
+			var h http.HandlerFunc = func(rw http.ResponseWriter, req *http.Request) { s = "ok" }
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil)); s`, res: "ok"},
+		{n: "named_func_native_method_boxed", src: `import "net/http"; import "net/http/httptest"
+			var s string
+			mk := func() http.Handler { return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) { s = "ok" }) }
+			h := mk(); h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil)); s`, res: "ok"},
+		// Converting a nil func to a methodful native named func type must stay
+		// nil-comparable: WrapFunc keeps the zero func, not a (non-nil) MvmFunc box.
+		{n: "named_func_nil_conv_compare", src: `import "net/http"
+			var f http.HandlerFunc
+			http.HandlerFunc(f) == nil`, res: "true"},
+
 		// Defined type whose underlying is a basic type, accessed through a
 		// struct field, then chain-called. Regression: vm.Type.FieldLookup
 		// overwrote the field-type Name with reflect's f.Type.Name() (which

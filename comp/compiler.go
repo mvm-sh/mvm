@@ -1720,9 +1720,23 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					break
 				}
 				push(&symbol.Symbol{Kind: symbol.Value, Type: s.Type})
-				if s.Type.IsInterface() {
+				switch {
+				case s.Type.IsInterface():
 					c.emitIfaceWrap(t, s.Type, arg.Type)
-				} else {
+				case s.Type.Kind() == reflect.Func && arg.Name != "nil" &&
+					s.Type.Rtype != nil && s.Type.Rtype.NumMethod() > 0:
+					// Converting an interpreted func to a native named func type
+					// with methods (e.g. http.HandlerFunc): the func-typed slot is
+					// erased to interface{} (NewValue), so a plain Convert can't
+					// retype.
+					// WrapFunc keeps the *Type and produces an MvmFunc whose GF
+					// carries the native rtype, so the native method
+					// (http.HandlerFunc.ServeHTTP) and boxing into an interface both
+					// dispatch correctly.
+					// Purely interpreted named func types keep their bare func ref
+					// for interpreted dispatch.
+					c.emit(t, vm.WrapFunc, c.typeIndex(s.Type))
+				default:
 					c.emit(t, vm.Convert, s.Index)
 				}
 				break
@@ -3108,6 +3122,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					}
 					if embRtype.Kind() >= reflect.Bool && embRtype.Kind() <= reflect.Float64 && embRtype.Name() != "" && embRtype.Name() != embRtype.Kind().String() {
 						recvTypeHint = c.typeSym(s.Type).Index + 1
+					}
+					// A named func-type receiver (e.g. http.HandlerFunc) is stored
+					// as a bare mvm func ref; wrap it so its native method set is
+					// reachable at dispatch (see IfaceCall's MvmFunc unwrap).
+					if len(embFieldPath) == 0 && s.Type.Kind() == reflect.Func {
+						c.emit(t, vm.WrapFunc, c.typeIndex(s.Type))
 					}
 					c.emit(t, vm.IfaceCall, c.methodID(methodName), recvTypeHint)
 					break

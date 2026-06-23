@@ -44,11 +44,18 @@ type MvmFunc struct {
 	GF  reflect.Value // reflect.MakeFunc wrapper for native Go callbacks
 }
 
+var mvmFuncRtype = reflect.TypeFor[MvmFunc]()
+
+func asMvmFunc(rv reflect.Value) (MvmFunc, bool) {
+	if rv.Kind() == reflect.Struct && rv.Type() == mvmFuncRtype {
+		return Exportable(rv).Interface().(MvmFunc), true
+	}
+	return MvmFunc{}, false
+}
+
 // boundHookCall is the sentinel Value that IfaceCall places on the stack
 // when a native method has a registered NativeMethodHook (e.g., the
 // testing.T.Log/Error/Fatal intercepts in stdlib/testing_virt.go).
-// The Call opcode detects this struct, uses Fn as the bound method, and
-// consults RecvType+Method to look up the hook (which receives Recv).
 type boundHookCall struct {
 	Fn       reflect.Value
 	RecvType reflect.Type
@@ -68,7 +75,6 @@ type Value struct {
 }
 
 // ValueSize is the in-memory footprint of a Value on the current platform.
-// Used by stat reporters to convert slot counts to bytes.
 const ValueSize = int(unsafe.Sizeof(Value{}))
 
 // NumKindOffset maps a reflect.Kind to a 0-based offset into per-type opcode blocks.
@@ -303,9 +309,6 @@ func (v Value) Seq() iter.Seq[reflect.Value] { return v.Reflect().Seq() }
 // Seq2 returns a range-over-2 iterator for the value v.
 func (v Value) Seq2() iter.Seq2[reflect.Value, reflect.Value] { return v.ref.Seq2() }
 
-// emptySeq/emptySeq2 are the iterators for an invalid (nil) range subject: a
-// nil slice/map/string ranges zero times in Go, so the VM uses these instead
-// of reflect.Value.Seq, which panics on a zero Value.
 func emptySeq(func(reflect.Value) bool)                 {}
 func emptySeq2(func(reflect.Value, reflect.Value) bool) {}
 
@@ -325,7 +328,6 @@ func FromReflect(rv reflect.Value) Value {
 	return Value{ref: rv}
 }
 
-// resetNumRef ensures ref is non-addressable after an arithmetic operation.
 func resetNumRef(v *Value) {
 	if v.ref.CanAddr() {
 		v.ref = reflect.Zero(v.ref.Type())
@@ -398,9 +400,6 @@ func nilEqual(v Value) bool {
 	return !v.ref.IsValid()
 }
 
-// isNativeIface reports whether v is a non-nil native interface{} holding a
-// concrete value (i.e. NOT mvm's own Iface wrapper). Used by Equal to unwrap
-// such interfaces before comparison.
 func isNativeIface(v Value) bool {
 	if !v.ref.IsValid() || v.ref.Kind() != reflect.Interface || v.ref.IsNil() {
 		return false
