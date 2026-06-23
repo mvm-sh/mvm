@@ -987,6 +987,16 @@ func materialize(t *mtype.Type) reflect.Type {
 			t.Rtype = rt
 			return rt
 		}
+		// A struct-field clone carries the field name in t.Name (for buildStructRtype)
+		// but its type is the anonymous struct in t.Base; materialize that base so the
+		// field type keeps reflect's empty name rather than inheriting the field name.
+		if !t.Defined && t.Name != "" && t.Base != nil && t.Base != t &&
+			t.Base.Kind() == reflect.Struct && t.Base.Name == "" {
+			if rt := materialize(t.Base); rt != nil {
+				t.Rtype = rt
+				return rt
+			}
+		}
 		if t.Name != "" {
 			if rt, handled := maybeReserveStruct(t); handled {
 				return rt

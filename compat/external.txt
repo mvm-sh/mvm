@@ -78,9 +78,13 @@ github.com/spaolacci/murmur3
 github.com/sirupsen/logrus
 github.com/fatih/color
 github.com/rs/zerolog
+go.uber.org/zap
 
 #: validation Validation
 github.com/asaskevich/govalidator
+
+#: auth Auth and tokens
+github.com/golang-jwt/jwt/v5
 
 #: markup Markdown and HTML
 github.com/russross/blackfriday/v2
@@ -110,6 +114,7 @@ gonum.org/v1/gonum/dsp/fourier
 gonum.org/v1/gonum/optimize
 gonum.org/v1/gonum/interp
 gonum.org/v1/gonum/mathext
+gonum.org/v1/plot
 
 #: grpc gRPC
 # Self-contained leaf packages; server/network packages are excluded.

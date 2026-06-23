@@ -84,19 +84,23 @@ func NewInterpreter(s *lang.Spec) *Interp {
 // Eval evaluates code string and return the last produced value if any, or an error.
 // name labels the source for error positions (a file path or any identifier).
 func (i *Interp) Eval(name, src string) (reflect.Value, error) {
-	return i.evalCompiled(func() error { return i.Compile(name, src) })
+	return i.evalCompiled(name, func() error { return i.Compile(name, src) })
 }
 
 // EvalFiles compiles several local source files as one main-package unit and
 // runs the result. Backs `mvm run f1.go f2.go ...`: top-level symbols declared
 // in any file are visible to the others regardless of file or declaration order.
 func (i *Interp) EvalFiles(sources []goparser.PackageSource) (reflect.Value, error) {
-	return i.evalCompiled(func() error { return i.CompileFiles(sources) })
+	name := "main"
+	if len(sources) > 0 {
+		name = sources[0].Name
+	}
+	return i.evalCompiled(name, func() error { return i.CompileFiles(sources) })
 }
 
 // evalCompiled compiles via the supplied closure, then sets up and runs the VM,
 // returning the last produced value. Shared by Eval and EvalFiles.
-func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err error) {
+func (i *Interp) evalCompiled(name string, compile func() error) (res reflect.Value, err error) {
 	codeOffset := len(i.Code)
 	dataOffset := 0
 	if codeOffset > 0 {
@@ -189,7 +193,7 @@ func (i *Interp) evalCompiled(compile func() error) (res reflect.Value, err erro
 	i.EnableGoroutineFaults()
 	if goparser.DebugComp {
 		fmt.Fprint(os.Stderr, FormatStats(i))
-		fmt.Fprintf(os.Stderr, "[comp] execution starts  +%v\n", goparser.Elapsed().Round(time.Microsecond))
+		fmt.Fprintf(os.Stderr, "[comp] execution starts %s  +%v\n", name, goparser.Elapsed().Round(time.Microsecond))
 	}
 	tRun := time.Now()
 	err = i.Run()
@@ -229,7 +233,7 @@ func WordShapeDropReport() string { return vm.WordShapeDropReport() }
 
 // FormatStats returns a multi-line summary of an Interp's accumulated work for the -stat CLI flag.
 func FormatStats(i *Interp) string {
-	totalLines, srcFiles := 0, 0
+	totalLines, totalBytes, srcFiles := 0, 0, 0
 	srcDirs := map[string]struct{}{}
 	for _, s := range i.Sources {
 		// Skip mvm-internal generic-template shims (goparser registers them
@@ -238,6 +242,7 @@ func FormatStats(i *Interp) string {
 			continue
 		}
 		totalLines += s.Lines()
+		totalBytes += s.Len
 		srcFiles++
 		srcDirs[path.Dir(s.Name)] = struct{}{}
 	}
@@ -251,8 +256,7 @@ func FormatStats(i *Interp) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "mvm stats:")
 	fmt.Fprintf(&b, "  packages: %d bridged, %d source-loaded\n", binPkgs, len(srcDirs))
-	fmt.Fprintf(&b, "  sources:  %d\n", srcFiles)
-	fmt.Fprintf(&b, "  lines:    %d\n", totalLines)
+	fmt.Fprintf(&b, "  sources:  %d (%d lines) (%d bytes)\n", srcFiles, totalLines, totalBytes)
 	fmt.Fprintf(&b, "  code:     %d instructions (%d bytes)\n", len(i.Code), len(i.Code)*instrSize)
 	dataLine := fmt.Sprintf("  data:     %d slots (%d bytes)", len(i.Data), len(i.Data)*vm.ValueSize)
 	if h := i.HeapSize(); h > 0 {

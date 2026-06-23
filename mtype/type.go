@@ -823,6 +823,9 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 
 		switch {
 		case embSet[i] && len(f.Name) > 0 && !unicode.IsUpper(rune(f.Name[0])):
+			// An unexported embed needs a PkgPath, but reflect.StructOf rejects an
+			// anonymous field with PkgPath set, so it cannot stay Anonymous: its
+			// promoted fields are unreachable via reflect (a StructOf limitation).
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}

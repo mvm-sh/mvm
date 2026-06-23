@@ -2946,9 +2946,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				cell.ref = rv
 			} else {
 				// A non-addressable reference value still needs its own addressable cell storage,
-				// or a later write through &cell is lost vs a CellGet read.
+				// or a later write through &cell is lost vs a CellGet read. A non-addressable
+				// struct/array (e.g. a map-index result bound as a value receiver) likewise needs
+				// addressable storage so the method body can write its fields.
 				switch cell.ref.Kind() {
-				case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer:
+				case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer,
+					reflect.Struct, reflect.Array:
 					rv := reflect.New(cell.ref.Type()).Elem()
 					rv.Set(Exportable(cell.ref))
 					cell.ref = rv
@@ -5112,8 +5115,21 @@ func detachByValueArgs(args []Value) {
 		if !r.IsValid() {
 			continue
 		}
-		k := r.Kind()
-		if k != reflect.Struct && k != reflect.Array {
+		var detach bool
+		switch r.Kind() {
+		case reflect.Struct, reflect.Array:
+			// A struct/array is copied by value; detach unconditionally so the
+			// callee's mutations stay local and the caller stays unmutated.
+			detach = true
+		case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer, reflect.Func:
+			// A reference-header value is also passed by value: only its header
+			// is copied, the pointee is shared. The header copy matters only when
+			// the arg aliases mutable storage (a field/index/var the callee can
+			// reassign through a co-passed pointer); a non-addressable header is
+			// already standalone, so detach just the addressable case.
+			detach = r.CanAddr()
+		}
+		if !detach {
 			continue
 		}
 		nv := reflect.New(r.Type()).Elem()

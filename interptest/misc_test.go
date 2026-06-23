@@ -304,7 +304,7 @@ func TestStatsAccumulate(t *testing.T) {
 	}
 
 	out := interp.FormatStats(i)
-	for _, want := range []string{"mvm stats:", "packages:", "sources:", "lines:", "code:", "data:", "compile:", "execute:"} {
+	for _, want := range []string{"mvm stats:", "packages:", "sources:", "lines)", "bytes)", "code:", "data:", "compile:", "execute:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("FormatStats output missing %q:\n%s", want, out)
 		}
