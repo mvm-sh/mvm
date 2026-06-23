@@ -787,6 +787,9 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 	for _, e := range embedded {
 		embSet[e.FieldIdx] = true
 	}
+	// Embeds demoted to a methodless layout below (to satisfy reflect.StructOf);
+	// after building we restore the canonical named type so reflect identity holds.
+	var restore map[int]reflect.Type
 	// Find a consistent PkgPath for all unexported fields.
 	// reflect.StructOf requires all unexported fields to share the same PkgPath.
 	pkgPath := "builtin"
@@ -833,6 +836,16 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			(embedFieldHasMethods(f, rf[i].Type) || runtype.EmbedTripsStructOf(rf[i].Type)):
 			// reflect.StructOf only promotes a method-bearing embed at field 0; a later one panics.
 			// Give it a methodless layout-equivalent so the field stays Anonymous (json/fmt flatten it); mvm promotes the methods itself.
+			// That layout is unnamed, so reflect would report this field's type -- and box a
+			// direct field read into an interface -- as *struct{...} not the canonical named
+			// type, diverging from native Go and breaking reflect.DeepEqual/==. Record the
+			// canonical type to repoint the built field at after StructOf (see CloneStructLayoutWithFields).
+			if rf[i].Type != nil {
+				if restore == nil {
+					restore = map[int]reflect.Type{}
+				}
+				restore[i] = rf[i].Type
+			}
 			rf[i].Type = methodlessLayout(rf[i].Type)
 			rf[i].Anonymous = true
 		default:
@@ -840,11 +853,19 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		}
 	}
 	if rt, ok := tryStructOf(rf); ok {
+		if len(restore) > 0 {
+			rt = runtype.CloneStructLayoutWithFields(rt, restore)
+		}
 		return rt
 	}
 	// mvm promotes embedded methods itself, so retry with the embeds demoted to named fields.
+	// A non-anonymous field never trips StructOf's promotion check, so the demoted embeds
+	// keep their canonical method-bearing type (restoring reflect identity) directly.
 	for i := range rf {
 		rf[i].Anonymous = false
+		if rt, ok := restore[i]; ok {
+			rf[i].Type = rt
+		}
 	}
 	return reflect.StructOf(rf)
 }

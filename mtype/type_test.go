@@ -226,3 +226,36 @@ func TestFieldTypeAtPathCloneCanonical(t *testing.T) {
 		t.Fatalf("FieldTypeAtPath = %q, want FrameHeader", got.Name)
 	}
 }
+
+// EmbedMB is exported so an embed of *EmbedMB stays an anonymous field (an
+// unexported embed cannot, a StructOf limitation), exercising the method-bearing
+// embed path below. Exported fields keep its methodless layout StructOf-buildable.
+type EmbedMB struct{ X, Y int }
+
+func (m *EmbedMB) M() int { return m.X }
+
+// TestEmbeddedMethodBearingPtrKeepsIdentity guards the gonum/spatial/kdtree bug:
+// reflect.StructOf refuses to promote a method-bearing embed at a non-first field,
+// so buildStructRtype builds it methodless -- which is unnamed and loses identity.
+// The fix repoints the built field at the canonical type, so reflect.DeepEqual and
+// == see the same identity a literal of the embed type has, while the field stays
+// Anonymous (json/fmt still flatten it).
+//
+// The assertion is on the rtype BuildStructRtype produces directly, not on a value
+// read out of a compiled program: the bug only surfaces when the embed type's
+// methods are already known at layout-build time, which end-to-end is
+// compile-ordering dependent. Calling BuildStructRtype with a method-bearing embed
+// reproduces that state deterministically.
+func TestEmbeddedMethodBearingPtrKeepsIdentity(t *testing.T) {
+	mbPtr := reflect.TypeFor[*EmbedMB]() // method-bearing; trips StructOf as a non-0 embed
+	a := &Type{Name: "A", kind: reflect.Int, Rtype: reflect.TypeFor[int]()}
+	emb := &Type{Name: "EmbedMB", kind: reflect.Pointer, Rtype: mbPtr}
+	st := BuildStructRtype([]*Type{a, emb}, []EmbeddedField{{FieldIdx: 1, Type: emb}}, nil)
+	f := st.Field(1)
+	if f.Type != mbPtr {
+		t.Errorf("embedded field type = %v, want %v (named identity lost)", f.Type, mbPtr)
+	}
+	if !f.Anonymous {
+		t.Error("embedded field should stay Anonymous so json/fmt flatten it")
+	}
+}

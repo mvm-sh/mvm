@@ -244,6 +244,33 @@ func ReservePtrMethods(elem reflect.Type, name, pkgPath string) (*Reservation, e
 	return &Reservation{rt: asReflectType(&b.t), u: &b.u, m: b.m[:]}, nil
 }
 
+// CloneStructLayoutWithFields returns a fresh, unnamed struct rtype with the same
+// memory layout as src but the listed fields' Typ repointed. Each replacement type
+// must have the same size and pointer shape as the field it replaces (both
+// pointer-kind), so the struct's size, offsets, and gc data stay valid. The src
+// rtype (often a reflect.StructOf-interned type shared by other structs) is left
+// untouched: the clone gets its own Fields backing array.
+//
+// Used to restore a method-bearing embedded field's named identity after the
+// struct was built with a methodless layout to satisfy reflect.StructOf, which
+// refuses to promote a method-bearing embed at a non-first field. The field stays
+// Anonymous (so json/fmt still flatten it) but reflect now reports its real,
+// canonical type so reflect.DeepEqual and == see the same identity as a literal.
+func CloneStructLayoutWithFields(src reflect.Type, fieldTypes map[int]reflect.Type) reflect.Type {
+	s := (*abiStructType)(unsafe.Pointer(rtypePtr(src)))
+	b := new(abiStructType)
+	*b = *s
+	b.Fields = make([]abiStructField, len(s.Fields))
+	copy(b.Fields, s.Fields)
+	for i, ft := range fieldTypes {
+		if ft != nil && i >= 0 && i < len(b.Fields) {
+			b.Fields[i].Typ = rtypePtr(ft)
+		}
+	}
+	registerLayout(&b.abiType, &s.abiType)
+	return asReflectType(&b.abiType)
+}
+
 const abiStructTypeSize = unsafe.Sizeof(abiStructType{})
 
 // fillKeepAlive pins realLayouts whose Fields slices FillStructLayout aliases.
