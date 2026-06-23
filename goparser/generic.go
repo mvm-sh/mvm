@@ -83,6 +83,21 @@ func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Toke
 	}
 }
 
+// beginsTypeConstraint reports whether tok can start a type-parameter
+// constraint (a type expression). It separates a constraint like [S []byte]
+// from an array-size expression like [N + 1], whose second token is an operator.
+// A genuine array size whose second token is itself a type-start (e.g. [N[i]])
+// fails to resolve as a constraint, so the type-decl caller falls back to array
+// parsing.
+func beginsTypeConstraint(tok lang.Token) bool {
+	switch tok {
+	case lang.Ident, lang.Interface, lang.Tilde,
+		lang.BracketBlock, lang.Map, lang.Chan, lang.Func, lang.Struct, lang.Mul:
+		return true
+	}
+	return false
+}
+
 func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 	toks, err := p.scanBlock(bt, false)
 	if err != nil {
@@ -106,8 +121,9 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 			raws = append(raws, rawPar{name: seg[0].Str})
 			continue
 		}
-		// Disambiguate from array size expressions like [N + 1].
-		if seg[1].Tok != lang.Ident && seg[1].Tok != lang.Interface && seg[1].Tok != lang.Tilde {
+		// Disambiguate from array size expressions like [N + 1]: a constraint
+		// begins a type expression, a size expression continues with an operator.
+		if !beginsTypeConstraint(seg[1].Tok) {
 			return nil, p.wrapAt(seg[1], ErrSyntax, "expected a type constraint, got %s", seg[1].Describe())
 		}
 		raws = append(raws, rawPar{name: seg[0].Str, ctoks: seg[1:]})

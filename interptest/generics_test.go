@@ -169,6 +169,45 @@ func main() {
 	}
 }
 
+// An inline constraint that begins with a composite type literal (`[]byte`,
+// `map[K]V`, ...) was rejected as "undefined: f": parseTypeParamList only
+// accepted Ident/Interface/Tilde as the first constraint token, so the function
+// never registered as generic (go.uber.org/zap safeAppendStringLike).
+func TestGenericCompositeTypeConstraint(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Buf struct{ b []byte }
+
+func (z *Buf) AppendString(s string) { z.b = append(z.b, s...) }
+
+func appendLike[S []byte | string](appendTo func(*Buf, S), buf *Buf, s S) {
+	appendTo(buf, s)
+}
+
+func mapID[M map[string]int](m M) M { return m }
+
+func main() {
+	b := &Buf{}
+	appendLike((*Buf).AppendString, b, "hi") // S inferred from the func-typed arg
+	fmt.Println(string(b.b))
+	fmt.Println(mapID(map[string]int{"a": 1})["a"])
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("composite_constraint.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "hi\n1\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (stderr: %s)", got, want, stderr.String())
+	}
+}
+
 // Two functions each declare a local type named Person; both are passed to the
 // same generic function. The types share a PkgPath.Name (main.Person), so the
 // generic instance used to be cached under one mangled name, binding the first

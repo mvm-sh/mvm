@@ -208,6 +208,12 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		if !ok {
 			return nil, nil, 0, p.errAt(t, "package not found: %s", s.PkgPath)
 		}
+		// Prefer the source const's symbol: it carries the materialized named type
+		// (e.g. zapcore.Level), while the published value may have been baked to the
+		// underlying kind before that type was materialized, dropping the name.
+		if cs, _, sok := p.Symbols.Get(s.PkgPath+t.Str, ""); sok && cs.Kind == symbol.Const && cs.Cval != nil {
+			return cs.Cval, cs.Type, 2, nil
+		}
 		v, ok := pkg.Values[t.Str[1:]]
 		if !ok {
 			return nil, nil, 0, p.errAt(t, "symbol not found in package %s: %s", s.PkgPath, t.Str[1:])

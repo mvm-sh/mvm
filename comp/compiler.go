@@ -3881,8 +3881,41 @@ func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (c
 		typ = shiftLeftType(left, c.Symbols["int"].Type)
 	default:
 		typ = arithmeticOpType(right, left)
+		// An untyped operand adopts the typed operand's type (Go spec). mvm pushes
+		// untyped literals with their default type, so arithmeticOpType picks by
+		// numeric rank and drops a same-rank named type (e.g. Level(int8) + 1 -> int).
+		if t := c.typedConstResult(left, right); t != nil {
+			typ = t
+		}
 	}
 	return cv, typ, true
+}
+
+// typedConstResult returns the typed operand's type when exactly one of left/right
+// is an untyped constant, else nil (both typed or both untyped: defer to caller).
+func (c *Compiler) typedConstResult(left, right *symbol.Symbol) *vm.Type {
+	lu, ru := c.isUntypedConst(left), c.isUntypedConst(right)
+	if lu == ru {
+		return nil
+	}
+	if lu {
+		return right.Type
+	}
+	return left.Type
+}
+
+// isUntypedConst reports whether s is an untyped constant. mvm represents an
+// untyped literal with its constant kind's default type (int, float64, ...), so
+// a const whose Type matches that default is untyped; a named type (Level) is not.
+func (c *Compiler) isUntypedConst(s *symbol.Symbol) bool {
+	if s.Kind != symbol.Const || s.Cval == nil {
+		return false
+	}
+	if s.Type == nil {
+		return true
+	}
+	def := goparser.DefaultConstType(s.Cval, c.Symbols)
+	return def != nil && def.Rtype == s.Type.Rtype
 }
 
 // emitFoldedConst materializes a folded constant of type typ into a single load

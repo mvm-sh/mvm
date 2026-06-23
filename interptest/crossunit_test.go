@@ -258,6 +258,69 @@ func main() {
 	}
 }
 
+// TestReExportedTypedConstKeepsNamedType pins the go.uber.org/zap DebugLevel bug.
+// core defines a named type Level (method-bearing) and a typed const of it; mid
+// re-exports it as `const DebugLevel = core.DebugLevel`. The re-export must keep
+// the Level type so boxing it into a Level-satisfying interface dispatches the
+// method. Pre-fix the re-export read the published value (baked to the underlying
+// int8 before Level materialized), dropping the name -> int -> nil method table.
+func TestReExportedTypedConstKeepsNamedType(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/lvl",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/lvl\n",
+			"core/core.go": `package core
+
+type Level int8
+
+const (
+	DebugLevel Level = iota - 1
+	InfoLevel
+)
+
+func (l Level) Enabled(lvl Level) bool { return lvl >= l }
+
+type Enabler interface{ Enabled(Level) bool }
+`,
+			"mid/mid.go": `package mid
+
+import "example.com/x/lvl/core"
+
+const DebugLevel = core.DebugLevel
+
+func Box(e core.Enabler) core.Enabler { return e }
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	"example.com/x/lvl/core"
+	"example.com/x/lvl/mid"
+)
+
+func main() {
+	e := mid.Box(mid.DebugLevel) // boxing the re-export into the interface
+	fmt.Printf("%T %v", mid.DebugLevel, e.Enabled(core.InfoLevel))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "core.Level true"; got != want {
+		t.Errorf("stdout: got %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 func TestFuncNamesMatchesGoIsTest(t *testing.T) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	src := `func Test() {}

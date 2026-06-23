@@ -430,6 +430,34 @@ func main() {
 	}
 }
 
+// TestTypedConstPlusUntypedKeepsType pins the go.uber.org/zap addStack bug.
+// A typed named-type constant plus an untyped one (`Level(int8) + 1`) must keep
+// the named type, so boxing the result into a Level-satisfying interface
+// dispatches the method. Pre-fix the fold picked the wider numeric rank and,
+// both being rank 0, returned the untyped int, dropping the Level name.
+func TestTypedConstPlusUntypedKeepsType(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Level int8
+
+const FatalLevel Level = 5
+
+func (l Level) Enabled(x Level) bool { return x >= l }
+
+type Enabler interface{ Enabled(Level) bool }
+
+func main() {
+	var e Enabler = FatalLevel + 1
+	fmt.Printf("%T %v", e, e.Enabled(2))
+}
+`
+	if got, want := evalOut(t, "typedconst.go", src), "main.Level false"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestMethodExprInterfaceArg checks that a method expression stored in a variable
 // and then called dispatches through the interpreter, even when a parameter is an
 // interface satisfied by an interpreted concrete.
