@@ -5339,7 +5339,11 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 		return m.wrapForFunc(iv.Val, iv.Typ.Rtype), true
 	}
 	if len(iv.Typ.Methods) == 0 && !keepInterpreted {
-		return numReflect(iv.Typ.Rtype, iv.Val), true
+		// adoptNamedType: a typed const's runtime value keeps the underlying
+		// rtype (the named type lives only in Iface.Typ), so retype it or the
+		// eface loses the named identity (e.g. a `type T string` const stored
+		// into an `any` field would assert as string, not T).
+		return adoptNamedType(numReflect(iv.Typ.Rtype, iv.Val), iv.Typ.Rtype), true
 	}
 	// Native interface target: bridge so the mvm-typed concrete value is assignable.
 	if dst.NumMethod() > 0 {
@@ -5351,7 +5355,7 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 		// not the boxed Iface struct, so native reflect/unsafe reads see a Go value.
 		// An empty interface has no methods to bridge; the synth rtype carries the
 		// concrete's methods and typeByRtype recovers the interpreted *Type.
-		return numReflect(iv.Typ.Rtype, iv.Val), true
+		return adoptNamedType(numReflect(iv.Typ.Rtype, iv.Val), iv.Typ.Rtype), true
 	}
 	return reflect.Value{}, false
 }

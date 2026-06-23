@@ -355,6 +355,60 @@ func main() {
 	}
 }
 
+// TestExportedConstUnexportedTypeThroughIfaceField guards the jwt/v5 none case:
+// an exported const of an UNEXPORTED named type, stored cross-package into an
+// `any` struct field, must keep its named type so a type assertion back to that
+// type (inside the owning package) still matches. A typed const's runtime value
+// carries only the underlying rtype, so unboxing the Iface into a native eface
+// must adopt the named rtype (unboxIfaceFor).
+func TestExportedConstUnexportedTypeThroughIfaceField(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/none",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/none\n",
+			"none.go": `package none
+
+type magicConst string
+
+const Allow magicConst = "allow"
+
+func Check(key any) bool {
+	_, ok := key.(magicConst)
+	return ok
+}
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	"example.com/x/none"
+)
+
+type holder struct{ key any }
+
+func main() {
+	h := holder{key: none.Allow} // const into an any field of a composite literal
+	fmt.Printf("%v", none.Check(h.key))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true"; got != want {
+		t.Errorf("stdout: got %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 func TestFuncNamesMatchesGoIsTest(t *testing.T) {
 	i := interp.NewInterpreter(golang.GoSpec)
 	src := `func Test() {}
