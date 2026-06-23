@@ -14,11 +14,6 @@ import (
 	_ "github.com/mvm-sh/mvm/stdlib/all"
 )
 
-// An interface embedding a forward-declared interface (cross-file: band.go's
-// Banded embeds matrix.go's Matrix in gonum/mat) copied an empty placeholder
-// method set, so calls through the embedder picked a random same-named
-// concrete method ("mismatched types complex128 and float64"). The decl now
-// defers until the embedded interface is parsed.
 func TestIfaceEmbedForwardRef(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/mat",
@@ -76,16 +71,6 @@ func main() {
 	}
 }
 
-// A single-method interface whose method returns a FORWARD-declared interface:
-// `x := eds.Get(0); x.Name()` inferred x's type from the reflect-materialized
-// method signature, whose result was erased to bare interface{} whenever Item
-// had not yet materialized to a named reflect interface. Materialization order
-// is map-dependent, so "undefined: Name" appeared on most (not all) compiles.
-// resolveIfaceMethodSym now uses the interpreted symbolic Sig, which keeps
-// Item's method set regardless of materialization order.
-//
-// No concrete implementation of Name exists, so findConcreteFuncSym cannot
-// rescue the call -- the result type must carry the method set itself.
 func TestIfaceForwardResultMethodSet(t *testing.T) {
 	src := `package main
 
@@ -122,13 +107,6 @@ func main() {
 	}
 }
 
-// Storing an interface-typed local into a map whose element type is a narrower
-// bridged interface (here image.Image) used to panic in MapSet:
-// "reflect.Value.SetMapIndex: value of type interface {} is not assignable to
-// type image.Image". Interface locals are boxed as interface{} (or an mvm
-// Iface), neither directly assignable to the map's image.Image slot. The fix
-// in wrapForFunc bridges/unwraps to the concrete element first. Repro of the
-// `mvm test image` TestDecode failure (golden[name] = g).
 func TestIfaceMapStoreBridgedInterface(t *testing.T) {
 	src := `package main
 
@@ -161,12 +139,6 @@ func main() {
 	}
 }
 
-// An interface method returning an interface, dispatched on a value stored in
-// a native slice element (make([]Iface, n) + IndexSet): the call used to go
-// through the synth-attached stub, whose result marshaling dropped the
-// interpreted concrete (it does not implement the synth iface rtype) to nil
-// (gonum/mat HOGSVD: d.T() returned nil, then x.Dims() nil-deref'd). IfaceCall
-// now dispatches synth-rtype receivers through the interpreter directly.
 func TestIfaceResultThroughNativeSliceElem(t *testing.T) {
 	src := `package main
 
@@ -212,12 +184,6 @@ func main() {
 	}
 }
 
-// An interface method whose param mentions the interface itself (goldmark
-// ast.Node.SortChildren(func(n1, n2 Node) int)) materializes that param to any
-// while the interface's own synth rtype is mid-build, but to the precise synth
-// iface on the concrete side. mtype.Identical compared materialized Rtypes by
-// pointer and returned false, so no concrete type satisfied the interface.
-// Identical now falls through to structural identity on rtype inequality.
 func TestIfaceSelfRefMethodSig(t *testing.T) {
 	src := `package main
 
@@ -245,11 +211,6 @@ func main() {
 	}
 }
 
-// A value-receiver method dispatched through an embedded interface field got
-// the unboxed iface value as its receiver cell; the value is unaddressable,
-// so the first field write panicked "reflect.Value.Set using unaddressable
-// value" (zerolog ConsoleWriter.Write: w.PartsOrder = ...). The cell is now
-// detached to an addressable copy, which also matches Go's copy semantics.
 func TestIfaceValueRecvFieldWrite(t *testing.T) {
 	src := `package main
 
@@ -309,16 +270,6 @@ func main() {
 	}
 }
 
-// Minimal repro for the pflag IPNet dispatch bug: a value-receiver method
-// defined in a sub-package on a named type whose underlying is a
-// stdlib-bridged struct, called via interface dispatch on *T.
-//
-// Before the fix in vm.go IfaceCall, the method body received `ipnet`
-// as `*net.IPNet` (the stdlib type, with extra leading pointer) instead
-// of `ipNetValue` (the value receiver expects). `net.IPNet(ipnet)` then
-// panicked with "value of type *net.IPNet cannot be converted to type
-// net.IPNet". The fix derefs ifc.Val when ResolveMethodType walked from
-// *T to T and the method has a value receiver (PtrRecv=false).
 func TestRemoteIPNetIfaceDirect(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/pflag",
@@ -380,9 +331,6 @@ func main() {
 	}
 }
 
-// Same fix, exercised through a pflag-shaped call chain (multi-method
-// interface, several layers of method calls before the iface dispatch
-// reaches the value-receiver method body).
 func TestRemoteIPNetIfaceDispatch(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/pflag",
@@ -466,15 +414,6 @@ func main() {
 	}
 }
 
-// mvm registers pointer-receiver methods on the value type T with
-// PtrRecv=true. The native-bridge layer (vm.wrapIface / wrapIfaceMulti)
-// must NOT expose those methods on T's method set: in Go semantics they
-// only belong to *T. Otherwise, passing a T value to native fmt would
-// build a Stringer bridge with the int Value as receiver, and the
-// pointer-receiver body would panic at the first `*recv` deref with
-// "reflect: call of reflect.Value.Elem on int Value". Reproducer:
-// pflag's TestPrintDefaults via `type customValue int` with a
-// pointer-receiver String() that calls fmt.Sprintf("%v", *cv).
 func TestNativeBridgeSkipsPtrRecvOnValue(t *testing.T) {
 	src := `package main
 
@@ -506,12 +445,53 @@ func main() {
 	}
 }
 
-// new(io.Reader) emitted PtrNew against the type's zero-VALUE slot, which
-// NewValue collapses to interface{} for interface/func kinds (heterogeneous
-// var storage). The pointer thus reflected as *interface{} with no methods,
-// so reflect.TypeOf(new(io.Reader)).Elem().Implements(...) was always true
-// (TestImplements/TestAssignableTo). new now builds the pointer from the
-// precise type descriptor, keeping the declared element type and method set.
+func TestMapFuncReturnsUnreflectableIface(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Cfg struct{ Name string }
+
+type Encoder interface {
+	AddComplex128(k string, v complex128) // unclassifiable: no word-shape
+	Encode() string
+}
+
+type jsonEncoder struct{ cfg Cfg }
+
+func (j *jsonEncoder) AddComplex128(k string, v complex128) {}
+func (j *jsonEncoder) Encode() string                       { return "json:" + j.cfg.Name }
+
+var registry = map[string]func(Cfg) (Encoder, error){
+	"json": func(c Cfg) (Encoder, error) { return &jsonEncoder{cfg: c}, nil },
+}
+
+func newEncoder(name string, c Cfg) (Encoder, error) {
+	ctor, ok := registry[name]
+	if !ok {
+		return nil, nil
+	}
+	return ctor(c) // ctor is a non-addressable func value read from the map
+}
+
+func main() {
+	e, err := newEncoder("json", Cfg{Name: "x"})
+	fmt.Println(e.Encode(), err)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("mapfunc_iface.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "json:x <nil>\n"; got != want {
+		t.Errorf("stdout: got %q, want %q (stderr: %s)", got, want, stderr.String())
+	}
+}
+
 func TestNewInterfaceRtypeKeepsMethods(t *testing.T) {
 	src := `package main
 
@@ -540,11 +520,6 @@ func main() {
 	}
 }
 
-// A named word-carrier scalar (type NInt int) boxed into an interface that is
-// stored in a struct field, then dispatched via a value-receiver method, must
-// pass the real value as the receiver. The re-wrap of the field's non-addressable
-// numeric concrete built the Iface.Val with data in ref but a stale num=0; the
-// method body reads num, so the receiver came through as the zero value.
 func TestWordCarrierIfaceFieldReceiver(t *testing.T) {
 	const src = `package main
 
@@ -607,13 +582,6 @@ func TestStructEmbedIfaceNativeBoundary(t *testing.T) {
 	}
 }
 
-// make(NamedSlice, n) must keep its named identity at runtime. Before the fix
-// MkSlice rebuilt the value as the unnamed underlying []T, so boxing the make
-// result straight into an interface (here a struct field round-tripped through
-// a channel) dropped NamedSlice's method set and method dispatch nil-dereffed.
-// Mirrors grpc internal/transport TestReadMessageHeaderMultipleBuffers, where a
-// mem.SliceBuffer flows through recvBuffer's recvMsg channel and then dispatches
-// the unexported mem.Buffer.read method inside package mem.
 func TestMakeNamedSliceIfaceIdentity(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/mem",

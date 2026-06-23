@@ -636,7 +636,7 @@ func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
 		if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Generic {
 			continue // already registered (real decl parsed, or a duplicate pre-pass)
 		}
-		params, err := p.parseTypeParamList(decl[2].Token)
+		params, err := p.parseTypeParamList(decl[2].Token, false)
 		if err != nil {
 			continue // let registerFunc surface the error during the loop
 		}

@@ -208,6 +208,48 @@ func main() {
 	}
 }
 
+// `type T[P *int]` is NOT a generic type: gc parses the brackets as an array size
+// `[P * int]`, so P is undefined in the body. Allowing Mul as a constraint-start
+// in the type-decl path wrongly accepted it as generic; beginsTypeConstraint must
+// exclude Mul there (arrayAmbiguous) while still accepting `func f[P *int]`, which
+// is valid Go (a func type-param list is never an array).
+func TestPointerConstraintTypeDeclIsArray(t *testing.T) {
+	bad := `package main
+
+type Ptr[P *int] struct{ v P }
+
+func main() { _ = Ptr[*int]{} }
+`
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	if _, err := i.Eval("ptr_type.go", bad); err == nil {
+		t.Errorf("expected error for `type Ptr[P *int]` (gc parses it as an array), got none")
+	}
+
+	// The func form is valid Go and must still work.
+	good := `package main
+
+import "fmt"
+
+func deref[P *int](p P) int { return *p }
+
+func main() {
+	x := 5
+	fmt.Println(deref(&x))
+}
+`
+	var stdout, stderr bytes.Buffer
+	j := interp.NewInterpreter(golang.GoSpec)
+	j.ImportPackageValues(stdlib.Values)
+	j.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := j.Eval("ptr_func.go", good); err != nil {
+		t.Fatalf("func[P *int] Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "5\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // Two functions each declare a local type named Person; both are passed to the
 // same generic function. The types share a PkgPath.Name (main.Person), so the
 // generic instance used to be cached under one mangled name, binding the first

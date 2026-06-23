@@ -38,7 +38,7 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		}
 		// Generic function: func Name[T any](params) rettype { ... }
 		if len(toks) > 2 && toks[2].Tok == lang.BracketBlock {
-			params, err := p.parseTypeParamList(toks[2].Token)
+			params, err := p.parseTypeParamList(toks[2].Token, false)
 			if err != nil {
 				return false, err
 			}

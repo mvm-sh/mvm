@@ -258,12 +258,46 @@ func main() {
 	}
 }
 
-// TestReExportedTypedConstKeepsNamedType pins the go.uber.org/zap DebugLevel bug.
-// core defines a named type Level (method-bearing) and a typed const of it; mid
-// re-exports it as `const DebugLevel = core.DebugLevel`. The re-export must keep
-// the Level type so boxing it into a Level-satisfying interface dispatches the
-// method. Pre-fix the re-export read the published value (baked to the underlying
-// int8 before Level materialized), dropping the name -> int -> nil method table.
+func TestImportedUnexportedConstRejected(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/sec",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/sec\n",
+			"core/core.go": `package core
+
+const secret = 99
+const Public = 7
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	"example.com/x/sec/core"
+)
+
+const X = core.secret
+
+func main() { fmt.Println(X) }
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	// gc rejects this outright; mvm either errors or (pre-existing leniency for an
+	// undefined const) registers a nil stub. Either is fine -- the guarantee is that
+	// the unexported value 99 must NOT leak through.
+	_, err := i.Eval("test", src)
+	if err == nil && strings.Contains(stdout.String(), "99") {
+		t.Fatalf("unexported core.secret leaked its value: stdout %q", stdout.String())
+	}
+}
+
 func TestReExportedTypedConstKeepsNamedType(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/lvl",

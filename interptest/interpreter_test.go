@@ -4438,6 +4438,45 @@ out`
 	}
 }
 
+// runtime.CallersFrames is virtualized to return *mvmFrames; a struct field or
+// variable typed *runtime.Frames must therefore resolve to *mvmFrames, else the
+// assignment fails reflect.Set ("*stdlib.mvmFrames is not assignable to
+// *runtime.Frames"). Repro of go.uber.org/zap internal/stacktrace.Stack.frames
+// (TestConfig/development), which holds the iterator in a field across calls.
+func TestRuntimeFramesFieldType(t *testing.T) {
+	src := `import "runtime"
+
+type stack struct {
+	frames *runtime.Frames
+}
+
+func capture() int {
+	pcs := make([]uintptr, 16)
+	n := runtime.Callers(0, pcs)
+	s := &stack{}
+	s.frames = runtime.CallersFrames(pcs[:n]) // the field assign that failed
+	count := 0
+	for {
+		_, more := s.frames.Next()
+		count++
+		if !more {
+			break
+		}
+	}
+	return count
+}
+capture()`
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	r, err := intp.Eval("frames_field", src)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got == "0" || got == "<invalid reflect.Value>" {
+		t.Fatalf("got %q, want a positive frame count", got)
+	}
+}
+
 // TestRepl exercises the re-entrant interpreter (REPL mode), where a single
 // Interp is used across multiple sequential Eval calls.
 func TestRepl(t *testing.T) {

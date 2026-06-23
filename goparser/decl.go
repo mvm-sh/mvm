@@ -208,11 +208,11 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		if !ok {
 			return nil, nil, 0, p.errAt(t, "package not found: %s", s.PkgPath)
 		}
-		// Prefer the source const's symbol: it carries the materialized named type
-		// (e.g. zapcore.Level), while the published value may have been baked to the
-		// underlying kind before that type was materialized, dropping the name.
-		if cs, _, sok := p.Symbols.Get(s.PkgPath+t.Str, ""); sok && cs.Kind == symbol.Const && cs.Cval != nil {
-			return cs.Cval, cs.Type, 2, nil
+		// Prefer the source const's symbol: it carries the materialized named type.
+		if IsExported(t.Str[1:]) {
+			if cs, _, sok := p.Symbols.Get(s.PkgPath+t.Str, ""); sok && cs.Kind == symbol.Const && cs.Cval != nil {
+				return cs.Cval, cs.Type, 2, nil
+			}
 		}
 		v, ok := pkg.Values[t.Str[1:]]
 		if !ok {
@@ -1209,7 +1209,7 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 	// Disambiguated from array types (type T [3]int) by parseTypeParamList
 	// which requires each segment to have an identifier constraint.
 	if !isAlias && len(toks) > 0 && toks[0].Tok == lang.BracketBlock {
-		if params, err := p.parseTypeParamList(toks[0].Token); err == nil {
+		if params, err := p.parseTypeParamList(toks[0].Token, true); err == nil {
 			p.SymSet(p.pkgKey(in[0].Str), &symbol.Symbol{
 				Kind: symbol.Generic,
 				Name: in[0].Str,

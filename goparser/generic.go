@@ -65,8 +65,6 @@ type genericInstance struct {
 	mname    string // mangled symbol name used for instance type registration
 }
 
-// genericFuncSymbol builds a generic-function symbol-table entry; genType is nil
-// when only pre-registering the name (preRegisterGenericFuncs).
 func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Tokens, genType *vm.Type) *symbol.Symbol {
 	return &symbol.Symbol{
 		Kind: symbol.Generic,
@@ -83,22 +81,18 @@ func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Toke
 	}
 }
 
-// beginsTypeConstraint reports whether tok can start a type-parameter
-// constraint (a type expression). It separates a constraint like [S []byte]
-// from an array-size expression like [N + 1], whose second token is an operator.
-// A genuine array size whose second token is itself a type-start (e.g. [N[i]])
-// fails to resolve as a constraint, so the type-decl caller falls back to array
-// parsing.
-func beginsTypeConstraint(tok lang.Token) bool {
+func beginsTypeConstraint(tok lang.Token, arrayAmbiguous bool) bool {
 	switch tok {
 	case lang.Ident, lang.Interface, lang.Tilde,
-		lang.BracketBlock, lang.Map, lang.Chan, lang.Func, lang.Struct, lang.Mul:
+		lang.BracketBlock, lang.Map, lang.Chan, lang.Func, lang.Struct:
 		return true
+	case lang.Mul:
+		return !arrayAmbiguous
 	}
 	return false
 }
 
-func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
+func (p *Parser) parseTypeParamList(bt scan.Token, arrayAmbiguous bool) ([]typeParam, error) {
 	toks, err := p.scanBlock(bt, false)
 	if err != nil {
 		return nil, err
@@ -123,7 +117,7 @@ func (p *Parser) parseTypeParamList(bt scan.Token) ([]typeParam, error) {
 		}
 		// Disambiguate from array size expressions like [N + 1]: a constraint
 		// begins a type expression, a size expression continues with an operator.
-		if !beginsTypeConstraint(seg[1].Tok) {
+		if !beginsTypeConstraint(seg[1].Tok, arrayAmbiguous) {
 			return nil, p.wrapAt(seg[1], ErrSyntax, "expected a type constraint, got %s", seg[1].Describe())
 		}
 		raws = append(raws, rawPar{name: seg[0].Str, ctoks: seg[1:]})
@@ -187,9 +181,6 @@ func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, ca
 	return nil
 }
 
-// constraintError reports at the instantiation callsite (callPos) when known,
-// so the diagnostic and the drop-failing-file retry point at the offending call,
-// not the template's constraint decl.
 func (p *Parser) constraintError(c tpConstraint, arg *vm.Type, callPos int) error {
 	pos := callPos
 	if pos == 0 {
@@ -202,9 +193,6 @@ func (p *Parser) constraintError(c tpConstraint, arg *vm.Type, callPos int) erro
 	}
 }
 
-// constraintErr is a positioned constraint-satisfaction failure. ErrPos lets
-// the diagnostic chokepoint (interp.Eval) render a source snippet at the
-// instantiation site.
 type constraintErr struct {
 	loc, msg string
 	pos      int
@@ -219,15 +207,11 @@ func (e *constraintErr) Error() string {
 
 func (e *constraintErr) ErrPos() int { return e.pos }
 
-// checkConstraint passes if any element in c.elems matches arg. typeArgs
-// carries the full set of concrete type arguments for the current
-// instantiation so that a TypeParamRef element can resolve to its target.
 func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type, tpArgs map[string]*vm.Type, callPos int) error {
 	for _, e := range c.elems {
-		// Interface elements (e.g. the `error` in `[E error]`) need a
-		// method-set check that sees interpreted methods, which live in
-		// vm-level Methods rather than on the reflect Rtype. checkConstraintElem
-		// can only reflect, so handle the interface case here where the parser's
+		// Interface elements need a method-set check that sees interpreted methods,
+		// which live in vm-level Methods rather than on the reflect Rtype.
+		// checkConstraintElem can only reflect, so handle the interface case here where the parser's
 		// symbol table is reachable.
 		if e.kind == elemInterface {
 			if e.typ == nil || p.argImplementsIface(arg, e.typ) {
@@ -250,10 +234,6 @@ func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Ty
 	return p.constraintError(c, arg, callPos)
 }
 
-// argImplementsIface reports whether type argument arg satisfies the interface
-// constraint iface. Native concrete types are decided by reflect; interpreted
-// types (whose methods are invisible to reflect.Implements) are checked by
-// method name against the parser's registered method symbols.
 func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 	if arg == nil {
 		return true
@@ -298,8 +278,6 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 	return true
 }
 
-// ifaceContainsMethod reports whether t is an interface type whose method set
-// includes a method named name.
 func ifaceContainsMethod(t *vm.Type, name string) bool {
 	if t == nil {
 		return false
@@ -312,8 +290,6 @@ func ifaceContainsMethod(t *vm.Type, name string) bool {
 	return false
 }
 
-// hasNativeMethod reports whether reflect type rt has a method named name in
-// its method set.
 func hasNativeMethod(rt reflect.Type, name string) bool {
 	if rt == nil {
 		return false
@@ -322,9 +298,6 @@ func hasNativeMethod(rt reflect.Type, name string) bool {
 	return ok
 }
 
-// argRecvTypeNames returns the receiver type names whose method symbols make up
-// arg's method set. A pointer argument also includes the value-receiver methods
-// of its base type (matching Go's method-set rules).
 func argRecvTypeNames(arg *vm.Type) []string {
 	name := typeArgName(arg)
 	if name == "" {
@@ -337,9 +310,6 @@ func argRecvTypeNames(arg *vm.Type) []string {
 	return names
 }
 
-// hasMethodSym reports whether any of recvNames has a registered method named
-// method (key shape "<recvType>.<method>", e.g. "*E.Error"), resolved through
-// symGet so pkg-qualified and pointer-method keys both match.
 func (p *Parser) hasMethodSym(recvNames []string, method string) bool {
 	for _, rn := range recvNames {
 		if s, _, ok := p.symGet(rn + "." + method); ok && s.Kind == symbol.Func {
@@ -349,9 +319,6 @@ func (p *Parser) hasMethodSym(recvNames []string, method string) bool {
 	return false
 }
 
-// resolveConstraint turns raw constraint tokens into a resolved constraint.
-// tpIdx maps names of type parameters in the enclosing list to their index so
-// that e.g. "~[]E" with "E" another type param resolves correctly.
 func (p *Parser) resolveConstraint(toks Tokens, tpIdx map[string]int) (tpConstraint, error) {
 	elems, err := p.resolveConstraintElems(toks, tpIdx)
 	if err != nil {
@@ -364,9 +331,6 @@ func (p *Parser) resolveConstraint(toks Tokens, tpIdx map[string]int) (tpConstra
 	return tpConstraint{elems: elems, pos: pos}, nil
 }
 
-// resolveConstraintElems returns the flat disjunction of leaf elements that
-// satisfy the constraint expressed by toks. Nested unions - including those
-// embedded inside constraint interfaces like cmp.Ordered - are flattened.
 func (p *Parser) resolveConstraintElems(toks Tokens, tpIdx map[string]int) ([]constraintElem, error) {
 	if len(toks) == 0 {
 		return nil, fmt.Errorf("%w: empty constraint", ErrSyntax)
@@ -445,8 +409,6 @@ func (p *Parser) resolveConstraintElems(toks Tokens, tpIdx map[string]int) ([]co
 	return []constraintElem{{kind: elemExact, typ: typ}}, nil
 }
 
-// resolveTypeArgs parses the contents of a bracket block as concrete type arguments.
-// E.g. "[int, string]" -> []*vm.Type{intType, stringType}.
 func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, error) {
 	toks, err := p.scanBlock(bt, false)
 	if err != nil {
@@ -466,19 +428,6 @@ func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, error) {
 	return types, nil
 }
 
-// bindTypeParamSyms installs the symbol mk returns for each type parameter at
-// its bare name AND the CompilingPkg/importingPkg-qualified keys, returning a
-// restore func the caller invokes (often via defer). mk returning nil skips that
-// parameter.
-//
-// A type param shadows a package-level symbol of the same name (Go scoping: it
-// is local to the generic). symGet, under CompilingPkg/importingPkg, prefers a
-// canonical "<pkg>.<name>" over a bare binding, so installing only the bare key
-// would let a type param colliding with a package symbol -- e.g. lo's
-// Must2[T1, T2 any] next to a package func T2, or the E in Min[S ~[]E, E int]
-// next to a package func E -- resolve to that symbol instead of the parameter.
-// Save/restore nests safely under recursive instantiation: an inner restore
-// re-exposes the outer binding.
 func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typeParam) *symbol.Symbol) func() {
 	type saved struct {
 		key string
@@ -517,10 +466,6 @@ func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typePar
 	}
 }
 
-// bindTypeParams maps each type-parameter name to its concrete type argument
-// while an instantiated body is parsed. The body keeps the type-param names (it
-// is re-scanned from block text), so every type-position reference resolves to
-// the concrete type and carries its identity to the compiler.
 func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() {
 	return p.bindTypeParamSyms(params, func(i int, tp typeParam) *symbol.Symbol {
 		if i >= len(typeArgs) || typeArgs[i] == nil {
@@ -538,28 +483,15 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 	})
 }
 
-// bindTypeParamPlaceholders maps each type-parameter name to an any-typed
-// placeholder while a generic signature or constraint is parsed (the concrete
-// arguments are not yet known).
 func (p *Parser) bindTypeParamPlaceholders(params []typeParam) func() {
 	return p.bindTypeParamSyms(params, func(_ int, tp typeParam) *symbol.Symbol {
 		return &symbol.Symbol{Kind: symbol.Type, Name: tp.name, Type: &vm.Type{Name: tp.name, Rtype: vm.AnyRtype}}
 	})
 }
 
-// maxInstDepth bounds the nesting depth of in-progress instantiations. Same-type
-// recursion terminates via the mname dedup below (the instance symbol is
-// registered before its body is parsed); only unbounded type growth - e.g.
-// func F[T any]() { F[[]T]() } - produces an endless chain of distinct mangled
-// names, which this depth bound turns into an error instead of a hang. Go rejects
-// the same program as an "instantiation cycle".
+// maxInstDepth bounds the nesting depth of in-progress instantiations.
 const maxInstDepth = 100
 
-// instantiate produces a concrete (monomorphized) version of a generic template:
-// it copies the template tokens, renames the declaration to its mangled name, and
-// strips the type-parameter bracket. The body keeps the type-param names, which
-// resolve to the concrete type args by identity via bindTypeParams during the
-// re-parse.
 func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Token) (Tokens, string, error) {
 	// A partial list (fewer args than params) reaches here only when the
 	// caller couldn't infer the rest; a too-long list is always an error.
@@ -582,10 +514,6 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 		return nil, "", err
 	}
 
-	// Keep the type-param names in the body; they resolve to the concrete type
-	// args via the transient bindTypeParams binding active during the re-parse
-	// (so identity travels, not name). Copy so the decl rename below does not
-	// mutate the template's tokens.
 	out := append(Tokens(nil), tmpl.rawTokens...)
 
 	// Rename the declaration and remove the type parameter bracket block.
@@ -607,11 +535,6 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 	return out, mname, nil
 }
 
-// instanceName gives tmpl<typeArgs> its monomorphization's symbol name and
-// whether an existing one can be reused. Distinct types can share a PkgName.Name
-// (e.g. a type named the same in two functions) and so mangle alike; a func
-// instance bound to one must not be reused for another, so colliding names get a
-// $N suffix.
 func (p *Parser) instanceName(tmpl *genericTemplate, typeArgs []*vm.Type) (name string, reuse bool) {
 	base := mangledName(tmpl.name, typeArgs)
 	if !tmpl.isFunc {
@@ -662,10 +585,6 @@ func identicalTypeArgs(a, b []*vm.Type) bool {
 	return true
 }
 
-// sameInstanceType reports whether type args a and b denote the same
-// monomorphization. Unlike Type.Identical it does not fall back to PkgName.Name:
-// with no Rtype to compare, distinct named *Types are distinct declarations
-// (e.g. a type named the same in two functions), not one shared type.
 func sameInstanceType(a, b *vm.Type) bool {
 	if a == b {
 		return true
@@ -717,11 +636,6 @@ func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArg
 	return true, nil
 }
 
-// ensureTypeInstantiated resolves type arguments from a bracket block and
-// instantiates the generic type template, registering the concrete type.
-// Methods known at this point are instantiated inline; methods attached
-// to the template after this call are picked up later by
-// finalizeGenericMethods.
 func (p *Parser) ensureTypeInstantiated(tmpl *genericTemplate, bt scan.Token) (string, error) {
 	typeArgs, err := p.resolveTypeArgs(bt)
 	if err != nil {
@@ -803,9 +717,6 @@ func (p *Parser) instantiatePendingMethods() (progress bool, err error) {
 	return progress, nil
 }
 
-// methodInstanceKey is the symbol key registerFunc stores a generic-method
-// instance under: "<mTypeName>.<method>", "*"-prefixed for a pointer receiver.
-// instantiateMethod's guard and emitInstantiatedMethod's rollback share it.
 func methodInstanceKey(mTypeName string, methTmpl *genericTemplate) string {
 	key := mTypeName + "." + methTmpl.name
 	if methTmpl.ptrRecv {
@@ -997,9 +908,6 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	return typeArgs, nil
 }
 
-// inferExprType determines the type of an infix token expression by first
-// parsing it into postfix form (reusing parseExpr), then walking the postfix
-// tokens right-to-left following the same pattern as evalConstExpr.
 func (p *Parser) inferExprType(toks Tokens) *vm.Type {
 	postfix, err := p.parseExpr(toks, "")
 	if err != nil || len(postfix) == 0 {
@@ -1009,8 +917,6 @@ func (p *Parser) inferExprType(toks Tokens) *vm.Type {
 	return typ
 }
 
-// postfixType walks postfix tokens right-to-left (like evalConstExpr) and
-// returns the result type and the number of tokens consumed.
 func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 	l := len(in) - 1
 	if l < 0 {
@@ -1319,9 +1225,6 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 	return nil, 0
 }
 
-// pkgMemberType resolves the type of pkgPath.member, from the bridged reflect
-// value or the canonical symbol. Generic members return nil: typing a nested
-// generic call's result reaches bad codegen (a known hang).
 func (p *Parser) pkgMemberType(pkgPath, member string) *vm.Type {
 	// Qualified symbol first: a package published by PublishCompiledPackage
 	// stores an interpreted func's Value as its code address (an int), so the

@@ -1172,9 +1172,25 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			}
 			narg := int(c.A)
 			fval := mem[sp-narg]
-			// Inline fast path: only call resolveFuncField for addressable Func fields.
-			if fval.ref.Kind() == reflect.Func && fval.ref.CanAddr() {
-				fval = m.resolveFuncField(fval)
+			switch fval.ref.Kind() {
+			case reflect.Func:
+				// Inline fast path: only call resolveFuncField for addressable Func fields.
+				if fval.ref.CanAddr() {
+					fval = m.resolveFuncField(fval)
+				} else if mf, ok := m.recoverWrappedFunc(fval.ref); ok {
+					// A wrapped mvm func read from a non-addressable slot (map/iface):
+					// dispatch interpreted so a synth-interface return is not boxed.
+					fval = mf
+				}
+			case reflect.Interface:
+				// A wrapped mvm func boxed in an interface-typed slot (e.g. a func
+				// variable read from a map): unwrap and recover so the call runs
+				// interpreted rather than via reflect.Call.
+				if m.funcFields != nil && m.funcFields.hasWrappers.Load() && !fval.ref.IsNil() {
+					if mf, ok := m.recoverWrappedFunc(fval.ref.Elem()); ok {
+						fval = mf
+					}
+				}
 			}
 			fval.ref = Exportable(fval.ref)
 			prevHeap := m.heap
@@ -4183,6 +4199,7 @@ type funcFieldsTable struct {
 	m             map[uintptr]funcFieldEntry
 	gen           uint64
 	hasMethodExpr atomic.Bool // any methodExpr entry registered; gates the Call-opcode lookup
+	hasWrappers   atomic.Bool // any recoverable (weak/strong) wrapper registered; gates recoverWrappedFunc
 }
 
 func newFuncFieldsTable() *funcFieldsTable {
@@ -4217,10 +4234,11 @@ func (t *funcFieldsTable) setStrongKeep(p uintptr, v Value) uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if e, ok := t.m[p]; ok && e.isWeak && e.weak.Value() != nil {
-		return 0
+		return 0 // a live weak entry already maps p; hasWrappers is already set
 	}
 	t.gen++
 	t.m[p] = funcFieldEntry{strong: v, gen: t.gen}
+	t.hasWrappers.Store(true)
 	return t.gen
 }
 
@@ -4252,6 +4270,7 @@ func (t *funcFieldsTable) setWeak(p uintptr, ref *funcRef) {
 	t.mu.Lock()
 	t.m[p] = funcFieldEntry{weak: weak.Make(ref), isWeak: true}
 	t.mu.Unlock()
+	t.hasWrappers.Store(true)
 }
 
 func (t *funcFieldsTable) prune(p uintptr) {
@@ -5179,9 +5198,6 @@ func forceSettable(fv reflect.Value) reflect.Value {
 	return fv
 }
 
-// methodExprBypass reports whether rv is one of this Machine's method-expression
-// wrappers (and dispatch is allowed), returning the method body code address.
-// The atomic gate keeps the cost at one load for programs with no method exprs.
 func (m *Machine) methodExprBypass(rv reflect.Value, allowed bool) (int, bool) {
 	if !allowed || m.funcFields == nil || !m.funcFields.hasMethodExpr.Load() {
 		return 0, false
@@ -5192,18 +5208,36 @@ func (m *Machine) methodExprBypass(rv reflect.Value, allowed bool) (int, bool) {
 	return m.funcFields.methodExprCode(funcDataPtr(rv))
 }
 
+func (m *Machine) wrappedFuncFor(p uintptr) (Value, bool) {
+	pf, ok := m.funcFields.get(p)
+	if !ok || !pf.ref.IsValid() {
+		return Value{}, false
+	}
+	if m.funcFields.hasMethodExpr.Load() && pf.ref.CanInterface() {
+		if _, isME := pf.ref.Interface().(methodExpr); isME {
+			return Value{}, false
+		}
+	}
+	return pf, true
+}
+
 func (m *Machine) resolveFuncField(v Value) Value {
 	if v.ref.Kind() == reflect.Func && v.ref.CanAddr() && !v.ref.IsNil() && m.funcFields != nil {
-		if pf, ok := m.funcFields.get(funcValuePtr(v.ref)); ok {
-			if m.funcFields.hasMethodExpr.Load() && pf.ref.IsValid() && pf.ref.CanInterface() {
-				if _, isME := pf.ref.Interface().(methodExpr); isME {
-					return v // keep the wrapper; the Call opcode handles method-expr dispatch
-				}
-			}
-			return pf
+		if pf, ok := m.wrappedFuncFor(funcValuePtr(v.ref)); ok {
+			return pf // a method-expr wrapper yields ok=false, so v (the wrapper) falls through
 		}
 	}
 	return v
+}
+
+func (m *Machine) recoverWrappedFunc(rv reflect.Value) (Value, bool) {
+	// hasWrappers gates the funcDataPtr allocation + lock: skip when no recoverable
+	// wrapper exists (cheap atomic, like methodExprBypass's hasMethodExpr).
+	if m.funcFields == nil || !m.funcFields.hasWrappers.Load() || rv.Kind() != reflect.Func || rv.IsNil() {
+		return Value{}, false
+	}
+	// funcDataPtr copies rv into a fresh slot, which panics on a read-only value.
+	return m.wrappedFuncFor(funcDataPtr(Exportable(rv)))
 }
 
 func (m *Machine) setGoFuncField(fv, gf reflect.Value, val Value) {

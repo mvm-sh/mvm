@@ -2486,6 +2486,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					// Copy so foldConstLoad's per-use type rewrite doesn't fix the
 					// shared const's type and overflow a later use's context.
 					cs := *s
+					cs.Name = t.Str
 					s = &cs
 				}
 			}
@@ -3858,13 +3859,6 @@ func litCval(s string, tok token.Token) constant.Value {
 	return cv
 }
 
-// foldConstBinary folds `left op right` into a single constant when both
-// operands are constants carrying a go/constant.Value. It returns ok=false when
-// either operand has no Cval or when go/constant declines the operation (an
-// invalid shift count, or division/remainder by zero), so the caller falls back
-// to emitting the runtime op. The result type follows Go's rules: bool for
-// comparisons, the left operand's type for shifts, and the wider operand type
-// (float over int) for arithmetic and bitwise ops.
 func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (constant.Value, *vm.Type, bool) {
 	if left.Kind != symbol.Const || right.Kind != symbol.Const || left.Cval == nil || right.Cval == nil {
 		return nil, nil, false
@@ -3891,8 +3885,6 @@ func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (c
 	return cv, typ, true
 }
 
-// typedConstResult returns the typed operand's type when exactly one of left/right
-// is an untyped constant, else nil (both typed or both untyped: defer to caller).
 func (c *Compiler) typedConstResult(left, right *symbol.Symbol) *vm.Type {
 	lu, ru := c.isUntypedConst(left), c.isUntypedConst(right)
 	if lu == ru {
@@ -3904,33 +3896,24 @@ func (c *Compiler) typedConstResult(left, right *symbol.Symbol) *vm.Type {
 	return left.Type
 }
 
-// isUntypedConst reports whether s is an untyped constant. mvm represents an
-// untyped literal with its constant kind's default type (int, float64, ...), so
-// a const whose Type matches that default is untyped; a named type (Level) is not.
 func (c *Compiler) isUntypedConst(s *symbol.Symbol) bool {
 	if s.Kind != symbol.Const || s.Cval == nil {
 		return false
 	}
 	if s.Type == nil {
-		return true
+		return true // untyped: a literal/intermediate or untyped named const carries no type
+	}
+	if s.Name != "" {
+		return false
 	}
 	def := goparser.DefaultConstType(s.Cval, c.Symbols)
 	return def != nil && def.Rtype == s.Type.Rtype
 }
 
-// emitFoldedConst materializes a folded constant of type typ into a single load
-// instruction and returns the resulting Const symbol (the caller pushes it). An
-// untyped integer result that no longer fits int64 is widened to uint64, and
-// beyond uint64 to float64 (the only valid non-complex context for a value that
-// wide), mirroring Go's untyped-constant rules and the former wide-shift fold.
 func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.Type) (*symbol.Symbol, error) {
 	if typ == nil {
 		typ = goparser.DefaultConstType(cv, c.Symbols)
 	}
-	// A folded result whose type is an explicitly-sized integer (never the type
-	// of an untyped default) but whose value doesn't fit is a compile error, the
-	// same as gc -- e.g. int8(100)+int8(100). The widening below is reserved for
-	// untyped int/rune results (1<<63 etc.), so it is not reached for these.
 	if isOverflowCheckedType(typ) && goparser.OverflowsType(cv, typ) {
 		return nil, c.errOverflow(t, cv, typ)
 	}
@@ -3956,11 +3939,6 @@ func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.
 	return &symbol.Symbol{Kind: symbol.Const, Value: val, Cval: cv, Type: typ}, nil
 }
 
-// isOverflowCheckedType reports whether typ is an integer type that is never the
-// default type of an untyped constant (so a folded value of this type must come
-// from an explicitly-typed operand and can be range-checked). int (untyped int
-// default) and int32 (untyped rune default) are intentionally excluded so untyped
-// arithmetic like 1<<63 keeps widening instead of erroring.
 func isOverflowCheckedType(typ *vm.Type) bool {
 	if typ == nil {
 		return false
@@ -3973,15 +3951,10 @@ func isOverflowCheckedType(typ *vm.Type) bool {
 	return false
 }
 
-// emitConstLoad emits a single instruction loading val (of type typ): an
-// immediate Push for a signed integer that fits int32, otherwise a GetGlobal of
-// a fresh data slot (floats, strings, wide and unsigned ints).
 func (c *Compiler) emitConstLoad(t goparser.Token, val vm.Value, typ *vm.Type) {
 	c.Code = append(c.Code, c.constLoadInstr(val, typ, vm.Pos(t.Pos)))
 }
 
-// constLoadInstr builds (without appending) the single load instruction for val
-// of type typ -- see emitConstLoad.
 func (c *Compiler) constLoadInstr(val vm.Value, typ *vm.Type, pos vm.Pos) vm.Instruction {
 	if typ != nil {
 		if k := typ.Kind(); k >= reflect.Int && k <= reflect.Int64 {
@@ -3995,12 +3968,6 @@ func (c *Compiler) constLoadInstr(val vm.Value, typ *vm.Type, pos vm.Pos) vm.Ins
 	return vm.Instruction{Op: vm.GetGlobal, A: int32(di), Pos: pos}
 }
 
-// emitConstImm emits a constant identifier as an immediate Push when it is a
-// signed integer fitting int32, returning true. This lets a named const (e.g.
-// `const N = ...` in `j <= N`) feed the immediate-fusion fast paths instead of
-// loading via GetGlobal. Floats, strings, unsigned and wide ints keep the
-// GetGlobal path (the caller falls through). The const still carries its Cval on
-// the compile stack, so a fully-constant expression folds regardless.
 func (c *Compiler) emitConstImm(t goparser.Token, s *symbol.Symbol) bool {
 	if !s.Value.IsValid() {
 		return false

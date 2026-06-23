@@ -52,6 +52,11 @@ func patchRuntime(_ *vm.Machine, values map[string]vm.Value) {
 	}))
 	values["FuncForPC"] = vm.FromReflect(reflect.ValueOf(mvmFuncForPC))
 	values["CallersFrames"] = vm.FromReflect(reflect.ValueOf(mvmCallersFrames))
+	// CallersFrames returns *mvmFrames, so a `*runtime.Frames` field or variable
+	// must resolve to *mvmFrames too -- else assigning the result fails reflect.Set
+	// (zap internal/stacktrace.Stack.frames). Frame (singular, the Next result)
+	// stays native; mvmFrames.Next returns a real runtime.Frame.
+	values["Frames"] = vm.FromReflect(reflect.ValueOf((*mvmFrames)(nil)))
 }
 
 // mvmCaller mirrors runtime.Caller for the live interpreter stack.
