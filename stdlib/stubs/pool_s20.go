@@ -779,261 +779,263 @@ func stubS20_254(recv unsafe.Pointer, value string) error { return dispatchS20(2
 //go:noinline
 func stubS20_255(recv unsafe.Pointer, value string) error { return dispatchS20(255, recv, value) }
 
-var stubsS20 = [poolSizeS20]uintptr{
-	runtype.FuncPC(stubS20_0),
-	runtype.FuncPC(stubS20_1),
-	runtype.FuncPC(stubS20_2),
-	runtype.FuncPC(stubS20_3),
-	runtype.FuncPC(stubS20_4),
-	runtype.FuncPC(stubS20_5),
-	runtype.FuncPC(stubS20_6),
-	runtype.FuncPC(stubS20_7),
-	runtype.FuncPC(stubS20_8),
-	runtype.FuncPC(stubS20_9),
-	runtype.FuncPC(stubS20_10),
-	runtype.FuncPC(stubS20_11),
-	runtype.FuncPC(stubS20_12),
-	runtype.FuncPC(stubS20_13),
-	runtype.FuncPC(stubS20_14),
-	runtype.FuncPC(stubS20_15),
-	runtype.FuncPC(stubS20_16),
-	runtype.FuncPC(stubS20_17),
-	runtype.FuncPC(stubS20_18),
-	runtype.FuncPC(stubS20_19),
-	runtype.FuncPC(stubS20_20),
-	runtype.FuncPC(stubS20_21),
-	runtype.FuncPC(stubS20_22),
-	runtype.FuncPC(stubS20_23),
-	runtype.FuncPC(stubS20_24),
-	runtype.FuncPC(stubS20_25),
-	runtype.FuncPC(stubS20_26),
-	runtype.FuncPC(stubS20_27),
-	runtype.FuncPC(stubS20_28),
-	runtype.FuncPC(stubS20_29),
-	runtype.FuncPC(stubS20_30),
-	runtype.FuncPC(stubS20_31),
-	runtype.FuncPC(stubS20_32),
-	runtype.FuncPC(stubS20_33),
-	runtype.FuncPC(stubS20_34),
-	runtype.FuncPC(stubS20_35),
-	runtype.FuncPC(stubS20_36),
-	runtype.FuncPC(stubS20_37),
-	runtype.FuncPC(stubS20_38),
-	runtype.FuncPC(stubS20_39),
-	runtype.FuncPC(stubS20_40),
-	runtype.FuncPC(stubS20_41),
-	runtype.FuncPC(stubS20_42),
-	runtype.FuncPC(stubS20_43),
-	runtype.FuncPC(stubS20_44),
-	runtype.FuncPC(stubS20_45),
-	runtype.FuncPC(stubS20_46),
-	runtype.FuncPC(stubS20_47),
-	runtype.FuncPC(stubS20_48),
-	runtype.FuncPC(stubS20_49),
-	runtype.FuncPC(stubS20_50),
-	runtype.FuncPC(stubS20_51),
-	runtype.FuncPC(stubS20_52),
-	runtype.FuncPC(stubS20_53),
-	runtype.FuncPC(stubS20_54),
-	runtype.FuncPC(stubS20_55),
-	runtype.FuncPC(stubS20_56),
-	runtype.FuncPC(stubS20_57),
-	runtype.FuncPC(stubS20_58),
-	runtype.FuncPC(stubS20_59),
-	runtype.FuncPC(stubS20_60),
-	runtype.FuncPC(stubS20_61),
-	runtype.FuncPC(stubS20_62),
-	runtype.FuncPC(stubS20_63),
-	runtype.FuncPC(stubS20_64),
-	runtype.FuncPC(stubS20_65),
-	runtype.FuncPC(stubS20_66),
-	runtype.FuncPC(stubS20_67),
-	runtype.FuncPC(stubS20_68),
-	runtype.FuncPC(stubS20_69),
-	runtype.FuncPC(stubS20_70),
-	runtype.FuncPC(stubS20_71),
-	runtype.FuncPC(stubS20_72),
-	runtype.FuncPC(stubS20_73),
-	runtype.FuncPC(stubS20_74),
-	runtype.FuncPC(stubS20_75),
-	runtype.FuncPC(stubS20_76),
-	runtype.FuncPC(stubS20_77),
-	runtype.FuncPC(stubS20_78),
-	runtype.FuncPC(stubS20_79),
-	runtype.FuncPC(stubS20_80),
-	runtype.FuncPC(stubS20_81),
-	runtype.FuncPC(stubS20_82),
-	runtype.FuncPC(stubS20_83),
-	runtype.FuncPC(stubS20_84),
-	runtype.FuncPC(stubS20_85),
-	runtype.FuncPC(stubS20_86),
-	runtype.FuncPC(stubS20_87),
-	runtype.FuncPC(stubS20_88),
-	runtype.FuncPC(stubS20_89),
-	runtype.FuncPC(stubS20_90),
-	runtype.FuncPC(stubS20_91),
-	runtype.FuncPC(stubS20_92),
-	runtype.FuncPC(stubS20_93),
-	runtype.FuncPC(stubS20_94),
-	runtype.FuncPC(stubS20_95),
-	runtype.FuncPC(stubS20_96),
-	runtype.FuncPC(stubS20_97),
-	runtype.FuncPC(stubS20_98),
-	runtype.FuncPC(stubS20_99),
-	runtype.FuncPC(stubS20_100),
-	runtype.FuncPC(stubS20_101),
-	runtype.FuncPC(stubS20_102),
-	runtype.FuncPC(stubS20_103),
-	runtype.FuncPC(stubS20_104),
-	runtype.FuncPC(stubS20_105),
-	runtype.FuncPC(stubS20_106),
-	runtype.FuncPC(stubS20_107),
-	runtype.FuncPC(stubS20_108),
-	runtype.FuncPC(stubS20_109),
-	runtype.FuncPC(stubS20_110),
-	runtype.FuncPC(stubS20_111),
-	runtype.FuncPC(stubS20_112),
-	runtype.FuncPC(stubS20_113),
-	runtype.FuncPC(stubS20_114),
-	runtype.FuncPC(stubS20_115),
-	runtype.FuncPC(stubS20_116),
-	runtype.FuncPC(stubS20_117),
-	runtype.FuncPC(stubS20_118),
-	runtype.FuncPC(stubS20_119),
-	runtype.FuncPC(stubS20_120),
-	runtype.FuncPC(stubS20_121),
-	runtype.FuncPC(stubS20_122),
-	runtype.FuncPC(stubS20_123),
-	runtype.FuncPC(stubS20_124),
-	runtype.FuncPC(stubS20_125),
-	runtype.FuncPC(stubS20_126),
-	runtype.FuncPC(stubS20_127),
-	runtype.FuncPC(stubS20_128),
-	runtype.FuncPC(stubS20_129),
-	runtype.FuncPC(stubS20_130),
-	runtype.FuncPC(stubS20_131),
-	runtype.FuncPC(stubS20_132),
-	runtype.FuncPC(stubS20_133),
-	runtype.FuncPC(stubS20_134),
-	runtype.FuncPC(stubS20_135),
-	runtype.FuncPC(stubS20_136),
-	runtype.FuncPC(stubS20_137),
-	runtype.FuncPC(stubS20_138),
-	runtype.FuncPC(stubS20_139),
-	runtype.FuncPC(stubS20_140),
-	runtype.FuncPC(stubS20_141),
-	runtype.FuncPC(stubS20_142),
-	runtype.FuncPC(stubS20_143),
-	runtype.FuncPC(stubS20_144),
-	runtype.FuncPC(stubS20_145),
-	runtype.FuncPC(stubS20_146),
-	runtype.FuncPC(stubS20_147),
-	runtype.FuncPC(stubS20_148),
-	runtype.FuncPC(stubS20_149),
-	runtype.FuncPC(stubS20_150),
-	runtype.FuncPC(stubS20_151),
-	runtype.FuncPC(stubS20_152),
-	runtype.FuncPC(stubS20_153),
-	runtype.FuncPC(stubS20_154),
-	runtype.FuncPC(stubS20_155),
-	runtype.FuncPC(stubS20_156),
-	runtype.FuncPC(stubS20_157),
-	runtype.FuncPC(stubS20_158),
-	runtype.FuncPC(stubS20_159),
-	runtype.FuncPC(stubS20_160),
-	runtype.FuncPC(stubS20_161),
-	runtype.FuncPC(stubS20_162),
-	runtype.FuncPC(stubS20_163),
-	runtype.FuncPC(stubS20_164),
-	runtype.FuncPC(stubS20_165),
-	runtype.FuncPC(stubS20_166),
-	runtype.FuncPC(stubS20_167),
-	runtype.FuncPC(stubS20_168),
-	runtype.FuncPC(stubS20_169),
-	runtype.FuncPC(stubS20_170),
-	runtype.FuncPC(stubS20_171),
-	runtype.FuncPC(stubS20_172),
-	runtype.FuncPC(stubS20_173),
-	runtype.FuncPC(stubS20_174),
-	runtype.FuncPC(stubS20_175),
-	runtype.FuncPC(stubS20_176),
-	runtype.FuncPC(stubS20_177),
-	runtype.FuncPC(stubS20_178),
-	runtype.FuncPC(stubS20_179),
-	runtype.FuncPC(stubS20_180),
-	runtype.FuncPC(stubS20_181),
-	runtype.FuncPC(stubS20_182),
-	runtype.FuncPC(stubS20_183),
-	runtype.FuncPC(stubS20_184),
-	runtype.FuncPC(stubS20_185),
-	runtype.FuncPC(stubS20_186),
-	runtype.FuncPC(stubS20_187),
-	runtype.FuncPC(stubS20_188),
-	runtype.FuncPC(stubS20_189),
-	runtype.FuncPC(stubS20_190),
-	runtype.FuncPC(stubS20_191),
-	runtype.FuncPC(stubS20_192),
-	runtype.FuncPC(stubS20_193),
-	runtype.FuncPC(stubS20_194),
-	runtype.FuncPC(stubS20_195),
-	runtype.FuncPC(stubS20_196),
-	runtype.FuncPC(stubS20_197),
-	runtype.FuncPC(stubS20_198),
-	runtype.FuncPC(stubS20_199),
-	runtype.FuncPC(stubS20_200),
-	runtype.FuncPC(stubS20_201),
-	runtype.FuncPC(stubS20_202),
-	runtype.FuncPC(stubS20_203),
-	runtype.FuncPC(stubS20_204),
-	runtype.FuncPC(stubS20_205),
-	runtype.FuncPC(stubS20_206),
-	runtype.FuncPC(stubS20_207),
-	runtype.FuncPC(stubS20_208),
-	runtype.FuncPC(stubS20_209),
-	runtype.FuncPC(stubS20_210),
-	runtype.FuncPC(stubS20_211),
-	runtype.FuncPC(stubS20_212),
-	runtype.FuncPC(stubS20_213),
-	runtype.FuncPC(stubS20_214),
-	runtype.FuncPC(stubS20_215),
-	runtype.FuncPC(stubS20_216),
-	runtype.FuncPC(stubS20_217),
-	runtype.FuncPC(stubS20_218),
-	runtype.FuncPC(stubS20_219),
-	runtype.FuncPC(stubS20_220),
-	runtype.FuncPC(stubS20_221),
-	runtype.FuncPC(stubS20_222),
-	runtype.FuncPC(stubS20_223),
-	runtype.FuncPC(stubS20_224),
-	runtype.FuncPC(stubS20_225),
-	runtype.FuncPC(stubS20_226),
-	runtype.FuncPC(stubS20_227),
-	runtype.FuncPC(stubS20_228),
-	runtype.FuncPC(stubS20_229),
-	runtype.FuncPC(stubS20_230),
-	runtype.FuncPC(stubS20_231),
-	runtype.FuncPC(stubS20_232),
-	runtype.FuncPC(stubS20_233),
-	runtype.FuncPC(stubS20_234),
-	runtype.FuncPC(stubS20_235),
-	runtype.FuncPC(stubS20_236),
-	runtype.FuncPC(stubS20_237),
-	runtype.FuncPC(stubS20_238),
-	runtype.FuncPC(stubS20_239),
-	runtype.FuncPC(stubS20_240),
-	runtype.FuncPC(stubS20_241),
-	runtype.FuncPC(stubS20_242),
-	runtype.FuncPC(stubS20_243),
-	runtype.FuncPC(stubS20_244),
-	runtype.FuncPC(stubS20_245),
-	runtype.FuncPC(stubS20_246),
-	runtype.FuncPC(stubS20_247),
-	runtype.FuncPC(stubS20_248),
-	runtype.FuncPC(stubS20_249),
-	runtype.FuncPC(stubS20_250),
-	runtype.FuncPC(stubS20_251),
-	runtype.FuncPC(stubS20_252),
-	runtype.FuncPC(stubS20_253),
-	runtype.FuncPC(stubS20_254),
-	runtype.FuncPC(stubS20_255),
+var stubsS20 [poolSizeS20]uintptr
+
+func init() {
+	stubsS20[0] = runtype.FuncPC(stubS20_0)
+	stubsS20[1] = runtype.FuncPC(stubS20_1)
+	stubsS20[2] = runtype.FuncPC(stubS20_2)
+	stubsS20[3] = runtype.FuncPC(stubS20_3)
+	stubsS20[4] = runtype.FuncPC(stubS20_4)
+	stubsS20[5] = runtype.FuncPC(stubS20_5)
+	stubsS20[6] = runtype.FuncPC(stubS20_6)
+	stubsS20[7] = runtype.FuncPC(stubS20_7)
+	stubsS20[8] = runtype.FuncPC(stubS20_8)
+	stubsS20[9] = runtype.FuncPC(stubS20_9)
+	stubsS20[10] = runtype.FuncPC(stubS20_10)
+	stubsS20[11] = runtype.FuncPC(stubS20_11)
+	stubsS20[12] = runtype.FuncPC(stubS20_12)
+	stubsS20[13] = runtype.FuncPC(stubS20_13)
+	stubsS20[14] = runtype.FuncPC(stubS20_14)
+	stubsS20[15] = runtype.FuncPC(stubS20_15)
+	stubsS20[16] = runtype.FuncPC(stubS20_16)
+	stubsS20[17] = runtype.FuncPC(stubS20_17)
+	stubsS20[18] = runtype.FuncPC(stubS20_18)
+	stubsS20[19] = runtype.FuncPC(stubS20_19)
+	stubsS20[20] = runtype.FuncPC(stubS20_20)
+	stubsS20[21] = runtype.FuncPC(stubS20_21)
+	stubsS20[22] = runtype.FuncPC(stubS20_22)
+	stubsS20[23] = runtype.FuncPC(stubS20_23)
+	stubsS20[24] = runtype.FuncPC(stubS20_24)
+	stubsS20[25] = runtype.FuncPC(stubS20_25)
+	stubsS20[26] = runtype.FuncPC(stubS20_26)
+	stubsS20[27] = runtype.FuncPC(stubS20_27)
+	stubsS20[28] = runtype.FuncPC(stubS20_28)
+	stubsS20[29] = runtype.FuncPC(stubS20_29)
+	stubsS20[30] = runtype.FuncPC(stubS20_30)
+	stubsS20[31] = runtype.FuncPC(stubS20_31)
+	stubsS20[32] = runtype.FuncPC(stubS20_32)
+	stubsS20[33] = runtype.FuncPC(stubS20_33)
+	stubsS20[34] = runtype.FuncPC(stubS20_34)
+	stubsS20[35] = runtype.FuncPC(stubS20_35)
+	stubsS20[36] = runtype.FuncPC(stubS20_36)
+	stubsS20[37] = runtype.FuncPC(stubS20_37)
+	stubsS20[38] = runtype.FuncPC(stubS20_38)
+	stubsS20[39] = runtype.FuncPC(stubS20_39)
+	stubsS20[40] = runtype.FuncPC(stubS20_40)
+	stubsS20[41] = runtype.FuncPC(stubS20_41)
+	stubsS20[42] = runtype.FuncPC(stubS20_42)
+	stubsS20[43] = runtype.FuncPC(stubS20_43)
+	stubsS20[44] = runtype.FuncPC(stubS20_44)
+	stubsS20[45] = runtype.FuncPC(stubS20_45)
+	stubsS20[46] = runtype.FuncPC(stubS20_46)
+	stubsS20[47] = runtype.FuncPC(stubS20_47)
+	stubsS20[48] = runtype.FuncPC(stubS20_48)
+	stubsS20[49] = runtype.FuncPC(stubS20_49)
+	stubsS20[50] = runtype.FuncPC(stubS20_50)
+	stubsS20[51] = runtype.FuncPC(stubS20_51)
+	stubsS20[52] = runtype.FuncPC(stubS20_52)
+	stubsS20[53] = runtype.FuncPC(stubS20_53)
+	stubsS20[54] = runtype.FuncPC(stubS20_54)
+	stubsS20[55] = runtype.FuncPC(stubS20_55)
+	stubsS20[56] = runtype.FuncPC(stubS20_56)
+	stubsS20[57] = runtype.FuncPC(stubS20_57)
+	stubsS20[58] = runtype.FuncPC(stubS20_58)
+	stubsS20[59] = runtype.FuncPC(stubS20_59)
+	stubsS20[60] = runtype.FuncPC(stubS20_60)
+	stubsS20[61] = runtype.FuncPC(stubS20_61)
+	stubsS20[62] = runtype.FuncPC(stubS20_62)
+	stubsS20[63] = runtype.FuncPC(stubS20_63)
+	stubsS20[64] = runtype.FuncPC(stubS20_64)
+	stubsS20[65] = runtype.FuncPC(stubS20_65)
+	stubsS20[66] = runtype.FuncPC(stubS20_66)
+	stubsS20[67] = runtype.FuncPC(stubS20_67)
+	stubsS20[68] = runtype.FuncPC(stubS20_68)
+	stubsS20[69] = runtype.FuncPC(stubS20_69)
+	stubsS20[70] = runtype.FuncPC(stubS20_70)
+	stubsS20[71] = runtype.FuncPC(stubS20_71)
+	stubsS20[72] = runtype.FuncPC(stubS20_72)
+	stubsS20[73] = runtype.FuncPC(stubS20_73)
+	stubsS20[74] = runtype.FuncPC(stubS20_74)
+	stubsS20[75] = runtype.FuncPC(stubS20_75)
+	stubsS20[76] = runtype.FuncPC(stubS20_76)
+	stubsS20[77] = runtype.FuncPC(stubS20_77)
+	stubsS20[78] = runtype.FuncPC(stubS20_78)
+	stubsS20[79] = runtype.FuncPC(stubS20_79)
+	stubsS20[80] = runtype.FuncPC(stubS20_80)
+	stubsS20[81] = runtype.FuncPC(stubS20_81)
+	stubsS20[82] = runtype.FuncPC(stubS20_82)
+	stubsS20[83] = runtype.FuncPC(stubS20_83)
+	stubsS20[84] = runtype.FuncPC(stubS20_84)
+	stubsS20[85] = runtype.FuncPC(stubS20_85)
+	stubsS20[86] = runtype.FuncPC(stubS20_86)
+	stubsS20[87] = runtype.FuncPC(stubS20_87)
+	stubsS20[88] = runtype.FuncPC(stubS20_88)
+	stubsS20[89] = runtype.FuncPC(stubS20_89)
+	stubsS20[90] = runtype.FuncPC(stubS20_90)
+	stubsS20[91] = runtype.FuncPC(stubS20_91)
+	stubsS20[92] = runtype.FuncPC(stubS20_92)
+	stubsS20[93] = runtype.FuncPC(stubS20_93)
+	stubsS20[94] = runtype.FuncPC(stubS20_94)
+	stubsS20[95] = runtype.FuncPC(stubS20_95)
+	stubsS20[96] = runtype.FuncPC(stubS20_96)
+	stubsS20[97] = runtype.FuncPC(stubS20_97)
+	stubsS20[98] = runtype.FuncPC(stubS20_98)
+	stubsS20[99] = runtype.FuncPC(stubS20_99)
+	stubsS20[100] = runtype.FuncPC(stubS20_100)
+	stubsS20[101] = runtype.FuncPC(stubS20_101)
+	stubsS20[102] = runtype.FuncPC(stubS20_102)
+	stubsS20[103] = runtype.FuncPC(stubS20_103)
+	stubsS20[104] = runtype.FuncPC(stubS20_104)
+	stubsS20[105] = runtype.FuncPC(stubS20_105)
+	stubsS20[106] = runtype.FuncPC(stubS20_106)
+	stubsS20[107] = runtype.FuncPC(stubS20_107)
+	stubsS20[108] = runtype.FuncPC(stubS20_108)
+	stubsS20[109] = runtype.FuncPC(stubS20_109)
+	stubsS20[110] = runtype.FuncPC(stubS20_110)
+	stubsS20[111] = runtype.FuncPC(stubS20_111)
+	stubsS20[112] = runtype.FuncPC(stubS20_112)
+	stubsS20[113] = runtype.FuncPC(stubS20_113)
+	stubsS20[114] = runtype.FuncPC(stubS20_114)
+	stubsS20[115] = runtype.FuncPC(stubS20_115)
+	stubsS20[116] = runtype.FuncPC(stubS20_116)
+	stubsS20[117] = runtype.FuncPC(stubS20_117)
+	stubsS20[118] = runtype.FuncPC(stubS20_118)
+	stubsS20[119] = runtype.FuncPC(stubS20_119)
+	stubsS20[120] = runtype.FuncPC(stubS20_120)
+	stubsS20[121] = runtype.FuncPC(stubS20_121)
+	stubsS20[122] = runtype.FuncPC(stubS20_122)
+	stubsS20[123] = runtype.FuncPC(stubS20_123)
+	stubsS20[124] = runtype.FuncPC(stubS20_124)
+	stubsS20[125] = runtype.FuncPC(stubS20_125)
+	stubsS20[126] = runtype.FuncPC(stubS20_126)
+	stubsS20[127] = runtype.FuncPC(stubS20_127)
+	stubsS20[128] = runtype.FuncPC(stubS20_128)
+	stubsS20[129] = runtype.FuncPC(stubS20_129)
+	stubsS20[130] = runtype.FuncPC(stubS20_130)
+	stubsS20[131] = runtype.FuncPC(stubS20_131)
+	stubsS20[132] = runtype.FuncPC(stubS20_132)
+	stubsS20[133] = runtype.FuncPC(stubS20_133)
+	stubsS20[134] = runtype.FuncPC(stubS20_134)
+	stubsS20[135] = runtype.FuncPC(stubS20_135)
+	stubsS20[136] = runtype.FuncPC(stubS20_136)
+	stubsS20[137] = runtype.FuncPC(stubS20_137)
+	stubsS20[138] = runtype.FuncPC(stubS20_138)
+	stubsS20[139] = runtype.FuncPC(stubS20_139)
+	stubsS20[140] = runtype.FuncPC(stubS20_140)
+	stubsS20[141] = runtype.FuncPC(stubS20_141)
+	stubsS20[142] = runtype.FuncPC(stubS20_142)
+	stubsS20[143] = runtype.FuncPC(stubS20_143)
+	stubsS20[144] = runtype.FuncPC(stubS20_144)
+	stubsS20[145] = runtype.FuncPC(stubS20_145)
+	stubsS20[146] = runtype.FuncPC(stubS20_146)
+	stubsS20[147] = runtype.FuncPC(stubS20_147)
+	stubsS20[148] = runtype.FuncPC(stubS20_148)
+	stubsS20[149] = runtype.FuncPC(stubS20_149)
+	stubsS20[150] = runtype.FuncPC(stubS20_150)
+	stubsS20[151] = runtype.FuncPC(stubS20_151)
+	stubsS20[152] = runtype.FuncPC(stubS20_152)
+	stubsS20[153] = runtype.FuncPC(stubS20_153)
+	stubsS20[154] = runtype.FuncPC(stubS20_154)
+	stubsS20[155] = runtype.FuncPC(stubS20_155)
+	stubsS20[156] = runtype.FuncPC(stubS20_156)
+	stubsS20[157] = runtype.FuncPC(stubS20_157)
+	stubsS20[158] = runtype.FuncPC(stubS20_158)
+	stubsS20[159] = runtype.FuncPC(stubS20_159)
+	stubsS20[160] = runtype.FuncPC(stubS20_160)
+	stubsS20[161] = runtype.FuncPC(stubS20_161)
+	stubsS20[162] = runtype.FuncPC(stubS20_162)
+	stubsS20[163] = runtype.FuncPC(stubS20_163)
+	stubsS20[164] = runtype.FuncPC(stubS20_164)
+	stubsS20[165] = runtype.FuncPC(stubS20_165)
+	stubsS20[166] = runtype.FuncPC(stubS20_166)
+	stubsS20[167] = runtype.FuncPC(stubS20_167)
+	stubsS20[168] = runtype.FuncPC(stubS20_168)
+	stubsS20[169] = runtype.FuncPC(stubS20_169)
+	stubsS20[170] = runtype.FuncPC(stubS20_170)
+	stubsS20[171] = runtype.FuncPC(stubS20_171)
+	stubsS20[172] = runtype.FuncPC(stubS20_172)
+	stubsS20[173] = runtype.FuncPC(stubS20_173)
+	stubsS20[174] = runtype.FuncPC(stubS20_174)
+	stubsS20[175] = runtype.FuncPC(stubS20_175)
+	stubsS20[176] = runtype.FuncPC(stubS20_176)
+	stubsS20[177] = runtype.FuncPC(stubS20_177)
+	stubsS20[178] = runtype.FuncPC(stubS20_178)
+	stubsS20[179] = runtype.FuncPC(stubS20_179)
+	stubsS20[180] = runtype.FuncPC(stubS20_180)
+	stubsS20[181] = runtype.FuncPC(stubS20_181)
+	stubsS20[182] = runtype.FuncPC(stubS20_182)
+	stubsS20[183] = runtype.FuncPC(stubS20_183)
+	stubsS20[184] = runtype.FuncPC(stubS20_184)
+	stubsS20[185] = runtype.FuncPC(stubS20_185)
+	stubsS20[186] = runtype.FuncPC(stubS20_186)
+	stubsS20[187] = runtype.FuncPC(stubS20_187)
+	stubsS20[188] = runtype.FuncPC(stubS20_188)
+	stubsS20[189] = runtype.FuncPC(stubS20_189)
+	stubsS20[190] = runtype.FuncPC(stubS20_190)
+	stubsS20[191] = runtype.FuncPC(stubS20_191)
+	stubsS20[192] = runtype.FuncPC(stubS20_192)
+	stubsS20[193] = runtype.FuncPC(stubS20_193)
+	stubsS20[194] = runtype.FuncPC(stubS20_194)
+	stubsS20[195] = runtype.FuncPC(stubS20_195)
+	stubsS20[196] = runtype.FuncPC(stubS20_196)
+	stubsS20[197] = runtype.FuncPC(stubS20_197)
+	stubsS20[198] = runtype.FuncPC(stubS20_198)
+	stubsS20[199] = runtype.FuncPC(stubS20_199)
+	stubsS20[200] = runtype.FuncPC(stubS20_200)
+	stubsS20[201] = runtype.FuncPC(stubS20_201)
+	stubsS20[202] = runtype.FuncPC(stubS20_202)
+	stubsS20[203] = runtype.FuncPC(stubS20_203)
+	stubsS20[204] = runtype.FuncPC(stubS20_204)
+	stubsS20[205] = runtype.FuncPC(stubS20_205)
+	stubsS20[206] = runtype.FuncPC(stubS20_206)
+	stubsS20[207] = runtype.FuncPC(stubS20_207)
+	stubsS20[208] = runtype.FuncPC(stubS20_208)
+	stubsS20[209] = runtype.FuncPC(stubS20_209)
+	stubsS20[210] = runtype.FuncPC(stubS20_210)
+	stubsS20[211] = runtype.FuncPC(stubS20_211)
+	stubsS20[212] = runtype.FuncPC(stubS20_212)
+	stubsS20[213] = runtype.FuncPC(stubS20_213)
+	stubsS20[214] = runtype.FuncPC(stubS20_214)
+	stubsS20[215] = runtype.FuncPC(stubS20_215)
+	stubsS20[216] = runtype.FuncPC(stubS20_216)
+	stubsS20[217] = runtype.FuncPC(stubS20_217)
+	stubsS20[218] = runtype.FuncPC(stubS20_218)
+	stubsS20[219] = runtype.FuncPC(stubS20_219)
+	stubsS20[220] = runtype.FuncPC(stubS20_220)
+	stubsS20[221] = runtype.FuncPC(stubS20_221)
+	stubsS20[222] = runtype.FuncPC(stubS20_222)
+	stubsS20[223] = runtype.FuncPC(stubS20_223)
+	stubsS20[224] = runtype.FuncPC(stubS20_224)
+	stubsS20[225] = runtype.FuncPC(stubS20_225)
+	stubsS20[226] = runtype.FuncPC(stubS20_226)
+	stubsS20[227] = runtype.FuncPC(stubS20_227)
+	stubsS20[228] = runtype.FuncPC(stubS20_228)
+	stubsS20[229] = runtype.FuncPC(stubS20_229)
+	stubsS20[230] = runtype.FuncPC(stubS20_230)
+	stubsS20[231] = runtype.FuncPC(stubS20_231)
+	stubsS20[232] = runtype.FuncPC(stubS20_232)
+	stubsS20[233] = runtype.FuncPC(stubS20_233)
+	stubsS20[234] = runtype.FuncPC(stubS20_234)
+	stubsS20[235] = runtype.FuncPC(stubS20_235)
+	stubsS20[236] = runtype.FuncPC(stubS20_236)
+	stubsS20[237] = runtype.FuncPC(stubS20_237)
+	stubsS20[238] = runtype.FuncPC(stubS20_238)
+	stubsS20[239] = runtype.FuncPC(stubS20_239)
+	stubsS20[240] = runtype.FuncPC(stubS20_240)
+	stubsS20[241] = runtype.FuncPC(stubS20_241)
+	stubsS20[242] = runtype.FuncPC(stubS20_242)
+	stubsS20[243] = runtype.FuncPC(stubS20_243)
+	stubsS20[244] = runtype.FuncPC(stubS20_244)
+	stubsS20[245] = runtype.FuncPC(stubS20_245)
+	stubsS20[246] = runtype.FuncPC(stubS20_246)
+	stubsS20[247] = runtype.FuncPC(stubS20_247)
+	stubsS20[248] = runtype.FuncPC(stubS20_248)
+	stubsS20[249] = runtype.FuncPC(stubS20_249)
+	stubsS20[250] = runtype.FuncPC(stubS20_250)
+	stubsS20[251] = runtype.FuncPC(stubS20_251)
+	stubsS20[252] = runtype.FuncPC(stubS20_252)
+	stubsS20[253] = runtype.FuncPC(stubS20_253)
+	stubsS20[254] = runtype.FuncPC(stubS20_254)
+	stubsS20[255] = runtype.FuncPC(stubS20_255)
 }

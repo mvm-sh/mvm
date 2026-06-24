@@ -40,3 +40,34 @@ jobs:
 
     - name: Test
       run: go test -race -cover ./...
+
+  # The wasm target is 64-bit little-endian but uses a stack ABI (ABI0), so the
+  # synth word-class dispatch takes a separate stack-slot path (vm/synth_word_abi0.go).
+  # Build both wasm OSes (guards the chunked stub-pool init against the 65536-block
+  # limit) and run the synth-dispatch tests under wazero to verify the ABI0
+  # marshaling and the stub-PC-into-method-table call path on a real wasm runtime.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.26'
+
+    - name: Build (wasip1 + js)
+      run: |
+        GOOS=wasip1 GOARCH=wasm go build ./...
+        GOOS=js GOARCH=wasm go build ./...
+
+    - name: Install wazero (WASI runtime)
+      run: go install github.com/tetratelabs/wazero/cmd/wazero@latest
+
+    - name: Test synth dispatch on wasm
+      run: |
+        export GOWASIRUNTIME=wazero
+        export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
+        GOOS=wasip1 GOARCH=wasm go test ./runtype ./stdlib/stubs
+        GOOS=wasip1 GOARCH=wasm go test ./vm -run TestABI0
+        GOOS=wasip1 GOARCH=wasm go test ./interptest -run TestSynth

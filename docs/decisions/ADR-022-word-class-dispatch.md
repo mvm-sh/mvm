@@ -134,15 +134,39 @@ The classifier treats each scalar or pointer as one 8-byte register word (wrong
 for a multi-register `int64` on a 32-bit target) and the integer-word packing is
 little-endian.
 The size check is a compile-time constant and the endianness check a one-time
-init probe, so the path is enabled on amd64/arm64/riscv64/ppc64le and disabled
-elsewhere; when disabled, `detectWordShape` drops every method and only the
-arch-independent typed shapes attach -- correct, just less capable.
-`maxWordIO` (6) caps the words on each side, conservatively below the smaller
-(amd64) nine-integer-register argument budget so the receiver plus arguments
-never spill to the stack, where the stub's ABI would diverge; an over-budget
-signature drops.
+init probe, so the path is enabled on amd64/arm64/riscv64/ppc64le/wasm and
+disabled on 32-bit or big-endian targets; when disabled, `detectWordShape` drops
+every method and only the arch-independent typed shapes attach -- correct, just
+less capable.
+The register budget caps the words on each side below the arch's argument
+registers so the receiver plus arguments never spill to the stack, where the
+stub's ABI would diverge; an over-budget signature drops.
 CI runs the suite on both `ubuntu-latest` (amd64) and `ubuntu-24.04-arm`
 (arm64) to verify the register marshaling on each supported architecture.
+
+### ABI0 (wasm) variant
+
+Go's wasm target is 64-bit little-endian (it passes the gate) but uses ABI0: all
+parameters and results live in contiguous Go-stack memory, not registers.
+A stub matches a real method there when its parameter/result *bytes* reproduce
+that layout, so `wordABI0` (a build-tagged const) swaps `classifyWordSig` and
+`makeWordCore` to a stack-slot decomposition (`synth_word_abi0.go`): each side is
+chunked into 8-byte slots, and -- unlike the register path's one-word-per-leaf --
+sub-word struct fields *pack* into a shared slot (`fixed.Point26_6` is one slot,
+`color.Color.RGBA`'s four `uint32` results are two).
+A slot is `p` iff it is exactly a pointer at an 8-aligned offset, `f` iff exactly
+a `float64`, else `i`; ABI0 pads each side to a pointer-word boundary, so a
+sub-word tail (a lone `bool` result) sits in a full slot whose high bytes are
+frame padding.
+All-8-byte signatures (the vast majority: pointers, `int`/`int64`, `string`,
+slice, interface, `float64`) decompose identically to the register path, so they
+share the same generated pools and keys; only the packed-aggregate keys differ
+and add a couple of pool entries (`iii_`, `_ii`).
+The register and ABI0 classifiers are both compiled on every arch (the dead one
+is eliminated via the `wordABI0` const) so the stack decomposition is
+unit-testable on a register host, including a memory-image equivalence check.
+The stub-PC-into-method-table install path is shared with the register targets
+(it mirrors `reflect`'s own synthesis) but is not yet exercised on a wasm runtime.
 
 ## Consequences
 
@@ -160,8 +184,8 @@ CI runs the suite on both `ubuntu-latest` (amd64) and `ubuntu-24.04-arm`
 - Floats, complex, arrays, sub-word-packed structs, and signatures over six words
   per side still drop (no attach); float (`f`-class) words are a deferred
   extension.
-- The path is gated to 64-bit little-endian; on other targets only the typed
-  shapes work.
+- The path is gated to 64-bit little-endian (amd64/arm64/.../wasm); on 32-bit or
+  big-endian targets only the typed shapes work.
 - The word pools are finite and consumed monotonically like the typed pools.
 - Per-call cost is higher than a typed shape (reflect marshaling plus a
   `reflect.New` per argument), so a hot interface still warrants a typed shape.
@@ -174,9 +198,12 @@ CI runs the suite on both `ubuntu-latest` (amd64) and `ubuntu-24.04-arm`
 
 ## Files
 
-- `vm/synth_word.go` -- `classifyType`/`classifyStruct`, the arch gate,
-  `detectWordShape`/`wordShapeAvailable`, and `makeWordCore` plus the
-  word<->value marshaling.
+- `vm/synth_word.go` -- the arch gate, `detectWordShape`/`wordShapeAvailable`,
+  and the `classifyWordSig`/`makeWordCore` per-arch selectors.
+- `vm/synth_word_regabi.go` -- the register-ABI classifier (`classifyType`,
+  one word per leaf) and marshaling.
+- `vm/synth_word_abi0.go` -- the wasm/ABI0 stack-slot classifier and marshaling.
+- `vm/synth_word_arch_{regabi,wasm}.go` -- the `wordABI0` build-tagged const.
 - `vm/synth_word_drops.go` -- the `MVM_WORDDROPS` drop collector and report.
 - `stdlib/stubs/word.go` -- `CoreFunc`, the `wordPool` registry, and
   `acquireWordSlot`/`HasWordShape`/`registerWordPool`.

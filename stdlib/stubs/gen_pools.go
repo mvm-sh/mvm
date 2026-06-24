@@ -173,6 +173,14 @@ var wordShapes = []wordShape{
 	{Params: "iiii", Results: ""},   // Add2(Point26_6, Point26_6)
 	{Params: "iiiiii", Results: ""}, // Add3(Point26_6, Point26_6, Point26_6)
 	{Params: "", Results: "iiii"},   // color.Color.RGBA() (r,g,b,a uint32)
+	// The wasm/ABI0 classifier packs sub-word struct fields into 8-byte stack
+	// slots, so the freetype/color shapes above collapse: fixed.Point26_6
+	// (struct{X,Y int32}) is one slot and color.RGBA's four uint32 results are two.
+	// Start/Add1 -> "i_" and Add2 -> "ii_" already exist; Add3 -> "iii_" and
+	// color.RGBA -> "_ii" do not. On the register ABI these are just three-int-param
+	// and two-int-result shapes (harmless, rarely used). See synth_word_abi0.go.
+	{Params: "iii", Results: ""},           // wasm: raster.Adder.Add3 (3x Point26_6)
+	{Params: "", Results: "ii", Size: 512}, // wasm: color.Color.RGBA()
 	// Large mixed shape: FillString(font.Face, vg.Point, string). font.Face is an
 	// 8-word struct, so this needs 9 integer + 3 float arg words; it only attaches
 	// where they fit the arch's argument registers (arm64), and is dropped on amd64
@@ -182,20 +190,20 @@ var wordShapes = []wordShape{
 	// satisfy database/sql/driver interfaces across the native boundary. []Value
 	// and []NamedValue are slices ("pii"); driver.Result/Rows/Stmt/Tx and error are
 	// interfaces ("pp"). Exercised by modernc.org/sqlite.
-	{Params: "pii", Results: "pppp"},     // driver.Stmt.Exec/Query([]Value) (Result/Rows, error)
-	{Params: "pii", Results: "pp"},       // driver.Rows.Next([]Value) error
+	{Params: "pii", Results: "pppp"}, // driver.Stmt.Exec/Query([]Value) (Result/Rows, error)
+	{Params: "pii", Results: "pp"},   // driver.Rows.Next([]Value) error
 	// W_pii (niladic slice/iface result, e.g. func() []T) is descriptor-heavy in
 	// protobuf/proto's test suite: it peaks at ~783 attaches (akin to its W_pp
 	// peer at ~817). Slots are monotonic and never reclaimed; size for the largest
 	// single-process attach count plus growth headroom.
 	{Params: "", Results: "pii", Size: 2048}, // driver.Rows.Columns() []string; protobuf descriptors
-	{Params: "pppii", Results: "pppp"},   // driver.StmtExecContext/QueryContext(ctx, []NamedValue) (Result/Rows, error)
-	{Params: "pppipii", Results: "pppp"}, // driver.ExecerContext/QueryerContext(ctx, query, []NamedValue) (Result/Rows, error)
-	{Params: "ppii", Results: "pppp"},    // driver.ConnBeginTx(ctx, TxOptions) (Tx, error)
-	{Params: "pppi", Results: "pppp"},    // driver.ConnPrepareContext(ctx, query) (Stmt, error)
-	{Params: "pppi", Results: "pp"},      // driver.ConnPrepareContext-style (ctx, query) error
-	{Params: "pipii", Results: "pppp"},   // (query, []Value) (Result, error)
-	{Params: "pi", Results: "ppp"},       // (*conn).Backup(string) (*Backup, error)
+	{Params: "pppii", Results: "pppp"},       // driver.StmtExecContext/QueryContext(ctx, []NamedValue) (Result/Rows, error)
+	{Params: "pppipii", Results: "pppp"},     // driver.ExecerContext/QueryerContext(ctx, query, []NamedValue) (Result/Rows, error)
+	{Params: "ppii", Results: "pppp"},        // driver.ConnBeginTx(ctx, TxOptions) (Tx, error)
+	{Params: "pppi", Results: "pppp"},        // driver.ConnPrepareContext(ctx, query) (Stmt, error)
+	{Params: "pppi", Results: "pp"},          // driver.ConnPrepareContext-style (ctx, query) error
+	{Params: "pipii", Results: "pppp"},       // (query, []Value) (Result, error)
+	{Params: "pi", Results: "ppp"},           // (*conn).Backup(string) (*Backup, error)
 	// driver.RowsColumnType* optional interfaces: an interpreted *rows must satisfy
 	// them so database/sql surfaces column metadata. ScanType (i_pp) already exists.
 	{Params: "i", Results: "pi"},  // RowsColumnTypeDatabaseTypeName(int) string
@@ -311,11 +319,7 @@ func emitWord(w wordShape) {
 			id, i, pDecl, rDecl, ret, id, i, pArgs)
 	}
 
-	fmt.Fprintf(&b, "var stubs%s = [poolSize%s]uintptr{\n", id, id)
-	for i := range sz {
-		fmt.Fprintf(&b, "\truntype.FuncPC(stub%s_%d),\n", id, i)
-	}
-	fmt.Fprintf(&b, "}\n\n")
+	fmt.Fprintf(&b, "var stubs%s [poolSize%s]uintptr\n\n", id, id)
 
 	// The per-shape dispatcher: scatter the native words into pw/sw/fw, invoke the
 	// vm-supplied core, gather the result words back out.
@@ -330,7 +334,14 @@ func emitWord(w wordShape) {
 	}
 	fmt.Fprintf(&b, "}\n\n")
 
-	fmt.Fprintf(&b, "func init() {\n\tregisterWordPool(%q, &wordPool{\n", w.key())
+	// Populate the PC table and register in one init func (not a package-var
+	// literal): FuncPC is a call, and a merged package-var init would exceed
+	// wasm's 65536-block per-function limit. One init per file keeps each small.
+	fmt.Fprintf(&b, "func init() {\n")
+	for i := range sz {
+		fmt.Fprintf(&b, "\tstubs%s[%d] = runtype.FuncPC(stub%s_%d)\n", id, i, id, i)
+	}
+	fmt.Fprintf(&b, "\tregisterWordPool(%q, &wordPool{\n", w.key())
 	fmt.Fprintf(&b, "\t\tnext:  &nextSlot%s,\n\t\tcap:   poolSize%s,\n", id, id)
 	fmt.Fprintf(&b, "\t\tstubs: stubs%s[:],\n\t\tslots: slotPool%s[:],\n\t\tname:  %q,\n\t})\n}\n", id, id, id)
 
@@ -368,9 +379,13 @@ func emit(s shape) {
 			"func stub%s_%d(recv unsafe.Pointer%s) %s { %sdispatch%s(%d, recv%s) }\n\n",
 			s.ID, i, s.Params, s.Results, ret, s.ID, i, s.ArgList)
 	}
-	fmt.Fprintf(&b, "var stubs%s = [poolSize%s]uintptr{\n", s.ID, s.ID)
+	// Populate the PC table in an init func, not a package-var literal: each
+	// FuncPC is a call, and the merged package-var init would exceed wasm's
+	// 65536-block per-function limit. One init per file keeps each small.
+	fmt.Fprintf(&b, "var stubs%s [poolSize%s]uintptr\n\n", s.ID, s.ID)
+	fmt.Fprintf(&b, "func init() {\n")
 	for i := range sz {
-		fmt.Fprintf(&b, "\truntype.FuncPC(stub%s_%d),\n", s.ID, i)
+		fmt.Fprintf(&b, "\tstubs%s[%d] = runtype.FuncPC(stub%s_%d)\n", s.ID, i, s.ID, i)
 	}
 	fmt.Fprintf(&b, "}\n")
 

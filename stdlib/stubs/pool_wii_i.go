@@ -1297,264 +1297,7 @@ func stubWii_i_255(recv unsafe.Pointer, w0 uint64, w1 uint64) uint64 {
 	return dispatchWii_i(255, recv, w0, w1)
 }
 
-var stubsWii_i = [poolSizeWii_i]uintptr{
-	runtype.FuncPC(stubWii_i_0),
-	runtype.FuncPC(stubWii_i_1),
-	runtype.FuncPC(stubWii_i_2),
-	runtype.FuncPC(stubWii_i_3),
-	runtype.FuncPC(stubWii_i_4),
-	runtype.FuncPC(stubWii_i_5),
-	runtype.FuncPC(stubWii_i_6),
-	runtype.FuncPC(stubWii_i_7),
-	runtype.FuncPC(stubWii_i_8),
-	runtype.FuncPC(stubWii_i_9),
-	runtype.FuncPC(stubWii_i_10),
-	runtype.FuncPC(stubWii_i_11),
-	runtype.FuncPC(stubWii_i_12),
-	runtype.FuncPC(stubWii_i_13),
-	runtype.FuncPC(stubWii_i_14),
-	runtype.FuncPC(stubWii_i_15),
-	runtype.FuncPC(stubWii_i_16),
-	runtype.FuncPC(stubWii_i_17),
-	runtype.FuncPC(stubWii_i_18),
-	runtype.FuncPC(stubWii_i_19),
-	runtype.FuncPC(stubWii_i_20),
-	runtype.FuncPC(stubWii_i_21),
-	runtype.FuncPC(stubWii_i_22),
-	runtype.FuncPC(stubWii_i_23),
-	runtype.FuncPC(stubWii_i_24),
-	runtype.FuncPC(stubWii_i_25),
-	runtype.FuncPC(stubWii_i_26),
-	runtype.FuncPC(stubWii_i_27),
-	runtype.FuncPC(stubWii_i_28),
-	runtype.FuncPC(stubWii_i_29),
-	runtype.FuncPC(stubWii_i_30),
-	runtype.FuncPC(stubWii_i_31),
-	runtype.FuncPC(stubWii_i_32),
-	runtype.FuncPC(stubWii_i_33),
-	runtype.FuncPC(stubWii_i_34),
-	runtype.FuncPC(stubWii_i_35),
-	runtype.FuncPC(stubWii_i_36),
-	runtype.FuncPC(stubWii_i_37),
-	runtype.FuncPC(stubWii_i_38),
-	runtype.FuncPC(stubWii_i_39),
-	runtype.FuncPC(stubWii_i_40),
-	runtype.FuncPC(stubWii_i_41),
-	runtype.FuncPC(stubWii_i_42),
-	runtype.FuncPC(stubWii_i_43),
-	runtype.FuncPC(stubWii_i_44),
-	runtype.FuncPC(stubWii_i_45),
-	runtype.FuncPC(stubWii_i_46),
-	runtype.FuncPC(stubWii_i_47),
-	runtype.FuncPC(stubWii_i_48),
-	runtype.FuncPC(stubWii_i_49),
-	runtype.FuncPC(stubWii_i_50),
-	runtype.FuncPC(stubWii_i_51),
-	runtype.FuncPC(stubWii_i_52),
-	runtype.FuncPC(stubWii_i_53),
-	runtype.FuncPC(stubWii_i_54),
-	runtype.FuncPC(stubWii_i_55),
-	runtype.FuncPC(stubWii_i_56),
-	runtype.FuncPC(stubWii_i_57),
-	runtype.FuncPC(stubWii_i_58),
-	runtype.FuncPC(stubWii_i_59),
-	runtype.FuncPC(stubWii_i_60),
-	runtype.FuncPC(stubWii_i_61),
-	runtype.FuncPC(stubWii_i_62),
-	runtype.FuncPC(stubWii_i_63),
-	runtype.FuncPC(stubWii_i_64),
-	runtype.FuncPC(stubWii_i_65),
-	runtype.FuncPC(stubWii_i_66),
-	runtype.FuncPC(stubWii_i_67),
-	runtype.FuncPC(stubWii_i_68),
-	runtype.FuncPC(stubWii_i_69),
-	runtype.FuncPC(stubWii_i_70),
-	runtype.FuncPC(stubWii_i_71),
-	runtype.FuncPC(stubWii_i_72),
-	runtype.FuncPC(stubWii_i_73),
-	runtype.FuncPC(stubWii_i_74),
-	runtype.FuncPC(stubWii_i_75),
-	runtype.FuncPC(stubWii_i_76),
-	runtype.FuncPC(stubWii_i_77),
-	runtype.FuncPC(stubWii_i_78),
-	runtype.FuncPC(stubWii_i_79),
-	runtype.FuncPC(stubWii_i_80),
-	runtype.FuncPC(stubWii_i_81),
-	runtype.FuncPC(stubWii_i_82),
-	runtype.FuncPC(stubWii_i_83),
-	runtype.FuncPC(stubWii_i_84),
-	runtype.FuncPC(stubWii_i_85),
-	runtype.FuncPC(stubWii_i_86),
-	runtype.FuncPC(stubWii_i_87),
-	runtype.FuncPC(stubWii_i_88),
-	runtype.FuncPC(stubWii_i_89),
-	runtype.FuncPC(stubWii_i_90),
-	runtype.FuncPC(stubWii_i_91),
-	runtype.FuncPC(stubWii_i_92),
-	runtype.FuncPC(stubWii_i_93),
-	runtype.FuncPC(stubWii_i_94),
-	runtype.FuncPC(stubWii_i_95),
-	runtype.FuncPC(stubWii_i_96),
-	runtype.FuncPC(stubWii_i_97),
-	runtype.FuncPC(stubWii_i_98),
-	runtype.FuncPC(stubWii_i_99),
-	runtype.FuncPC(stubWii_i_100),
-	runtype.FuncPC(stubWii_i_101),
-	runtype.FuncPC(stubWii_i_102),
-	runtype.FuncPC(stubWii_i_103),
-	runtype.FuncPC(stubWii_i_104),
-	runtype.FuncPC(stubWii_i_105),
-	runtype.FuncPC(stubWii_i_106),
-	runtype.FuncPC(stubWii_i_107),
-	runtype.FuncPC(stubWii_i_108),
-	runtype.FuncPC(stubWii_i_109),
-	runtype.FuncPC(stubWii_i_110),
-	runtype.FuncPC(stubWii_i_111),
-	runtype.FuncPC(stubWii_i_112),
-	runtype.FuncPC(stubWii_i_113),
-	runtype.FuncPC(stubWii_i_114),
-	runtype.FuncPC(stubWii_i_115),
-	runtype.FuncPC(stubWii_i_116),
-	runtype.FuncPC(stubWii_i_117),
-	runtype.FuncPC(stubWii_i_118),
-	runtype.FuncPC(stubWii_i_119),
-	runtype.FuncPC(stubWii_i_120),
-	runtype.FuncPC(stubWii_i_121),
-	runtype.FuncPC(stubWii_i_122),
-	runtype.FuncPC(stubWii_i_123),
-	runtype.FuncPC(stubWii_i_124),
-	runtype.FuncPC(stubWii_i_125),
-	runtype.FuncPC(stubWii_i_126),
-	runtype.FuncPC(stubWii_i_127),
-	runtype.FuncPC(stubWii_i_128),
-	runtype.FuncPC(stubWii_i_129),
-	runtype.FuncPC(stubWii_i_130),
-	runtype.FuncPC(stubWii_i_131),
-	runtype.FuncPC(stubWii_i_132),
-	runtype.FuncPC(stubWii_i_133),
-	runtype.FuncPC(stubWii_i_134),
-	runtype.FuncPC(stubWii_i_135),
-	runtype.FuncPC(stubWii_i_136),
-	runtype.FuncPC(stubWii_i_137),
-	runtype.FuncPC(stubWii_i_138),
-	runtype.FuncPC(stubWii_i_139),
-	runtype.FuncPC(stubWii_i_140),
-	runtype.FuncPC(stubWii_i_141),
-	runtype.FuncPC(stubWii_i_142),
-	runtype.FuncPC(stubWii_i_143),
-	runtype.FuncPC(stubWii_i_144),
-	runtype.FuncPC(stubWii_i_145),
-	runtype.FuncPC(stubWii_i_146),
-	runtype.FuncPC(stubWii_i_147),
-	runtype.FuncPC(stubWii_i_148),
-	runtype.FuncPC(stubWii_i_149),
-	runtype.FuncPC(stubWii_i_150),
-	runtype.FuncPC(stubWii_i_151),
-	runtype.FuncPC(stubWii_i_152),
-	runtype.FuncPC(stubWii_i_153),
-	runtype.FuncPC(stubWii_i_154),
-	runtype.FuncPC(stubWii_i_155),
-	runtype.FuncPC(stubWii_i_156),
-	runtype.FuncPC(stubWii_i_157),
-	runtype.FuncPC(stubWii_i_158),
-	runtype.FuncPC(stubWii_i_159),
-	runtype.FuncPC(stubWii_i_160),
-	runtype.FuncPC(stubWii_i_161),
-	runtype.FuncPC(stubWii_i_162),
-	runtype.FuncPC(stubWii_i_163),
-	runtype.FuncPC(stubWii_i_164),
-	runtype.FuncPC(stubWii_i_165),
-	runtype.FuncPC(stubWii_i_166),
-	runtype.FuncPC(stubWii_i_167),
-	runtype.FuncPC(stubWii_i_168),
-	runtype.FuncPC(stubWii_i_169),
-	runtype.FuncPC(stubWii_i_170),
-	runtype.FuncPC(stubWii_i_171),
-	runtype.FuncPC(stubWii_i_172),
-	runtype.FuncPC(stubWii_i_173),
-	runtype.FuncPC(stubWii_i_174),
-	runtype.FuncPC(stubWii_i_175),
-	runtype.FuncPC(stubWii_i_176),
-	runtype.FuncPC(stubWii_i_177),
-	runtype.FuncPC(stubWii_i_178),
-	runtype.FuncPC(stubWii_i_179),
-	runtype.FuncPC(stubWii_i_180),
-	runtype.FuncPC(stubWii_i_181),
-	runtype.FuncPC(stubWii_i_182),
-	runtype.FuncPC(stubWii_i_183),
-	runtype.FuncPC(stubWii_i_184),
-	runtype.FuncPC(stubWii_i_185),
-	runtype.FuncPC(stubWii_i_186),
-	runtype.FuncPC(stubWii_i_187),
-	runtype.FuncPC(stubWii_i_188),
-	runtype.FuncPC(stubWii_i_189),
-	runtype.FuncPC(stubWii_i_190),
-	runtype.FuncPC(stubWii_i_191),
-	runtype.FuncPC(stubWii_i_192),
-	runtype.FuncPC(stubWii_i_193),
-	runtype.FuncPC(stubWii_i_194),
-	runtype.FuncPC(stubWii_i_195),
-	runtype.FuncPC(stubWii_i_196),
-	runtype.FuncPC(stubWii_i_197),
-	runtype.FuncPC(stubWii_i_198),
-	runtype.FuncPC(stubWii_i_199),
-	runtype.FuncPC(stubWii_i_200),
-	runtype.FuncPC(stubWii_i_201),
-	runtype.FuncPC(stubWii_i_202),
-	runtype.FuncPC(stubWii_i_203),
-	runtype.FuncPC(stubWii_i_204),
-	runtype.FuncPC(stubWii_i_205),
-	runtype.FuncPC(stubWii_i_206),
-	runtype.FuncPC(stubWii_i_207),
-	runtype.FuncPC(stubWii_i_208),
-	runtype.FuncPC(stubWii_i_209),
-	runtype.FuncPC(stubWii_i_210),
-	runtype.FuncPC(stubWii_i_211),
-	runtype.FuncPC(stubWii_i_212),
-	runtype.FuncPC(stubWii_i_213),
-	runtype.FuncPC(stubWii_i_214),
-	runtype.FuncPC(stubWii_i_215),
-	runtype.FuncPC(stubWii_i_216),
-	runtype.FuncPC(stubWii_i_217),
-	runtype.FuncPC(stubWii_i_218),
-	runtype.FuncPC(stubWii_i_219),
-	runtype.FuncPC(stubWii_i_220),
-	runtype.FuncPC(stubWii_i_221),
-	runtype.FuncPC(stubWii_i_222),
-	runtype.FuncPC(stubWii_i_223),
-	runtype.FuncPC(stubWii_i_224),
-	runtype.FuncPC(stubWii_i_225),
-	runtype.FuncPC(stubWii_i_226),
-	runtype.FuncPC(stubWii_i_227),
-	runtype.FuncPC(stubWii_i_228),
-	runtype.FuncPC(stubWii_i_229),
-	runtype.FuncPC(stubWii_i_230),
-	runtype.FuncPC(stubWii_i_231),
-	runtype.FuncPC(stubWii_i_232),
-	runtype.FuncPC(stubWii_i_233),
-	runtype.FuncPC(stubWii_i_234),
-	runtype.FuncPC(stubWii_i_235),
-	runtype.FuncPC(stubWii_i_236),
-	runtype.FuncPC(stubWii_i_237),
-	runtype.FuncPC(stubWii_i_238),
-	runtype.FuncPC(stubWii_i_239),
-	runtype.FuncPC(stubWii_i_240),
-	runtype.FuncPC(stubWii_i_241),
-	runtype.FuncPC(stubWii_i_242),
-	runtype.FuncPC(stubWii_i_243),
-	runtype.FuncPC(stubWii_i_244),
-	runtype.FuncPC(stubWii_i_245),
-	runtype.FuncPC(stubWii_i_246),
-	runtype.FuncPC(stubWii_i_247),
-	runtype.FuncPC(stubWii_i_248),
-	runtype.FuncPC(stubWii_i_249),
-	runtype.FuncPC(stubWii_i_250),
-	runtype.FuncPC(stubWii_i_251),
-	runtype.FuncPC(stubWii_i_252),
-	runtype.FuncPC(stubWii_i_253),
-	runtype.FuncPC(stubWii_i_254),
-	runtype.FuncPC(stubWii_i_255),
-}
+var stubsWii_i [poolSizeWii_i]uintptr
 
 func dispatchWii_i(slot uint32, recv unsafe.Pointer, w0 uint64, w1 uint64) uint64 {
 	var pw [0]unsafe.Pointer
@@ -1572,6 +1315,262 @@ func dispatchWii_i(slot uint32, recv unsafe.Pointer, w0 uint64, w1 uint64) uint6
 }
 
 func init() {
+	stubsWii_i[0] = runtype.FuncPC(stubWii_i_0)
+	stubsWii_i[1] = runtype.FuncPC(stubWii_i_1)
+	stubsWii_i[2] = runtype.FuncPC(stubWii_i_2)
+	stubsWii_i[3] = runtype.FuncPC(stubWii_i_3)
+	stubsWii_i[4] = runtype.FuncPC(stubWii_i_4)
+	stubsWii_i[5] = runtype.FuncPC(stubWii_i_5)
+	stubsWii_i[6] = runtype.FuncPC(stubWii_i_6)
+	stubsWii_i[7] = runtype.FuncPC(stubWii_i_7)
+	stubsWii_i[8] = runtype.FuncPC(stubWii_i_8)
+	stubsWii_i[9] = runtype.FuncPC(stubWii_i_9)
+	stubsWii_i[10] = runtype.FuncPC(stubWii_i_10)
+	stubsWii_i[11] = runtype.FuncPC(stubWii_i_11)
+	stubsWii_i[12] = runtype.FuncPC(stubWii_i_12)
+	stubsWii_i[13] = runtype.FuncPC(stubWii_i_13)
+	stubsWii_i[14] = runtype.FuncPC(stubWii_i_14)
+	stubsWii_i[15] = runtype.FuncPC(stubWii_i_15)
+	stubsWii_i[16] = runtype.FuncPC(stubWii_i_16)
+	stubsWii_i[17] = runtype.FuncPC(stubWii_i_17)
+	stubsWii_i[18] = runtype.FuncPC(stubWii_i_18)
+	stubsWii_i[19] = runtype.FuncPC(stubWii_i_19)
+	stubsWii_i[20] = runtype.FuncPC(stubWii_i_20)
+	stubsWii_i[21] = runtype.FuncPC(stubWii_i_21)
+	stubsWii_i[22] = runtype.FuncPC(stubWii_i_22)
+	stubsWii_i[23] = runtype.FuncPC(stubWii_i_23)
+	stubsWii_i[24] = runtype.FuncPC(stubWii_i_24)
+	stubsWii_i[25] = runtype.FuncPC(stubWii_i_25)
+	stubsWii_i[26] = runtype.FuncPC(stubWii_i_26)
+	stubsWii_i[27] = runtype.FuncPC(stubWii_i_27)
+	stubsWii_i[28] = runtype.FuncPC(stubWii_i_28)
+	stubsWii_i[29] = runtype.FuncPC(stubWii_i_29)
+	stubsWii_i[30] = runtype.FuncPC(stubWii_i_30)
+	stubsWii_i[31] = runtype.FuncPC(stubWii_i_31)
+	stubsWii_i[32] = runtype.FuncPC(stubWii_i_32)
+	stubsWii_i[33] = runtype.FuncPC(stubWii_i_33)
+	stubsWii_i[34] = runtype.FuncPC(stubWii_i_34)
+	stubsWii_i[35] = runtype.FuncPC(stubWii_i_35)
+	stubsWii_i[36] = runtype.FuncPC(stubWii_i_36)
+	stubsWii_i[37] = runtype.FuncPC(stubWii_i_37)
+	stubsWii_i[38] = runtype.FuncPC(stubWii_i_38)
+	stubsWii_i[39] = runtype.FuncPC(stubWii_i_39)
+	stubsWii_i[40] = runtype.FuncPC(stubWii_i_40)
+	stubsWii_i[41] = runtype.FuncPC(stubWii_i_41)
+	stubsWii_i[42] = runtype.FuncPC(stubWii_i_42)
+	stubsWii_i[43] = runtype.FuncPC(stubWii_i_43)
+	stubsWii_i[44] = runtype.FuncPC(stubWii_i_44)
+	stubsWii_i[45] = runtype.FuncPC(stubWii_i_45)
+	stubsWii_i[46] = runtype.FuncPC(stubWii_i_46)
+	stubsWii_i[47] = runtype.FuncPC(stubWii_i_47)
+	stubsWii_i[48] = runtype.FuncPC(stubWii_i_48)
+	stubsWii_i[49] = runtype.FuncPC(stubWii_i_49)
+	stubsWii_i[50] = runtype.FuncPC(stubWii_i_50)
+	stubsWii_i[51] = runtype.FuncPC(stubWii_i_51)
+	stubsWii_i[52] = runtype.FuncPC(stubWii_i_52)
+	stubsWii_i[53] = runtype.FuncPC(stubWii_i_53)
+	stubsWii_i[54] = runtype.FuncPC(stubWii_i_54)
+	stubsWii_i[55] = runtype.FuncPC(stubWii_i_55)
+	stubsWii_i[56] = runtype.FuncPC(stubWii_i_56)
+	stubsWii_i[57] = runtype.FuncPC(stubWii_i_57)
+	stubsWii_i[58] = runtype.FuncPC(stubWii_i_58)
+	stubsWii_i[59] = runtype.FuncPC(stubWii_i_59)
+	stubsWii_i[60] = runtype.FuncPC(stubWii_i_60)
+	stubsWii_i[61] = runtype.FuncPC(stubWii_i_61)
+	stubsWii_i[62] = runtype.FuncPC(stubWii_i_62)
+	stubsWii_i[63] = runtype.FuncPC(stubWii_i_63)
+	stubsWii_i[64] = runtype.FuncPC(stubWii_i_64)
+	stubsWii_i[65] = runtype.FuncPC(stubWii_i_65)
+	stubsWii_i[66] = runtype.FuncPC(stubWii_i_66)
+	stubsWii_i[67] = runtype.FuncPC(stubWii_i_67)
+	stubsWii_i[68] = runtype.FuncPC(stubWii_i_68)
+	stubsWii_i[69] = runtype.FuncPC(stubWii_i_69)
+	stubsWii_i[70] = runtype.FuncPC(stubWii_i_70)
+	stubsWii_i[71] = runtype.FuncPC(stubWii_i_71)
+	stubsWii_i[72] = runtype.FuncPC(stubWii_i_72)
+	stubsWii_i[73] = runtype.FuncPC(stubWii_i_73)
+	stubsWii_i[74] = runtype.FuncPC(stubWii_i_74)
+	stubsWii_i[75] = runtype.FuncPC(stubWii_i_75)
+	stubsWii_i[76] = runtype.FuncPC(stubWii_i_76)
+	stubsWii_i[77] = runtype.FuncPC(stubWii_i_77)
+	stubsWii_i[78] = runtype.FuncPC(stubWii_i_78)
+	stubsWii_i[79] = runtype.FuncPC(stubWii_i_79)
+	stubsWii_i[80] = runtype.FuncPC(stubWii_i_80)
+	stubsWii_i[81] = runtype.FuncPC(stubWii_i_81)
+	stubsWii_i[82] = runtype.FuncPC(stubWii_i_82)
+	stubsWii_i[83] = runtype.FuncPC(stubWii_i_83)
+	stubsWii_i[84] = runtype.FuncPC(stubWii_i_84)
+	stubsWii_i[85] = runtype.FuncPC(stubWii_i_85)
+	stubsWii_i[86] = runtype.FuncPC(stubWii_i_86)
+	stubsWii_i[87] = runtype.FuncPC(stubWii_i_87)
+	stubsWii_i[88] = runtype.FuncPC(stubWii_i_88)
+	stubsWii_i[89] = runtype.FuncPC(stubWii_i_89)
+	stubsWii_i[90] = runtype.FuncPC(stubWii_i_90)
+	stubsWii_i[91] = runtype.FuncPC(stubWii_i_91)
+	stubsWii_i[92] = runtype.FuncPC(stubWii_i_92)
+	stubsWii_i[93] = runtype.FuncPC(stubWii_i_93)
+	stubsWii_i[94] = runtype.FuncPC(stubWii_i_94)
+	stubsWii_i[95] = runtype.FuncPC(stubWii_i_95)
+	stubsWii_i[96] = runtype.FuncPC(stubWii_i_96)
+	stubsWii_i[97] = runtype.FuncPC(stubWii_i_97)
+	stubsWii_i[98] = runtype.FuncPC(stubWii_i_98)
+	stubsWii_i[99] = runtype.FuncPC(stubWii_i_99)
+	stubsWii_i[100] = runtype.FuncPC(stubWii_i_100)
+	stubsWii_i[101] = runtype.FuncPC(stubWii_i_101)
+	stubsWii_i[102] = runtype.FuncPC(stubWii_i_102)
+	stubsWii_i[103] = runtype.FuncPC(stubWii_i_103)
+	stubsWii_i[104] = runtype.FuncPC(stubWii_i_104)
+	stubsWii_i[105] = runtype.FuncPC(stubWii_i_105)
+	stubsWii_i[106] = runtype.FuncPC(stubWii_i_106)
+	stubsWii_i[107] = runtype.FuncPC(stubWii_i_107)
+	stubsWii_i[108] = runtype.FuncPC(stubWii_i_108)
+	stubsWii_i[109] = runtype.FuncPC(stubWii_i_109)
+	stubsWii_i[110] = runtype.FuncPC(stubWii_i_110)
+	stubsWii_i[111] = runtype.FuncPC(stubWii_i_111)
+	stubsWii_i[112] = runtype.FuncPC(stubWii_i_112)
+	stubsWii_i[113] = runtype.FuncPC(stubWii_i_113)
+	stubsWii_i[114] = runtype.FuncPC(stubWii_i_114)
+	stubsWii_i[115] = runtype.FuncPC(stubWii_i_115)
+	stubsWii_i[116] = runtype.FuncPC(stubWii_i_116)
+	stubsWii_i[117] = runtype.FuncPC(stubWii_i_117)
+	stubsWii_i[118] = runtype.FuncPC(stubWii_i_118)
+	stubsWii_i[119] = runtype.FuncPC(stubWii_i_119)
+	stubsWii_i[120] = runtype.FuncPC(stubWii_i_120)
+	stubsWii_i[121] = runtype.FuncPC(stubWii_i_121)
+	stubsWii_i[122] = runtype.FuncPC(stubWii_i_122)
+	stubsWii_i[123] = runtype.FuncPC(stubWii_i_123)
+	stubsWii_i[124] = runtype.FuncPC(stubWii_i_124)
+	stubsWii_i[125] = runtype.FuncPC(stubWii_i_125)
+	stubsWii_i[126] = runtype.FuncPC(stubWii_i_126)
+	stubsWii_i[127] = runtype.FuncPC(stubWii_i_127)
+	stubsWii_i[128] = runtype.FuncPC(stubWii_i_128)
+	stubsWii_i[129] = runtype.FuncPC(stubWii_i_129)
+	stubsWii_i[130] = runtype.FuncPC(stubWii_i_130)
+	stubsWii_i[131] = runtype.FuncPC(stubWii_i_131)
+	stubsWii_i[132] = runtype.FuncPC(stubWii_i_132)
+	stubsWii_i[133] = runtype.FuncPC(stubWii_i_133)
+	stubsWii_i[134] = runtype.FuncPC(stubWii_i_134)
+	stubsWii_i[135] = runtype.FuncPC(stubWii_i_135)
+	stubsWii_i[136] = runtype.FuncPC(stubWii_i_136)
+	stubsWii_i[137] = runtype.FuncPC(stubWii_i_137)
+	stubsWii_i[138] = runtype.FuncPC(stubWii_i_138)
+	stubsWii_i[139] = runtype.FuncPC(stubWii_i_139)
+	stubsWii_i[140] = runtype.FuncPC(stubWii_i_140)
+	stubsWii_i[141] = runtype.FuncPC(stubWii_i_141)
+	stubsWii_i[142] = runtype.FuncPC(stubWii_i_142)
+	stubsWii_i[143] = runtype.FuncPC(stubWii_i_143)
+	stubsWii_i[144] = runtype.FuncPC(stubWii_i_144)
+	stubsWii_i[145] = runtype.FuncPC(stubWii_i_145)
+	stubsWii_i[146] = runtype.FuncPC(stubWii_i_146)
+	stubsWii_i[147] = runtype.FuncPC(stubWii_i_147)
+	stubsWii_i[148] = runtype.FuncPC(stubWii_i_148)
+	stubsWii_i[149] = runtype.FuncPC(stubWii_i_149)
+	stubsWii_i[150] = runtype.FuncPC(stubWii_i_150)
+	stubsWii_i[151] = runtype.FuncPC(stubWii_i_151)
+	stubsWii_i[152] = runtype.FuncPC(stubWii_i_152)
+	stubsWii_i[153] = runtype.FuncPC(stubWii_i_153)
+	stubsWii_i[154] = runtype.FuncPC(stubWii_i_154)
+	stubsWii_i[155] = runtype.FuncPC(stubWii_i_155)
+	stubsWii_i[156] = runtype.FuncPC(stubWii_i_156)
+	stubsWii_i[157] = runtype.FuncPC(stubWii_i_157)
+	stubsWii_i[158] = runtype.FuncPC(stubWii_i_158)
+	stubsWii_i[159] = runtype.FuncPC(stubWii_i_159)
+	stubsWii_i[160] = runtype.FuncPC(stubWii_i_160)
+	stubsWii_i[161] = runtype.FuncPC(stubWii_i_161)
+	stubsWii_i[162] = runtype.FuncPC(stubWii_i_162)
+	stubsWii_i[163] = runtype.FuncPC(stubWii_i_163)
+	stubsWii_i[164] = runtype.FuncPC(stubWii_i_164)
+	stubsWii_i[165] = runtype.FuncPC(stubWii_i_165)
+	stubsWii_i[166] = runtype.FuncPC(stubWii_i_166)
+	stubsWii_i[167] = runtype.FuncPC(stubWii_i_167)
+	stubsWii_i[168] = runtype.FuncPC(stubWii_i_168)
+	stubsWii_i[169] = runtype.FuncPC(stubWii_i_169)
+	stubsWii_i[170] = runtype.FuncPC(stubWii_i_170)
+	stubsWii_i[171] = runtype.FuncPC(stubWii_i_171)
+	stubsWii_i[172] = runtype.FuncPC(stubWii_i_172)
+	stubsWii_i[173] = runtype.FuncPC(stubWii_i_173)
+	stubsWii_i[174] = runtype.FuncPC(stubWii_i_174)
+	stubsWii_i[175] = runtype.FuncPC(stubWii_i_175)
+	stubsWii_i[176] = runtype.FuncPC(stubWii_i_176)
+	stubsWii_i[177] = runtype.FuncPC(stubWii_i_177)
+	stubsWii_i[178] = runtype.FuncPC(stubWii_i_178)
+	stubsWii_i[179] = runtype.FuncPC(stubWii_i_179)
+	stubsWii_i[180] = runtype.FuncPC(stubWii_i_180)
+	stubsWii_i[181] = runtype.FuncPC(stubWii_i_181)
+	stubsWii_i[182] = runtype.FuncPC(stubWii_i_182)
+	stubsWii_i[183] = runtype.FuncPC(stubWii_i_183)
+	stubsWii_i[184] = runtype.FuncPC(stubWii_i_184)
+	stubsWii_i[185] = runtype.FuncPC(stubWii_i_185)
+	stubsWii_i[186] = runtype.FuncPC(stubWii_i_186)
+	stubsWii_i[187] = runtype.FuncPC(stubWii_i_187)
+	stubsWii_i[188] = runtype.FuncPC(stubWii_i_188)
+	stubsWii_i[189] = runtype.FuncPC(stubWii_i_189)
+	stubsWii_i[190] = runtype.FuncPC(stubWii_i_190)
+	stubsWii_i[191] = runtype.FuncPC(stubWii_i_191)
+	stubsWii_i[192] = runtype.FuncPC(stubWii_i_192)
+	stubsWii_i[193] = runtype.FuncPC(stubWii_i_193)
+	stubsWii_i[194] = runtype.FuncPC(stubWii_i_194)
+	stubsWii_i[195] = runtype.FuncPC(stubWii_i_195)
+	stubsWii_i[196] = runtype.FuncPC(stubWii_i_196)
+	stubsWii_i[197] = runtype.FuncPC(stubWii_i_197)
+	stubsWii_i[198] = runtype.FuncPC(stubWii_i_198)
+	stubsWii_i[199] = runtype.FuncPC(stubWii_i_199)
+	stubsWii_i[200] = runtype.FuncPC(stubWii_i_200)
+	stubsWii_i[201] = runtype.FuncPC(stubWii_i_201)
+	stubsWii_i[202] = runtype.FuncPC(stubWii_i_202)
+	stubsWii_i[203] = runtype.FuncPC(stubWii_i_203)
+	stubsWii_i[204] = runtype.FuncPC(stubWii_i_204)
+	stubsWii_i[205] = runtype.FuncPC(stubWii_i_205)
+	stubsWii_i[206] = runtype.FuncPC(stubWii_i_206)
+	stubsWii_i[207] = runtype.FuncPC(stubWii_i_207)
+	stubsWii_i[208] = runtype.FuncPC(stubWii_i_208)
+	stubsWii_i[209] = runtype.FuncPC(stubWii_i_209)
+	stubsWii_i[210] = runtype.FuncPC(stubWii_i_210)
+	stubsWii_i[211] = runtype.FuncPC(stubWii_i_211)
+	stubsWii_i[212] = runtype.FuncPC(stubWii_i_212)
+	stubsWii_i[213] = runtype.FuncPC(stubWii_i_213)
+	stubsWii_i[214] = runtype.FuncPC(stubWii_i_214)
+	stubsWii_i[215] = runtype.FuncPC(stubWii_i_215)
+	stubsWii_i[216] = runtype.FuncPC(stubWii_i_216)
+	stubsWii_i[217] = runtype.FuncPC(stubWii_i_217)
+	stubsWii_i[218] = runtype.FuncPC(stubWii_i_218)
+	stubsWii_i[219] = runtype.FuncPC(stubWii_i_219)
+	stubsWii_i[220] = runtype.FuncPC(stubWii_i_220)
+	stubsWii_i[221] = runtype.FuncPC(stubWii_i_221)
+	stubsWii_i[222] = runtype.FuncPC(stubWii_i_222)
+	stubsWii_i[223] = runtype.FuncPC(stubWii_i_223)
+	stubsWii_i[224] = runtype.FuncPC(stubWii_i_224)
+	stubsWii_i[225] = runtype.FuncPC(stubWii_i_225)
+	stubsWii_i[226] = runtype.FuncPC(stubWii_i_226)
+	stubsWii_i[227] = runtype.FuncPC(stubWii_i_227)
+	stubsWii_i[228] = runtype.FuncPC(stubWii_i_228)
+	stubsWii_i[229] = runtype.FuncPC(stubWii_i_229)
+	stubsWii_i[230] = runtype.FuncPC(stubWii_i_230)
+	stubsWii_i[231] = runtype.FuncPC(stubWii_i_231)
+	stubsWii_i[232] = runtype.FuncPC(stubWii_i_232)
+	stubsWii_i[233] = runtype.FuncPC(stubWii_i_233)
+	stubsWii_i[234] = runtype.FuncPC(stubWii_i_234)
+	stubsWii_i[235] = runtype.FuncPC(stubWii_i_235)
+	stubsWii_i[236] = runtype.FuncPC(stubWii_i_236)
+	stubsWii_i[237] = runtype.FuncPC(stubWii_i_237)
+	stubsWii_i[238] = runtype.FuncPC(stubWii_i_238)
+	stubsWii_i[239] = runtype.FuncPC(stubWii_i_239)
+	stubsWii_i[240] = runtype.FuncPC(stubWii_i_240)
+	stubsWii_i[241] = runtype.FuncPC(stubWii_i_241)
+	stubsWii_i[242] = runtype.FuncPC(stubWii_i_242)
+	stubsWii_i[243] = runtype.FuncPC(stubWii_i_243)
+	stubsWii_i[244] = runtype.FuncPC(stubWii_i_244)
+	stubsWii_i[245] = runtype.FuncPC(stubWii_i_245)
+	stubsWii_i[246] = runtype.FuncPC(stubWii_i_246)
+	stubsWii_i[247] = runtype.FuncPC(stubWii_i_247)
+	stubsWii_i[248] = runtype.FuncPC(stubWii_i_248)
+	stubsWii_i[249] = runtype.FuncPC(stubWii_i_249)
+	stubsWii_i[250] = runtype.FuncPC(stubWii_i_250)
+	stubsWii_i[251] = runtype.FuncPC(stubWii_i_251)
+	stubsWii_i[252] = runtype.FuncPC(stubWii_i_252)
+	stubsWii_i[253] = runtype.FuncPC(stubWii_i_253)
+	stubsWii_i[254] = runtype.FuncPC(stubWii_i_254)
+	stubsWii_i[255] = runtype.FuncPC(stubWii_i_255)
 	registerWordPool("ii_i", &wordPool{
 		next:  &nextSlotWii_i,
 		cap:   poolSizeWii_i,

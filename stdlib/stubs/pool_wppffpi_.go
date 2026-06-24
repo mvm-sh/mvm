@@ -1297,264 +1297,7 @@ func stubWppffpi__255(recv unsafe.Pointer, w0 unsafe.Pointer, w1 unsafe.Pointer,
 	dispatchWppffpi_(255, recv, w0, w1, w2, w3, w4, w5)
 }
 
-var stubsWppffpi_ = [poolSizeWppffpi_]uintptr{
-	runtype.FuncPC(stubWppffpi__0),
-	runtype.FuncPC(stubWppffpi__1),
-	runtype.FuncPC(stubWppffpi__2),
-	runtype.FuncPC(stubWppffpi__3),
-	runtype.FuncPC(stubWppffpi__4),
-	runtype.FuncPC(stubWppffpi__5),
-	runtype.FuncPC(stubWppffpi__6),
-	runtype.FuncPC(stubWppffpi__7),
-	runtype.FuncPC(stubWppffpi__8),
-	runtype.FuncPC(stubWppffpi__9),
-	runtype.FuncPC(stubWppffpi__10),
-	runtype.FuncPC(stubWppffpi__11),
-	runtype.FuncPC(stubWppffpi__12),
-	runtype.FuncPC(stubWppffpi__13),
-	runtype.FuncPC(stubWppffpi__14),
-	runtype.FuncPC(stubWppffpi__15),
-	runtype.FuncPC(stubWppffpi__16),
-	runtype.FuncPC(stubWppffpi__17),
-	runtype.FuncPC(stubWppffpi__18),
-	runtype.FuncPC(stubWppffpi__19),
-	runtype.FuncPC(stubWppffpi__20),
-	runtype.FuncPC(stubWppffpi__21),
-	runtype.FuncPC(stubWppffpi__22),
-	runtype.FuncPC(stubWppffpi__23),
-	runtype.FuncPC(stubWppffpi__24),
-	runtype.FuncPC(stubWppffpi__25),
-	runtype.FuncPC(stubWppffpi__26),
-	runtype.FuncPC(stubWppffpi__27),
-	runtype.FuncPC(stubWppffpi__28),
-	runtype.FuncPC(stubWppffpi__29),
-	runtype.FuncPC(stubWppffpi__30),
-	runtype.FuncPC(stubWppffpi__31),
-	runtype.FuncPC(stubWppffpi__32),
-	runtype.FuncPC(stubWppffpi__33),
-	runtype.FuncPC(stubWppffpi__34),
-	runtype.FuncPC(stubWppffpi__35),
-	runtype.FuncPC(stubWppffpi__36),
-	runtype.FuncPC(stubWppffpi__37),
-	runtype.FuncPC(stubWppffpi__38),
-	runtype.FuncPC(stubWppffpi__39),
-	runtype.FuncPC(stubWppffpi__40),
-	runtype.FuncPC(stubWppffpi__41),
-	runtype.FuncPC(stubWppffpi__42),
-	runtype.FuncPC(stubWppffpi__43),
-	runtype.FuncPC(stubWppffpi__44),
-	runtype.FuncPC(stubWppffpi__45),
-	runtype.FuncPC(stubWppffpi__46),
-	runtype.FuncPC(stubWppffpi__47),
-	runtype.FuncPC(stubWppffpi__48),
-	runtype.FuncPC(stubWppffpi__49),
-	runtype.FuncPC(stubWppffpi__50),
-	runtype.FuncPC(stubWppffpi__51),
-	runtype.FuncPC(stubWppffpi__52),
-	runtype.FuncPC(stubWppffpi__53),
-	runtype.FuncPC(stubWppffpi__54),
-	runtype.FuncPC(stubWppffpi__55),
-	runtype.FuncPC(stubWppffpi__56),
-	runtype.FuncPC(stubWppffpi__57),
-	runtype.FuncPC(stubWppffpi__58),
-	runtype.FuncPC(stubWppffpi__59),
-	runtype.FuncPC(stubWppffpi__60),
-	runtype.FuncPC(stubWppffpi__61),
-	runtype.FuncPC(stubWppffpi__62),
-	runtype.FuncPC(stubWppffpi__63),
-	runtype.FuncPC(stubWppffpi__64),
-	runtype.FuncPC(stubWppffpi__65),
-	runtype.FuncPC(stubWppffpi__66),
-	runtype.FuncPC(stubWppffpi__67),
-	runtype.FuncPC(stubWppffpi__68),
-	runtype.FuncPC(stubWppffpi__69),
-	runtype.FuncPC(stubWppffpi__70),
-	runtype.FuncPC(stubWppffpi__71),
-	runtype.FuncPC(stubWppffpi__72),
-	runtype.FuncPC(stubWppffpi__73),
-	runtype.FuncPC(stubWppffpi__74),
-	runtype.FuncPC(stubWppffpi__75),
-	runtype.FuncPC(stubWppffpi__76),
-	runtype.FuncPC(stubWppffpi__77),
-	runtype.FuncPC(stubWppffpi__78),
-	runtype.FuncPC(stubWppffpi__79),
-	runtype.FuncPC(stubWppffpi__80),
-	runtype.FuncPC(stubWppffpi__81),
-	runtype.FuncPC(stubWppffpi__82),
-	runtype.FuncPC(stubWppffpi__83),
-	runtype.FuncPC(stubWppffpi__84),
-	runtype.FuncPC(stubWppffpi__85),
-	runtype.FuncPC(stubWppffpi__86),
-	runtype.FuncPC(stubWppffpi__87),
-	runtype.FuncPC(stubWppffpi__88),
-	runtype.FuncPC(stubWppffpi__89),
-	runtype.FuncPC(stubWppffpi__90),
-	runtype.FuncPC(stubWppffpi__91),
-	runtype.FuncPC(stubWppffpi__92),
-	runtype.FuncPC(stubWppffpi__93),
-	runtype.FuncPC(stubWppffpi__94),
-	runtype.FuncPC(stubWppffpi__95),
-	runtype.FuncPC(stubWppffpi__96),
-	runtype.FuncPC(stubWppffpi__97),
-	runtype.FuncPC(stubWppffpi__98),
-	runtype.FuncPC(stubWppffpi__99),
-	runtype.FuncPC(stubWppffpi__100),
-	runtype.FuncPC(stubWppffpi__101),
-	runtype.FuncPC(stubWppffpi__102),
-	runtype.FuncPC(stubWppffpi__103),
-	runtype.FuncPC(stubWppffpi__104),
-	runtype.FuncPC(stubWppffpi__105),
-	runtype.FuncPC(stubWppffpi__106),
-	runtype.FuncPC(stubWppffpi__107),
-	runtype.FuncPC(stubWppffpi__108),
-	runtype.FuncPC(stubWppffpi__109),
-	runtype.FuncPC(stubWppffpi__110),
-	runtype.FuncPC(stubWppffpi__111),
-	runtype.FuncPC(stubWppffpi__112),
-	runtype.FuncPC(stubWppffpi__113),
-	runtype.FuncPC(stubWppffpi__114),
-	runtype.FuncPC(stubWppffpi__115),
-	runtype.FuncPC(stubWppffpi__116),
-	runtype.FuncPC(stubWppffpi__117),
-	runtype.FuncPC(stubWppffpi__118),
-	runtype.FuncPC(stubWppffpi__119),
-	runtype.FuncPC(stubWppffpi__120),
-	runtype.FuncPC(stubWppffpi__121),
-	runtype.FuncPC(stubWppffpi__122),
-	runtype.FuncPC(stubWppffpi__123),
-	runtype.FuncPC(stubWppffpi__124),
-	runtype.FuncPC(stubWppffpi__125),
-	runtype.FuncPC(stubWppffpi__126),
-	runtype.FuncPC(stubWppffpi__127),
-	runtype.FuncPC(stubWppffpi__128),
-	runtype.FuncPC(stubWppffpi__129),
-	runtype.FuncPC(stubWppffpi__130),
-	runtype.FuncPC(stubWppffpi__131),
-	runtype.FuncPC(stubWppffpi__132),
-	runtype.FuncPC(stubWppffpi__133),
-	runtype.FuncPC(stubWppffpi__134),
-	runtype.FuncPC(stubWppffpi__135),
-	runtype.FuncPC(stubWppffpi__136),
-	runtype.FuncPC(stubWppffpi__137),
-	runtype.FuncPC(stubWppffpi__138),
-	runtype.FuncPC(stubWppffpi__139),
-	runtype.FuncPC(stubWppffpi__140),
-	runtype.FuncPC(stubWppffpi__141),
-	runtype.FuncPC(stubWppffpi__142),
-	runtype.FuncPC(stubWppffpi__143),
-	runtype.FuncPC(stubWppffpi__144),
-	runtype.FuncPC(stubWppffpi__145),
-	runtype.FuncPC(stubWppffpi__146),
-	runtype.FuncPC(stubWppffpi__147),
-	runtype.FuncPC(stubWppffpi__148),
-	runtype.FuncPC(stubWppffpi__149),
-	runtype.FuncPC(stubWppffpi__150),
-	runtype.FuncPC(stubWppffpi__151),
-	runtype.FuncPC(stubWppffpi__152),
-	runtype.FuncPC(stubWppffpi__153),
-	runtype.FuncPC(stubWppffpi__154),
-	runtype.FuncPC(stubWppffpi__155),
-	runtype.FuncPC(stubWppffpi__156),
-	runtype.FuncPC(stubWppffpi__157),
-	runtype.FuncPC(stubWppffpi__158),
-	runtype.FuncPC(stubWppffpi__159),
-	runtype.FuncPC(stubWppffpi__160),
-	runtype.FuncPC(stubWppffpi__161),
-	runtype.FuncPC(stubWppffpi__162),
-	runtype.FuncPC(stubWppffpi__163),
-	runtype.FuncPC(stubWppffpi__164),
-	runtype.FuncPC(stubWppffpi__165),
-	runtype.FuncPC(stubWppffpi__166),
-	runtype.FuncPC(stubWppffpi__167),
-	runtype.FuncPC(stubWppffpi__168),
-	runtype.FuncPC(stubWppffpi__169),
-	runtype.FuncPC(stubWppffpi__170),
-	runtype.FuncPC(stubWppffpi__171),
-	runtype.FuncPC(stubWppffpi__172),
-	runtype.FuncPC(stubWppffpi__173),
-	runtype.FuncPC(stubWppffpi__174),
-	runtype.FuncPC(stubWppffpi__175),
-	runtype.FuncPC(stubWppffpi__176),
-	runtype.FuncPC(stubWppffpi__177),
-	runtype.FuncPC(stubWppffpi__178),
-	runtype.FuncPC(stubWppffpi__179),
-	runtype.FuncPC(stubWppffpi__180),
-	runtype.FuncPC(stubWppffpi__181),
-	runtype.FuncPC(stubWppffpi__182),
-	runtype.FuncPC(stubWppffpi__183),
-	runtype.FuncPC(stubWppffpi__184),
-	runtype.FuncPC(stubWppffpi__185),
-	runtype.FuncPC(stubWppffpi__186),
-	runtype.FuncPC(stubWppffpi__187),
-	runtype.FuncPC(stubWppffpi__188),
-	runtype.FuncPC(stubWppffpi__189),
-	runtype.FuncPC(stubWppffpi__190),
-	runtype.FuncPC(stubWppffpi__191),
-	runtype.FuncPC(stubWppffpi__192),
-	runtype.FuncPC(stubWppffpi__193),
-	runtype.FuncPC(stubWppffpi__194),
-	runtype.FuncPC(stubWppffpi__195),
-	runtype.FuncPC(stubWppffpi__196),
-	runtype.FuncPC(stubWppffpi__197),
-	runtype.FuncPC(stubWppffpi__198),
-	runtype.FuncPC(stubWppffpi__199),
-	runtype.FuncPC(stubWppffpi__200),
-	runtype.FuncPC(stubWppffpi__201),
-	runtype.FuncPC(stubWppffpi__202),
-	runtype.FuncPC(stubWppffpi__203),
-	runtype.FuncPC(stubWppffpi__204),
-	runtype.FuncPC(stubWppffpi__205),
-	runtype.FuncPC(stubWppffpi__206),
-	runtype.FuncPC(stubWppffpi__207),
-	runtype.FuncPC(stubWppffpi__208),
-	runtype.FuncPC(stubWppffpi__209),
-	runtype.FuncPC(stubWppffpi__210),
-	runtype.FuncPC(stubWppffpi__211),
-	runtype.FuncPC(stubWppffpi__212),
-	runtype.FuncPC(stubWppffpi__213),
-	runtype.FuncPC(stubWppffpi__214),
-	runtype.FuncPC(stubWppffpi__215),
-	runtype.FuncPC(stubWppffpi__216),
-	runtype.FuncPC(stubWppffpi__217),
-	runtype.FuncPC(stubWppffpi__218),
-	runtype.FuncPC(stubWppffpi__219),
-	runtype.FuncPC(stubWppffpi__220),
-	runtype.FuncPC(stubWppffpi__221),
-	runtype.FuncPC(stubWppffpi__222),
-	runtype.FuncPC(stubWppffpi__223),
-	runtype.FuncPC(stubWppffpi__224),
-	runtype.FuncPC(stubWppffpi__225),
-	runtype.FuncPC(stubWppffpi__226),
-	runtype.FuncPC(stubWppffpi__227),
-	runtype.FuncPC(stubWppffpi__228),
-	runtype.FuncPC(stubWppffpi__229),
-	runtype.FuncPC(stubWppffpi__230),
-	runtype.FuncPC(stubWppffpi__231),
-	runtype.FuncPC(stubWppffpi__232),
-	runtype.FuncPC(stubWppffpi__233),
-	runtype.FuncPC(stubWppffpi__234),
-	runtype.FuncPC(stubWppffpi__235),
-	runtype.FuncPC(stubWppffpi__236),
-	runtype.FuncPC(stubWppffpi__237),
-	runtype.FuncPC(stubWppffpi__238),
-	runtype.FuncPC(stubWppffpi__239),
-	runtype.FuncPC(stubWppffpi__240),
-	runtype.FuncPC(stubWppffpi__241),
-	runtype.FuncPC(stubWppffpi__242),
-	runtype.FuncPC(stubWppffpi__243),
-	runtype.FuncPC(stubWppffpi__244),
-	runtype.FuncPC(stubWppffpi__245),
-	runtype.FuncPC(stubWppffpi__246),
-	runtype.FuncPC(stubWppffpi__247),
-	runtype.FuncPC(stubWppffpi__248),
-	runtype.FuncPC(stubWppffpi__249),
-	runtype.FuncPC(stubWppffpi__250),
-	runtype.FuncPC(stubWppffpi__251),
-	runtype.FuncPC(stubWppffpi__252),
-	runtype.FuncPC(stubWppffpi__253),
-	runtype.FuncPC(stubWppffpi__254),
-	runtype.FuncPC(stubWppffpi__255),
-}
+var stubsWppffpi_ [poolSizeWppffpi_]uintptr
 
 func dispatchWppffpi_(slot uint32, recv unsafe.Pointer, w0 unsafe.Pointer, w1 unsafe.Pointer, w2 float64, w3 float64, w4 unsafe.Pointer, w5 uint64) {
 	var pw [3]unsafe.Pointer
@@ -1575,6 +1318,262 @@ func dispatchWppffpi_(slot uint32, recv unsafe.Pointer, w0 unsafe.Pointer, w1 un
 }
 
 func init() {
+	stubsWppffpi_[0] = runtype.FuncPC(stubWppffpi__0)
+	stubsWppffpi_[1] = runtype.FuncPC(stubWppffpi__1)
+	stubsWppffpi_[2] = runtype.FuncPC(stubWppffpi__2)
+	stubsWppffpi_[3] = runtype.FuncPC(stubWppffpi__3)
+	stubsWppffpi_[4] = runtype.FuncPC(stubWppffpi__4)
+	stubsWppffpi_[5] = runtype.FuncPC(stubWppffpi__5)
+	stubsWppffpi_[6] = runtype.FuncPC(stubWppffpi__6)
+	stubsWppffpi_[7] = runtype.FuncPC(stubWppffpi__7)
+	stubsWppffpi_[8] = runtype.FuncPC(stubWppffpi__8)
+	stubsWppffpi_[9] = runtype.FuncPC(stubWppffpi__9)
+	stubsWppffpi_[10] = runtype.FuncPC(stubWppffpi__10)
+	stubsWppffpi_[11] = runtype.FuncPC(stubWppffpi__11)
+	stubsWppffpi_[12] = runtype.FuncPC(stubWppffpi__12)
+	stubsWppffpi_[13] = runtype.FuncPC(stubWppffpi__13)
+	stubsWppffpi_[14] = runtype.FuncPC(stubWppffpi__14)
+	stubsWppffpi_[15] = runtype.FuncPC(stubWppffpi__15)
+	stubsWppffpi_[16] = runtype.FuncPC(stubWppffpi__16)
+	stubsWppffpi_[17] = runtype.FuncPC(stubWppffpi__17)
+	stubsWppffpi_[18] = runtype.FuncPC(stubWppffpi__18)
+	stubsWppffpi_[19] = runtype.FuncPC(stubWppffpi__19)
+	stubsWppffpi_[20] = runtype.FuncPC(stubWppffpi__20)
+	stubsWppffpi_[21] = runtype.FuncPC(stubWppffpi__21)
+	stubsWppffpi_[22] = runtype.FuncPC(stubWppffpi__22)
+	stubsWppffpi_[23] = runtype.FuncPC(stubWppffpi__23)
+	stubsWppffpi_[24] = runtype.FuncPC(stubWppffpi__24)
+	stubsWppffpi_[25] = runtype.FuncPC(stubWppffpi__25)
+	stubsWppffpi_[26] = runtype.FuncPC(stubWppffpi__26)
+	stubsWppffpi_[27] = runtype.FuncPC(stubWppffpi__27)
+	stubsWppffpi_[28] = runtype.FuncPC(stubWppffpi__28)
+	stubsWppffpi_[29] = runtype.FuncPC(stubWppffpi__29)
+	stubsWppffpi_[30] = runtype.FuncPC(stubWppffpi__30)
+	stubsWppffpi_[31] = runtype.FuncPC(stubWppffpi__31)
+	stubsWppffpi_[32] = runtype.FuncPC(stubWppffpi__32)
+	stubsWppffpi_[33] = runtype.FuncPC(stubWppffpi__33)
+	stubsWppffpi_[34] = runtype.FuncPC(stubWppffpi__34)
+	stubsWppffpi_[35] = runtype.FuncPC(stubWppffpi__35)
+	stubsWppffpi_[36] = runtype.FuncPC(stubWppffpi__36)
+	stubsWppffpi_[37] = runtype.FuncPC(stubWppffpi__37)
+	stubsWppffpi_[38] = runtype.FuncPC(stubWppffpi__38)
+	stubsWppffpi_[39] = runtype.FuncPC(stubWppffpi__39)
+	stubsWppffpi_[40] = runtype.FuncPC(stubWppffpi__40)
+	stubsWppffpi_[41] = runtype.FuncPC(stubWppffpi__41)
+	stubsWppffpi_[42] = runtype.FuncPC(stubWppffpi__42)
+	stubsWppffpi_[43] = runtype.FuncPC(stubWppffpi__43)
+	stubsWppffpi_[44] = runtype.FuncPC(stubWppffpi__44)
+	stubsWppffpi_[45] = runtype.FuncPC(stubWppffpi__45)
+	stubsWppffpi_[46] = runtype.FuncPC(stubWppffpi__46)
+	stubsWppffpi_[47] = runtype.FuncPC(stubWppffpi__47)
+	stubsWppffpi_[48] = runtype.FuncPC(stubWppffpi__48)
+	stubsWppffpi_[49] = runtype.FuncPC(stubWppffpi__49)
+	stubsWppffpi_[50] = runtype.FuncPC(stubWppffpi__50)
+	stubsWppffpi_[51] = runtype.FuncPC(stubWppffpi__51)
+	stubsWppffpi_[52] = runtype.FuncPC(stubWppffpi__52)
+	stubsWppffpi_[53] = runtype.FuncPC(stubWppffpi__53)
+	stubsWppffpi_[54] = runtype.FuncPC(stubWppffpi__54)
+	stubsWppffpi_[55] = runtype.FuncPC(stubWppffpi__55)
+	stubsWppffpi_[56] = runtype.FuncPC(stubWppffpi__56)
+	stubsWppffpi_[57] = runtype.FuncPC(stubWppffpi__57)
+	stubsWppffpi_[58] = runtype.FuncPC(stubWppffpi__58)
+	stubsWppffpi_[59] = runtype.FuncPC(stubWppffpi__59)
+	stubsWppffpi_[60] = runtype.FuncPC(stubWppffpi__60)
+	stubsWppffpi_[61] = runtype.FuncPC(stubWppffpi__61)
+	stubsWppffpi_[62] = runtype.FuncPC(stubWppffpi__62)
+	stubsWppffpi_[63] = runtype.FuncPC(stubWppffpi__63)
+	stubsWppffpi_[64] = runtype.FuncPC(stubWppffpi__64)
+	stubsWppffpi_[65] = runtype.FuncPC(stubWppffpi__65)
+	stubsWppffpi_[66] = runtype.FuncPC(stubWppffpi__66)
+	stubsWppffpi_[67] = runtype.FuncPC(stubWppffpi__67)
+	stubsWppffpi_[68] = runtype.FuncPC(stubWppffpi__68)
+	stubsWppffpi_[69] = runtype.FuncPC(stubWppffpi__69)
+	stubsWppffpi_[70] = runtype.FuncPC(stubWppffpi__70)
+	stubsWppffpi_[71] = runtype.FuncPC(stubWppffpi__71)
+	stubsWppffpi_[72] = runtype.FuncPC(stubWppffpi__72)
+	stubsWppffpi_[73] = runtype.FuncPC(stubWppffpi__73)
+	stubsWppffpi_[74] = runtype.FuncPC(stubWppffpi__74)
+	stubsWppffpi_[75] = runtype.FuncPC(stubWppffpi__75)
+	stubsWppffpi_[76] = runtype.FuncPC(stubWppffpi__76)
+	stubsWppffpi_[77] = runtype.FuncPC(stubWppffpi__77)
+	stubsWppffpi_[78] = runtype.FuncPC(stubWppffpi__78)
+	stubsWppffpi_[79] = runtype.FuncPC(stubWppffpi__79)
+	stubsWppffpi_[80] = runtype.FuncPC(stubWppffpi__80)
+	stubsWppffpi_[81] = runtype.FuncPC(stubWppffpi__81)
+	stubsWppffpi_[82] = runtype.FuncPC(stubWppffpi__82)
+	stubsWppffpi_[83] = runtype.FuncPC(stubWppffpi__83)
+	stubsWppffpi_[84] = runtype.FuncPC(stubWppffpi__84)
+	stubsWppffpi_[85] = runtype.FuncPC(stubWppffpi__85)
+	stubsWppffpi_[86] = runtype.FuncPC(stubWppffpi__86)
+	stubsWppffpi_[87] = runtype.FuncPC(stubWppffpi__87)
+	stubsWppffpi_[88] = runtype.FuncPC(stubWppffpi__88)
+	stubsWppffpi_[89] = runtype.FuncPC(stubWppffpi__89)
+	stubsWppffpi_[90] = runtype.FuncPC(stubWppffpi__90)
+	stubsWppffpi_[91] = runtype.FuncPC(stubWppffpi__91)
+	stubsWppffpi_[92] = runtype.FuncPC(stubWppffpi__92)
+	stubsWppffpi_[93] = runtype.FuncPC(stubWppffpi__93)
+	stubsWppffpi_[94] = runtype.FuncPC(stubWppffpi__94)
+	stubsWppffpi_[95] = runtype.FuncPC(stubWppffpi__95)
+	stubsWppffpi_[96] = runtype.FuncPC(stubWppffpi__96)
+	stubsWppffpi_[97] = runtype.FuncPC(stubWppffpi__97)
+	stubsWppffpi_[98] = runtype.FuncPC(stubWppffpi__98)
+	stubsWppffpi_[99] = runtype.FuncPC(stubWppffpi__99)
+	stubsWppffpi_[100] = runtype.FuncPC(stubWppffpi__100)
+	stubsWppffpi_[101] = runtype.FuncPC(stubWppffpi__101)
+	stubsWppffpi_[102] = runtype.FuncPC(stubWppffpi__102)
+	stubsWppffpi_[103] = runtype.FuncPC(stubWppffpi__103)
+	stubsWppffpi_[104] = runtype.FuncPC(stubWppffpi__104)
+	stubsWppffpi_[105] = runtype.FuncPC(stubWppffpi__105)
+	stubsWppffpi_[106] = runtype.FuncPC(stubWppffpi__106)
+	stubsWppffpi_[107] = runtype.FuncPC(stubWppffpi__107)
+	stubsWppffpi_[108] = runtype.FuncPC(stubWppffpi__108)
+	stubsWppffpi_[109] = runtype.FuncPC(stubWppffpi__109)
+	stubsWppffpi_[110] = runtype.FuncPC(stubWppffpi__110)
+	stubsWppffpi_[111] = runtype.FuncPC(stubWppffpi__111)
+	stubsWppffpi_[112] = runtype.FuncPC(stubWppffpi__112)
+	stubsWppffpi_[113] = runtype.FuncPC(stubWppffpi__113)
+	stubsWppffpi_[114] = runtype.FuncPC(stubWppffpi__114)
+	stubsWppffpi_[115] = runtype.FuncPC(stubWppffpi__115)
+	stubsWppffpi_[116] = runtype.FuncPC(stubWppffpi__116)
+	stubsWppffpi_[117] = runtype.FuncPC(stubWppffpi__117)
+	stubsWppffpi_[118] = runtype.FuncPC(stubWppffpi__118)
+	stubsWppffpi_[119] = runtype.FuncPC(stubWppffpi__119)
+	stubsWppffpi_[120] = runtype.FuncPC(stubWppffpi__120)
+	stubsWppffpi_[121] = runtype.FuncPC(stubWppffpi__121)
+	stubsWppffpi_[122] = runtype.FuncPC(stubWppffpi__122)
+	stubsWppffpi_[123] = runtype.FuncPC(stubWppffpi__123)
+	stubsWppffpi_[124] = runtype.FuncPC(stubWppffpi__124)
+	stubsWppffpi_[125] = runtype.FuncPC(stubWppffpi__125)
+	stubsWppffpi_[126] = runtype.FuncPC(stubWppffpi__126)
+	stubsWppffpi_[127] = runtype.FuncPC(stubWppffpi__127)
+	stubsWppffpi_[128] = runtype.FuncPC(stubWppffpi__128)
+	stubsWppffpi_[129] = runtype.FuncPC(stubWppffpi__129)
+	stubsWppffpi_[130] = runtype.FuncPC(stubWppffpi__130)
+	stubsWppffpi_[131] = runtype.FuncPC(stubWppffpi__131)
+	stubsWppffpi_[132] = runtype.FuncPC(stubWppffpi__132)
+	stubsWppffpi_[133] = runtype.FuncPC(stubWppffpi__133)
+	stubsWppffpi_[134] = runtype.FuncPC(stubWppffpi__134)
+	stubsWppffpi_[135] = runtype.FuncPC(stubWppffpi__135)
+	stubsWppffpi_[136] = runtype.FuncPC(stubWppffpi__136)
+	stubsWppffpi_[137] = runtype.FuncPC(stubWppffpi__137)
+	stubsWppffpi_[138] = runtype.FuncPC(stubWppffpi__138)
+	stubsWppffpi_[139] = runtype.FuncPC(stubWppffpi__139)
+	stubsWppffpi_[140] = runtype.FuncPC(stubWppffpi__140)
+	stubsWppffpi_[141] = runtype.FuncPC(stubWppffpi__141)
+	stubsWppffpi_[142] = runtype.FuncPC(stubWppffpi__142)
+	stubsWppffpi_[143] = runtype.FuncPC(stubWppffpi__143)
+	stubsWppffpi_[144] = runtype.FuncPC(stubWppffpi__144)
+	stubsWppffpi_[145] = runtype.FuncPC(stubWppffpi__145)
+	stubsWppffpi_[146] = runtype.FuncPC(stubWppffpi__146)
+	stubsWppffpi_[147] = runtype.FuncPC(stubWppffpi__147)
+	stubsWppffpi_[148] = runtype.FuncPC(stubWppffpi__148)
+	stubsWppffpi_[149] = runtype.FuncPC(stubWppffpi__149)
+	stubsWppffpi_[150] = runtype.FuncPC(stubWppffpi__150)
+	stubsWppffpi_[151] = runtype.FuncPC(stubWppffpi__151)
+	stubsWppffpi_[152] = runtype.FuncPC(stubWppffpi__152)
+	stubsWppffpi_[153] = runtype.FuncPC(stubWppffpi__153)
+	stubsWppffpi_[154] = runtype.FuncPC(stubWppffpi__154)
+	stubsWppffpi_[155] = runtype.FuncPC(stubWppffpi__155)
+	stubsWppffpi_[156] = runtype.FuncPC(stubWppffpi__156)
+	stubsWppffpi_[157] = runtype.FuncPC(stubWppffpi__157)
+	stubsWppffpi_[158] = runtype.FuncPC(stubWppffpi__158)
+	stubsWppffpi_[159] = runtype.FuncPC(stubWppffpi__159)
+	stubsWppffpi_[160] = runtype.FuncPC(stubWppffpi__160)
+	stubsWppffpi_[161] = runtype.FuncPC(stubWppffpi__161)
+	stubsWppffpi_[162] = runtype.FuncPC(stubWppffpi__162)
+	stubsWppffpi_[163] = runtype.FuncPC(stubWppffpi__163)
+	stubsWppffpi_[164] = runtype.FuncPC(stubWppffpi__164)
+	stubsWppffpi_[165] = runtype.FuncPC(stubWppffpi__165)
+	stubsWppffpi_[166] = runtype.FuncPC(stubWppffpi__166)
+	stubsWppffpi_[167] = runtype.FuncPC(stubWppffpi__167)
+	stubsWppffpi_[168] = runtype.FuncPC(stubWppffpi__168)
+	stubsWppffpi_[169] = runtype.FuncPC(stubWppffpi__169)
+	stubsWppffpi_[170] = runtype.FuncPC(stubWppffpi__170)
+	stubsWppffpi_[171] = runtype.FuncPC(stubWppffpi__171)
+	stubsWppffpi_[172] = runtype.FuncPC(stubWppffpi__172)
+	stubsWppffpi_[173] = runtype.FuncPC(stubWppffpi__173)
+	stubsWppffpi_[174] = runtype.FuncPC(stubWppffpi__174)
+	stubsWppffpi_[175] = runtype.FuncPC(stubWppffpi__175)
+	stubsWppffpi_[176] = runtype.FuncPC(stubWppffpi__176)
+	stubsWppffpi_[177] = runtype.FuncPC(stubWppffpi__177)
+	stubsWppffpi_[178] = runtype.FuncPC(stubWppffpi__178)
+	stubsWppffpi_[179] = runtype.FuncPC(stubWppffpi__179)
+	stubsWppffpi_[180] = runtype.FuncPC(stubWppffpi__180)
+	stubsWppffpi_[181] = runtype.FuncPC(stubWppffpi__181)
+	stubsWppffpi_[182] = runtype.FuncPC(stubWppffpi__182)
+	stubsWppffpi_[183] = runtype.FuncPC(stubWppffpi__183)
+	stubsWppffpi_[184] = runtype.FuncPC(stubWppffpi__184)
+	stubsWppffpi_[185] = runtype.FuncPC(stubWppffpi__185)
+	stubsWppffpi_[186] = runtype.FuncPC(stubWppffpi__186)
+	stubsWppffpi_[187] = runtype.FuncPC(stubWppffpi__187)
+	stubsWppffpi_[188] = runtype.FuncPC(stubWppffpi__188)
+	stubsWppffpi_[189] = runtype.FuncPC(stubWppffpi__189)
+	stubsWppffpi_[190] = runtype.FuncPC(stubWppffpi__190)
+	stubsWppffpi_[191] = runtype.FuncPC(stubWppffpi__191)
+	stubsWppffpi_[192] = runtype.FuncPC(stubWppffpi__192)
+	stubsWppffpi_[193] = runtype.FuncPC(stubWppffpi__193)
+	stubsWppffpi_[194] = runtype.FuncPC(stubWppffpi__194)
+	stubsWppffpi_[195] = runtype.FuncPC(stubWppffpi__195)
+	stubsWppffpi_[196] = runtype.FuncPC(stubWppffpi__196)
+	stubsWppffpi_[197] = runtype.FuncPC(stubWppffpi__197)
+	stubsWppffpi_[198] = runtype.FuncPC(stubWppffpi__198)
+	stubsWppffpi_[199] = runtype.FuncPC(stubWppffpi__199)
+	stubsWppffpi_[200] = runtype.FuncPC(stubWppffpi__200)
+	stubsWppffpi_[201] = runtype.FuncPC(stubWppffpi__201)
+	stubsWppffpi_[202] = runtype.FuncPC(stubWppffpi__202)
+	stubsWppffpi_[203] = runtype.FuncPC(stubWppffpi__203)
+	stubsWppffpi_[204] = runtype.FuncPC(stubWppffpi__204)
+	stubsWppffpi_[205] = runtype.FuncPC(stubWppffpi__205)
+	stubsWppffpi_[206] = runtype.FuncPC(stubWppffpi__206)
+	stubsWppffpi_[207] = runtype.FuncPC(stubWppffpi__207)
+	stubsWppffpi_[208] = runtype.FuncPC(stubWppffpi__208)
+	stubsWppffpi_[209] = runtype.FuncPC(stubWppffpi__209)
+	stubsWppffpi_[210] = runtype.FuncPC(stubWppffpi__210)
+	stubsWppffpi_[211] = runtype.FuncPC(stubWppffpi__211)
+	stubsWppffpi_[212] = runtype.FuncPC(stubWppffpi__212)
+	stubsWppffpi_[213] = runtype.FuncPC(stubWppffpi__213)
+	stubsWppffpi_[214] = runtype.FuncPC(stubWppffpi__214)
+	stubsWppffpi_[215] = runtype.FuncPC(stubWppffpi__215)
+	stubsWppffpi_[216] = runtype.FuncPC(stubWppffpi__216)
+	stubsWppffpi_[217] = runtype.FuncPC(stubWppffpi__217)
+	stubsWppffpi_[218] = runtype.FuncPC(stubWppffpi__218)
+	stubsWppffpi_[219] = runtype.FuncPC(stubWppffpi__219)
+	stubsWppffpi_[220] = runtype.FuncPC(stubWppffpi__220)
+	stubsWppffpi_[221] = runtype.FuncPC(stubWppffpi__221)
+	stubsWppffpi_[222] = runtype.FuncPC(stubWppffpi__222)
+	stubsWppffpi_[223] = runtype.FuncPC(stubWppffpi__223)
+	stubsWppffpi_[224] = runtype.FuncPC(stubWppffpi__224)
+	stubsWppffpi_[225] = runtype.FuncPC(stubWppffpi__225)
+	stubsWppffpi_[226] = runtype.FuncPC(stubWppffpi__226)
+	stubsWppffpi_[227] = runtype.FuncPC(stubWppffpi__227)
+	stubsWppffpi_[228] = runtype.FuncPC(stubWppffpi__228)
+	stubsWppffpi_[229] = runtype.FuncPC(stubWppffpi__229)
+	stubsWppffpi_[230] = runtype.FuncPC(stubWppffpi__230)
+	stubsWppffpi_[231] = runtype.FuncPC(stubWppffpi__231)
+	stubsWppffpi_[232] = runtype.FuncPC(stubWppffpi__232)
+	stubsWppffpi_[233] = runtype.FuncPC(stubWppffpi__233)
+	stubsWppffpi_[234] = runtype.FuncPC(stubWppffpi__234)
+	stubsWppffpi_[235] = runtype.FuncPC(stubWppffpi__235)
+	stubsWppffpi_[236] = runtype.FuncPC(stubWppffpi__236)
+	stubsWppffpi_[237] = runtype.FuncPC(stubWppffpi__237)
+	stubsWppffpi_[238] = runtype.FuncPC(stubWppffpi__238)
+	stubsWppffpi_[239] = runtype.FuncPC(stubWppffpi__239)
+	stubsWppffpi_[240] = runtype.FuncPC(stubWppffpi__240)
+	stubsWppffpi_[241] = runtype.FuncPC(stubWppffpi__241)
+	stubsWppffpi_[242] = runtype.FuncPC(stubWppffpi__242)
+	stubsWppffpi_[243] = runtype.FuncPC(stubWppffpi__243)
+	stubsWppffpi_[244] = runtype.FuncPC(stubWppffpi__244)
+	stubsWppffpi_[245] = runtype.FuncPC(stubWppffpi__245)
+	stubsWppffpi_[246] = runtype.FuncPC(stubWppffpi__246)
+	stubsWppffpi_[247] = runtype.FuncPC(stubWppffpi__247)
+	stubsWppffpi_[248] = runtype.FuncPC(stubWppffpi__248)
+	stubsWppffpi_[249] = runtype.FuncPC(stubWppffpi__249)
+	stubsWppffpi_[250] = runtype.FuncPC(stubWppffpi__250)
+	stubsWppffpi_[251] = runtype.FuncPC(stubWppffpi__251)
+	stubsWppffpi_[252] = runtype.FuncPC(stubWppffpi__252)
+	stubsWppffpi_[253] = runtype.FuncPC(stubWppffpi__253)
+	stubsWppffpi_[254] = runtype.FuncPC(stubWppffpi__254)
+	stubsWppffpi_[255] = runtype.FuncPC(stubWppffpi__255)
 	registerWordPool("ppffpi_", &wordPool{
 		next:  &nextSlotWppffpi_,
 		cap:   poolSizeWppffpi_,

@@ -78,7 +78,15 @@ type adder interface{ Add(point) int32 }
 // decomposes to two integer registers in field order, reusing the existing
 // "ii_i" stub. If Go packed the two int32 into a single register (or spilled to
 // the stack), sw[0]/sw[1] would not hold X/Y and this would fail.
+//
+// This is a register-ABI fact. On wasm (a stack ABI) the struct is passed as one
+// packed 8-byte slot, so this exact "ii_i" pairing does not hold; the vm uses the
+// ABI0 stack-slot decomposition there (one "i" slot), validated end-to-end by
+// interptest's synth sub-word-struct test under a wasm runtime.
 func TestWordShapeSubWordStructParam(t *testing.T) {
+	if runtime.GOARCH == "wasm" {
+		t.Skip("register-ABI packed-struct decomposition; wasm uses the ABI0 stack-slot path")
+	}
 	core := func(_ unsafe.Pointer, _ []unsafe.Pointer, sw []uint64, _ []float64, _ []unsafe.Pointer, rsw []uint64, _ []float64) {
 		rsw[0] = uint64(int32(sw[0]) + int32(sw[1])*1000)
 	}

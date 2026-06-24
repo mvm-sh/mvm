@@ -1277,264 +1277,7 @@ func stubW_iip_255(recv unsafe.Pointer) (uint64, uint64, unsafe.Pointer) {
 	return dispatchW_iip(255, recv)
 }
 
-var stubsW_iip = [poolSizeW_iip]uintptr{
-	runtype.FuncPC(stubW_iip_0),
-	runtype.FuncPC(stubW_iip_1),
-	runtype.FuncPC(stubW_iip_2),
-	runtype.FuncPC(stubW_iip_3),
-	runtype.FuncPC(stubW_iip_4),
-	runtype.FuncPC(stubW_iip_5),
-	runtype.FuncPC(stubW_iip_6),
-	runtype.FuncPC(stubW_iip_7),
-	runtype.FuncPC(stubW_iip_8),
-	runtype.FuncPC(stubW_iip_9),
-	runtype.FuncPC(stubW_iip_10),
-	runtype.FuncPC(stubW_iip_11),
-	runtype.FuncPC(stubW_iip_12),
-	runtype.FuncPC(stubW_iip_13),
-	runtype.FuncPC(stubW_iip_14),
-	runtype.FuncPC(stubW_iip_15),
-	runtype.FuncPC(stubW_iip_16),
-	runtype.FuncPC(stubW_iip_17),
-	runtype.FuncPC(stubW_iip_18),
-	runtype.FuncPC(stubW_iip_19),
-	runtype.FuncPC(stubW_iip_20),
-	runtype.FuncPC(stubW_iip_21),
-	runtype.FuncPC(stubW_iip_22),
-	runtype.FuncPC(stubW_iip_23),
-	runtype.FuncPC(stubW_iip_24),
-	runtype.FuncPC(stubW_iip_25),
-	runtype.FuncPC(stubW_iip_26),
-	runtype.FuncPC(stubW_iip_27),
-	runtype.FuncPC(stubW_iip_28),
-	runtype.FuncPC(stubW_iip_29),
-	runtype.FuncPC(stubW_iip_30),
-	runtype.FuncPC(stubW_iip_31),
-	runtype.FuncPC(stubW_iip_32),
-	runtype.FuncPC(stubW_iip_33),
-	runtype.FuncPC(stubW_iip_34),
-	runtype.FuncPC(stubW_iip_35),
-	runtype.FuncPC(stubW_iip_36),
-	runtype.FuncPC(stubW_iip_37),
-	runtype.FuncPC(stubW_iip_38),
-	runtype.FuncPC(stubW_iip_39),
-	runtype.FuncPC(stubW_iip_40),
-	runtype.FuncPC(stubW_iip_41),
-	runtype.FuncPC(stubW_iip_42),
-	runtype.FuncPC(stubW_iip_43),
-	runtype.FuncPC(stubW_iip_44),
-	runtype.FuncPC(stubW_iip_45),
-	runtype.FuncPC(stubW_iip_46),
-	runtype.FuncPC(stubW_iip_47),
-	runtype.FuncPC(stubW_iip_48),
-	runtype.FuncPC(stubW_iip_49),
-	runtype.FuncPC(stubW_iip_50),
-	runtype.FuncPC(stubW_iip_51),
-	runtype.FuncPC(stubW_iip_52),
-	runtype.FuncPC(stubW_iip_53),
-	runtype.FuncPC(stubW_iip_54),
-	runtype.FuncPC(stubW_iip_55),
-	runtype.FuncPC(stubW_iip_56),
-	runtype.FuncPC(stubW_iip_57),
-	runtype.FuncPC(stubW_iip_58),
-	runtype.FuncPC(stubW_iip_59),
-	runtype.FuncPC(stubW_iip_60),
-	runtype.FuncPC(stubW_iip_61),
-	runtype.FuncPC(stubW_iip_62),
-	runtype.FuncPC(stubW_iip_63),
-	runtype.FuncPC(stubW_iip_64),
-	runtype.FuncPC(stubW_iip_65),
-	runtype.FuncPC(stubW_iip_66),
-	runtype.FuncPC(stubW_iip_67),
-	runtype.FuncPC(stubW_iip_68),
-	runtype.FuncPC(stubW_iip_69),
-	runtype.FuncPC(stubW_iip_70),
-	runtype.FuncPC(stubW_iip_71),
-	runtype.FuncPC(stubW_iip_72),
-	runtype.FuncPC(stubW_iip_73),
-	runtype.FuncPC(stubW_iip_74),
-	runtype.FuncPC(stubW_iip_75),
-	runtype.FuncPC(stubW_iip_76),
-	runtype.FuncPC(stubW_iip_77),
-	runtype.FuncPC(stubW_iip_78),
-	runtype.FuncPC(stubW_iip_79),
-	runtype.FuncPC(stubW_iip_80),
-	runtype.FuncPC(stubW_iip_81),
-	runtype.FuncPC(stubW_iip_82),
-	runtype.FuncPC(stubW_iip_83),
-	runtype.FuncPC(stubW_iip_84),
-	runtype.FuncPC(stubW_iip_85),
-	runtype.FuncPC(stubW_iip_86),
-	runtype.FuncPC(stubW_iip_87),
-	runtype.FuncPC(stubW_iip_88),
-	runtype.FuncPC(stubW_iip_89),
-	runtype.FuncPC(stubW_iip_90),
-	runtype.FuncPC(stubW_iip_91),
-	runtype.FuncPC(stubW_iip_92),
-	runtype.FuncPC(stubW_iip_93),
-	runtype.FuncPC(stubW_iip_94),
-	runtype.FuncPC(stubW_iip_95),
-	runtype.FuncPC(stubW_iip_96),
-	runtype.FuncPC(stubW_iip_97),
-	runtype.FuncPC(stubW_iip_98),
-	runtype.FuncPC(stubW_iip_99),
-	runtype.FuncPC(stubW_iip_100),
-	runtype.FuncPC(stubW_iip_101),
-	runtype.FuncPC(stubW_iip_102),
-	runtype.FuncPC(stubW_iip_103),
-	runtype.FuncPC(stubW_iip_104),
-	runtype.FuncPC(stubW_iip_105),
-	runtype.FuncPC(stubW_iip_106),
-	runtype.FuncPC(stubW_iip_107),
-	runtype.FuncPC(stubW_iip_108),
-	runtype.FuncPC(stubW_iip_109),
-	runtype.FuncPC(stubW_iip_110),
-	runtype.FuncPC(stubW_iip_111),
-	runtype.FuncPC(stubW_iip_112),
-	runtype.FuncPC(stubW_iip_113),
-	runtype.FuncPC(stubW_iip_114),
-	runtype.FuncPC(stubW_iip_115),
-	runtype.FuncPC(stubW_iip_116),
-	runtype.FuncPC(stubW_iip_117),
-	runtype.FuncPC(stubW_iip_118),
-	runtype.FuncPC(stubW_iip_119),
-	runtype.FuncPC(stubW_iip_120),
-	runtype.FuncPC(stubW_iip_121),
-	runtype.FuncPC(stubW_iip_122),
-	runtype.FuncPC(stubW_iip_123),
-	runtype.FuncPC(stubW_iip_124),
-	runtype.FuncPC(stubW_iip_125),
-	runtype.FuncPC(stubW_iip_126),
-	runtype.FuncPC(stubW_iip_127),
-	runtype.FuncPC(stubW_iip_128),
-	runtype.FuncPC(stubW_iip_129),
-	runtype.FuncPC(stubW_iip_130),
-	runtype.FuncPC(stubW_iip_131),
-	runtype.FuncPC(stubW_iip_132),
-	runtype.FuncPC(stubW_iip_133),
-	runtype.FuncPC(stubW_iip_134),
-	runtype.FuncPC(stubW_iip_135),
-	runtype.FuncPC(stubW_iip_136),
-	runtype.FuncPC(stubW_iip_137),
-	runtype.FuncPC(stubW_iip_138),
-	runtype.FuncPC(stubW_iip_139),
-	runtype.FuncPC(stubW_iip_140),
-	runtype.FuncPC(stubW_iip_141),
-	runtype.FuncPC(stubW_iip_142),
-	runtype.FuncPC(stubW_iip_143),
-	runtype.FuncPC(stubW_iip_144),
-	runtype.FuncPC(stubW_iip_145),
-	runtype.FuncPC(stubW_iip_146),
-	runtype.FuncPC(stubW_iip_147),
-	runtype.FuncPC(stubW_iip_148),
-	runtype.FuncPC(stubW_iip_149),
-	runtype.FuncPC(stubW_iip_150),
-	runtype.FuncPC(stubW_iip_151),
-	runtype.FuncPC(stubW_iip_152),
-	runtype.FuncPC(stubW_iip_153),
-	runtype.FuncPC(stubW_iip_154),
-	runtype.FuncPC(stubW_iip_155),
-	runtype.FuncPC(stubW_iip_156),
-	runtype.FuncPC(stubW_iip_157),
-	runtype.FuncPC(stubW_iip_158),
-	runtype.FuncPC(stubW_iip_159),
-	runtype.FuncPC(stubW_iip_160),
-	runtype.FuncPC(stubW_iip_161),
-	runtype.FuncPC(stubW_iip_162),
-	runtype.FuncPC(stubW_iip_163),
-	runtype.FuncPC(stubW_iip_164),
-	runtype.FuncPC(stubW_iip_165),
-	runtype.FuncPC(stubW_iip_166),
-	runtype.FuncPC(stubW_iip_167),
-	runtype.FuncPC(stubW_iip_168),
-	runtype.FuncPC(stubW_iip_169),
-	runtype.FuncPC(stubW_iip_170),
-	runtype.FuncPC(stubW_iip_171),
-	runtype.FuncPC(stubW_iip_172),
-	runtype.FuncPC(stubW_iip_173),
-	runtype.FuncPC(stubW_iip_174),
-	runtype.FuncPC(stubW_iip_175),
-	runtype.FuncPC(stubW_iip_176),
-	runtype.FuncPC(stubW_iip_177),
-	runtype.FuncPC(stubW_iip_178),
-	runtype.FuncPC(stubW_iip_179),
-	runtype.FuncPC(stubW_iip_180),
-	runtype.FuncPC(stubW_iip_181),
-	runtype.FuncPC(stubW_iip_182),
-	runtype.FuncPC(stubW_iip_183),
-	runtype.FuncPC(stubW_iip_184),
-	runtype.FuncPC(stubW_iip_185),
-	runtype.FuncPC(stubW_iip_186),
-	runtype.FuncPC(stubW_iip_187),
-	runtype.FuncPC(stubW_iip_188),
-	runtype.FuncPC(stubW_iip_189),
-	runtype.FuncPC(stubW_iip_190),
-	runtype.FuncPC(stubW_iip_191),
-	runtype.FuncPC(stubW_iip_192),
-	runtype.FuncPC(stubW_iip_193),
-	runtype.FuncPC(stubW_iip_194),
-	runtype.FuncPC(stubW_iip_195),
-	runtype.FuncPC(stubW_iip_196),
-	runtype.FuncPC(stubW_iip_197),
-	runtype.FuncPC(stubW_iip_198),
-	runtype.FuncPC(stubW_iip_199),
-	runtype.FuncPC(stubW_iip_200),
-	runtype.FuncPC(stubW_iip_201),
-	runtype.FuncPC(stubW_iip_202),
-	runtype.FuncPC(stubW_iip_203),
-	runtype.FuncPC(stubW_iip_204),
-	runtype.FuncPC(stubW_iip_205),
-	runtype.FuncPC(stubW_iip_206),
-	runtype.FuncPC(stubW_iip_207),
-	runtype.FuncPC(stubW_iip_208),
-	runtype.FuncPC(stubW_iip_209),
-	runtype.FuncPC(stubW_iip_210),
-	runtype.FuncPC(stubW_iip_211),
-	runtype.FuncPC(stubW_iip_212),
-	runtype.FuncPC(stubW_iip_213),
-	runtype.FuncPC(stubW_iip_214),
-	runtype.FuncPC(stubW_iip_215),
-	runtype.FuncPC(stubW_iip_216),
-	runtype.FuncPC(stubW_iip_217),
-	runtype.FuncPC(stubW_iip_218),
-	runtype.FuncPC(stubW_iip_219),
-	runtype.FuncPC(stubW_iip_220),
-	runtype.FuncPC(stubW_iip_221),
-	runtype.FuncPC(stubW_iip_222),
-	runtype.FuncPC(stubW_iip_223),
-	runtype.FuncPC(stubW_iip_224),
-	runtype.FuncPC(stubW_iip_225),
-	runtype.FuncPC(stubW_iip_226),
-	runtype.FuncPC(stubW_iip_227),
-	runtype.FuncPC(stubW_iip_228),
-	runtype.FuncPC(stubW_iip_229),
-	runtype.FuncPC(stubW_iip_230),
-	runtype.FuncPC(stubW_iip_231),
-	runtype.FuncPC(stubW_iip_232),
-	runtype.FuncPC(stubW_iip_233),
-	runtype.FuncPC(stubW_iip_234),
-	runtype.FuncPC(stubW_iip_235),
-	runtype.FuncPC(stubW_iip_236),
-	runtype.FuncPC(stubW_iip_237),
-	runtype.FuncPC(stubW_iip_238),
-	runtype.FuncPC(stubW_iip_239),
-	runtype.FuncPC(stubW_iip_240),
-	runtype.FuncPC(stubW_iip_241),
-	runtype.FuncPC(stubW_iip_242),
-	runtype.FuncPC(stubW_iip_243),
-	runtype.FuncPC(stubW_iip_244),
-	runtype.FuncPC(stubW_iip_245),
-	runtype.FuncPC(stubW_iip_246),
-	runtype.FuncPC(stubW_iip_247),
-	runtype.FuncPC(stubW_iip_248),
-	runtype.FuncPC(stubW_iip_249),
-	runtype.FuncPC(stubW_iip_250),
-	runtype.FuncPC(stubW_iip_251),
-	runtype.FuncPC(stubW_iip_252),
-	runtype.FuncPC(stubW_iip_253),
-	runtype.FuncPC(stubW_iip_254),
-	runtype.FuncPC(stubW_iip_255),
-}
+var stubsW_iip [poolSizeW_iip]uintptr
 
 func dispatchW_iip(slot uint32, recv unsafe.Pointer) (uint64, uint64, unsafe.Pointer) {
 	var pw [0]unsafe.Pointer
@@ -1550,6 +1293,262 @@ func dispatchW_iip(slot uint32, recv unsafe.Pointer) (uint64, uint64, unsafe.Poi
 }
 
 func init() {
+	stubsW_iip[0] = runtype.FuncPC(stubW_iip_0)
+	stubsW_iip[1] = runtype.FuncPC(stubW_iip_1)
+	stubsW_iip[2] = runtype.FuncPC(stubW_iip_2)
+	stubsW_iip[3] = runtype.FuncPC(stubW_iip_3)
+	stubsW_iip[4] = runtype.FuncPC(stubW_iip_4)
+	stubsW_iip[5] = runtype.FuncPC(stubW_iip_5)
+	stubsW_iip[6] = runtype.FuncPC(stubW_iip_6)
+	stubsW_iip[7] = runtype.FuncPC(stubW_iip_7)
+	stubsW_iip[8] = runtype.FuncPC(stubW_iip_8)
+	stubsW_iip[9] = runtype.FuncPC(stubW_iip_9)
+	stubsW_iip[10] = runtype.FuncPC(stubW_iip_10)
+	stubsW_iip[11] = runtype.FuncPC(stubW_iip_11)
+	stubsW_iip[12] = runtype.FuncPC(stubW_iip_12)
+	stubsW_iip[13] = runtype.FuncPC(stubW_iip_13)
+	stubsW_iip[14] = runtype.FuncPC(stubW_iip_14)
+	stubsW_iip[15] = runtype.FuncPC(stubW_iip_15)
+	stubsW_iip[16] = runtype.FuncPC(stubW_iip_16)
+	stubsW_iip[17] = runtype.FuncPC(stubW_iip_17)
+	stubsW_iip[18] = runtype.FuncPC(stubW_iip_18)
+	stubsW_iip[19] = runtype.FuncPC(stubW_iip_19)
+	stubsW_iip[20] = runtype.FuncPC(stubW_iip_20)
+	stubsW_iip[21] = runtype.FuncPC(stubW_iip_21)
+	stubsW_iip[22] = runtype.FuncPC(stubW_iip_22)
+	stubsW_iip[23] = runtype.FuncPC(stubW_iip_23)
+	stubsW_iip[24] = runtype.FuncPC(stubW_iip_24)
+	stubsW_iip[25] = runtype.FuncPC(stubW_iip_25)
+	stubsW_iip[26] = runtype.FuncPC(stubW_iip_26)
+	stubsW_iip[27] = runtype.FuncPC(stubW_iip_27)
+	stubsW_iip[28] = runtype.FuncPC(stubW_iip_28)
+	stubsW_iip[29] = runtype.FuncPC(stubW_iip_29)
+	stubsW_iip[30] = runtype.FuncPC(stubW_iip_30)
+	stubsW_iip[31] = runtype.FuncPC(stubW_iip_31)
+	stubsW_iip[32] = runtype.FuncPC(stubW_iip_32)
+	stubsW_iip[33] = runtype.FuncPC(stubW_iip_33)
+	stubsW_iip[34] = runtype.FuncPC(stubW_iip_34)
+	stubsW_iip[35] = runtype.FuncPC(stubW_iip_35)
+	stubsW_iip[36] = runtype.FuncPC(stubW_iip_36)
+	stubsW_iip[37] = runtype.FuncPC(stubW_iip_37)
+	stubsW_iip[38] = runtype.FuncPC(stubW_iip_38)
+	stubsW_iip[39] = runtype.FuncPC(stubW_iip_39)
+	stubsW_iip[40] = runtype.FuncPC(stubW_iip_40)
+	stubsW_iip[41] = runtype.FuncPC(stubW_iip_41)
+	stubsW_iip[42] = runtype.FuncPC(stubW_iip_42)
+	stubsW_iip[43] = runtype.FuncPC(stubW_iip_43)
+	stubsW_iip[44] = runtype.FuncPC(stubW_iip_44)
+	stubsW_iip[45] = runtype.FuncPC(stubW_iip_45)
+	stubsW_iip[46] = runtype.FuncPC(stubW_iip_46)
+	stubsW_iip[47] = runtype.FuncPC(stubW_iip_47)
+	stubsW_iip[48] = runtype.FuncPC(stubW_iip_48)
+	stubsW_iip[49] = runtype.FuncPC(stubW_iip_49)
+	stubsW_iip[50] = runtype.FuncPC(stubW_iip_50)
+	stubsW_iip[51] = runtype.FuncPC(stubW_iip_51)
+	stubsW_iip[52] = runtype.FuncPC(stubW_iip_52)
+	stubsW_iip[53] = runtype.FuncPC(stubW_iip_53)
+	stubsW_iip[54] = runtype.FuncPC(stubW_iip_54)
+	stubsW_iip[55] = runtype.FuncPC(stubW_iip_55)
+	stubsW_iip[56] = runtype.FuncPC(stubW_iip_56)
+	stubsW_iip[57] = runtype.FuncPC(stubW_iip_57)
+	stubsW_iip[58] = runtype.FuncPC(stubW_iip_58)
+	stubsW_iip[59] = runtype.FuncPC(stubW_iip_59)
+	stubsW_iip[60] = runtype.FuncPC(stubW_iip_60)
+	stubsW_iip[61] = runtype.FuncPC(stubW_iip_61)
+	stubsW_iip[62] = runtype.FuncPC(stubW_iip_62)
+	stubsW_iip[63] = runtype.FuncPC(stubW_iip_63)
+	stubsW_iip[64] = runtype.FuncPC(stubW_iip_64)
+	stubsW_iip[65] = runtype.FuncPC(stubW_iip_65)
+	stubsW_iip[66] = runtype.FuncPC(stubW_iip_66)
+	stubsW_iip[67] = runtype.FuncPC(stubW_iip_67)
+	stubsW_iip[68] = runtype.FuncPC(stubW_iip_68)
+	stubsW_iip[69] = runtype.FuncPC(stubW_iip_69)
+	stubsW_iip[70] = runtype.FuncPC(stubW_iip_70)
+	stubsW_iip[71] = runtype.FuncPC(stubW_iip_71)
+	stubsW_iip[72] = runtype.FuncPC(stubW_iip_72)
+	stubsW_iip[73] = runtype.FuncPC(stubW_iip_73)
+	stubsW_iip[74] = runtype.FuncPC(stubW_iip_74)
+	stubsW_iip[75] = runtype.FuncPC(stubW_iip_75)
+	stubsW_iip[76] = runtype.FuncPC(stubW_iip_76)
+	stubsW_iip[77] = runtype.FuncPC(stubW_iip_77)
+	stubsW_iip[78] = runtype.FuncPC(stubW_iip_78)
+	stubsW_iip[79] = runtype.FuncPC(stubW_iip_79)
+	stubsW_iip[80] = runtype.FuncPC(stubW_iip_80)
+	stubsW_iip[81] = runtype.FuncPC(stubW_iip_81)
+	stubsW_iip[82] = runtype.FuncPC(stubW_iip_82)
+	stubsW_iip[83] = runtype.FuncPC(stubW_iip_83)
+	stubsW_iip[84] = runtype.FuncPC(stubW_iip_84)
+	stubsW_iip[85] = runtype.FuncPC(stubW_iip_85)
+	stubsW_iip[86] = runtype.FuncPC(stubW_iip_86)
+	stubsW_iip[87] = runtype.FuncPC(stubW_iip_87)
+	stubsW_iip[88] = runtype.FuncPC(stubW_iip_88)
+	stubsW_iip[89] = runtype.FuncPC(stubW_iip_89)
+	stubsW_iip[90] = runtype.FuncPC(stubW_iip_90)
+	stubsW_iip[91] = runtype.FuncPC(stubW_iip_91)
+	stubsW_iip[92] = runtype.FuncPC(stubW_iip_92)
+	stubsW_iip[93] = runtype.FuncPC(stubW_iip_93)
+	stubsW_iip[94] = runtype.FuncPC(stubW_iip_94)
+	stubsW_iip[95] = runtype.FuncPC(stubW_iip_95)
+	stubsW_iip[96] = runtype.FuncPC(stubW_iip_96)
+	stubsW_iip[97] = runtype.FuncPC(stubW_iip_97)
+	stubsW_iip[98] = runtype.FuncPC(stubW_iip_98)
+	stubsW_iip[99] = runtype.FuncPC(stubW_iip_99)
+	stubsW_iip[100] = runtype.FuncPC(stubW_iip_100)
+	stubsW_iip[101] = runtype.FuncPC(stubW_iip_101)
+	stubsW_iip[102] = runtype.FuncPC(stubW_iip_102)
+	stubsW_iip[103] = runtype.FuncPC(stubW_iip_103)
+	stubsW_iip[104] = runtype.FuncPC(stubW_iip_104)
+	stubsW_iip[105] = runtype.FuncPC(stubW_iip_105)
+	stubsW_iip[106] = runtype.FuncPC(stubW_iip_106)
+	stubsW_iip[107] = runtype.FuncPC(stubW_iip_107)
+	stubsW_iip[108] = runtype.FuncPC(stubW_iip_108)
+	stubsW_iip[109] = runtype.FuncPC(stubW_iip_109)
+	stubsW_iip[110] = runtype.FuncPC(stubW_iip_110)
+	stubsW_iip[111] = runtype.FuncPC(stubW_iip_111)
+	stubsW_iip[112] = runtype.FuncPC(stubW_iip_112)
+	stubsW_iip[113] = runtype.FuncPC(stubW_iip_113)
+	stubsW_iip[114] = runtype.FuncPC(stubW_iip_114)
+	stubsW_iip[115] = runtype.FuncPC(stubW_iip_115)
+	stubsW_iip[116] = runtype.FuncPC(stubW_iip_116)
+	stubsW_iip[117] = runtype.FuncPC(stubW_iip_117)
+	stubsW_iip[118] = runtype.FuncPC(stubW_iip_118)
+	stubsW_iip[119] = runtype.FuncPC(stubW_iip_119)
+	stubsW_iip[120] = runtype.FuncPC(stubW_iip_120)
+	stubsW_iip[121] = runtype.FuncPC(stubW_iip_121)
+	stubsW_iip[122] = runtype.FuncPC(stubW_iip_122)
+	stubsW_iip[123] = runtype.FuncPC(stubW_iip_123)
+	stubsW_iip[124] = runtype.FuncPC(stubW_iip_124)
+	stubsW_iip[125] = runtype.FuncPC(stubW_iip_125)
+	stubsW_iip[126] = runtype.FuncPC(stubW_iip_126)
+	stubsW_iip[127] = runtype.FuncPC(stubW_iip_127)
+	stubsW_iip[128] = runtype.FuncPC(stubW_iip_128)
+	stubsW_iip[129] = runtype.FuncPC(stubW_iip_129)
+	stubsW_iip[130] = runtype.FuncPC(stubW_iip_130)
+	stubsW_iip[131] = runtype.FuncPC(stubW_iip_131)
+	stubsW_iip[132] = runtype.FuncPC(stubW_iip_132)
+	stubsW_iip[133] = runtype.FuncPC(stubW_iip_133)
+	stubsW_iip[134] = runtype.FuncPC(stubW_iip_134)
+	stubsW_iip[135] = runtype.FuncPC(stubW_iip_135)
+	stubsW_iip[136] = runtype.FuncPC(stubW_iip_136)
+	stubsW_iip[137] = runtype.FuncPC(stubW_iip_137)
+	stubsW_iip[138] = runtype.FuncPC(stubW_iip_138)
+	stubsW_iip[139] = runtype.FuncPC(stubW_iip_139)
+	stubsW_iip[140] = runtype.FuncPC(stubW_iip_140)
+	stubsW_iip[141] = runtype.FuncPC(stubW_iip_141)
+	stubsW_iip[142] = runtype.FuncPC(stubW_iip_142)
+	stubsW_iip[143] = runtype.FuncPC(stubW_iip_143)
+	stubsW_iip[144] = runtype.FuncPC(stubW_iip_144)
+	stubsW_iip[145] = runtype.FuncPC(stubW_iip_145)
+	stubsW_iip[146] = runtype.FuncPC(stubW_iip_146)
+	stubsW_iip[147] = runtype.FuncPC(stubW_iip_147)
+	stubsW_iip[148] = runtype.FuncPC(stubW_iip_148)
+	stubsW_iip[149] = runtype.FuncPC(stubW_iip_149)
+	stubsW_iip[150] = runtype.FuncPC(stubW_iip_150)
+	stubsW_iip[151] = runtype.FuncPC(stubW_iip_151)
+	stubsW_iip[152] = runtype.FuncPC(stubW_iip_152)
+	stubsW_iip[153] = runtype.FuncPC(stubW_iip_153)
+	stubsW_iip[154] = runtype.FuncPC(stubW_iip_154)
+	stubsW_iip[155] = runtype.FuncPC(stubW_iip_155)
+	stubsW_iip[156] = runtype.FuncPC(stubW_iip_156)
+	stubsW_iip[157] = runtype.FuncPC(stubW_iip_157)
+	stubsW_iip[158] = runtype.FuncPC(stubW_iip_158)
+	stubsW_iip[159] = runtype.FuncPC(stubW_iip_159)
+	stubsW_iip[160] = runtype.FuncPC(stubW_iip_160)
+	stubsW_iip[161] = runtype.FuncPC(stubW_iip_161)
+	stubsW_iip[162] = runtype.FuncPC(stubW_iip_162)
+	stubsW_iip[163] = runtype.FuncPC(stubW_iip_163)
+	stubsW_iip[164] = runtype.FuncPC(stubW_iip_164)
+	stubsW_iip[165] = runtype.FuncPC(stubW_iip_165)
+	stubsW_iip[166] = runtype.FuncPC(stubW_iip_166)
+	stubsW_iip[167] = runtype.FuncPC(stubW_iip_167)
+	stubsW_iip[168] = runtype.FuncPC(stubW_iip_168)
+	stubsW_iip[169] = runtype.FuncPC(stubW_iip_169)
+	stubsW_iip[170] = runtype.FuncPC(stubW_iip_170)
+	stubsW_iip[171] = runtype.FuncPC(stubW_iip_171)
+	stubsW_iip[172] = runtype.FuncPC(stubW_iip_172)
+	stubsW_iip[173] = runtype.FuncPC(stubW_iip_173)
+	stubsW_iip[174] = runtype.FuncPC(stubW_iip_174)
+	stubsW_iip[175] = runtype.FuncPC(stubW_iip_175)
+	stubsW_iip[176] = runtype.FuncPC(stubW_iip_176)
+	stubsW_iip[177] = runtype.FuncPC(stubW_iip_177)
+	stubsW_iip[178] = runtype.FuncPC(stubW_iip_178)
+	stubsW_iip[179] = runtype.FuncPC(stubW_iip_179)
+	stubsW_iip[180] = runtype.FuncPC(stubW_iip_180)
+	stubsW_iip[181] = runtype.FuncPC(stubW_iip_181)
+	stubsW_iip[182] = runtype.FuncPC(stubW_iip_182)
+	stubsW_iip[183] = runtype.FuncPC(stubW_iip_183)
+	stubsW_iip[184] = runtype.FuncPC(stubW_iip_184)
+	stubsW_iip[185] = runtype.FuncPC(stubW_iip_185)
+	stubsW_iip[186] = runtype.FuncPC(stubW_iip_186)
+	stubsW_iip[187] = runtype.FuncPC(stubW_iip_187)
+	stubsW_iip[188] = runtype.FuncPC(stubW_iip_188)
+	stubsW_iip[189] = runtype.FuncPC(stubW_iip_189)
+	stubsW_iip[190] = runtype.FuncPC(stubW_iip_190)
+	stubsW_iip[191] = runtype.FuncPC(stubW_iip_191)
+	stubsW_iip[192] = runtype.FuncPC(stubW_iip_192)
+	stubsW_iip[193] = runtype.FuncPC(stubW_iip_193)
+	stubsW_iip[194] = runtype.FuncPC(stubW_iip_194)
+	stubsW_iip[195] = runtype.FuncPC(stubW_iip_195)
+	stubsW_iip[196] = runtype.FuncPC(stubW_iip_196)
+	stubsW_iip[197] = runtype.FuncPC(stubW_iip_197)
+	stubsW_iip[198] = runtype.FuncPC(stubW_iip_198)
+	stubsW_iip[199] = runtype.FuncPC(stubW_iip_199)
+	stubsW_iip[200] = runtype.FuncPC(stubW_iip_200)
+	stubsW_iip[201] = runtype.FuncPC(stubW_iip_201)
+	stubsW_iip[202] = runtype.FuncPC(stubW_iip_202)
+	stubsW_iip[203] = runtype.FuncPC(stubW_iip_203)
+	stubsW_iip[204] = runtype.FuncPC(stubW_iip_204)
+	stubsW_iip[205] = runtype.FuncPC(stubW_iip_205)
+	stubsW_iip[206] = runtype.FuncPC(stubW_iip_206)
+	stubsW_iip[207] = runtype.FuncPC(stubW_iip_207)
+	stubsW_iip[208] = runtype.FuncPC(stubW_iip_208)
+	stubsW_iip[209] = runtype.FuncPC(stubW_iip_209)
+	stubsW_iip[210] = runtype.FuncPC(stubW_iip_210)
+	stubsW_iip[211] = runtype.FuncPC(stubW_iip_211)
+	stubsW_iip[212] = runtype.FuncPC(stubW_iip_212)
+	stubsW_iip[213] = runtype.FuncPC(stubW_iip_213)
+	stubsW_iip[214] = runtype.FuncPC(stubW_iip_214)
+	stubsW_iip[215] = runtype.FuncPC(stubW_iip_215)
+	stubsW_iip[216] = runtype.FuncPC(stubW_iip_216)
+	stubsW_iip[217] = runtype.FuncPC(stubW_iip_217)
+	stubsW_iip[218] = runtype.FuncPC(stubW_iip_218)
+	stubsW_iip[219] = runtype.FuncPC(stubW_iip_219)
+	stubsW_iip[220] = runtype.FuncPC(stubW_iip_220)
+	stubsW_iip[221] = runtype.FuncPC(stubW_iip_221)
+	stubsW_iip[222] = runtype.FuncPC(stubW_iip_222)
+	stubsW_iip[223] = runtype.FuncPC(stubW_iip_223)
+	stubsW_iip[224] = runtype.FuncPC(stubW_iip_224)
+	stubsW_iip[225] = runtype.FuncPC(stubW_iip_225)
+	stubsW_iip[226] = runtype.FuncPC(stubW_iip_226)
+	stubsW_iip[227] = runtype.FuncPC(stubW_iip_227)
+	stubsW_iip[228] = runtype.FuncPC(stubW_iip_228)
+	stubsW_iip[229] = runtype.FuncPC(stubW_iip_229)
+	stubsW_iip[230] = runtype.FuncPC(stubW_iip_230)
+	stubsW_iip[231] = runtype.FuncPC(stubW_iip_231)
+	stubsW_iip[232] = runtype.FuncPC(stubW_iip_232)
+	stubsW_iip[233] = runtype.FuncPC(stubW_iip_233)
+	stubsW_iip[234] = runtype.FuncPC(stubW_iip_234)
+	stubsW_iip[235] = runtype.FuncPC(stubW_iip_235)
+	stubsW_iip[236] = runtype.FuncPC(stubW_iip_236)
+	stubsW_iip[237] = runtype.FuncPC(stubW_iip_237)
+	stubsW_iip[238] = runtype.FuncPC(stubW_iip_238)
+	stubsW_iip[239] = runtype.FuncPC(stubW_iip_239)
+	stubsW_iip[240] = runtype.FuncPC(stubW_iip_240)
+	stubsW_iip[241] = runtype.FuncPC(stubW_iip_241)
+	stubsW_iip[242] = runtype.FuncPC(stubW_iip_242)
+	stubsW_iip[243] = runtype.FuncPC(stubW_iip_243)
+	stubsW_iip[244] = runtype.FuncPC(stubW_iip_244)
+	stubsW_iip[245] = runtype.FuncPC(stubW_iip_245)
+	stubsW_iip[246] = runtype.FuncPC(stubW_iip_246)
+	stubsW_iip[247] = runtype.FuncPC(stubW_iip_247)
+	stubsW_iip[248] = runtype.FuncPC(stubW_iip_248)
+	stubsW_iip[249] = runtype.FuncPC(stubW_iip_249)
+	stubsW_iip[250] = runtype.FuncPC(stubW_iip_250)
+	stubsW_iip[251] = runtype.FuncPC(stubW_iip_251)
+	stubsW_iip[252] = runtype.FuncPC(stubW_iip_252)
+	stubsW_iip[253] = runtype.FuncPC(stubW_iip_253)
+	stubsW_iip[254] = runtype.FuncPC(stubW_iip_254)
+	stubsW_iip[255] = runtype.FuncPC(stubW_iip_255)
 	registerWordPool("_iip", &wordPool{
 		next:  &nextSlotW_iip,
 		cap:   poolSizeW_iip,

@@ -1,3 +1,11 @@
+//go:build !wasm
+
+// These tests pin the register-ABI word path: classifyType/wordLayoutOf/
+// writeWords/readWords and classifyWordSig (which resolves to the register
+// classifier only when wordABI0 is false). The wasm/ABI0 path is covered by
+// synth_word_abi0_test.go (arch-independent), and its end-to-end dispatch by
+// interptest under a wasm runtime.
+
 package vm
 
 import (
@@ -28,10 +36,10 @@ func TestClassifyType(t *testing.T) {
 		{reflect.TypeOf([]int(nil)), "pii", true},
 		{reflect.TypeOf((*any)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf((*error)(nil)).Elem(), "pp", true},
-		{reflect.TypeOf(float64(0)), "f", true},    // float64 is an FP-register word
-		{reflect.TypeOf(float32(0)), "", false},    // float32 is sub-word, dropped
-		{reflect.TypeOf(complex128(0)), "", false}, // complex dropped
-		{reflect.TypeOf([2]int{}), "", false},      // and arrays
+		{reflect.TypeOf(float64(0)), "f", true},                // float64 is an FP-register word
+		{reflect.TypeOf(float32(0)), "", false},                // float32 is sub-word, dropped
+		{reflect.TypeOf(complex128(0)), "", false},             // complex dropped
+		{reflect.TypeOf([2]int{}), "", false},                  // and arrays
 		{reflect.TypeOf(struct{ X, Y float64 }{}), "ff", true}, // all-float struct
 		// word-sized-leaf structs flatten to their leaves' words.
 		{reflect.TypeOf(struct{ a, b int }{}), "ii", true},
@@ -67,7 +75,7 @@ func TestDetectWordShape(t *testing.T) {
 		{reflect.TypeOf((func(string) ([]int, error))(nil)), "pi_piipp", true},
 		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true}, // word-sized-leaf struct result
 		// no generated pool for this word-shape -> drop (not error).
-		{reflect.TypeOf((func() (int, int))(nil)), "", false},
+		{reflect.TypeOf((func() (int, int, int))(nil)), "", false},
 		// a sub-word-packed struct param flattens to its leaves' words (ii) -> "ii_i".
 		{reflect.TypeOf((func(struct{ X, Y int32 }) int32)(nil)), "ii_i", true},
 		// over the register-word budget -> drop.
@@ -101,13 +109,13 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		time.Date(2026, 6, 2, 10, 30, 0, 0, time.UTC), // word-sized-leaf struct
 		float64(3.14159265358979),                     // 'f' word
 		struct{ X, Y float64 }{1.5, -2.5},             // all-float struct -> "ff"
-		struct {                                       // mixed int/float/ptr -> "ifp"
+		struct { // mixed int/float/ptr -> "ifp"
 			A int64
 			B float64
 			C *int
 		}{42, 6.022e23, &n},
 		struct{ X, Y int32 }{7, -9}, // sub-word packed (two int32 in one word) -> "ii"
-		struct {                     // sub-word + padding before the pointer -> "iip"
+		struct { // sub-word + padding before the pointer -> "iip"
 			A int16
 			B int64
 			C *int
@@ -154,3 +162,37 @@ func TestSetResultValueNilInterface(t *testing.T) {
 type myErr struct{}
 
 func (*myErr) Error() string { return "myErr" }
+
+// TestABI0MatchesRegabiExceptPacked checks the wasm/ABI0 classifier against the
+// register-ABI classifier: every word-aligned signature must yield the same key
+// (so both arches share the generated pools), while a sub-word-packed aggregate
+// must differ (the ABI0 key packs leaves into 8-byte slots).
+func TestABI0MatchesRegabiExceptPacked(t *testing.T) {
+	tp := reflect.TypeOf
+	errT := tp((*error)(nil)).Elem()
+	same := []reflect.Type{
+		reflect.FuncOf(nil, []reflect.Type{tp("")}, false),                                  // func() string
+		reflect.FuncOf([]reflect.Type{tp([]byte(nil))}, []reflect.Type{tp(0), errT}, false), // Reader
+		reflect.FuncOf(nil, []reflect.Type{tp(time.Time{})}, false),                         // time.Time (all 8-byte)
+		reflect.FuncOf([]reflect.Type{tp(float64(0))}, []reflect.Type{tp(float64(0))}, false),
+		reflect.FuncOf([]reflect.Type{errT}, []reflect.Type{tp(true)}, false), // func(error) bool
+	}
+	for _, ft := range same {
+		r, _, rok := classifyWordSig(ft)
+		a, _, aok := abi0ClassifyWordSig(ft)
+		if rok != aok || r != a {
+			t.Errorf("%v: regabi=%q(%v) abi0=%q(%v); want equal", ft, r, rok, a, aok)
+		}
+	}
+	packed := []reflect.Type{
+		reflect.FuncOf([]reflect.Type{tp(abiPoint{})}, nil, false),                                             // regabi "ii_" vs abi0 "i_"
+		reflect.FuncOf(nil, []reflect.Type{tp(uint32(0)), tp(uint32(0)), tp(uint32(0)), tp(uint32(0))}, false), // "_iiii" vs "_ii"
+	}
+	for _, ft := range packed {
+		r, _, _ := classifyWordSig(ft)
+		a, _, _ := abi0ClassifyWordSig(ft)
+		if r == a {
+			t.Errorf("%v: regabi and abi0 keys both %q; want differ", ft, r)
+		}
+	}
+}

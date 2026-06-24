@@ -1547,517 +1547,519 @@ func stubS3_510(recv unsafe.Pointer, data []byte) error { return dispatchS3(510,
 //go:noinline
 func stubS3_511(recv unsafe.Pointer, data []byte) error { return dispatchS3(511, recv, data) }
 
-var stubsS3 = [poolSizeS3]uintptr{
-	runtype.FuncPC(stubS3_0),
-	runtype.FuncPC(stubS3_1),
-	runtype.FuncPC(stubS3_2),
-	runtype.FuncPC(stubS3_3),
-	runtype.FuncPC(stubS3_4),
-	runtype.FuncPC(stubS3_5),
-	runtype.FuncPC(stubS3_6),
-	runtype.FuncPC(stubS3_7),
-	runtype.FuncPC(stubS3_8),
-	runtype.FuncPC(stubS3_9),
-	runtype.FuncPC(stubS3_10),
-	runtype.FuncPC(stubS3_11),
-	runtype.FuncPC(stubS3_12),
-	runtype.FuncPC(stubS3_13),
-	runtype.FuncPC(stubS3_14),
-	runtype.FuncPC(stubS3_15),
-	runtype.FuncPC(stubS3_16),
-	runtype.FuncPC(stubS3_17),
-	runtype.FuncPC(stubS3_18),
-	runtype.FuncPC(stubS3_19),
-	runtype.FuncPC(stubS3_20),
-	runtype.FuncPC(stubS3_21),
-	runtype.FuncPC(stubS3_22),
-	runtype.FuncPC(stubS3_23),
-	runtype.FuncPC(stubS3_24),
-	runtype.FuncPC(stubS3_25),
-	runtype.FuncPC(stubS3_26),
-	runtype.FuncPC(stubS3_27),
-	runtype.FuncPC(stubS3_28),
-	runtype.FuncPC(stubS3_29),
-	runtype.FuncPC(stubS3_30),
-	runtype.FuncPC(stubS3_31),
-	runtype.FuncPC(stubS3_32),
-	runtype.FuncPC(stubS3_33),
-	runtype.FuncPC(stubS3_34),
-	runtype.FuncPC(stubS3_35),
-	runtype.FuncPC(stubS3_36),
-	runtype.FuncPC(stubS3_37),
-	runtype.FuncPC(stubS3_38),
-	runtype.FuncPC(stubS3_39),
-	runtype.FuncPC(stubS3_40),
-	runtype.FuncPC(stubS3_41),
-	runtype.FuncPC(stubS3_42),
-	runtype.FuncPC(stubS3_43),
-	runtype.FuncPC(stubS3_44),
-	runtype.FuncPC(stubS3_45),
-	runtype.FuncPC(stubS3_46),
-	runtype.FuncPC(stubS3_47),
-	runtype.FuncPC(stubS3_48),
-	runtype.FuncPC(stubS3_49),
-	runtype.FuncPC(stubS3_50),
-	runtype.FuncPC(stubS3_51),
-	runtype.FuncPC(stubS3_52),
-	runtype.FuncPC(stubS3_53),
-	runtype.FuncPC(stubS3_54),
-	runtype.FuncPC(stubS3_55),
-	runtype.FuncPC(stubS3_56),
-	runtype.FuncPC(stubS3_57),
-	runtype.FuncPC(stubS3_58),
-	runtype.FuncPC(stubS3_59),
-	runtype.FuncPC(stubS3_60),
-	runtype.FuncPC(stubS3_61),
-	runtype.FuncPC(stubS3_62),
-	runtype.FuncPC(stubS3_63),
-	runtype.FuncPC(stubS3_64),
-	runtype.FuncPC(stubS3_65),
-	runtype.FuncPC(stubS3_66),
-	runtype.FuncPC(stubS3_67),
-	runtype.FuncPC(stubS3_68),
-	runtype.FuncPC(stubS3_69),
-	runtype.FuncPC(stubS3_70),
-	runtype.FuncPC(stubS3_71),
-	runtype.FuncPC(stubS3_72),
-	runtype.FuncPC(stubS3_73),
-	runtype.FuncPC(stubS3_74),
-	runtype.FuncPC(stubS3_75),
-	runtype.FuncPC(stubS3_76),
-	runtype.FuncPC(stubS3_77),
-	runtype.FuncPC(stubS3_78),
-	runtype.FuncPC(stubS3_79),
-	runtype.FuncPC(stubS3_80),
-	runtype.FuncPC(stubS3_81),
-	runtype.FuncPC(stubS3_82),
-	runtype.FuncPC(stubS3_83),
-	runtype.FuncPC(stubS3_84),
-	runtype.FuncPC(stubS3_85),
-	runtype.FuncPC(stubS3_86),
-	runtype.FuncPC(stubS3_87),
-	runtype.FuncPC(stubS3_88),
-	runtype.FuncPC(stubS3_89),
-	runtype.FuncPC(stubS3_90),
-	runtype.FuncPC(stubS3_91),
-	runtype.FuncPC(stubS3_92),
-	runtype.FuncPC(stubS3_93),
-	runtype.FuncPC(stubS3_94),
-	runtype.FuncPC(stubS3_95),
-	runtype.FuncPC(stubS3_96),
-	runtype.FuncPC(stubS3_97),
-	runtype.FuncPC(stubS3_98),
-	runtype.FuncPC(stubS3_99),
-	runtype.FuncPC(stubS3_100),
-	runtype.FuncPC(stubS3_101),
-	runtype.FuncPC(stubS3_102),
-	runtype.FuncPC(stubS3_103),
-	runtype.FuncPC(stubS3_104),
-	runtype.FuncPC(stubS3_105),
-	runtype.FuncPC(stubS3_106),
-	runtype.FuncPC(stubS3_107),
-	runtype.FuncPC(stubS3_108),
-	runtype.FuncPC(stubS3_109),
-	runtype.FuncPC(stubS3_110),
-	runtype.FuncPC(stubS3_111),
-	runtype.FuncPC(stubS3_112),
-	runtype.FuncPC(stubS3_113),
-	runtype.FuncPC(stubS3_114),
-	runtype.FuncPC(stubS3_115),
-	runtype.FuncPC(stubS3_116),
-	runtype.FuncPC(stubS3_117),
-	runtype.FuncPC(stubS3_118),
-	runtype.FuncPC(stubS3_119),
-	runtype.FuncPC(stubS3_120),
-	runtype.FuncPC(stubS3_121),
-	runtype.FuncPC(stubS3_122),
-	runtype.FuncPC(stubS3_123),
-	runtype.FuncPC(stubS3_124),
-	runtype.FuncPC(stubS3_125),
-	runtype.FuncPC(stubS3_126),
-	runtype.FuncPC(stubS3_127),
-	runtype.FuncPC(stubS3_128),
-	runtype.FuncPC(stubS3_129),
-	runtype.FuncPC(stubS3_130),
-	runtype.FuncPC(stubS3_131),
-	runtype.FuncPC(stubS3_132),
-	runtype.FuncPC(stubS3_133),
-	runtype.FuncPC(stubS3_134),
-	runtype.FuncPC(stubS3_135),
-	runtype.FuncPC(stubS3_136),
-	runtype.FuncPC(stubS3_137),
-	runtype.FuncPC(stubS3_138),
-	runtype.FuncPC(stubS3_139),
-	runtype.FuncPC(stubS3_140),
-	runtype.FuncPC(stubS3_141),
-	runtype.FuncPC(stubS3_142),
-	runtype.FuncPC(stubS3_143),
-	runtype.FuncPC(stubS3_144),
-	runtype.FuncPC(stubS3_145),
-	runtype.FuncPC(stubS3_146),
-	runtype.FuncPC(stubS3_147),
-	runtype.FuncPC(stubS3_148),
-	runtype.FuncPC(stubS3_149),
-	runtype.FuncPC(stubS3_150),
-	runtype.FuncPC(stubS3_151),
-	runtype.FuncPC(stubS3_152),
-	runtype.FuncPC(stubS3_153),
-	runtype.FuncPC(stubS3_154),
-	runtype.FuncPC(stubS3_155),
-	runtype.FuncPC(stubS3_156),
-	runtype.FuncPC(stubS3_157),
-	runtype.FuncPC(stubS3_158),
-	runtype.FuncPC(stubS3_159),
-	runtype.FuncPC(stubS3_160),
-	runtype.FuncPC(stubS3_161),
-	runtype.FuncPC(stubS3_162),
-	runtype.FuncPC(stubS3_163),
-	runtype.FuncPC(stubS3_164),
-	runtype.FuncPC(stubS3_165),
-	runtype.FuncPC(stubS3_166),
-	runtype.FuncPC(stubS3_167),
-	runtype.FuncPC(stubS3_168),
-	runtype.FuncPC(stubS3_169),
-	runtype.FuncPC(stubS3_170),
-	runtype.FuncPC(stubS3_171),
-	runtype.FuncPC(stubS3_172),
-	runtype.FuncPC(stubS3_173),
-	runtype.FuncPC(stubS3_174),
-	runtype.FuncPC(stubS3_175),
-	runtype.FuncPC(stubS3_176),
-	runtype.FuncPC(stubS3_177),
-	runtype.FuncPC(stubS3_178),
-	runtype.FuncPC(stubS3_179),
-	runtype.FuncPC(stubS3_180),
-	runtype.FuncPC(stubS3_181),
-	runtype.FuncPC(stubS3_182),
-	runtype.FuncPC(stubS3_183),
-	runtype.FuncPC(stubS3_184),
-	runtype.FuncPC(stubS3_185),
-	runtype.FuncPC(stubS3_186),
-	runtype.FuncPC(stubS3_187),
-	runtype.FuncPC(stubS3_188),
-	runtype.FuncPC(stubS3_189),
-	runtype.FuncPC(stubS3_190),
-	runtype.FuncPC(stubS3_191),
-	runtype.FuncPC(stubS3_192),
-	runtype.FuncPC(stubS3_193),
-	runtype.FuncPC(stubS3_194),
-	runtype.FuncPC(stubS3_195),
-	runtype.FuncPC(stubS3_196),
-	runtype.FuncPC(stubS3_197),
-	runtype.FuncPC(stubS3_198),
-	runtype.FuncPC(stubS3_199),
-	runtype.FuncPC(stubS3_200),
-	runtype.FuncPC(stubS3_201),
-	runtype.FuncPC(stubS3_202),
-	runtype.FuncPC(stubS3_203),
-	runtype.FuncPC(stubS3_204),
-	runtype.FuncPC(stubS3_205),
-	runtype.FuncPC(stubS3_206),
-	runtype.FuncPC(stubS3_207),
-	runtype.FuncPC(stubS3_208),
-	runtype.FuncPC(stubS3_209),
-	runtype.FuncPC(stubS3_210),
-	runtype.FuncPC(stubS3_211),
-	runtype.FuncPC(stubS3_212),
-	runtype.FuncPC(stubS3_213),
-	runtype.FuncPC(stubS3_214),
-	runtype.FuncPC(stubS3_215),
-	runtype.FuncPC(stubS3_216),
-	runtype.FuncPC(stubS3_217),
-	runtype.FuncPC(stubS3_218),
-	runtype.FuncPC(stubS3_219),
-	runtype.FuncPC(stubS3_220),
-	runtype.FuncPC(stubS3_221),
-	runtype.FuncPC(stubS3_222),
-	runtype.FuncPC(stubS3_223),
-	runtype.FuncPC(stubS3_224),
-	runtype.FuncPC(stubS3_225),
-	runtype.FuncPC(stubS3_226),
-	runtype.FuncPC(stubS3_227),
-	runtype.FuncPC(stubS3_228),
-	runtype.FuncPC(stubS3_229),
-	runtype.FuncPC(stubS3_230),
-	runtype.FuncPC(stubS3_231),
-	runtype.FuncPC(stubS3_232),
-	runtype.FuncPC(stubS3_233),
-	runtype.FuncPC(stubS3_234),
-	runtype.FuncPC(stubS3_235),
-	runtype.FuncPC(stubS3_236),
-	runtype.FuncPC(stubS3_237),
-	runtype.FuncPC(stubS3_238),
-	runtype.FuncPC(stubS3_239),
-	runtype.FuncPC(stubS3_240),
-	runtype.FuncPC(stubS3_241),
-	runtype.FuncPC(stubS3_242),
-	runtype.FuncPC(stubS3_243),
-	runtype.FuncPC(stubS3_244),
-	runtype.FuncPC(stubS3_245),
-	runtype.FuncPC(stubS3_246),
-	runtype.FuncPC(stubS3_247),
-	runtype.FuncPC(stubS3_248),
-	runtype.FuncPC(stubS3_249),
-	runtype.FuncPC(stubS3_250),
-	runtype.FuncPC(stubS3_251),
-	runtype.FuncPC(stubS3_252),
-	runtype.FuncPC(stubS3_253),
-	runtype.FuncPC(stubS3_254),
-	runtype.FuncPC(stubS3_255),
-	runtype.FuncPC(stubS3_256),
-	runtype.FuncPC(stubS3_257),
-	runtype.FuncPC(stubS3_258),
-	runtype.FuncPC(stubS3_259),
-	runtype.FuncPC(stubS3_260),
-	runtype.FuncPC(stubS3_261),
-	runtype.FuncPC(stubS3_262),
-	runtype.FuncPC(stubS3_263),
-	runtype.FuncPC(stubS3_264),
-	runtype.FuncPC(stubS3_265),
-	runtype.FuncPC(stubS3_266),
-	runtype.FuncPC(stubS3_267),
-	runtype.FuncPC(stubS3_268),
-	runtype.FuncPC(stubS3_269),
-	runtype.FuncPC(stubS3_270),
-	runtype.FuncPC(stubS3_271),
-	runtype.FuncPC(stubS3_272),
-	runtype.FuncPC(stubS3_273),
-	runtype.FuncPC(stubS3_274),
-	runtype.FuncPC(stubS3_275),
-	runtype.FuncPC(stubS3_276),
-	runtype.FuncPC(stubS3_277),
-	runtype.FuncPC(stubS3_278),
-	runtype.FuncPC(stubS3_279),
-	runtype.FuncPC(stubS3_280),
-	runtype.FuncPC(stubS3_281),
-	runtype.FuncPC(stubS3_282),
-	runtype.FuncPC(stubS3_283),
-	runtype.FuncPC(stubS3_284),
-	runtype.FuncPC(stubS3_285),
-	runtype.FuncPC(stubS3_286),
-	runtype.FuncPC(stubS3_287),
-	runtype.FuncPC(stubS3_288),
-	runtype.FuncPC(stubS3_289),
-	runtype.FuncPC(stubS3_290),
-	runtype.FuncPC(stubS3_291),
-	runtype.FuncPC(stubS3_292),
-	runtype.FuncPC(stubS3_293),
-	runtype.FuncPC(stubS3_294),
-	runtype.FuncPC(stubS3_295),
-	runtype.FuncPC(stubS3_296),
-	runtype.FuncPC(stubS3_297),
-	runtype.FuncPC(stubS3_298),
-	runtype.FuncPC(stubS3_299),
-	runtype.FuncPC(stubS3_300),
-	runtype.FuncPC(stubS3_301),
-	runtype.FuncPC(stubS3_302),
-	runtype.FuncPC(stubS3_303),
-	runtype.FuncPC(stubS3_304),
-	runtype.FuncPC(stubS3_305),
-	runtype.FuncPC(stubS3_306),
-	runtype.FuncPC(stubS3_307),
-	runtype.FuncPC(stubS3_308),
-	runtype.FuncPC(stubS3_309),
-	runtype.FuncPC(stubS3_310),
-	runtype.FuncPC(stubS3_311),
-	runtype.FuncPC(stubS3_312),
-	runtype.FuncPC(stubS3_313),
-	runtype.FuncPC(stubS3_314),
-	runtype.FuncPC(stubS3_315),
-	runtype.FuncPC(stubS3_316),
-	runtype.FuncPC(stubS3_317),
-	runtype.FuncPC(stubS3_318),
-	runtype.FuncPC(stubS3_319),
-	runtype.FuncPC(stubS3_320),
-	runtype.FuncPC(stubS3_321),
-	runtype.FuncPC(stubS3_322),
-	runtype.FuncPC(stubS3_323),
-	runtype.FuncPC(stubS3_324),
-	runtype.FuncPC(stubS3_325),
-	runtype.FuncPC(stubS3_326),
-	runtype.FuncPC(stubS3_327),
-	runtype.FuncPC(stubS3_328),
-	runtype.FuncPC(stubS3_329),
-	runtype.FuncPC(stubS3_330),
-	runtype.FuncPC(stubS3_331),
-	runtype.FuncPC(stubS3_332),
-	runtype.FuncPC(stubS3_333),
-	runtype.FuncPC(stubS3_334),
-	runtype.FuncPC(stubS3_335),
-	runtype.FuncPC(stubS3_336),
-	runtype.FuncPC(stubS3_337),
-	runtype.FuncPC(stubS3_338),
-	runtype.FuncPC(stubS3_339),
-	runtype.FuncPC(stubS3_340),
-	runtype.FuncPC(stubS3_341),
-	runtype.FuncPC(stubS3_342),
-	runtype.FuncPC(stubS3_343),
-	runtype.FuncPC(stubS3_344),
-	runtype.FuncPC(stubS3_345),
-	runtype.FuncPC(stubS3_346),
-	runtype.FuncPC(stubS3_347),
-	runtype.FuncPC(stubS3_348),
-	runtype.FuncPC(stubS3_349),
-	runtype.FuncPC(stubS3_350),
-	runtype.FuncPC(stubS3_351),
-	runtype.FuncPC(stubS3_352),
-	runtype.FuncPC(stubS3_353),
-	runtype.FuncPC(stubS3_354),
-	runtype.FuncPC(stubS3_355),
-	runtype.FuncPC(stubS3_356),
-	runtype.FuncPC(stubS3_357),
-	runtype.FuncPC(stubS3_358),
-	runtype.FuncPC(stubS3_359),
-	runtype.FuncPC(stubS3_360),
-	runtype.FuncPC(stubS3_361),
-	runtype.FuncPC(stubS3_362),
-	runtype.FuncPC(stubS3_363),
-	runtype.FuncPC(stubS3_364),
-	runtype.FuncPC(stubS3_365),
-	runtype.FuncPC(stubS3_366),
-	runtype.FuncPC(stubS3_367),
-	runtype.FuncPC(stubS3_368),
-	runtype.FuncPC(stubS3_369),
-	runtype.FuncPC(stubS3_370),
-	runtype.FuncPC(stubS3_371),
-	runtype.FuncPC(stubS3_372),
-	runtype.FuncPC(stubS3_373),
-	runtype.FuncPC(stubS3_374),
-	runtype.FuncPC(stubS3_375),
-	runtype.FuncPC(stubS3_376),
-	runtype.FuncPC(stubS3_377),
-	runtype.FuncPC(stubS3_378),
-	runtype.FuncPC(stubS3_379),
-	runtype.FuncPC(stubS3_380),
-	runtype.FuncPC(stubS3_381),
-	runtype.FuncPC(stubS3_382),
-	runtype.FuncPC(stubS3_383),
-	runtype.FuncPC(stubS3_384),
-	runtype.FuncPC(stubS3_385),
-	runtype.FuncPC(stubS3_386),
-	runtype.FuncPC(stubS3_387),
-	runtype.FuncPC(stubS3_388),
-	runtype.FuncPC(stubS3_389),
-	runtype.FuncPC(stubS3_390),
-	runtype.FuncPC(stubS3_391),
-	runtype.FuncPC(stubS3_392),
-	runtype.FuncPC(stubS3_393),
-	runtype.FuncPC(stubS3_394),
-	runtype.FuncPC(stubS3_395),
-	runtype.FuncPC(stubS3_396),
-	runtype.FuncPC(stubS3_397),
-	runtype.FuncPC(stubS3_398),
-	runtype.FuncPC(stubS3_399),
-	runtype.FuncPC(stubS3_400),
-	runtype.FuncPC(stubS3_401),
-	runtype.FuncPC(stubS3_402),
-	runtype.FuncPC(stubS3_403),
-	runtype.FuncPC(stubS3_404),
-	runtype.FuncPC(stubS3_405),
-	runtype.FuncPC(stubS3_406),
-	runtype.FuncPC(stubS3_407),
-	runtype.FuncPC(stubS3_408),
-	runtype.FuncPC(stubS3_409),
-	runtype.FuncPC(stubS3_410),
-	runtype.FuncPC(stubS3_411),
-	runtype.FuncPC(stubS3_412),
-	runtype.FuncPC(stubS3_413),
-	runtype.FuncPC(stubS3_414),
-	runtype.FuncPC(stubS3_415),
-	runtype.FuncPC(stubS3_416),
-	runtype.FuncPC(stubS3_417),
-	runtype.FuncPC(stubS3_418),
-	runtype.FuncPC(stubS3_419),
-	runtype.FuncPC(stubS3_420),
-	runtype.FuncPC(stubS3_421),
-	runtype.FuncPC(stubS3_422),
-	runtype.FuncPC(stubS3_423),
-	runtype.FuncPC(stubS3_424),
-	runtype.FuncPC(stubS3_425),
-	runtype.FuncPC(stubS3_426),
-	runtype.FuncPC(stubS3_427),
-	runtype.FuncPC(stubS3_428),
-	runtype.FuncPC(stubS3_429),
-	runtype.FuncPC(stubS3_430),
-	runtype.FuncPC(stubS3_431),
-	runtype.FuncPC(stubS3_432),
-	runtype.FuncPC(stubS3_433),
-	runtype.FuncPC(stubS3_434),
-	runtype.FuncPC(stubS3_435),
-	runtype.FuncPC(stubS3_436),
-	runtype.FuncPC(stubS3_437),
-	runtype.FuncPC(stubS3_438),
-	runtype.FuncPC(stubS3_439),
-	runtype.FuncPC(stubS3_440),
-	runtype.FuncPC(stubS3_441),
-	runtype.FuncPC(stubS3_442),
-	runtype.FuncPC(stubS3_443),
-	runtype.FuncPC(stubS3_444),
-	runtype.FuncPC(stubS3_445),
-	runtype.FuncPC(stubS3_446),
-	runtype.FuncPC(stubS3_447),
-	runtype.FuncPC(stubS3_448),
-	runtype.FuncPC(stubS3_449),
-	runtype.FuncPC(stubS3_450),
-	runtype.FuncPC(stubS3_451),
-	runtype.FuncPC(stubS3_452),
-	runtype.FuncPC(stubS3_453),
-	runtype.FuncPC(stubS3_454),
-	runtype.FuncPC(stubS3_455),
-	runtype.FuncPC(stubS3_456),
-	runtype.FuncPC(stubS3_457),
-	runtype.FuncPC(stubS3_458),
-	runtype.FuncPC(stubS3_459),
-	runtype.FuncPC(stubS3_460),
-	runtype.FuncPC(stubS3_461),
-	runtype.FuncPC(stubS3_462),
-	runtype.FuncPC(stubS3_463),
-	runtype.FuncPC(stubS3_464),
-	runtype.FuncPC(stubS3_465),
-	runtype.FuncPC(stubS3_466),
-	runtype.FuncPC(stubS3_467),
-	runtype.FuncPC(stubS3_468),
-	runtype.FuncPC(stubS3_469),
-	runtype.FuncPC(stubS3_470),
-	runtype.FuncPC(stubS3_471),
-	runtype.FuncPC(stubS3_472),
-	runtype.FuncPC(stubS3_473),
-	runtype.FuncPC(stubS3_474),
-	runtype.FuncPC(stubS3_475),
-	runtype.FuncPC(stubS3_476),
-	runtype.FuncPC(stubS3_477),
-	runtype.FuncPC(stubS3_478),
-	runtype.FuncPC(stubS3_479),
-	runtype.FuncPC(stubS3_480),
-	runtype.FuncPC(stubS3_481),
-	runtype.FuncPC(stubS3_482),
-	runtype.FuncPC(stubS3_483),
-	runtype.FuncPC(stubS3_484),
-	runtype.FuncPC(stubS3_485),
-	runtype.FuncPC(stubS3_486),
-	runtype.FuncPC(stubS3_487),
-	runtype.FuncPC(stubS3_488),
-	runtype.FuncPC(stubS3_489),
-	runtype.FuncPC(stubS3_490),
-	runtype.FuncPC(stubS3_491),
-	runtype.FuncPC(stubS3_492),
-	runtype.FuncPC(stubS3_493),
-	runtype.FuncPC(stubS3_494),
-	runtype.FuncPC(stubS3_495),
-	runtype.FuncPC(stubS3_496),
-	runtype.FuncPC(stubS3_497),
-	runtype.FuncPC(stubS3_498),
-	runtype.FuncPC(stubS3_499),
-	runtype.FuncPC(stubS3_500),
-	runtype.FuncPC(stubS3_501),
-	runtype.FuncPC(stubS3_502),
-	runtype.FuncPC(stubS3_503),
-	runtype.FuncPC(stubS3_504),
-	runtype.FuncPC(stubS3_505),
-	runtype.FuncPC(stubS3_506),
-	runtype.FuncPC(stubS3_507),
-	runtype.FuncPC(stubS3_508),
-	runtype.FuncPC(stubS3_509),
-	runtype.FuncPC(stubS3_510),
-	runtype.FuncPC(stubS3_511),
+var stubsS3 [poolSizeS3]uintptr
+
+func init() {
+	stubsS3[0] = runtype.FuncPC(stubS3_0)
+	stubsS3[1] = runtype.FuncPC(stubS3_1)
+	stubsS3[2] = runtype.FuncPC(stubS3_2)
+	stubsS3[3] = runtype.FuncPC(stubS3_3)
+	stubsS3[4] = runtype.FuncPC(stubS3_4)
+	stubsS3[5] = runtype.FuncPC(stubS3_5)
+	stubsS3[6] = runtype.FuncPC(stubS3_6)
+	stubsS3[7] = runtype.FuncPC(stubS3_7)
+	stubsS3[8] = runtype.FuncPC(stubS3_8)
+	stubsS3[9] = runtype.FuncPC(stubS3_9)
+	stubsS3[10] = runtype.FuncPC(stubS3_10)
+	stubsS3[11] = runtype.FuncPC(stubS3_11)
+	stubsS3[12] = runtype.FuncPC(stubS3_12)
+	stubsS3[13] = runtype.FuncPC(stubS3_13)
+	stubsS3[14] = runtype.FuncPC(stubS3_14)
+	stubsS3[15] = runtype.FuncPC(stubS3_15)
+	stubsS3[16] = runtype.FuncPC(stubS3_16)
+	stubsS3[17] = runtype.FuncPC(stubS3_17)
+	stubsS3[18] = runtype.FuncPC(stubS3_18)
+	stubsS3[19] = runtype.FuncPC(stubS3_19)
+	stubsS3[20] = runtype.FuncPC(stubS3_20)
+	stubsS3[21] = runtype.FuncPC(stubS3_21)
+	stubsS3[22] = runtype.FuncPC(stubS3_22)
+	stubsS3[23] = runtype.FuncPC(stubS3_23)
+	stubsS3[24] = runtype.FuncPC(stubS3_24)
+	stubsS3[25] = runtype.FuncPC(stubS3_25)
+	stubsS3[26] = runtype.FuncPC(stubS3_26)
+	stubsS3[27] = runtype.FuncPC(stubS3_27)
+	stubsS3[28] = runtype.FuncPC(stubS3_28)
+	stubsS3[29] = runtype.FuncPC(stubS3_29)
+	stubsS3[30] = runtype.FuncPC(stubS3_30)
+	stubsS3[31] = runtype.FuncPC(stubS3_31)
+	stubsS3[32] = runtype.FuncPC(stubS3_32)
+	stubsS3[33] = runtype.FuncPC(stubS3_33)
+	stubsS3[34] = runtype.FuncPC(stubS3_34)
+	stubsS3[35] = runtype.FuncPC(stubS3_35)
+	stubsS3[36] = runtype.FuncPC(stubS3_36)
+	stubsS3[37] = runtype.FuncPC(stubS3_37)
+	stubsS3[38] = runtype.FuncPC(stubS3_38)
+	stubsS3[39] = runtype.FuncPC(stubS3_39)
+	stubsS3[40] = runtype.FuncPC(stubS3_40)
+	stubsS3[41] = runtype.FuncPC(stubS3_41)
+	stubsS3[42] = runtype.FuncPC(stubS3_42)
+	stubsS3[43] = runtype.FuncPC(stubS3_43)
+	stubsS3[44] = runtype.FuncPC(stubS3_44)
+	stubsS3[45] = runtype.FuncPC(stubS3_45)
+	stubsS3[46] = runtype.FuncPC(stubS3_46)
+	stubsS3[47] = runtype.FuncPC(stubS3_47)
+	stubsS3[48] = runtype.FuncPC(stubS3_48)
+	stubsS3[49] = runtype.FuncPC(stubS3_49)
+	stubsS3[50] = runtype.FuncPC(stubS3_50)
+	stubsS3[51] = runtype.FuncPC(stubS3_51)
+	stubsS3[52] = runtype.FuncPC(stubS3_52)
+	stubsS3[53] = runtype.FuncPC(stubS3_53)
+	stubsS3[54] = runtype.FuncPC(stubS3_54)
+	stubsS3[55] = runtype.FuncPC(stubS3_55)
+	stubsS3[56] = runtype.FuncPC(stubS3_56)
+	stubsS3[57] = runtype.FuncPC(stubS3_57)
+	stubsS3[58] = runtype.FuncPC(stubS3_58)
+	stubsS3[59] = runtype.FuncPC(stubS3_59)
+	stubsS3[60] = runtype.FuncPC(stubS3_60)
+	stubsS3[61] = runtype.FuncPC(stubS3_61)
+	stubsS3[62] = runtype.FuncPC(stubS3_62)
+	stubsS3[63] = runtype.FuncPC(stubS3_63)
+	stubsS3[64] = runtype.FuncPC(stubS3_64)
+	stubsS3[65] = runtype.FuncPC(stubS3_65)
+	stubsS3[66] = runtype.FuncPC(stubS3_66)
+	stubsS3[67] = runtype.FuncPC(stubS3_67)
+	stubsS3[68] = runtype.FuncPC(stubS3_68)
+	stubsS3[69] = runtype.FuncPC(stubS3_69)
+	stubsS3[70] = runtype.FuncPC(stubS3_70)
+	stubsS3[71] = runtype.FuncPC(stubS3_71)
+	stubsS3[72] = runtype.FuncPC(stubS3_72)
+	stubsS3[73] = runtype.FuncPC(stubS3_73)
+	stubsS3[74] = runtype.FuncPC(stubS3_74)
+	stubsS3[75] = runtype.FuncPC(stubS3_75)
+	stubsS3[76] = runtype.FuncPC(stubS3_76)
+	stubsS3[77] = runtype.FuncPC(stubS3_77)
+	stubsS3[78] = runtype.FuncPC(stubS3_78)
+	stubsS3[79] = runtype.FuncPC(stubS3_79)
+	stubsS3[80] = runtype.FuncPC(stubS3_80)
+	stubsS3[81] = runtype.FuncPC(stubS3_81)
+	stubsS3[82] = runtype.FuncPC(stubS3_82)
+	stubsS3[83] = runtype.FuncPC(stubS3_83)
+	stubsS3[84] = runtype.FuncPC(stubS3_84)
+	stubsS3[85] = runtype.FuncPC(stubS3_85)
+	stubsS3[86] = runtype.FuncPC(stubS3_86)
+	stubsS3[87] = runtype.FuncPC(stubS3_87)
+	stubsS3[88] = runtype.FuncPC(stubS3_88)
+	stubsS3[89] = runtype.FuncPC(stubS3_89)
+	stubsS3[90] = runtype.FuncPC(stubS3_90)
+	stubsS3[91] = runtype.FuncPC(stubS3_91)
+	stubsS3[92] = runtype.FuncPC(stubS3_92)
+	stubsS3[93] = runtype.FuncPC(stubS3_93)
+	stubsS3[94] = runtype.FuncPC(stubS3_94)
+	stubsS3[95] = runtype.FuncPC(stubS3_95)
+	stubsS3[96] = runtype.FuncPC(stubS3_96)
+	stubsS3[97] = runtype.FuncPC(stubS3_97)
+	stubsS3[98] = runtype.FuncPC(stubS3_98)
+	stubsS3[99] = runtype.FuncPC(stubS3_99)
+	stubsS3[100] = runtype.FuncPC(stubS3_100)
+	stubsS3[101] = runtype.FuncPC(stubS3_101)
+	stubsS3[102] = runtype.FuncPC(stubS3_102)
+	stubsS3[103] = runtype.FuncPC(stubS3_103)
+	stubsS3[104] = runtype.FuncPC(stubS3_104)
+	stubsS3[105] = runtype.FuncPC(stubS3_105)
+	stubsS3[106] = runtype.FuncPC(stubS3_106)
+	stubsS3[107] = runtype.FuncPC(stubS3_107)
+	stubsS3[108] = runtype.FuncPC(stubS3_108)
+	stubsS3[109] = runtype.FuncPC(stubS3_109)
+	stubsS3[110] = runtype.FuncPC(stubS3_110)
+	stubsS3[111] = runtype.FuncPC(stubS3_111)
+	stubsS3[112] = runtype.FuncPC(stubS3_112)
+	stubsS3[113] = runtype.FuncPC(stubS3_113)
+	stubsS3[114] = runtype.FuncPC(stubS3_114)
+	stubsS3[115] = runtype.FuncPC(stubS3_115)
+	stubsS3[116] = runtype.FuncPC(stubS3_116)
+	stubsS3[117] = runtype.FuncPC(stubS3_117)
+	stubsS3[118] = runtype.FuncPC(stubS3_118)
+	stubsS3[119] = runtype.FuncPC(stubS3_119)
+	stubsS3[120] = runtype.FuncPC(stubS3_120)
+	stubsS3[121] = runtype.FuncPC(stubS3_121)
+	stubsS3[122] = runtype.FuncPC(stubS3_122)
+	stubsS3[123] = runtype.FuncPC(stubS3_123)
+	stubsS3[124] = runtype.FuncPC(stubS3_124)
+	stubsS3[125] = runtype.FuncPC(stubS3_125)
+	stubsS3[126] = runtype.FuncPC(stubS3_126)
+	stubsS3[127] = runtype.FuncPC(stubS3_127)
+	stubsS3[128] = runtype.FuncPC(stubS3_128)
+	stubsS3[129] = runtype.FuncPC(stubS3_129)
+	stubsS3[130] = runtype.FuncPC(stubS3_130)
+	stubsS3[131] = runtype.FuncPC(stubS3_131)
+	stubsS3[132] = runtype.FuncPC(stubS3_132)
+	stubsS3[133] = runtype.FuncPC(stubS3_133)
+	stubsS3[134] = runtype.FuncPC(stubS3_134)
+	stubsS3[135] = runtype.FuncPC(stubS3_135)
+	stubsS3[136] = runtype.FuncPC(stubS3_136)
+	stubsS3[137] = runtype.FuncPC(stubS3_137)
+	stubsS3[138] = runtype.FuncPC(stubS3_138)
+	stubsS3[139] = runtype.FuncPC(stubS3_139)
+	stubsS3[140] = runtype.FuncPC(stubS3_140)
+	stubsS3[141] = runtype.FuncPC(stubS3_141)
+	stubsS3[142] = runtype.FuncPC(stubS3_142)
+	stubsS3[143] = runtype.FuncPC(stubS3_143)
+	stubsS3[144] = runtype.FuncPC(stubS3_144)
+	stubsS3[145] = runtype.FuncPC(stubS3_145)
+	stubsS3[146] = runtype.FuncPC(stubS3_146)
+	stubsS3[147] = runtype.FuncPC(stubS3_147)
+	stubsS3[148] = runtype.FuncPC(stubS3_148)
+	stubsS3[149] = runtype.FuncPC(stubS3_149)
+	stubsS3[150] = runtype.FuncPC(stubS3_150)
+	stubsS3[151] = runtype.FuncPC(stubS3_151)
+	stubsS3[152] = runtype.FuncPC(stubS3_152)
+	stubsS3[153] = runtype.FuncPC(stubS3_153)
+	stubsS3[154] = runtype.FuncPC(stubS3_154)
+	stubsS3[155] = runtype.FuncPC(stubS3_155)
+	stubsS3[156] = runtype.FuncPC(stubS3_156)
+	stubsS3[157] = runtype.FuncPC(stubS3_157)
+	stubsS3[158] = runtype.FuncPC(stubS3_158)
+	stubsS3[159] = runtype.FuncPC(stubS3_159)
+	stubsS3[160] = runtype.FuncPC(stubS3_160)
+	stubsS3[161] = runtype.FuncPC(stubS3_161)
+	stubsS3[162] = runtype.FuncPC(stubS3_162)
+	stubsS3[163] = runtype.FuncPC(stubS3_163)
+	stubsS3[164] = runtype.FuncPC(stubS3_164)
+	stubsS3[165] = runtype.FuncPC(stubS3_165)
+	stubsS3[166] = runtype.FuncPC(stubS3_166)
+	stubsS3[167] = runtype.FuncPC(stubS3_167)
+	stubsS3[168] = runtype.FuncPC(stubS3_168)
+	stubsS3[169] = runtype.FuncPC(stubS3_169)
+	stubsS3[170] = runtype.FuncPC(stubS3_170)
+	stubsS3[171] = runtype.FuncPC(stubS3_171)
+	stubsS3[172] = runtype.FuncPC(stubS3_172)
+	stubsS3[173] = runtype.FuncPC(stubS3_173)
+	stubsS3[174] = runtype.FuncPC(stubS3_174)
+	stubsS3[175] = runtype.FuncPC(stubS3_175)
+	stubsS3[176] = runtype.FuncPC(stubS3_176)
+	stubsS3[177] = runtype.FuncPC(stubS3_177)
+	stubsS3[178] = runtype.FuncPC(stubS3_178)
+	stubsS3[179] = runtype.FuncPC(stubS3_179)
+	stubsS3[180] = runtype.FuncPC(stubS3_180)
+	stubsS3[181] = runtype.FuncPC(stubS3_181)
+	stubsS3[182] = runtype.FuncPC(stubS3_182)
+	stubsS3[183] = runtype.FuncPC(stubS3_183)
+	stubsS3[184] = runtype.FuncPC(stubS3_184)
+	stubsS3[185] = runtype.FuncPC(stubS3_185)
+	stubsS3[186] = runtype.FuncPC(stubS3_186)
+	stubsS3[187] = runtype.FuncPC(stubS3_187)
+	stubsS3[188] = runtype.FuncPC(stubS3_188)
+	stubsS3[189] = runtype.FuncPC(stubS3_189)
+	stubsS3[190] = runtype.FuncPC(stubS3_190)
+	stubsS3[191] = runtype.FuncPC(stubS3_191)
+	stubsS3[192] = runtype.FuncPC(stubS3_192)
+	stubsS3[193] = runtype.FuncPC(stubS3_193)
+	stubsS3[194] = runtype.FuncPC(stubS3_194)
+	stubsS3[195] = runtype.FuncPC(stubS3_195)
+	stubsS3[196] = runtype.FuncPC(stubS3_196)
+	stubsS3[197] = runtype.FuncPC(stubS3_197)
+	stubsS3[198] = runtype.FuncPC(stubS3_198)
+	stubsS3[199] = runtype.FuncPC(stubS3_199)
+	stubsS3[200] = runtype.FuncPC(stubS3_200)
+	stubsS3[201] = runtype.FuncPC(stubS3_201)
+	stubsS3[202] = runtype.FuncPC(stubS3_202)
+	stubsS3[203] = runtype.FuncPC(stubS3_203)
+	stubsS3[204] = runtype.FuncPC(stubS3_204)
+	stubsS3[205] = runtype.FuncPC(stubS3_205)
+	stubsS3[206] = runtype.FuncPC(stubS3_206)
+	stubsS3[207] = runtype.FuncPC(stubS3_207)
+	stubsS3[208] = runtype.FuncPC(stubS3_208)
+	stubsS3[209] = runtype.FuncPC(stubS3_209)
+	stubsS3[210] = runtype.FuncPC(stubS3_210)
+	stubsS3[211] = runtype.FuncPC(stubS3_211)
+	stubsS3[212] = runtype.FuncPC(stubS3_212)
+	stubsS3[213] = runtype.FuncPC(stubS3_213)
+	stubsS3[214] = runtype.FuncPC(stubS3_214)
+	stubsS3[215] = runtype.FuncPC(stubS3_215)
+	stubsS3[216] = runtype.FuncPC(stubS3_216)
+	stubsS3[217] = runtype.FuncPC(stubS3_217)
+	stubsS3[218] = runtype.FuncPC(stubS3_218)
+	stubsS3[219] = runtype.FuncPC(stubS3_219)
+	stubsS3[220] = runtype.FuncPC(stubS3_220)
+	stubsS3[221] = runtype.FuncPC(stubS3_221)
+	stubsS3[222] = runtype.FuncPC(stubS3_222)
+	stubsS3[223] = runtype.FuncPC(stubS3_223)
+	stubsS3[224] = runtype.FuncPC(stubS3_224)
+	stubsS3[225] = runtype.FuncPC(stubS3_225)
+	stubsS3[226] = runtype.FuncPC(stubS3_226)
+	stubsS3[227] = runtype.FuncPC(stubS3_227)
+	stubsS3[228] = runtype.FuncPC(stubS3_228)
+	stubsS3[229] = runtype.FuncPC(stubS3_229)
+	stubsS3[230] = runtype.FuncPC(stubS3_230)
+	stubsS3[231] = runtype.FuncPC(stubS3_231)
+	stubsS3[232] = runtype.FuncPC(stubS3_232)
+	stubsS3[233] = runtype.FuncPC(stubS3_233)
+	stubsS3[234] = runtype.FuncPC(stubS3_234)
+	stubsS3[235] = runtype.FuncPC(stubS3_235)
+	stubsS3[236] = runtype.FuncPC(stubS3_236)
+	stubsS3[237] = runtype.FuncPC(stubS3_237)
+	stubsS3[238] = runtype.FuncPC(stubS3_238)
+	stubsS3[239] = runtype.FuncPC(stubS3_239)
+	stubsS3[240] = runtype.FuncPC(stubS3_240)
+	stubsS3[241] = runtype.FuncPC(stubS3_241)
+	stubsS3[242] = runtype.FuncPC(stubS3_242)
+	stubsS3[243] = runtype.FuncPC(stubS3_243)
+	stubsS3[244] = runtype.FuncPC(stubS3_244)
+	stubsS3[245] = runtype.FuncPC(stubS3_245)
+	stubsS3[246] = runtype.FuncPC(stubS3_246)
+	stubsS3[247] = runtype.FuncPC(stubS3_247)
+	stubsS3[248] = runtype.FuncPC(stubS3_248)
+	stubsS3[249] = runtype.FuncPC(stubS3_249)
+	stubsS3[250] = runtype.FuncPC(stubS3_250)
+	stubsS3[251] = runtype.FuncPC(stubS3_251)
+	stubsS3[252] = runtype.FuncPC(stubS3_252)
+	stubsS3[253] = runtype.FuncPC(stubS3_253)
+	stubsS3[254] = runtype.FuncPC(stubS3_254)
+	stubsS3[255] = runtype.FuncPC(stubS3_255)
+	stubsS3[256] = runtype.FuncPC(stubS3_256)
+	stubsS3[257] = runtype.FuncPC(stubS3_257)
+	stubsS3[258] = runtype.FuncPC(stubS3_258)
+	stubsS3[259] = runtype.FuncPC(stubS3_259)
+	stubsS3[260] = runtype.FuncPC(stubS3_260)
+	stubsS3[261] = runtype.FuncPC(stubS3_261)
+	stubsS3[262] = runtype.FuncPC(stubS3_262)
+	stubsS3[263] = runtype.FuncPC(stubS3_263)
+	stubsS3[264] = runtype.FuncPC(stubS3_264)
+	stubsS3[265] = runtype.FuncPC(stubS3_265)
+	stubsS3[266] = runtype.FuncPC(stubS3_266)
+	stubsS3[267] = runtype.FuncPC(stubS3_267)
+	stubsS3[268] = runtype.FuncPC(stubS3_268)
+	stubsS3[269] = runtype.FuncPC(stubS3_269)
+	stubsS3[270] = runtype.FuncPC(stubS3_270)
+	stubsS3[271] = runtype.FuncPC(stubS3_271)
+	stubsS3[272] = runtype.FuncPC(stubS3_272)
+	stubsS3[273] = runtype.FuncPC(stubS3_273)
+	stubsS3[274] = runtype.FuncPC(stubS3_274)
+	stubsS3[275] = runtype.FuncPC(stubS3_275)
+	stubsS3[276] = runtype.FuncPC(stubS3_276)
+	stubsS3[277] = runtype.FuncPC(stubS3_277)
+	stubsS3[278] = runtype.FuncPC(stubS3_278)
+	stubsS3[279] = runtype.FuncPC(stubS3_279)
+	stubsS3[280] = runtype.FuncPC(stubS3_280)
+	stubsS3[281] = runtype.FuncPC(stubS3_281)
+	stubsS3[282] = runtype.FuncPC(stubS3_282)
+	stubsS3[283] = runtype.FuncPC(stubS3_283)
+	stubsS3[284] = runtype.FuncPC(stubS3_284)
+	stubsS3[285] = runtype.FuncPC(stubS3_285)
+	stubsS3[286] = runtype.FuncPC(stubS3_286)
+	stubsS3[287] = runtype.FuncPC(stubS3_287)
+	stubsS3[288] = runtype.FuncPC(stubS3_288)
+	stubsS3[289] = runtype.FuncPC(stubS3_289)
+	stubsS3[290] = runtype.FuncPC(stubS3_290)
+	stubsS3[291] = runtype.FuncPC(stubS3_291)
+	stubsS3[292] = runtype.FuncPC(stubS3_292)
+	stubsS3[293] = runtype.FuncPC(stubS3_293)
+	stubsS3[294] = runtype.FuncPC(stubS3_294)
+	stubsS3[295] = runtype.FuncPC(stubS3_295)
+	stubsS3[296] = runtype.FuncPC(stubS3_296)
+	stubsS3[297] = runtype.FuncPC(stubS3_297)
+	stubsS3[298] = runtype.FuncPC(stubS3_298)
+	stubsS3[299] = runtype.FuncPC(stubS3_299)
+	stubsS3[300] = runtype.FuncPC(stubS3_300)
+	stubsS3[301] = runtype.FuncPC(stubS3_301)
+	stubsS3[302] = runtype.FuncPC(stubS3_302)
+	stubsS3[303] = runtype.FuncPC(stubS3_303)
+	stubsS3[304] = runtype.FuncPC(stubS3_304)
+	stubsS3[305] = runtype.FuncPC(stubS3_305)
+	stubsS3[306] = runtype.FuncPC(stubS3_306)
+	stubsS3[307] = runtype.FuncPC(stubS3_307)
+	stubsS3[308] = runtype.FuncPC(stubS3_308)
+	stubsS3[309] = runtype.FuncPC(stubS3_309)
+	stubsS3[310] = runtype.FuncPC(stubS3_310)
+	stubsS3[311] = runtype.FuncPC(stubS3_311)
+	stubsS3[312] = runtype.FuncPC(stubS3_312)
+	stubsS3[313] = runtype.FuncPC(stubS3_313)
+	stubsS3[314] = runtype.FuncPC(stubS3_314)
+	stubsS3[315] = runtype.FuncPC(stubS3_315)
+	stubsS3[316] = runtype.FuncPC(stubS3_316)
+	stubsS3[317] = runtype.FuncPC(stubS3_317)
+	stubsS3[318] = runtype.FuncPC(stubS3_318)
+	stubsS3[319] = runtype.FuncPC(stubS3_319)
+	stubsS3[320] = runtype.FuncPC(stubS3_320)
+	stubsS3[321] = runtype.FuncPC(stubS3_321)
+	stubsS3[322] = runtype.FuncPC(stubS3_322)
+	stubsS3[323] = runtype.FuncPC(stubS3_323)
+	stubsS3[324] = runtype.FuncPC(stubS3_324)
+	stubsS3[325] = runtype.FuncPC(stubS3_325)
+	stubsS3[326] = runtype.FuncPC(stubS3_326)
+	stubsS3[327] = runtype.FuncPC(stubS3_327)
+	stubsS3[328] = runtype.FuncPC(stubS3_328)
+	stubsS3[329] = runtype.FuncPC(stubS3_329)
+	stubsS3[330] = runtype.FuncPC(stubS3_330)
+	stubsS3[331] = runtype.FuncPC(stubS3_331)
+	stubsS3[332] = runtype.FuncPC(stubS3_332)
+	stubsS3[333] = runtype.FuncPC(stubS3_333)
+	stubsS3[334] = runtype.FuncPC(stubS3_334)
+	stubsS3[335] = runtype.FuncPC(stubS3_335)
+	stubsS3[336] = runtype.FuncPC(stubS3_336)
+	stubsS3[337] = runtype.FuncPC(stubS3_337)
+	stubsS3[338] = runtype.FuncPC(stubS3_338)
+	stubsS3[339] = runtype.FuncPC(stubS3_339)
+	stubsS3[340] = runtype.FuncPC(stubS3_340)
+	stubsS3[341] = runtype.FuncPC(stubS3_341)
+	stubsS3[342] = runtype.FuncPC(stubS3_342)
+	stubsS3[343] = runtype.FuncPC(stubS3_343)
+	stubsS3[344] = runtype.FuncPC(stubS3_344)
+	stubsS3[345] = runtype.FuncPC(stubS3_345)
+	stubsS3[346] = runtype.FuncPC(stubS3_346)
+	stubsS3[347] = runtype.FuncPC(stubS3_347)
+	stubsS3[348] = runtype.FuncPC(stubS3_348)
+	stubsS3[349] = runtype.FuncPC(stubS3_349)
+	stubsS3[350] = runtype.FuncPC(stubS3_350)
+	stubsS3[351] = runtype.FuncPC(stubS3_351)
+	stubsS3[352] = runtype.FuncPC(stubS3_352)
+	stubsS3[353] = runtype.FuncPC(stubS3_353)
+	stubsS3[354] = runtype.FuncPC(stubS3_354)
+	stubsS3[355] = runtype.FuncPC(stubS3_355)
+	stubsS3[356] = runtype.FuncPC(stubS3_356)
+	stubsS3[357] = runtype.FuncPC(stubS3_357)
+	stubsS3[358] = runtype.FuncPC(stubS3_358)
+	stubsS3[359] = runtype.FuncPC(stubS3_359)
+	stubsS3[360] = runtype.FuncPC(stubS3_360)
+	stubsS3[361] = runtype.FuncPC(stubS3_361)
+	stubsS3[362] = runtype.FuncPC(stubS3_362)
+	stubsS3[363] = runtype.FuncPC(stubS3_363)
+	stubsS3[364] = runtype.FuncPC(stubS3_364)
+	stubsS3[365] = runtype.FuncPC(stubS3_365)
+	stubsS3[366] = runtype.FuncPC(stubS3_366)
+	stubsS3[367] = runtype.FuncPC(stubS3_367)
+	stubsS3[368] = runtype.FuncPC(stubS3_368)
+	stubsS3[369] = runtype.FuncPC(stubS3_369)
+	stubsS3[370] = runtype.FuncPC(stubS3_370)
+	stubsS3[371] = runtype.FuncPC(stubS3_371)
+	stubsS3[372] = runtype.FuncPC(stubS3_372)
+	stubsS3[373] = runtype.FuncPC(stubS3_373)
+	stubsS3[374] = runtype.FuncPC(stubS3_374)
+	stubsS3[375] = runtype.FuncPC(stubS3_375)
+	stubsS3[376] = runtype.FuncPC(stubS3_376)
+	stubsS3[377] = runtype.FuncPC(stubS3_377)
+	stubsS3[378] = runtype.FuncPC(stubS3_378)
+	stubsS3[379] = runtype.FuncPC(stubS3_379)
+	stubsS3[380] = runtype.FuncPC(stubS3_380)
+	stubsS3[381] = runtype.FuncPC(stubS3_381)
+	stubsS3[382] = runtype.FuncPC(stubS3_382)
+	stubsS3[383] = runtype.FuncPC(stubS3_383)
+	stubsS3[384] = runtype.FuncPC(stubS3_384)
+	stubsS3[385] = runtype.FuncPC(stubS3_385)
+	stubsS3[386] = runtype.FuncPC(stubS3_386)
+	stubsS3[387] = runtype.FuncPC(stubS3_387)
+	stubsS3[388] = runtype.FuncPC(stubS3_388)
+	stubsS3[389] = runtype.FuncPC(stubS3_389)
+	stubsS3[390] = runtype.FuncPC(stubS3_390)
+	stubsS3[391] = runtype.FuncPC(stubS3_391)
+	stubsS3[392] = runtype.FuncPC(stubS3_392)
+	stubsS3[393] = runtype.FuncPC(stubS3_393)
+	stubsS3[394] = runtype.FuncPC(stubS3_394)
+	stubsS3[395] = runtype.FuncPC(stubS3_395)
+	stubsS3[396] = runtype.FuncPC(stubS3_396)
+	stubsS3[397] = runtype.FuncPC(stubS3_397)
+	stubsS3[398] = runtype.FuncPC(stubS3_398)
+	stubsS3[399] = runtype.FuncPC(stubS3_399)
+	stubsS3[400] = runtype.FuncPC(stubS3_400)
+	stubsS3[401] = runtype.FuncPC(stubS3_401)
+	stubsS3[402] = runtype.FuncPC(stubS3_402)
+	stubsS3[403] = runtype.FuncPC(stubS3_403)
+	stubsS3[404] = runtype.FuncPC(stubS3_404)
+	stubsS3[405] = runtype.FuncPC(stubS3_405)
+	stubsS3[406] = runtype.FuncPC(stubS3_406)
+	stubsS3[407] = runtype.FuncPC(stubS3_407)
+	stubsS3[408] = runtype.FuncPC(stubS3_408)
+	stubsS3[409] = runtype.FuncPC(stubS3_409)
+	stubsS3[410] = runtype.FuncPC(stubS3_410)
+	stubsS3[411] = runtype.FuncPC(stubS3_411)
+	stubsS3[412] = runtype.FuncPC(stubS3_412)
+	stubsS3[413] = runtype.FuncPC(stubS3_413)
+	stubsS3[414] = runtype.FuncPC(stubS3_414)
+	stubsS3[415] = runtype.FuncPC(stubS3_415)
+	stubsS3[416] = runtype.FuncPC(stubS3_416)
+	stubsS3[417] = runtype.FuncPC(stubS3_417)
+	stubsS3[418] = runtype.FuncPC(stubS3_418)
+	stubsS3[419] = runtype.FuncPC(stubS3_419)
+	stubsS3[420] = runtype.FuncPC(stubS3_420)
+	stubsS3[421] = runtype.FuncPC(stubS3_421)
+	stubsS3[422] = runtype.FuncPC(stubS3_422)
+	stubsS3[423] = runtype.FuncPC(stubS3_423)
+	stubsS3[424] = runtype.FuncPC(stubS3_424)
+	stubsS3[425] = runtype.FuncPC(stubS3_425)
+	stubsS3[426] = runtype.FuncPC(stubS3_426)
+	stubsS3[427] = runtype.FuncPC(stubS3_427)
+	stubsS3[428] = runtype.FuncPC(stubS3_428)
+	stubsS3[429] = runtype.FuncPC(stubS3_429)
+	stubsS3[430] = runtype.FuncPC(stubS3_430)
+	stubsS3[431] = runtype.FuncPC(stubS3_431)
+	stubsS3[432] = runtype.FuncPC(stubS3_432)
+	stubsS3[433] = runtype.FuncPC(stubS3_433)
+	stubsS3[434] = runtype.FuncPC(stubS3_434)
+	stubsS3[435] = runtype.FuncPC(stubS3_435)
+	stubsS3[436] = runtype.FuncPC(stubS3_436)
+	stubsS3[437] = runtype.FuncPC(stubS3_437)
+	stubsS3[438] = runtype.FuncPC(stubS3_438)
+	stubsS3[439] = runtype.FuncPC(stubS3_439)
+	stubsS3[440] = runtype.FuncPC(stubS3_440)
+	stubsS3[441] = runtype.FuncPC(stubS3_441)
+	stubsS3[442] = runtype.FuncPC(stubS3_442)
+	stubsS3[443] = runtype.FuncPC(stubS3_443)
+	stubsS3[444] = runtype.FuncPC(stubS3_444)
+	stubsS3[445] = runtype.FuncPC(stubS3_445)
+	stubsS3[446] = runtype.FuncPC(stubS3_446)
+	stubsS3[447] = runtype.FuncPC(stubS3_447)
+	stubsS3[448] = runtype.FuncPC(stubS3_448)
+	stubsS3[449] = runtype.FuncPC(stubS3_449)
+	stubsS3[450] = runtype.FuncPC(stubS3_450)
+	stubsS3[451] = runtype.FuncPC(stubS3_451)
+	stubsS3[452] = runtype.FuncPC(stubS3_452)
+	stubsS3[453] = runtype.FuncPC(stubS3_453)
+	stubsS3[454] = runtype.FuncPC(stubS3_454)
+	stubsS3[455] = runtype.FuncPC(stubS3_455)
+	stubsS3[456] = runtype.FuncPC(stubS3_456)
+	stubsS3[457] = runtype.FuncPC(stubS3_457)
+	stubsS3[458] = runtype.FuncPC(stubS3_458)
+	stubsS3[459] = runtype.FuncPC(stubS3_459)
+	stubsS3[460] = runtype.FuncPC(stubS3_460)
+	stubsS3[461] = runtype.FuncPC(stubS3_461)
+	stubsS3[462] = runtype.FuncPC(stubS3_462)
+	stubsS3[463] = runtype.FuncPC(stubS3_463)
+	stubsS3[464] = runtype.FuncPC(stubS3_464)
+	stubsS3[465] = runtype.FuncPC(stubS3_465)
+	stubsS3[466] = runtype.FuncPC(stubS3_466)
+	stubsS3[467] = runtype.FuncPC(stubS3_467)
+	stubsS3[468] = runtype.FuncPC(stubS3_468)
+	stubsS3[469] = runtype.FuncPC(stubS3_469)
+	stubsS3[470] = runtype.FuncPC(stubS3_470)
+	stubsS3[471] = runtype.FuncPC(stubS3_471)
+	stubsS3[472] = runtype.FuncPC(stubS3_472)
+	stubsS3[473] = runtype.FuncPC(stubS3_473)
+	stubsS3[474] = runtype.FuncPC(stubS3_474)
+	stubsS3[475] = runtype.FuncPC(stubS3_475)
+	stubsS3[476] = runtype.FuncPC(stubS3_476)
+	stubsS3[477] = runtype.FuncPC(stubS3_477)
+	stubsS3[478] = runtype.FuncPC(stubS3_478)
+	stubsS3[479] = runtype.FuncPC(stubS3_479)
+	stubsS3[480] = runtype.FuncPC(stubS3_480)
+	stubsS3[481] = runtype.FuncPC(stubS3_481)
+	stubsS3[482] = runtype.FuncPC(stubS3_482)
+	stubsS3[483] = runtype.FuncPC(stubS3_483)
+	stubsS3[484] = runtype.FuncPC(stubS3_484)
+	stubsS3[485] = runtype.FuncPC(stubS3_485)
+	stubsS3[486] = runtype.FuncPC(stubS3_486)
+	stubsS3[487] = runtype.FuncPC(stubS3_487)
+	stubsS3[488] = runtype.FuncPC(stubS3_488)
+	stubsS3[489] = runtype.FuncPC(stubS3_489)
+	stubsS3[490] = runtype.FuncPC(stubS3_490)
+	stubsS3[491] = runtype.FuncPC(stubS3_491)
+	stubsS3[492] = runtype.FuncPC(stubS3_492)
+	stubsS3[493] = runtype.FuncPC(stubS3_493)
+	stubsS3[494] = runtype.FuncPC(stubS3_494)
+	stubsS3[495] = runtype.FuncPC(stubS3_495)
+	stubsS3[496] = runtype.FuncPC(stubS3_496)
+	stubsS3[497] = runtype.FuncPC(stubS3_497)
+	stubsS3[498] = runtype.FuncPC(stubS3_498)
+	stubsS3[499] = runtype.FuncPC(stubS3_499)
+	stubsS3[500] = runtype.FuncPC(stubS3_500)
+	stubsS3[501] = runtype.FuncPC(stubS3_501)
+	stubsS3[502] = runtype.FuncPC(stubS3_502)
+	stubsS3[503] = runtype.FuncPC(stubS3_503)
+	stubsS3[504] = runtype.FuncPC(stubS3_504)
+	stubsS3[505] = runtype.FuncPC(stubS3_505)
+	stubsS3[506] = runtype.FuncPC(stubS3_506)
+	stubsS3[507] = runtype.FuncPC(stubS3_507)
+	stubsS3[508] = runtype.FuncPC(stubS3_508)
+	stubsS3[509] = runtype.FuncPC(stubS3_509)
+	stubsS3[510] = runtype.FuncPC(stubS3_510)
+	stubsS3[511] = runtype.FuncPC(stubS3_511)
 }

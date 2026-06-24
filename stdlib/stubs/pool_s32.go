@@ -1293,261 +1293,263 @@ func stubS32_255(recv unsafe.Pointer, ctx context.Context, level slog.Level) boo
 	return dispatchS32(255, recv, ctx, level)
 }
 
-var stubsS32 = [poolSizeS32]uintptr{
-	runtype.FuncPC(stubS32_0),
-	runtype.FuncPC(stubS32_1),
-	runtype.FuncPC(stubS32_2),
-	runtype.FuncPC(stubS32_3),
-	runtype.FuncPC(stubS32_4),
-	runtype.FuncPC(stubS32_5),
-	runtype.FuncPC(stubS32_6),
-	runtype.FuncPC(stubS32_7),
-	runtype.FuncPC(stubS32_8),
-	runtype.FuncPC(stubS32_9),
-	runtype.FuncPC(stubS32_10),
-	runtype.FuncPC(stubS32_11),
-	runtype.FuncPC(stubS32_12),
-	runtype.FuncPC(stubS32_13),
-	runtype.FuncPC(stubS32_14),
-	runtype.FuncPC(stubS32_15),
-	runtype.FuncPC(stubS32_16),
-	runtype.FuncPC(stubS32_17),
-	runtype.FuncPC(stubS32_18),
-	runtype.FuncPC(stubS32_19),
-	runtype.FuncPC(stubS32_20),
-	runtype.FuncPC(stubS32_21),
-	runtype.FuncPC(stubS32_22),
-	runtype.FuncPC(stubS32_23),
-	runtype.FuncPC(stubS32_24),
-	runtype.FuncPC(stubS32_25),
-	runtype.FuncPC(stubS32_26),
-	runtype.FuncPC(stubS32_27),
-	runtype.FuncPC(stubS32_28),
-	runtype.FuncPC(stubS32_29),
-	runtype.FuncPC(stubS32_30),
-	runtype.FuncPC(stubS32_31),
-	runtype.FuncPC(stubS32_32),
-	runtype.FuncPC(stubS32_33),
-	runtype.FuncPC(stubS32_34),
-	runtype.FuncPC(stubS32_35),
-	runtype.FuncPC(stubS32_36),
-	runtype.FuncPC(stubS32_37),
-	runtype.FuncPC(stubS32_38),
-	runtype.FuncPC(stubS32_39),
-	runtype.FuncPC(stubS32_40),
-	runtype.FuncPC(stubS32_41),
-	runtype.FuncPC(stubS32_42),
-	runtype.FuncPC(stubS32_43),
-	runtype.FuncPC(stubS32_44),
-	runtype.FuncPC(stubS32_45),
-	runtype.FuncPC(stubS32_46),
-	runtype.FuncPC(stubS32_47),
-	runtype.FuncPC(stubS32_48),
-	runtype.FuncPC(stubS32_49),
-	runtype.FuncPC(stubS32_50),
-	runtype.FuncPC(stubS32_51),
-	runtype.FuncPC(stubS32_52),
-	runtype.FuncPC(stubS32_53),
-	runtype.FuncPC(stubS32_54),
-	runtype.FuncPC(stubS32_55),
-	runtype.FuncPC(stubS32_56),
-	runtype.FuncPC(stubS32_57),
-	runtype.FuncPC(stubS32_58),
-	runtype.FuncPC(stubS32_59),
-	runtype.FuncPC(stubS32_60),
-	runtype.FuncPC(stubS32_61),
-	runtype.FuncPC(stubS32_62),
-	runtype.FuncPC(stubS32_63),
-	runtype.FuncPC(stubS32_64),
-	runtype.FuncPC(stubS32_65),
-	runtype.FuncPC(stubS32_66),
-	runtype.FuncPC(stubS32_67),
-	runtype.FuncPC(stubS32_68),
-	runtype.FuncPC(stubS32_69),
-	runtype.FuncPC(stubS32_70),
-	runtype.FuncPC(stubS32_71),
-	runtype.FuncPC(stubS32_72),
-	runtype.FuncPC(stubS32_73),
-	runtype.FuncPC(stubS32_74),
-	runtype.FuncPC(stubS32_75),
-	runtype.FuncPC(stubS32_76),
-	runtype.FuncPC(stubS32_77),
-	runtype.FuncPC(stubS32_78),
-	runtype.FuncPC(stubS32_79),
-	runtype.FuncPC(stubS32_80),
-	runtype.FuncPC(stubS32_81),
-	runtype.FuncPC(stubS32_82),
-	runtype.FuncPC(stubS32_83),
-	runtype.FuncPC(stubS32_84),
-	runtype.FuncPC(stubS32_85),
-	runtype.FuncPC(stubS32_86),
-	runtype.FuncPC(stubS32_87),
-	runtype.FuncPC(stubS32_88),
-	runtype.FuncPC(stubS32_89),
-	runtype.FuncPC(stubS32_90),
-	runtype.FuncPC(stubS32_91),
-	runtype.FuncPC(stubS32_92),
-	runtype.FuncPC(stubS32_93),
-	runtype.FuncPC(stubS32_94),
-	runtype.FuncPC(stubS32_95),
-	runtype.FuncPC(stubS32_96),
-	runtype.FuncPC(stubS32_97),
-	runtype.FuncPC(stubS32_98),
-	runtype.FuncPC(stubS32_99),
-	runtype.FuncPC(stubS32_100),
-	runtype.FuncPC(stubS32_101),
-	runtype.FuncPC(stubS32_102),
-	runtype.FuncPC(stubS32_103),
-	runtype.FuncPC(stubS32_104),
-	runtype.FuncPC(stubS32_105),
-	runtype.FuncPC(stubS32_106),
-	runtype.FuncPC(stubS32_107),
-	runtype.FuncPC(stubS32_108),
-	runtype.FuncPC(stubS32_109),
-	runtype.FuncPC(stubS32_110),
-	runtype.FuncPC(stubS32_111),
-	runtype.FuncPC(stubS32_112),
-	runtype.FuncPC(stubS32_113),
-	runtype.FuncPC(stubS32_114),
-	runtype.FuncPC(stubS32_115),
-	runtype.FuncPC(stubS32_116),
-	runtype.FuncPC(stubS32_117),
-	runtype.FuncPC(stubS32_118),
-	runtype.FuncPC(stubS32_119),
-	runtype.FuncPC(stubS32_120),
-	runtype.FuncPC(stubS32_121),
-	runtype.FuncPC(stubS32_122),
-	runtype.FuncPC(stubS32_123),
-	runtype.FuncPC(stubS32_124),
-	runtype.FuncPC(stubS32_125),
-	runtype.FuncPC(stubS32_126),
-	runtype.FuncPC(stubS32_127),
-	runtype.FuncPC(stubS32_128),
-	runtype.FuncPC(stubS32_129),
-	runtype.FuncPC(stubS32_130),
-	runtype.FuncPC(stubS32_131),
-	runtype.FuncPC(stubS32_132),
-	runtype.FuncPC(stubS32_133),
-	runtype.FuncPC(stubS32_134),
-	runtype.FuncPC(stubS32_135),
-	runtype.FuncPC(stubS32_136),
-	runtype.FuncPC(stubS32_137),
-	runtype.FuncPC(stubS32_138),
-	runtype.FuncPC(stubS32_139),
-	runtype.FuncPC(stubS32_140),
-	runtype.FuncPC(stubS32_141),
-	runtype.FuncPC(stubS32_142),
-	runtype.FuncPC(stubS32_143),
-	runtype.FuncPC(stubS32_144),
-	runtype.FuncPC(stubS32_145),
-	runtype.FuncPC(stubS32_146),
-	runtype.FuncPC(stubS32_147),
-	runtype.FuncPC(stubS32_148),
-	runtype.FuncPC(stubS32_149),
-	runtype.FuncPC(stubS32_150),
-	runtype.FuncPC(stubS32_151),
-	runtype.FuncPC(stubS32_152),
-	runtype.FuncPC(stubS32_153),
-	runtype.FuncPC(stubS32_154),
-	runtype.FuncPC(stubS32_155),
-	runtype.FuncPC(stubS32_156),
-	runtype.FuncPC(stubS32_157),
-	runtype.FuncPC(stubS32_158),
-	runtype.FuncPC(stubS32_159),
-	runtype.FuncPC(stubS32_160),
-	runtype.FuncPC(stubS32_161),
-	runtype.FuncPC(stubS32_162),
-	runtype.FuncPC(stubS32_163),
-	runtype.FuncPC(stubS32_164),
-	runtype.FuncPC(stubS32_165),
-	runtype.FuncPC(stubS32_166),
-	runtype.FuncPC(stubS32_167),
-	runtype.FuncPC(stubS32_168),
-	runtype.FuncPC(stubS32_169),
-	runtype.FuncPC(stubS32_170),
-	runtype.FuncPC(stubS32_171),
-	runtype.FuncPC(stubS32_172),
-	runtype.FuncPC(stubS32_173),
-	runtype.FuncPC(stubS32_174),
-	runtype.FuncPC(stubS32_175),
-	runtype.FuncPC(stubS32_176),
-	runtype.FuncPC(stubS32_177),
-	runtype.FuncPC(stubS32_178),
-	runtype.FuncPC(stubS32_179),
-	runtype.FuncPC(stubS32_180),
-	runtype.FuncPC(stubS32_181),
-	runtype.FuncPC(stubS32_182),
-	runtype.FuncPC(stubS32_183),
-	runtype.FuncPC(stubS32_184),
-	runtype.FuncPC(stubS32_185),
-	runtype.FuncPC(stubS32_186),
-	runtype.FuncPC(stubS32_187),
-	runtype.FuncPC(stubS32_188),
-	runtype.FuncPC(stubS32_189),
-	runtype.FuncPC(stubS32_190),
-	runtype.FuncPC(stubS32_191),
-	runtype.FuncPC(stubS32_192),
-	runtype.FuncPC(stubS32_193),
-	runtype.FuncPC(stubS32_194),
-	runtype.FuncPC(stubS32_195),
-	runtype.FuncPC(stubS32_196),
-	runtype.FuncPC(stubS32_197),
-	runtype.FuncPC(stubS32_198),
-	runtype.FuncPC(stubS32_199),
-	runtype.FuncPC(stubS32_200),
-	runtype.FuncPC(stubS32_201),
-	runtype.FuncPC(stubS32_202),
-	runtype.FuncPC(stubS32_203),
-	runtype.FuncPC(stubS32_204),
-	runtype.FuncPC(stubS32_205),
-	runtype.FuncPC(stubS32_206),
-	runtype.FuncPC(stubS32_207),
-	runtype.FuncPC(stubS32_208),
-	runtype.FuncPC(stubS32_209),
-	runtype.FuncPC(stubS32_210),
-	runtype.FuncPC(stubS32_211),
-	runtype.FuncPC(stubS32_212),
-	runtype.FuncPC(stubS32_213),
-	runtype.FuncPC(stubS32_214),
-	runtype.FuncPC(stubS32_215),
-	runtype.FuncPC(stubS32_216),
-	runtype.FuncPC(stubS32_217),
-	runtype.FuncPC(stubS32_218),
-	runtype.FuncPC(stubS32_219),
-	runtype.FuncPC(stubS32_220),
-	runtype.FuncPC(stubS32_221),
-	runtype.FuncPC(stubS32_222),
-	runtype.FuncPC(stubS32_223),
-	runtype.FuncPC(stubS32_224),
-	runtype.FuncPC(stubS32_225),
-	runtype.FuncPC(stubS32_226),
-	runtype.FuncPC(stubS32_227),
-	runtype.FuncPC(stubS32_228),
-	runtype.FuncPC(stubS32_229),
-	runtype.FuncPC(stubS32_230),
-	runtype.FuncPC(stubS32_231),
-	runtype.FuncPC(stubS32_232),
-	runtype.FuncPC(stubS32_233),
-	runtype.FuncPC(stubS32_234),
-	runtype.FuncPC(stubS32_235),
-	runtype.FuncPC(stubS32_236),
-	runtype.FuncPC(stubS32_237),
-	runtype.FuncPC(stubS32_238),
-	runtype.FuncPC(stubS32_239),
-	runtype.FuncPC(stubS32_240),
-	runtype.FuncPC(stubS32_241),
-	runtype.FuncPC(stubS32_242),
-	runtype.FuncPC(stubS32_243),
-	runtype.FuncPC(stubS32_244),
-	runtype.FuncPC(stubS32_245),
-	runtype.FuncPC(stubS32_246),
-	runtype.FuncPC(stubS32_247),
-	runtype.FuncPC(stubS32_248),
-	runtype.FuncPC(stubS32_249),
-	runtype.FuncPC(stubS32_250),
-	runtype.FuncPC(stubS32_251),
-	runtype.FuncPC(stubS32_252),
-	runtype.FuncPC(stubS32_253),
-	runtype.FuncPC(stubS32_254),
-	runtype.FuncPC(stubS32_255),
+var stubsS32 [poolSizeS32]uintptr
+
+func init() {
+	stubsS32[0] = runtype.FuncPC(stubS32_0)
+	stubsS32[1] = runtype.FuncPC(stubS32_1)
+	stubsS32[2] = runtype.FuncPC(stubS32_2)
+	stubsS32[3] = runtype.FuncPC(stubS32_3)
+	stubsS32[4] = runtype.FuncPC(stubS32_4)
+	stubsS32[5] = runtype.FuncPC(stubS32_5)
+	stubsS32[6] = runtype.FuncPC(stubS32_6)
+	stubsS32[7] = runtype.FuncPC(stubS32_7)
+	stubsS32[8] = runtype.FuncPC(stubS32_8)
+	stubsS32[9] = runtype.FuncPC(stubS32_9)
+	stubsS32[10] = runtype.FuncPC(stubS32_10)
+	stubsS32[11] = runtype.FuncPC(stubS32_11)
+	stubsS32[12] = runtype.FuncPC(stubS32_12)
+	stubsS32[13] = runtype.FuncPC(stubS32_13)
+	stubsS32[14] = runtype.FuncPC(stubS32_14)
+	stubsS32[15] = runtype.FuncPC(stubS32_15)
+	stubsS32[16] = runtype.FuncPC(stubS32_16)
+	stubsS32[17] = runtype.FuncPC(stubS32_17)
+	stubsS32[18] = runtype.FuncPC(stubS32_18)
+	stubsS32[19] = runtype.FuncPC(stubS32_19)
+	stubsS32[20] = runtype.FuncPC(stubS32_20)
+	stubsS32[21] = runtype.FuncPC(stubS32_21)
+	stubsS32[22] = runtype.FuncPC(stubS32_22)
+	stubsS32[23] = runtype.FuncPC(stubS32_23)
+	stubsS32[24] = runtype.FuncPC(stubS32_24)
+	stubsS32[25] = runtype.FuncPC(stubS32_25)
+	stubsS32[26] = runtype.FuncPC(stubS32_26)
+	stubsS32[27] = runtype.FuncPC(stubS32_27)
+	stubsS32[28] = runtype.FuncPC(stubS32_28)
+	stubsS32[29] = runtype.FuncPC(stubS32_29)
+	stubsS32[30] = runtype.FuncPC(stubS32_30)
+	stubsS32[31] = runtype.FuncPC(stubS32_31)
+	stubsS32[32] = runtype.FuncPC(stubS32_32)
+	stubsS32[33] = runtype.FuncPC(stubS32_33)
+	stubsS32[34] = runtype.FuncPC(stubS32_34)
+	stubsS32[35] = runtype.FuncPC(stubS32_35)
+	stubsS32[36] = runtype.FuncPC(stubS32_36)
+	stubsS32[37] = runtype.FuncPC(stubS32_37)
+	stubsS32[38] = runtype.FuncPC(stubS32_38)
+	stubsS32[39] = runtype.FuncPC(stubS32_39)
+	stubsS32[40] = runtype.FuncPC(stubS32_40)
+	stubsS32[41] = runtype.FuncPC(stubS32_41)
+	stubsS32[42] = runtype.FuncPC(stubS32_42)
+	stubsS32[43] = runtype.FuncPC(stubS32_43)
+	stubsS32[44] = runtype.FuncPC(stubS32_44)
+	stubsS32[45] = runtype.FuncPC(stubS32_45)
+	stubsS32[46] = runtype.FuncPC(stubS32_46)
+	stubsS32[47] = runtype.FuncPC(stubS32_47)
+	stubsS32[48] = runtype.FuncPC(stubS32_48)
+	stubsS32[49] = runtype.FuncPC(stubS32_49)
+	stubsS32[50] = runtype.FuncPC(stubS32_50)
+	stubsS32[51] = runtype.FuncPC(stubS32_51)
+	stubsS32[52] = runtype.FuncPC(stubS32_52)
+	stubsS32[53] = runtype.FuncPC(stubS32_53)
+	stubsS32[54] = runtype.FuncPC(stubS32_54)
+	stubsS32[55] = runtype.FuncPC(stubS32_55)
+	stubsS32[56] = runtype.FuncPC(stubS32_56)
+	stubsS32[57] = runtype.FuncPC(stubS32_57)
+	stubsS32[58] = runtype.FuncPC(stubS32_58)
+	stubsS32[59] = runtype.FuncPC(stubS32_59)
+	stubsS32[60] = runtype.FuncPC(stubS32_60)
+	stubsS32[61] = runtype.FuncPC(stubS32_61)
+	stubsS32[62] = runtype.FuncPC(stubS32_62)
+	stubsS32[63] = runtype.FuncPC(stubS32_63)
+	stubsS32[64] = runtype.FuncPC(stubS32_64)
+	stubsS32[65] = runtype.FuncPC(stubS32_65)
+	stubsS32[66] = runtype.FuncPC(stubS32_66)
+	stubsS32[67] = runtype.FuncPC(stubS32_67)
+	stubsS32[68] = runtype.FuncPC(stubS32_68)
+	stubsS32[69] = runtype.FuncPC(stubS32_69)
+	stubsS32[70] = runtype.FuncPC(stubS32_70)
+	stubsS32[71] = runtype.FuncPC(stubS32_71)
+	stubsS32[72] = runtype.FuncPC(stubS32_72)
+	stubsS32[73] = runtype.FuncPC(stubS32_73)
+	stubsS32[74] = runtype.FuncPC(stubS32_74)
+	stubsS32[75] = runtype.FuncPC(stubS32_75)
+	stubsS32[76] = runtype.FuncPC(stubS32_76)
+	stubsS32[77] = runtype.FuncPC(stubS32_77)
+	stubsS32[78] = runtype.FuncPC(stubS32_78)
+	stubsS32[79] = runtype.FuncPC(stubS32_79)
+	stubsS32[80] = runtype.FuncPC(stubS32_80)
+	stubsS32[81] = runtype.FuncPC(stubS32_81)
+	stubsS32[82] = runtype.FuncPC(stubS32_82)
+	stubsS32[83] = runtype.FuncPC(stubS32_83)
+	stubsS32[84] = runtype.FuncPC(stubS32_84)
+	stubsS32[85] = runtype.FuncPC(stubS32_85)
+	stubsS32[86] = runtype.FuncPC(stubS32_86)
+	stubsS32[87] = runtype.FuncPC(stubS32_87)
+	stubsS32[88] = runtype.FuncPC(stubS32_88)
+	stubsS32[89] = runtype.FuncPC(stubS32_89)
+	stubsS32[90] = runtype.FuncPC(stubS32_90)
+	stubsS32[91] = runtype.FuncPC(stubS32_91)
+	stubsS32[92] = runtype.FuncPC(stubS32_92)
+	stubsS32[93] = runtype.FuncPC(stubS32_93)
+	stubsS32[94] = runtype.FuncPC(stubS32_94)
+	stubsS32[95] = runtype.FuncPC(stubS32_95)
+	stubsS32[96] = runtype.FuncPC(stubS32_96)
+	stubsS32[97] = runtype.FuncPC(stubS32_97)
+	stubsS32[98] = runtype.FuncPC(stubS32_98)
+	stubsS32[99] = runtype.FuncPC(stubS32_99)
+	stubsS32[100] = runtype.FuncPC(stubS32_100)
+	stubsS32[101] = runtype.FuncPC(stubS32_101)
+	stubsS32[102] = runtype.FuncPC(stubS32_102)
+	stubsS32[103] = runtype.FuncPC(stubS32_103)
+	stubsS32[104] = runtype.FuncPC(stubS32_104)
+	stubsS32[105] = runtype.FuncPC(stubS32_105)
+	stubsS32[106] = runtype.FuncPC(stubS32_106)
+	stubsS32[107] = runtype.FuncPC(stubS32_107)
+	stubsS32[108] = runtype.FuncPC(stubS32_108)
+	stubsS32[109] = runtype.FuncPC(stubS32_109)
+	stubsS32[110] = runtype.FuncPC(stubS32_110)
+	stubsS32[111] = runtype.FuncPC(stubS32_111)
+	stubsS32[112] = runtype.FuncPC(stubS32_112)
+	stubsS32[113] = runtype.FuncPC(stubS32_113)
+	stubsS32[114] = runtype.FuncPC(stubS32_114)
+	stubsS32[115] = runtype.FuncPC(stubS32_115)
+	stubsS32[116] = runtype.FuncPC(stubS32_116)
+	stubsS32[117] = runtype.FuncPC(stubS32_117)
+	stubsS32[118] = runtype.FuncPC(stubS32_118)
+	stubsS32[119] = runtype.FuncPC(stubS32_119)
+	stubsS32[120] = runtype.FuncPC(stubS32_120)
+	stubsS32[121] = runtype.FuncPC(stubS32_121)
+	stubsS32[122] = runtype.FuncPC(stubS32_122)
+	stubsS32[123] = runtype.FuncPC(stubS32_123)
+	stubsS32[124] = runtype.FuncPC(stubS32_124)
+	stubsS32[125] = runtype.FuncPC(stubS32_125)
+	stubsS32[126] = runtype.FuncPC(stubS32_126)
+	stubsS32[127] = runtype.FuncPC(stubS32_127)
+	stubsS32[128] = runtype.FuncPC(stubS32_128)
+	stubsS32[129] = runtype.FuncPC(stubS32_129)
+	stubsS32[130] = runtype.FuncPC(stubS32_130)
+	stubsS32[131] = runtype.FuncPC(stubS32_131)
+	stubsS32[132] = runtype.FuncPC(stubS32_132)
+	stubsS32[133] = runtype.FuncPC(stubS32_133)
+	stubsS32[134] = runtype.FuncPC(stubS32_134)
+	stubsS32[135] = runtype.FuncPC(stubS32_135)
+	stubsS32[136] = runtype.FuncPC(stubS32_136)
+	stubsS32[137] = runtype.FuncPC(stubS32_137)
+	stubsS32[138] = runtype.FuncPC(stubS32_138)
+	stubsS32[139] = runtype.FuncPC(stubS32_139)
+	stubsS32[140] = runtype.FuncPC(stubS32_140)
+	stubsS32[141] = runtype.FuncPC(stubS32_141)
+	stubsS32[142] = runtype.FuncPC(stubS32_142)
+	stubsS32[143] = runtype.FuncPC(stubS32_143)
+	stubsS32[144] = runtype.FuncPC(stubS32_144)
+	stubsS32[145] = runtype.FuncPC(stubS32_145)
+	stubsS32[146] = runtype.FuncPC(stubS32_146)
+	stubsS32[147] = runtype.FuncPC(stubS32_147)
+	stubsS32[148] = runtype.FuncPC(stubS32_148)
+	stubsS32[149] = runtype.FuncPC(stubS32_149)
+	stubsS32[150] = runtype.FuncPC(stubS32_150)
+	stubsS32[151] = runtype.FuncPC(stubS32_151)
+	stubsS32[152] = runtype.FuncPC(stubS32_152)
+	stubsS32[153] = runtype.FuncPC(stubS32_153)
+	stubsS32[154] = runtype.FuncPC(stubS32_154)
+	stubsS32[155] = runtype.FuncPC(stubS32_155)
+	stubsS32[156] = runtype.FuncPC(stubS32_156)
+	stubsS32[157] = runtype.FuncPC(stubS32_157)
+	stubsS32[158] = runtype.FuncPC(stubS32_158)
+	stubsS32[159] = runtype.FuncPC(stubS32_159)
+	stubsS32[160] = runtype.FuncPC(stubS32_160)
+	stubsS32[161] = runtype.FuncPC(stubS32_161)
+	stubsS32[162] = runtype.FuncPC(stubS32_162)
+	stubsS32[163] = runtype.FuncPC(stubS32_163)
+	stubsS32[164] = runtype.FuncPC(stubS32_164)
+	stubsS32[165] = runtype.FuncPC(stubS32_165)
+	stubsS32[166] = runtype.FuncPC(stubS32_166)
+	stubsS32[167] = runtype.FuncPC(stubS32_167)
+	stubsS32[168] = runtype.FuncPC(stubS32_168)
+	stubsS32[169] = runtype.FuncPC(stubS32_169)
+	stubsS32[170] = runtype.FuncPC(stubS32_170)
+	stubsS32[171] = runtype.FuncPC(stubS32_171)
+	stubsS32[172] = runtype.FuncPC(stubS32_172)
+	stubsS32[173] = runtype.FuncPC(stubS32_173)
+	stubsS32[174] = runtype.FuncPC(stubS32_174)
+	stubsS32[175] = runtype.FuncPC(stubS32_175)
+	stubsS32[176] = runtype.FuncPC(stubS32_176)
+	stubsS32[177] = runtype.FuncPC(stubS32_177)
+	stubsS32[178] = runtype.FuncPC(stubS32_178)
+	stubsS32[179] = runtype.FuncPC(stubS32_179)
+	stubsS32[180] = runtype.FuncPC(stubS32_180)
+	stubsS32[181] = runtype.FuncPC(stubS32_181)
+	stubsS32[182] = runtype.FuncPC(stubS32_182)
+	stubsS32[183] = runtype.FuncPC(stubS32_183)
+	stubsS32[184] = runtype.FuncPC(stubS32_184)
+	stubsS32[185] = runtype.FuncPC(stubS32_185)
+	stubsS32[186] = runtype.FuncPC(stubS32_186)
+	stubsS32[187] = runtype.FuncPC(stubS32_187)
+	stubsS32[188] = runtype.FuncPC(stubS32_188)
+	stubsS32[189] = runtype.FuncPC(stubS32_189)
+	stubsS32[190] = runtype.FuncPC(stubS32_190)
+	stubsS32[191] = runtype.FuncPC(stubS32_191)
+	stubsS32[192] = runtype.FuncPC(stubS32_192)
+	stubsS32[193] = runtype.FuncPC(stubS32_193)
+	stubsS32[194] = runtype.FuncPC(stubS32_194)
+	stubsS32[195] = runtype.FuncPC(stubS32_195)
+	stubsS32[196] = runtype.FuncPC(stubS32_196)
+	stubsS32[197] = runtype.FuncPC(stubS32_197)
+	stubsS32[198] = runtype.FuncPC(stubS32_198)
+	stubsS32[199] = runtype.FuncPC(stubS32_199)
+	stubsS32[200] = runtype.FuncPC(stubS32_200)
+	stubsS32[201] = runtype.FuncPC(stubS32_201)
+	stubsS32[202] = runtype.FuncPC(stubS32_202)
+	stubsS32[203] = runtype.FuncPC(stubS32_203)
+	stubsS32[204] = runtype.FuncPC(stubS32_204)
+	stubsS32[205] = runtype.FuncPC(stubS32_205)
+	stubsS32[206] = runtype.FuncPC(stubS32_206)
+	stubsS32[207] = runtype.FuncPC(stubS32_207)
+	stubsS32[208] = runtype.FuncPC(stubS32_208)
+	stubsS32[209] = runtype.FuncPC(stubS32_209)
+	stubsS32[210] = runtype.FuncPC(stubS32_210)
+	stubsS32[211] = runtype.FuncPC(stubS32_211)
+	stubsS32[212] = runtype.FuncPC(stubS32_212)
+	stubsS32[213] = runtype.FuncPC(stubS32_213)
+	stubsS32[214] = runtype.FuncPC(stubS32_214)
+	stubsS32[215] = runtype.FuncPC(stubS32_215)
+	stubsS32[216] = runtype.FuncPC(stubS32_216)
+	stubsS32[217] = runtype.FuncPC(stubS32_217)
+	stubsS32[218] = runtype.FuncPC(stubS32_218)
+	stubsS32[219] = runtype.FuncPC(stubS32_219)
+	stubsS32[220] = runtype.FuncPC(stubS32_220)
+	stubsS32[221] = runtype.FuncPC(stubS32_221)
+	stubsS32[222] = runtype.FuncPC(stubS32_222)
+	stubsS32[223] = runtype.FuncPC(stubS32_223)
+	stubsS32[224] = runtype.FuncPC(stubS32_224)
+	stubsS32[225] = runtype.FuncPC(stubS32_225)
+	stubsS32[226] = runtype.FuncPC(stubS32_226)
+	stubsS32[227] = runtype.FuncPC(stubS32_227)
+	stubsS32[228] = runtype.FuncPC(stubS32_228)
+	stubsS32[229] = runtype.FuncPC(stubS32_229)
+	stubsS32[230] = runtype.FuncPC(stubS32_230)
+	stubsS32[231] = runtype.FuncPC(stubS32_231)
+	stubsS32[232] = runtype.FuncPC(stubS32_232)
+	stubsS32[233] = runtype.FuncPC(stubS32_233)
+	stubsS32[234] = runtype.FuncPC(stubS32_234)
+	stubsS32[235] = runtype.FuncPC(stubS32_235)
+	stubsS32[236] = runtype.FuncPC(stubS32_236)
+	stubsS32[237] = runtype.FuncPC(stubS32_237)
+	stubsS32[238] = runtype.FuncPC(stubS32_238)
+	stubsS32[239] = runtype.FuncPC(stubS32_239)
+	stubsS32[240] = runtype.FuncPC(stubS32_240)
+	stubsS32[241] = runtype.FuncPC(stubS32_241)
+	stubsS32[242] = runtype.FuncPC(stubS32_242)
+	stubsS32[243] = runtype.FuncPC(stubS32_243)
+	stubsS32[244] = runtype.FuncPC(stubS32_244)
+	stubsS32[245] = runtype.FuncPC(stubS32_245)
+	stubsS32[246] = runtype.FuncPC(stubS32_246)
+	stubsS32[247] = runtype.FuncPC(stubS32_247)
+	stubsS32[248] = runtype.FuncPC(stubS32_248)
+	stubsS32[249] = runtype.FuncPC(stubS32_249)
+	stubsS32[250] = runtype.FuncPC(stubS32_250)
+	stubsS32[251] = runtype.FuncPC(stubS32_251)
+	stubsS32[252] = runtype.FuncPC(stubS32_252)
+	stubsS32[253] = runtype.FuncPC(stubS32_253)
+	stubsS32[254] = runtype.FuncPC(stubS32_254)
+	stubsS32[255] = runtype.FuncPC(stubS32_255)
 }

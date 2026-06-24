@@ -111,8 +111,11 @@ reflect-driven value<->word marshaling and owns the error policy.
 `registerWordPool` records each generated pool in a `sync.Map` keyed by the
 word-shape (`acquireWordSlot`/`HasWordShape` read it); the vm computes the same
 key independently via `detectWordShape`.
-The path is gated to 64-bit little-endian targets; elsewhere only the typed shapes
-attach.
+The path is gated to 64-bit little-endian targets; on 32-bit or big-endian targets
+only the typed shapes attach.
+On wasm (also 64-bit LE but a stack ABI, not registers) the vm classifies and
+marshals by 8-byte stack slots instead of register words, packing sub-word struct
+fields; the generated pools are arch-agnostic source and shared (see ADR-022).
 
 The vm-side glue is *not* here -- `vm/synth_bridge.go` owns `detectShape`
 (signature -> `Shape`) and `makeHandlerS*`, plus `detectWordShape` (signature ->
