@@ -179,7 +179,11 @@ var wordShapes = []wordShape{
 	// interfaces ("pp"). Exercised by modernc.org/sqlite.
 	{Params: "pii", Results: "pppp"},     // driver.Stmt.Exec/Query([]Value) (Result/Rows, error)
 	{Params: "pii", Results: "pp"},       // driver.Rows.Next([]Value) error
-	{Params: "", Results: "pii"},         // driver.Rows.Columns() []string
+	// W_pii (niladic slice/iface result, e.g. func() []T) is descriptor-heavy in
+	// protobuf/proto's test suite: it peaks at ~783 attaches (akin to its W_pp
+	// peer at ~817). Slots are monotonic and never reclaimed; size for the largest
+	// single-process attach count plus growth headroom.
+	{Params: "", Results: "pii", Size: 2048}, // driver.Rows.Columns() []string; protobuf descriptors
 	{Params: "pppii", Results: "pppp"},   // driver.StmtExecContext/QueryContext(ctx, []NamedValue) (Result/Rows, error)
 	{Params: "pppipii", Results: "pppp"}, // driver.ExecerContext/QueryerContext(ctx, query, []NamedValue) (Result/Rows, error)
 	{Params: "ppii", Results: "pppp"},    // driver.ConnBeginTx(ctx, TxOptions) (Tx, error)

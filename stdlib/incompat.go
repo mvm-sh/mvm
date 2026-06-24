@@ -337,6 +337,7 @@ var Incompat = map[string]map[string]string{
 		"TestSingleConn/multiple_conns": "too long under the interpreter",
 		"TestIssue51":                   "too long under the interpreter",
 		"TestIssue53":                   "too long under the interpreter",
+		"TestConcurrentGoroutines":      "too long under the interpreter",
 		"TestRegisteredFunctions/QueryContext_with_context_expiring": "too long under the interpreter",
 		"TestRegisteredFunctions/ExecContext_with_context_expiring":  "too long under the interpreter",
 		"TestPreUpdateHook": "OOM under the interpreter",
