@@ -601,8 +601,7 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 		if includePtr && ft.Kind() != reflect.Pointer {
 			setType = reflect.PointerTo(ft)
 		}
-		for i := 0; i < setType.NumMethod(); i++ {
-			meth := setType.Method(i)
+		for meth := range setType.Methods() {
 			if !meth.IsExported() || seen[meth.Name] {
 				continue
 			}

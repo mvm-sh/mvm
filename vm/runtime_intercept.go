@@ -332,8 +332,8 @@ func (m *Machine) synthMethodExpr(rt reflect.Type, name string) (reflect.Method,
 	// Method-expression signature: the receiver prepended to the bound signature.
 	in := make([]reflect.Type, 0, boundFt.NumIn()+1)
 	in = append(in, rt)
-	for i := range boundFt.NumIn() {
-		in = append(in, boundFt.In(i))
+	for pt := range boundFt.Ins() {
+		in = append(in, pt)
 	}
 	out := make([]reflect.Type, boundFt.NumOut())
 	for i := range out {
@@ -361,8 +361,7 @@ func callSynthMethodFunc(fn reflect.Value, in []reflect.Value, spread bool) ([]r
 	}
 	pc := fn.Pointer()
 	var name string
-	for i := range recvT.NumMethod() {
-		mm := recvT.Method(i)
+	for mm := range recvT.Methods() {
 		if mm.Type == ft && mm.Func.Pointer() == pc {
 			name = mm.Name
 			break

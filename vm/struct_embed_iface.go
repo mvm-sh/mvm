@@ -58,8 +58,7 @@ func (m *Machine) buildStructEmbedSynth(layout, target reflect.Type, fieldIdx in
 	}
 	synthT := &Type{Rtype: res.Type()} // Kind() derives Struct from Rtype
 	specs := make([]synthMethodSpec, 0, target.NumMethod())
-	for i := 0; i < target.NumMethod(); i++ {
-		meth := target.Method(i)
+	for meth := range target.Methods() {
 		sig := meth.Type // interface method type: no receiver
 		spec := synthMethodSpec{
 			name:   meth.Name,

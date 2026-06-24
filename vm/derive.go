@@ -357,8 +357,7 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 			sets = append(sets, reflect.PointerTo(ft))
 		}
 		for _, st := range sets {
-			for i := 0; i < st.NumMethod(); i++ {
-				meth := st.Method(i)
+			for meth := range st.Methods() {
 				if !meth.IsExported() {
 					continue
 				}

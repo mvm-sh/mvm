@@ -110,8 +110,7 @@ func (t *Type) EnsureIfaceMethods() {
 	if len(t.IfaceMethods) > 0 || t.Kind() != reflect.Interface {
 		return
 	}
-	for i := range t.Rtype.NumMethod() {
-		m := t.Rtype.Method(i)
+	for m := range t.Rtype.Methods() {
 		t.IfaceMethods = append(t.IfaceMethods, IfaceMethod{Name: m.Name, ID: -1, Rtype: m.Type})
 	}
 }
@@ -399,8 +398,7 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 		}
 	}
 	// Fallback: check methods declared on Rtype (for purely native interfaces).
-	for i := range t.Rtype.NumMethod() {
-		m := t.Rtype.Method(i)
+	for m := range t.Rtype.Methods() {
 		if _, ok := rt.MethodByName(m.Name); !ok {
 			return m.Name
 		}

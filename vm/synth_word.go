@@ -113,8 +113,7 @@ func appendWordLeaves(t reflect.Type, base uintptr, b *strings.Builder, lay *wor
 		push('p', base, wordSize)          // type/itab
 		push('p', base+wordSize, wordSize) // data
 	case reflect.Struct:
-		for i := range t.NumField() {
-			f := t.Field(i)
+		for f := range t.Fields() {
 			if f.Type.Size() == 0 {
 				// A zero-size field (e.g. a [0]T marker like pragma.DoNotCompare
 				// in protoreflect.Value) occupies no register and no memory; skip.
@@ -192,15 +191,15 @@ func classifyWordSig(sig reflect.Type) (key, reason string, ok bool) {
 		return "", "", false
 	}
 	var params, results []byte
-	for i := range sig.NumIn() {
-		c, ok := classifyType(sig.In(i))
+	for in := range sig.Ins() {
+		c, ok := classifyType(in)
 		if !ok {
 			return "", "unclassifiable param/result", false
 		}
 		params = append(params, c...)
 	}
-	for j := range sig.NumOut() {
-		c, ok := classifyType(sig.Out(j))
+	for out := range sig.Outs() {
+		c, ok := classifyType(out)
 		if !ok {
 			return "", "unclassifiable param/result", false
 		}

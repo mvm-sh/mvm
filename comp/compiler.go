@@ -126,8 +126,8 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 		}
 		// MethodByName misses unexported interface methods; Method(i) finds them.
 		if rt.Kind() == reflect.Interface {
-			for i := range rt.NumMethod() {
-				if m := rt.Method(i); m.Name == methodName {
+			for m := range rt.Methods() {
+				if m.Name == methodName {
 					return m.Type
 				}
 			}

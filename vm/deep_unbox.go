@@ -54,8 +54,8 @@ func ifaceBearingWalk(t reflect.Type, seen map[reflect.Type]bool) bool {
 	case reflect.Map:
 		return ifaceBearingWalk(t.Key(), seen) || ifaceBearingWalk(t.Elem(), seen)
 	case reflect.Struct:
-		for i := range t.NumField() {
-			if ifaceBearingWalk(t.Field(i).Type, seen) {
+		for field := range t.Fields() {
+			if ifaceBearingWalk(field.Type, seen) {
 				return true
 			}
 		}
