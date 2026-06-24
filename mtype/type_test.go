@@ -206,6 +206,73 @@ func TestSymVisibleFieldsPromotion(t *testing.T) {
 
 func ptrSizeInt() uintptr { return (&Type{kind: reflect.Int}).Size() }
 
+// TestFieldLookupDoublyPromotedDemotedEmbed guards the gorm callbacks bug
+// (`undefined: FullSaveAssociations`): a field promoted through TWO embedded
+// pointers (Statement -> *DB -> *Config). reflect.StructOf cannot keep a
+// method-bearing embed Anonymous, so the synth rtype demotes the embed to a named
+// field and reflect can no longer promote through it. FieldLookup must fall back to
+// the symbolic Embedded chain, recursing every level -- not just one hop.
+func TestFieldLookupDoublyPromotedDemotedEmbed(t *testing.T) {
+	// Config { FullSave bool } -- the target field lives two embeds down.
+	configRT := reflect.TypeOf(struct{ FullSave bool }{})
+	configT := &Type{
+		Name: "Config", kind: reflect.Struct, Rtype: configRT,
+		Fields: []*Type{{Name: "FullSave", kind: reflect.Bool, Rtype: reflect.TypeFor[bool]()}},
+	}
+	// DB embeds *Config, but the rtype field is NON-anonymous (the demoted case):
+	// reflect.FieldByName("FullSave") on dbRT must miss, forcing the symbolic walk.
+	dbRT := reflect.StructOf([]reflect.StructField{{Name: "Config", Type: reflect.PointerTo(configRT)}})
+	dbT := &Type{
+		Name: "DB", kind: reflect.Struct, Rtype: dbRT,
+		Fields:   []*Type{SymPtr(configT)},
+		Embedded: []EmbeddedField{{FieldIdx: 0, Type: configT}},
+	}
+	// Statement embeds *DB, also demoted to a named field.
+	stmtRT := reflect.StructOf([]reflect.StructField{{Name: "DB", Type: reflect.PointerTo(dbRT)}})
+	stmtT := &Type{
+		Name: "Statement", kind: reflect.Struct, Rtype: stmtRT,
+		Fields:   []*Type{SymPtr(dbT)},
+		Embedded: []EmbeddedField{{FieldIdx: 0, Type: dbT}},
+	}
+
+	// Sanity: reflect alone cannot promote past the demoted embeds.
+	if _, ok := stmtRT.FieldByName("FullSave"); ok {
+		t.Skip("reflect promoted through a non-anonymous embed; test premise invalid")
+	}
+
+	path, ft := stmtT.FieldLookup("FullSave")
+	want := []int{0, 0, 0} // Statement.DB(0) -> DB.Config(0) -> Config.FullSave(0)
+	if len(path) != len(want) {
+		t.Fatalf("FieldLookup path = %v, want %v", path, want)
+	}
+	for i := range want {
+		if path[i] != want[i] {
+			t.Fatalf("FieldLookup path = %v, want %v", path, want)
+		}
+	}
+	if ft == nil || ft.Kind() != reflect.Bool {
+		t.Fatalf("FieldLookup type = %v, want bool", ft)
+	}
+}
+
+// TestFieldLookupEmbedCycleTerminates guards the cycle guard added with the
+// doubly-promoted-field fix: mutually-embedding types (legal Go) must not loop
+// forever when the looked-up field does not exist.
+func TestFieldLookupEmbedCycleTerminates(t *testing.T) {
+	aRT := reflect.StructOf([]reflect.StructField{{Name: "B", Type: reflect.PointerTo(reflect.TypeOf(struct{ X int }{}))}})
+	bRT := reflect.StructOf([]reflect.StructField{{Name: "A", Type: reflect.PointerTo(aRT)}})
+	aT := &Type{Name: "A", kind: reflect.Struct, Rtype: aRT}
+	bT := &Type{Name: "B", kind: reflect.Struct, Rtype: bRT}
+	aT.Fields = []*Type{SymPtr(bT)}
+	aT.Embedded = []EmbeddedField{{FieldIdx: 0, Type: bT}}
+	bT.Fields = []*Type{SymPtr(aT)}
+	bT.Embedded = []EmbeddedField{{FieldIdx: 0, Type: aT}}
+
+	if path, ft := aT.FieldLookup("Nonexistent"); path != nil || ft != nil {
+		t.Fatalf("FieldLookup of missing field = (%v, %v), want (nil, nil)", path, ft)
+	}
+}
+
 // TestFieldTypeAtPathCloneCanonical guards the x/net/http2 promoted-method
 // write-through bug: a field-access clone loses its Fields, so FieldTypeAtPath
 // must resolve the embedded field's type via the canonical (Base).

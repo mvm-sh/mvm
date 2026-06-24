@@ -1066,6 +1066,13 @@ func (t *Type) FieldType(name string) *Type {
 
 // FieldLookup returns the index path and type of struct field name in a single pass.
 func (t *Type) FieldLookup(name string) ([]int, *Type) {
+	return t.fieldLookupSeen(name, nil)
+}
+
+// fieldLookupSeen is FieldLookup threading a visited set through the symbolic
+// embedded-field recursion, so mutually-embedding types (legal Go: `type A
+// struct{ *B }; type B struct{ *A }`) cannot loop forever.
+func (t *Type) fieldLookupSeen(name string, seen map[*Type]bool) ([]int, *Type) {
 	if t.Rtype == nil {
 		return t.symFieldLookup(name)
 	}
@@ -1088,7 +1095,7 @@ func (t *Type) FieldLookup(name string) ([]int, *Type) {
 		// No mvm info: identify by the field's TYPE (name+package), like above.
 		return f.Index, &Type{Name: f.Type.Name(), PkgName: f.Type.PkgPath(), Rtype: f.Type, kind: f.Type.Kind()}
 	}
-	return t.embeddedFieldLookup(name)
+	return t.embeddedFieldLookupSeen(name, seen)
 }
 
 func (t *Type) resolveFieldByPath(path []int) *Type {
@@ -1124,6 +1131,17 @@ func (t *Type) resolveFieldByPath(path []int) *Type {
 }
 
 func (t *Type) embeddedFieldLookup(name string) ([]int, *Type) {
+	return t.embeddedFieldLookupSeen(name, nil)
+}
+
+func (t *Type) embeddedFieldLookupSeen(name string, seen map[*Type]bool) ([]int, *Type) {
+	if seen[t] {
+		return nil, nil
+	}
+	if seen == nil {
+		seen = map[*Type]bool{}
+	}
+	seen[t] = true
 	for _, emb := range t.Embedded {
 		rt := t.Rtype.Field(emb.FieldIdx).Type
 		if rt.Kind() == reflect.Pointer {
@@ -1135,12 +1153,21 @@ func (t *Type) embeddedFieldLookup(name string) ([]int, *Type) {
 		if sf, ok := rt.FieldByName(name); ok {
 			idx := append([]int{emb.FieldIdx}, sf.Index...)
 			if emb.Type != nil {
-				if _, ft := emb.Type.FieldLookup(name); ft != nil {
+				if _, ft := emb.Type.fieldLookupSeen(name, seen); ft != nil {
 					return idx, ft
 				}
 			}
 			// Identify by the field's TYPE (name+package), like FieldLookup.
 			return idx, &Type{Name: sf.Type.Name(), PkgName: sf.Type.PkgPath(), Rtype: sf.Type, kind: sf.Type.Kind()}
+		}
+		// reflect.FieldByName cannot promote past a deeper embedded pointer whose
+		// synth rtype dropped the Anonymous flag (a cross-package chain such as gorm
+		// Statement -> *DB -> *Config). Recurse symbolically through emb.Type's own
+		// embedding chain, which carries the field info reflect lost.
+		if emb.Type != nil {
+			if sub, ft := emb.Type.fieldLookupSeen(name, seen); ft != nil {
+				return append([]int{emb.FieldIdx}, sub...), ft
+			}
 		}
 	}
 	return nil, nil
