@@ -173,6 +173,20 @@ var wordShapes = []wordShape{
 	// where they fit the arch's argument registers (arm64), and is dropped on amd64
 	// (9 int + receiver > 9 regs) -- see wordsFitRegs.
 	{Params: "pipiiifpffpi", Results: ""},
+	// database/sql driver cluster: an interpreted driver's *conn/*stmt/*rows must
+	// satisfy database/sql/driver interfaces across the native boundary. []Value
+	// and []NamedValue are slices ("pii"); driver.Result/Rows/Stmt/Tx and error are
+	// interfaces ("pp"). Exercised by modernc.org/sqlite.
+	{Params: "pii", Results: "pppp"},     // driver.Stmt.Exec/Query([]Value) (Result/Rows, error)
+	{Params: "pii", Results: "pp"},       // driver.Rows.Next([]Value) error
+	{Params: "", Results: "pii"},         // driver.Rows.Columns() []string
+	{Params: "pppii", Results: "pppp"},   // driver.StmtExecContext/QueryContext(ctx, []NamedValue) (Result/Rows, error)
+	{Params: "pppipii", Results: "pppp"}, // driver.ExecerContext/QueryerContext(ctx, query, []NamedValue) (Result/Rows, error)
+	{Params: "ppii", Results: "pppp"},    // driver.ConnBeginTx(ctx, TxOptions) (Tx, error)
+	{Params: "pppi", Results: "pppp"},    // driver.ConnPrepareContext(ctx, query) (Stmt, error)
+	{Params: "pppi", Results: "pp"},      // driver.ConnPrepareContext-style (ctx, query) error
+	{Params: "pipii", Results: "pppp"},   // (query, []Value) (Result, error)
+	{Params: "pi", Results: "ppp"},       // (*conn).Backup(string) (*Backup, error)
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
