@@ -205,6 +205,10 @@ CI (the `wasm` job runs the synth-dispatch and interptest suites under wasip1).
 - The path is gated to 64-bit little-endian (amd64/arm64/.../wasm); on 32-bit or
   big-endian targets only the typed shapes work.
 - The word pools are finite and consumed monotonically like the typed pools.
+  Each slot is one generated function, so the ~53k of them are about half the wasm
+  binary; the wasm build uses reduced pool sizes (`sizes_wasm.go`: pervasive shapes
+  <=1024, rare tail 128) so its binary is ~60 MB vs ~80 MB, while native keeps the
+  full sizes via the `//go:build !wasm` `pool_ext_*.go` slots. See docs/modules/stubs.md.
 - Per-call cost is higher than a typed shape (reflect marshaling plus a
   `reflect.New` per argument), so a hot interface still warrants a typed shape.
 
