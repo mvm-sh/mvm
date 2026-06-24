@@ -187,6 +187,11 @@ var wordShapes = []wordShape{
 	{Params: "pppi", Results: "pp"},      // driver.ConnPrepareContext-style (ctx, query) error
 	{Params: "pipii", Results: "pppp"},   // (query, []Value) (Result, error)
 	{Params: "pi", Results: "ppp"},       // (*conn).Backup(string) (*Backup, error)
+	// driver.RowsColumnType* optional interfaces: an interpreted *rows must satisfy
+	// them so database/sql surfaces column metadata. ScanType (i_pp) already exists.
+	{Params: "i", Results: "pi"},  // RowsColumnTypeDatabaseTypeName(int) string
+	{Params: "i", Results: "ii"},  // RowsColumnTypeLength/Nullable(int) (int64/bool, bool)
+	{Params: "i", Results: "iii"}, // RowsColumnTypePrecisionScale(int) (int64, int64, bool)
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

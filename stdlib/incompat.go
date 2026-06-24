@@ -329,6 +329,17 @@ var Incompat = map[string]map[string]string{
 	"google.golang.org/grpc/internal/leakcheck": {
 		"TestCheckRegisterIgnore": "RegisterIgnoreGoroutine ignores a goroutine by its function name in runtime.Stack(all); an interpreted `go f()` runs on a VM goroutine whose native stack shows vm/reflect frames, not f's name, so the ignore can't match and the ignored leak is counted",
 	},
+
+	"modernc.org/sqlite": {
+		"TestIssue118":                  "too long under the interpreter",
+		"TestMemDB":                     "too long under the interpreter",
+		"TestSingleConn/single_conn":    "too long under the interpreter",
+		"TestSingleConn/multiple_conns": "too long under the interpreter",
+		"TestIssue51":                   "too long under the interpreter",
+		"TestRegisteredFunctions/QueryContext_with_context_expiring": "too long under the interpreter",
+		"TestRegisteredFunctions/ExecContext_with_context_expiring":  "too long under the interpreter",
+		"TestPreUpdateHook": "OOM under the interpreter",
+	},
 }
 
 // GenericOnly lists stdlib packages with an all-generic API: no reflect bridge

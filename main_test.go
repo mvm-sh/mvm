@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -83,6 +84,28 @@ func TestFailingTestFile(t *testing.T) {
 			t.Errorf("failingTestFile(%q, %q) = %q, want %q", c.err, c.target, got, c.want)
 		}
 	}
+}
+
+// TestNewTestInterpResetsFlags guards that each fresh test interp starts with a
+// clean native flag.CommandLine. The import-path retry loop builds a new interp
+// per attempt; without the reset, a package-level flag registered on one attempt
+// would "flag redefined"-panic when a sibling file's panicking init forces a
+// reload, wrongly dropping the file that owns the flag (e.g. modernc.org/sqlite
+// all_test.go's -inner after module_volatile_test.go's init panic).
+func TestNewTestInterpResetsFlags(t *testing.T) {
+	saved := flag.CommandLine
+	defer func() { flag.CommandLine = saved }()
+
+	flag.CommandLine = flag.NewFlagSet("prev", flag.ContinueOnError)
+	flag.Bool("inner", false, "leftover from a prior load attempt")
+
+	newTestInterp(traceFlag{}) // must wipe flag.CommandLine
+
+	if flag.Lookup("inner") != nil {
+		t.Fatal("newTestInterp left a stale flag registered; retry would flag-redefine-panic")
+	}
+	// Re-registering the same name must now be safe (the next attempt's var init).
+	flag.Bool("inner", false, "re-registered on the retry")
 }
 
 func TestBuildModFS(t *testing.T) {

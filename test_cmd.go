@@ -279,6 +279,11 @@ func testCmd(arg []string) error {
 }
 
 func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
+	// A fresh interp re-runs every _test.go flag var init from scratch, but the
+	// native flag.CommandLine is process-global. Wipe it so a flag registered on
+	// a prior load attempt (e.g. one a sibling file's panicking init forced a
+	// retry past) does not spuriously "flag redefined" and drop the owning file.
+	resetCommandLineFlags()
 	i := interp.NewInterpreter(golang.GoSpec)
 	// Install bridges, then layer in test-only export_test stand-ins (e.g.
 	// strings.StringFind) so external stdlib tests that use them resolve. The
@@ -337,10 +342,11 @@ func loadExternalTests(i *interp.Interp, target string) {
 	}
 }
 
-// resetCommandLineFlags clears the shared native flag.CommandLine before each
-// external-unit EvalFiles. Each drop-retry re-runs the _test.go flag.Bool var
-// inits, which would otherwise panic "flag redefined". testing.Init registers
-// the test.* flags later (runTestDriver), so wiping the set here is safe.
+// resetCommandLineFlags clears the shared native flag.CommandLine before a fresh
+// load attempt (newTestInterp) or an external-unit drop-retry. Each re-run of the
+// _test.go flag.Bool var inits would otherwise panic "flag redefined". mvm's own
+// test flags live in a separate FlagSet and testing.Init registers the test.*
+// flags later (runTestDriver), so wiping the set here is safe.
 func resetCommandLineFlags() {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 }
