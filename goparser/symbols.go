@@ -10,8 +10,11 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
+// blankName mints a unique throwaway name for a blank identifier. The '~' is
+// not a valid Go identifier character, so the synthesized name can never
+// collide with a user identifier like `_1` or `_2`.
 func (p *Parser) blankName() string {
-	n := "_" + strconv.Itoa(p.blankSeq)
+	n := "_~" + strconv.Itoa(p.blankSeq)
 	p.blankSeq++
 	return n
 }

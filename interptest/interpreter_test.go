@@ -919,6 +919,32 @@ func TestSwitch(t *testing.T) {
 	return a
 }
 `
+	// A `default: fallthrough` falls into the textually next clause, not the
+	// reordered-last one (default is moved last only for match priority). The
+	// parser used to flag it "cannot fallthrough final case" and lose the
+	// target. ccgo emits this for C switches (modernc.org/libc Xjn -> sqlite).
+	src4 := `func f(a int) string {
+	s := ""
+	switch a & 3 {
+	case 0: s = "zero"
+	case 1: s = "one"
+	default: s = "d"; fallthrough
+	case 3: s += "three"
+	}
+	return s
+}
+`
+	// default first, falling through into the next case.
+	src5 := `func f(a int) string {
+	s := ""
+	switch a {
+	default: s = "D"; fallthrough
+	case 1:  s += "one"
+	case 2:  s += "two"
+	}
+	return s
+}
+`
 	run(t, []etest{
 		{n: "#00", src: src0 + "f(1)", res: "2"},
 		{n: "#01", src: src0 + "f(2)", res: "3"},
@@ -938,6 +964,15 @@ func TestSwitch(t *testing.T) {
 		{n: "#12", src: src3 + "f(2)", res: "99"},
 		{n: "#13", src: src3 + "f(3)", res: "99"},
 		{n: "#14", src: src3 + "f(4)", res: "0"},
+
+		{n: "default_fallthrough_zero", src: src4 + "f(0)", res: "zero"},
+		{n: "default_fallthrough_one", src: src4 + "f(1)", res: "one"},
+		{n: "default_fallthrough_default", src: src4 + "f(2)", res: "dthree"},
+		{n: "default_fallthrough_case", src: src4 + "f(3)", res: "three"},
+
+		{n: "default_first_fallthrough_default", src: src5 + "f(9)", res: "Done"},
+		{n: "default_first_fallthrough_case1", src: src5 + "f(1)", res: "one"},
+		{n: "default_first_fallthrough_case2", src: src5 + "f(2)", res: "two"},
 
 		{n: "empty", src: `switch {}; 1`, res: "1"},
 
@@ -1011,6 +1046,12 @@ len(buf{}.data)`, res: "32"},
 		{n: "uint64_nested_conv", src: `const a = int64(int64(^uint64(0) >> 1)); a`, res: "9223372036854775807"},
 
 		{n: "leading_comment_in_block", src: "const (\n\t// header comment\n\ta = 1\n\tb = 2\n)\na+b", res: "3"},
+
+		// A const whose name shadows a type must bind a name, not be parsed as a
+		// typed (nameless) spec. Was modernc.org/sqlite conn_test.go
+		// (`const rows = 1000` with a package `type rows`).
+		{n: "name_shadows_type", src: `type rows int; func f() int { const rows = 1000; return rows }; f()`, res: "1000"},
+		{n: "names_shadow_type", src: `type a int; type b int; func f() int { const a, b = 3, 4; return a + b }; f()`, res: "7"},
 	})
 }
 

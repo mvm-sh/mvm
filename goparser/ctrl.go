@@ -382,18 +382,16 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 	if err != nil {
 		return nil, err
 	}
-	sc := p.caseClauses(clauses)
+	sc, defaultSrc := p.caseClauses(clauses)
 	hasDefault := len(sc) > 0 && len(sc[len(sc)-1]) >= 2 && sc[len(sc)-1][1].Tok == lang.Colon
 	needDrop := condSwitch && !hasDefault
 	nc := len(sc) - 1
-	prevFallthrough := false
 	for i, cl := range sc {
-		co, hasFallthrough, err := p.parseCaseClause(cl, i, nc, condSwitch, needDrop, prevFallthrough, opTyp)
+		co, err := p.parseCaseClause(cl, i, nc, defaultSrc, condSwitch, needDrop, opTyp)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, co...)
-		prevFallthrough = hasFallthrough
 	}
 	endPos := in[len(in)-1].Pos
 	if needDrop {
@@ -437,7 +435,7 @@ func (p *Parser) parseTypeSwitch(in, init, cond Tokens, periodIdx int) (out Toke
 	if err != nil {
 		return nil, err
 	}
-	sc := p.caseClauses(clauses)
+	sc, _ := p.caseClauses(clauses)
 	nc := len(sc) - 1
 	for i, cl := range sc {
 		co, err := p.parseTypeSwitchClause(cl, i, nc, tsName, varName)
@@ -547,25 +545,44 @@ func (p *Parser) parseTypeSwitchClause(in Tokens, index, maximum int, tsName, va
 	return out, nil
 }
 
-func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, needDrop, prevFallthrough bool, opTyp *vm.Type) (out Tokens, hasFallthrough bool, err error) {
+// srcOrder maps a reordered clause index to its source-order index, undoing the
+// single default<->last transposition moveDefaultLast applied (defaultSrc < 0
+// means no swap). It is an involution, so it also maps source to reordered.
+func srcOrder(index, maximum, defaultSrc int) int {
+	switch {
+	case defaultSrc < 0:
+		return index
+	case index == defaultSrc:
+		return maximum
+	case index == maximum:
+		return defaultSrc
+	default:
+		return index
+	}
+}
+
+func (p *Parser) parseCaseClause(in Tokens, index, maximum, defaultSrc int, condSwitch, needDrop bool, opTyp *vm.Type) (out Tokens, err error) {
 	in = append(in, newSemicolon(in[len(in)-1].Pos)) // Force a ';' at the end of body clause.
 	var conds, body Tokens
 	// Split on the first colon only: later colons belong to the body (e.g. a label).
 	ci := in.Index(lang.Colon)
 	if ci < 0 {
-		return nil, false, p.errAt(in[0], "invalid case clause")
+		return nil, p.errAt(in[0], "invalid case clause")
 	}
 	conds = in[1:ci]
 	pos := in[0].Pos
 
-	// Pre-scan raw body for fallthrough before parsing statements.
+	// fallthrough follows source order, so validate and target by source index,
+	// not the match-dispatch order (where default has been moved last).
+	srcIdx := srcOrder(index, maximum, defaultSrc)
+	hasFallthrough := false
 	bodyRaw := in[ci+1:]
 	if fi := bodyRaw.Index(lang.Fallthrough); fi >= 0 {
-		if index == maximum {
-			return nil, false, p.errAt(bodyRaw[fi], "cannot fallthrough final case in switch")
+		if srcIdx == maximum {
+			return nil, p.errAt(bodyRaw[fi], "cannot fallthrough final case in switch")
 		}
 		if fi+2 < len(bodyRaw) {
-			return nil, false, p.errAt(bodyRaw[fi], "fallthrough statement out of place")
+			return nil, p.errAt(bodyRaw[fi], "fallthrough statement out of place")
 		}
 		hasFallthrough = true
 		bodyRaw = bodyRaw[:fi]
@@ -576,7 +593,7 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 	body, err = p.parseStmts(bodyRaw)
 	p.popScope()
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	lcond := conds.Split(lang.Comma)
@@ -592,7 +609,7 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 	}
 	for i, cond := range lcond {
 		if cond, err = p.parseExpr(cond, ""); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		out = append(out, newLabel(caseLabel(p.scope, index, i), 0))
 		if len(cond) > 0 {
@@ -611,17 +628,18 @@ func (p *Parser) parseCaseClause(in Tokens, index, maximum int, condSwitch, need
 			out = append(out, newDrop(pos))
 		}
 	}
-	if isMulti || prevFallthrough {
-		out = append(out, newLabel(bodyLabel, pos))
-	}
+	// Always label the body: a `default: fallthrough` lands here by source order
+	// even when this clause is not the reordered-next one.
+	out = append(out, newLabel(bodyLabel, pos))
 	out = append(out, body...)
 	if hasFallthrough {
-		out = append(out, newGoto(caseBodyLabel(p.scope, index+1), pos))
+		// Jump to the source-next clause's body (reordered position of srcIdx+1).
+		out = append(out, newGoto(caseBodyLabel(p.scope, srcOrder(srcIdx+1, maximum, defaultSrc)), pos))
 	} else if index != maximum || needDrop {
 		// needDrop: the drop section follows the last body; jump over it.
 		out = append(out, newGoto(synthLabel(p.scope, "e"), 0))
 	}
-	return out, hasFallthrough, err
+	return out, err
 }
 
 type selectCase struct {
@@ -757,7 +775,7 @@ func (p *Parser) parseSelect(in Tokens) (out Tokens, err error) {
 	if err != nil {
 		return nil, err
 	}
-	cs := p.caseClauses(clauses)
+	cs, _ := p.caseClauses(clauses)
 
 	cases := make([]selectCase, len(cs))
 	for i, cl := range cs {

@@ -55,6 +55,7 @@ type Compiler struct {
 	methodRtype  map[int]reflect.Type        // func type (no receiver) by global method ID
 	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex
 	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym
+	typeByRtype  map[reflect.Type]*vm.Type   // memo for findTypeSym (rtype -> Type)
 	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type
 	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index
 	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
@@ -111,6 +112,7 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		methodRtype:  map[int]reflect.Type{},
 		typeIdxs:     map[*vm.Type]int{},
 		typeSyms:     map[*vm.Type]*symbol.Symbol{},
+		typeByRtype:  map[reflect.Type]*vm.Type{},
 		zeroTypeIdxs: map[*vm.Type]int{},
 		zeroSlotType: map[int]*vm.Type{},
 		labelAtPos:   map[int]bool{},
@@ -404,6 +406,11 @@ func isInitDecl(toks goparser.Tokens) bool {
 
 // finishCompile runs Phase 2 over the deferred declarations.
 func (c *Compiler) finishCompile(remaining []goparser.DeferredDecl, targetTag string) error {
+	// findTypeSym's memo is valid only within one compile: it caches misses, and
+	// the symbol table grows/rolls back between compiles on this reused Compiler.
+	// Reset it per unit so a prior (or rolled-back) compile can't resolve a stale
+	// rtype. findTypeSym is reached only from codegen below, so this covers it.
+	clear(c.typeByRtype)
 	// Methods must be registered before allocGlobalSlots: a //go:embed var of a named
 	// string/[]byte type materializes its rtype there, and an unregistered method set
 	// would reserve a method-less identity, breaking the type's later ptr-method attach.
@@ -753,6 +760,13 @@ func (c *Compiler) embedValue(typ *vm.Type, data []byte) vm.Value {
 func (c *Compiler) FillTypeSlots() {
 	for _, p := range c.pendingTypeSlots {
 		if p.typ.Rtype == nil {
+			// An anonymous composite type reachable only from a Var symbol (e.g.
+			// an uninitialized `var x struct{...}`) is never visited by the
+			// Type-symbol materialization walk; force it here so its slot is a
+			// valid zero value rather than an invalid reflect.Value.
+			vm.MaterializeRtype(p.typ)
+		}
+		if p.typ.Rtype == nil {
 			continue
 		}
 		if p.descriptor {
@@ -776,13 +790,28 @@ func (c *Compiler) FillTypeSlots() {
 	}
 }
 
+// findTypeSym returns the interpreted Type registered for rtype, or nil. It
+// memoizes the (rtype -> Type) reverse lookup: without it, codegen on a large
+// package re-scans the whole symbol table for every type reference -- one of
+// the two dominant compile costs on modernc.org/sqlite. The map records both
+// hits and misses; finishCompile clears it per unit, so within one compile the
+// symbol table only grows and a cached entry never goes stale.
 func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
+	if rtype == nil {
+		return nil
+	}
+	if t, ok := c.typeByRtype[rtype]; ok {
+		return t
+	}
+	var found *vm.Type
 	for _, sym := range c.Symbols {
-		if sym.Kind == symbol.Type && sym.Type != nil && sym.Type.Rtype != nil && sym.Type.Rtype == rtype {
-			return sym.Type
+		if sym.Kind == symbol.Type && sym.Type != nil && sym.Type.Rtype == rtype {
+			found = sym.Type
+			break
 		}
 	}
-	return nil
+	c.typeByRtype[rtype] = found
+	return found
 }
 
 func (c *Compiler) findConcreteFuncSym(name string) *symbol.Symbol {
@@ -1309,27 +1338,28 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			}
 			typ := arithmeticOpType(right, left)
+			if typ == nil {
+				return c.errAt(t, "invalid operation: operator %s has operand with undetermined type", t.Str)
+			}
 			c.convertOperand(t, right, rightStart, typ, 0)
 			c.convertOperand(t, left, leftStart, typ, 1)
 			push(&symbol.Symbol{Kind: constKind(right, left), Type: typ})
-			if typ != nil {
-				if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
-					var op vm.Op
-					switch t.Tok {
-					case lang.Add:
-						op = vm.AddComplex
-					case lang.Sub:
-						op = vm.SubComplex
-					case lang.Mul:
-						op = vm.MulComplex
-					case lang.Quo:
-						op = vm.DivComplex
-					default:
-						return c.errAt(t, "operator %s not defined on %s", t.Str, typ.Name)
-					}
-					c.emit(t, op, int(k))
-					break
+			if k := typ.Kind(); k == reflect.Complex64 || k == reflect.Complex128 {
+				var op vm.Op
+				switch t.Tok {
+				case lang.Add:
+					op = vm.AddComplex
+				case lang.Sub:
+					op = vm.SubComplex
+				case lang.Mul:
+					op = vm.MulComplex
+				case lang.Quo:
+					op = vm.DivComplex
+				default:
+					return c.errAt(t, "operator %s not defined on %s", t.Str, typ.Name)
 				}
+				c.emit(t, op, int(k))
+				break
 			}
 			switch t.Tok {
 			case lang.Add:

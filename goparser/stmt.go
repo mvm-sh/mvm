@@ -11,7 +11,12 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-func moveDefaultLast(clauses []Tokens) {
+// moveDefaultLast swaps the default clause to the end so the match-dispatch
+// chain tries every explicit case before falling back to it. It returns the
+// default's original (source-order) index, or -1 when no swap happened. A
+// `default: fallthrough` needs that index: fallthrough follows source order,
+// so the target body is the source-next clause, not the reordered-next one.
+func moveDefaultLast(clauses []Tokens) int {
 	last := len(clauses) - 1
 	for i, cl := range clauses {
 		if len(cl) < 2 {
@@ -19,12 +24,15 @@ func moveDefaultLast(clauses []Tokens) {
 		}
 		if cl[1].Tok == lang.Colon && i != last {
 			clauses[i], clauses[last] = clauses[last], clauses[i]
-			return
+			return i
 		}
 	}
+	return -1
 }
 
-func (p *Parser) caseClauses(body Tokens) []Tokens {
+// caseClauses splits a switch body into clauses and moves any default last,
+// returning the default's original source index (-1 if none was moved).
+func (p *Parser) caseClauses(body Tokens) ([]Tokens, int) {
 	sc := body.SplitStart(lang.Case)
 	out := sc[:0]
 	for _, cl := range sc {
@@ -36,8 +44,7 @@ func (p *Parser) caseClauses(body Tokens) []Tokens {
 		}
 		out = append(out, cl)
 	}
-	moveDefaultLast(out)
-	return out
+	return out, moveDefaultLast(out)
 }
 
 func (p *Parser) splitAndSortVarDecls(decls []DeferredDecl) []DeferredDecl {

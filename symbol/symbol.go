@@ -211,6 +211,15 @@ func sameNamedType(cand, recv, recvCanon *vm.Type, recvRt reflect.Type) bool {
 // (empty for direct methods, non-empty for promoted methods through embedded fields).
 // seg is the candidate index; nil falls back to a full scan.
 func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, []int) {
+	// Every resolution below returns a concrete method symbol keyed
+	// "<recv>.name" (optionally "*"-prefixed) and of Kind Func. If no such
+	// method exists anywhere, no receiver search can find one -- so skip it.
+	// This turns the dominant compile cost on large packages (a whole-table
+	// scan per `x.field` selector whose receiver type is anonymous, ubiquitous
+	// in ccgo-generated code like modernc.org/sqlite) into an O(1) index probe.
+	if seg != nil && !sm.hasMethodNamed(name, seg) {
+		return nil, nil
+	}
 	switch sym.Kind {
 	case Type:
 		// Guard the bare probe: a dot-imported or alias-copied symbol keeps a
@@ -453,6 +462,22 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, se
 		return fallback
 	}
 	return nameFallback
+}
+
+// hasMethodNamed reports whether any symbol is a method named `name`: a Func
+// keyed "<recv>.name" (optionally "*"-prefixed). seg[name] holds every key whose
+// last dot-segment is name, so this is an index probe, not a whole-table scan.
+func (sm SymMap) hasMethodNamed(name string, seg SegIndex) bool {
+	suffix := "." + name
+	for _, k := range seg[name] {
+		if !strings.HasSuffix(k, suffix) {
+			continue // a bare "name" (top-level decl), not "<recv>.name"
+		}
+		if s := sm[k]; s != nil && s.Kind == Func {
+			return true
+		}
+	}
+	return false
 }
 
 // methodLookup finds `<typName>.<method>` in sm. With Path B steps 1+2 done,

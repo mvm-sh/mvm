@@ -49,6 +49,69 @@ func TestBlankConstNoShadow(t *testing.T) {
 	})
 }
 
+// Synthesized blank-identifier names must not collide with user identifiers
+// like `_1`/`_2`. The names once used a bare `_<n>` counter, so a blank const
+// `_ = iota` (renamed `_2`) clobbered a package var literally named `_2`,
+// leaving it an unallocated Const slot -> compiler index-out-of-range panic.
+// Was modernc.org/mathutil (`var _1, _2 = big.NewInt(1), big.NewInt(2)` with a
+// blank-const iota block), a transitive dep of modernc.org/sqlite.
+func TestBlankNameNoUserCollision(t *testing.T) {
+	run(t, []etest{
+		{
+			n: "blank_const_then_user_underscore_var",
+			src: `
+				const ( _ = iota; cA; cB )
+				var _2 = 40
+				func g() int { return _2 + cA + cB }
+				g()
+			`,
+			res: "43",
+		},
+		{
+			// A blank struct field's synthesized name reaches reflect.StructOf,
+			// which rejects a name carrying the collision-guard marker; it must
+			// be sanitized back to a valid unexported identifier.
+			n: "blank_struct_field_padding",
+			src: `
+				type T struct { A int; _ [3]byte; B int }
+				func f() int { v := T{A: 1, B: 2}; return v.A + v.B }
+				f()
+			`,
+			res: "3",
+		},
+	})
+}
+
+// An uninitialized struct (or array-of-struct) package var declared after an
+// initialized var in the same `var (...)` block must still get a zero value.
+// Its anonymous struct rtype is reachable only from the Var symbol, so the
+// Type-symbol materialization walk skipped it, leaving the slot an invalid
+// reflect.Value -> "reflect.Value.Index on zero Value" at first use.
+// Was modernc.org/mathutil tables.go (`liars = [...]uint32{...}` then
+// `lohi [256]struct{ lo, hi int }`), a transitive dep of modernc.org/sqlite.
+func TestUninitStructVarAfterInit(t *testing.T) {
+	run(t, []etest{
+		{
+			n: "plain_struct",
+			src: `
+				var ( a = 7; b struct{ lo, hi int } )
+				func setup() int { b.lo = 5; b.hi = 9; return a + b.lo + b.hi }
+				setup()
+			`,
+			res: "21",
+		},
+		{
+			n: "array_of_struct_addr",
+			src: `
+				var ( seed = 3; cells [4]struct{ lo, hi int } )
+				func fill() int { p := &cells[2]; p.lo = seed; p.hi = seed * 2; return cells[2].lo + cells[2].hi }
+				fill()
+			`,
+			res: "9",
+		},
+	})
+}
+
 // A multi-RHS `:=` must evaluate every RHS before assigning any LHS.
 // Was govalidator IsCreditCard: `number, lastDigit := number/10, number%10`
 // updated number before lastDigit's RHS read it.

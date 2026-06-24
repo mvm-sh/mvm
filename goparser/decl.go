@@ -98,11 +98,15 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 	}
 	var vars []string
 	var types []*vm.Type
-	if types, vars, _, err = p.parseParamTypes(decl, parseTypeType); err != nil {
+	if len(assign) > 0 && isPureIdentList(decl) {
+		// `const a, b = ...`: the LHS are names, never types. Parsing them as
+		// types misreads a const whose name shadows a type (e.g. a local
+		// `const rows = 1000` where the package declares `type rows`).
+		// Mirrors parseVarLine's isPureIdentList guard.
+		vars = declLeadNames(decl)
+	} else if types, vars, _, err = p.parseParamTypes(decl, parseTypeType); err != nil {
 		if errors.Is(err, ErrMissingType) {
-			for _, lt := range decl.Split(lang.Comma) {
-				vars = append(vars, lt[0].Str)
-			}
+			vars = declLeadNames(decl)
 		} else {
 			return out, err
 		}
@@ -566,6 +570,20 @@ func (p *Parser) isUnsafePkgIdent(t Token) bool {
 // tokens-consumed-including-Call, and any lookup/resolution error. An empty
 // op means no form matched; the caller falls through to the generic path.
 func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) {
+	// unsafe.Sizeof(&X) / Alignof(&X): the argument is a pointer (a trailing
+	// Addr token), whose size and alignment are the platform pointer width --
+	// uintptr's -- whatever X is. An address-of shifts the postfix shape past
+	// the cases below, so handle it first. Lets `const _ = unsafe.Sizeof(&T{})`
+	// fold (common in modernc.org/sqlite).
+	if l >= 2 && in[l-1].Tok == lang.Addr {
+		for oi := l - 2; oi >= 1; oi-- {
+			if in[oi].Tok == lang.Period && (in[oi].Str == ".Sizeof" || in[oi].Str == ".Alignof") &&
+				p.isUnsafePkgIdent(in[oi-1]) {
+				return p.Symbols["uintptr"].Type, in[oi].Str[1:], l + 1, nil
+			}
+		}
+		return nil, "", 0, nil
+	}
 	// Locate [unsafe][.Sizeof|.Alignof] ending at either l-3 or l-4.
 	var opIdx int
 	switch {
@@ -1435,6 +1453,17 @@ func isPureIdentList(decl Tokens) bool {
 		}
 	}
 	return true
+}
+
+// declLeadNames returns the first token's text of each comma-separated entry,
+// i.e. the declared names of a `var`/`const` LHS or an untyped list.
+func declLeadNames(decl Tokens) []string {
+	groups := decl.Split(lang.Comma)
+	names := make([]string, len(groups))
+	for i, g := range groups {
+		names[i] = g[0].Str
+	}
+	return names
 }
 
 func (p *Parser) registerVarNames(decl Tokens) []string {
