@@ -2383,7 +2383,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				break
 			}
 			c.emitNumConvert(t, lhs.Type, symbol.Vtype(rhs), 0)
-			if lhs.Index != symbol.UnsetAddr {
+			// Only a real global symbol (Var/Func) owns a Data slot. A Kind=Value
+			// lhs is a computed lvalue (its Index field is the unset zero, 0); the
+			// slot-write path below would mistake it for global slot 0 and clobber
+			// whatever var legitimately owns slot 0 (an intermittent compile-state
+			// bug -- a value-receiver self-assign whose stack misaligns can reach
+			// here as a Value). Route it through the field-ref path instead.
+			globalSlot := lhs.Index != symbol.UnsetAddr && lhs.Kind != symbol.Value
+			if globalSlot {
 				if v := c.Data[lhs.Index]; !v.IsValid() {
 					// A declared LHS type owns the (deferred) slot; infer from the
 					// RHS only for an untyped var, else a typed global retypes wrong.
@@ -2401,7 +2408,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			// Wrap concrete value in Iface when assigning to interface variable.
 			c.emitIfaceWrap(t, lhs.Type, rhs.Type)
-			if lhs.Index == symbol.UnsetAddr {
+			if !globalSlot {
 				// Struct field ref: route through setFuncField which unwraps
 				// Iface for native types so reflect-based code sees raw values.
 				c.emit(t, vm.FieldRefSet)

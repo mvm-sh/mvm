@@ -779,3 +779,45 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// A value-receiver method that self-assigns the receiver inside control flow
+// (switch + if), as modernc.org/libc Int128.Float64 does (`n = n.Neg()`), must
+// write the receiver, not a global Data slot. A compile-state-dependent stack
+// misalignment let the lhs reach the global-assign path as a Kind=Value with the
+// unset zero index (0), clobbering whichever global owned slot 0 -- surfacing as
+// a flaky `reflect.Set [N]float64 not assignable to mathutil.Int128` at init.
+// Globals here must stay intact and the method must compute correctly.
+func TestValueRecvSelfAssignNoGlobalClobber(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type I128 struct{ Lo, Hi int64 }
+
+func (n I128) Neg() I128 { return I128{-n.Lo, -n.Hi} }
+
+func (n I128) Mag() int64 {
+	switch n.Hi {
+	case 0:
+		return n.Lo
+	case -1:
+		return -n.Lo
+	}
+	if n.Hi < 0 {
+		n = n.Neg()
+		return n.Hi
+	}
+	return n.Hi
+}
+
+var sentinel = [3]float64{1.5, 2.5, 3.5}
+
+func main() {
+	fmt.Println(I128{Lo: 5, Hi: -7}.Mag())
+	fmt.Println(sentinel)
+}
+`
+	if got, want := evalOut(t, "valrecv_selfassign.go", src), "7\n[1.5 2.5 3.5]\n"; got != want {
+		t.Errorf("output: got %q, want %q", got, want)
+	}
+}
