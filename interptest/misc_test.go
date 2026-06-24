@@ -654,3 +654,37 @@ func main() {
 		t.Errorf("stdout:\n got %q\nwant %q", got, want)
 	}
 }
+
+// The ccgo (modernc.org/libc) C-function-pointer idiom: a func boxed in
+// interface{} has its data word read out as a uintptr (__ccgo_fp), then that
+// uintptr is reinterpreted as a *funcval and called. For this to dispatch, the
+// eface materialized from a boxed interpreted func must hold the func's native
+// MakeFunc wrapper (a real *funcval registered in funcFields), not a bare code
+// address -- otherwise the reconstructed call jumps into garbage (SIGBUS).
+// Regression for the modernc.org/sqlite init crash.
+func TestCcgoFuncPointerIdiom(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"unsafe"
+)
+
+func cmp(tls *int, a uintptr) int32 { return int32(a) + 1 }
+
+func ccgoFp(f interface{}) uintptr {
+	type iface [2]uintptr
+	return (*iface)(unsafe.Pointer(&f))[1]
+}
+
+func main() {
+	var tls int
+	p := ccgoFp(cmp)
+	r := (*(*func(*int, uintptr) int32)(unsafe.Pointer(&struct{ uintptr }{p})))(&tls, 41)
+	fmt.Println(r)
+}
+`
+	if got, want := evalOut(t, "ccgo_fp.go", src), "42\n"; got != want {
+		t.Errorf("output: got %q, want %q", got, want)
+	}
+}

@@ -1129,8 +1129,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// CanAddr since an addressable Iface struct has the same wrong layout.
 				// Struct form only: a real interface{} var keeps CanAddr below so writes
 				// through &iface propagate.
+				// bridgeIface (not raw Reflect) so a boxed func materializes as its
+				// native MakeFunc wrapper: the ccgo __ccgo_fp idiom reads &f as
+				// [2]uintptr and calls word[1] as a *funcval, which must be a real
+				// trampoline (registered in funcFields), not a bare code address.
 				r := reflect.New(AnyRtype)
-				if cv := v.IfaceVal().Val.Reflect(); cv.IsValid() {
+				if cv := m.bridgeIface(v.IfaceVal(), AnyRtype); cv.IsValid() {
 					r.Elem().Set(cv)
 				}
 				mem[sp] = Value{ref: r}
@@ -1141,8 +1145,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				mem[sp] = Value{ref: v.Reflect().Addr()}
 			case v.IsIface():
 				// Non-addressable interface{} holding an Iface: no slot to alias.
+				// bridgeIface so a boxed func materializes as its native wrapper
+				// (see the ifaceRtype branch above).
 				r := reflect.New(AnyRtype)
-				r.Elem().Set(v.IfaceVal().Val.Reflect())
+				if cv := m.bridgeIface(v.IfaceVal(), AnyRtype); cv.IsValid() {
+					r.Elem().Set(cv)
+				}
 				mem[sp] = Value{ref: r}
 			case !v.ref.IsValid():
 				// Nil interface parameter: allocate *interface{} with zero value.
