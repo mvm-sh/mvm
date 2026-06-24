@@ -3,6 +3,7 @@ package goparser
 import (
 	"slices"
 	"testing"
+	"testing/fstest"
 
 	"github.com/mvm-sh/mvm/lang/golang"
 )
@@ -74,5 +75,32 @@ import "strings"
 				t.Errorf("extractImports() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestCollectPackageSourcesTestsLast guards that non-test files are presented
+// before _test.go files (the order the go tool uses), so a package file's init
+// runs before an in-package _test.go init that depends on it. ReadDir is lexical
+// and would otherwise interleave them -- the failure that left modernc.org/sqlite's
+// vtab.RegisterModule hook unset when module_volatile_test.go's init ran.
+func TestCollectPackageSourcesTestsLast(t *testing.T) {
+	fsys := fstest.MapFS{
+		"zzz.go":      {Data: []byte("package p\n")},
+		"aaa.go":      {Data: []byte("package p\n")},
+		"mmm_test.go": {Data: []byte("package p\nimport \"testing\"\nfunc TestM(t *testing.T) {}\n")},
+		"bbb_test.go": {Data: []byte("package p\nimport \"testing\"\nfunc TestB(t *testing.T) {}\n")},
+	}
+	p := NewParser(golang.GoSpec, false)
+	srcs, err := p.collectPackageSources(fsys, ".", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range srcs {
+		got = append(got, s.Name)
+	}
+	want := []string{"aaa.go", "zzz.go", "bbb_test.go", "mmm_test.go"}
+	if !slices.Equal(got, want) {
+		t.Errorf("source order = %v, want %v (non-test files must precede _test.go)", got, want)
 	}
 }

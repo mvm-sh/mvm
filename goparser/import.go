@@ -161,7 +161,30 @@ func (p *Parser) collectPackageSources(fsys fs.FS, dir, importPath string, inclu
 			out = filtered
 		}
 	}
+	// Present non-test files before _test.go files, as the go tool does, so
+	// package-file init()s run before in-package _test.go init()s that depend on
+	// them (lexical ReadDir order would otherwise interleave the two -- e.g.
+	// modernc.org/sqlite's module_volatile_test.go init runs before vtab.go installs
+	// the RegisterModule hook it needs).
+	out = testsLast(out)
 	return out, nil
+}
+
+// testsLast stably reorders sources so _test.go files follow non-test files,
+// preserving lexical order within each group.
+func testsLast(srcs []PackageSource) []PackageSource {
+	out := make([]PackageSource, 0, len(srcs))
+	for _, s := range srcs {
+		if !strings.HasSuffix(s.Name, "_test.go") {
+			out = append(out, s)
+		}
+	}
+	for _, s := range srcs {
+		if strings.HasSuffix(s.Name, "_test.go") {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (p *Parser) externalTestFiles(out []PackageSource, names []string, mainPkg, dir string) []PackageSource {
