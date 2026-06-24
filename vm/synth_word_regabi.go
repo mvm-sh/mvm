@@ -22,10 +22,11 @@ import (
 // place. The wasm target uses a different, stack-based decomposition; see
 // synth_word_abi0.go.
 
-// classifyType returns t's ABI register words as a string over {p, i, f}, or
-// ok=false for a non-register-safe type (float32, complex, array, or a struct
+// classifyType returns t's ABI register words as a string over {p, i, f, g}, or
+// ok=false for a non-register-safe type (an array of length > 1, or a struct
 // containing one). It is wordLayoutOf's classes string; see appendWordLeaves for
 // the per-leaf rules. A scalar is one i word; a pointer-ish is p; float64 is f;
+// float32 is g (a single-precision FP-register word, a distinct stub from f);
 // string is (p,i); slice is (p,i,i); interface is (p,p); a struct is its leaves
 // flattened (one word per leaf field, sub-word and padded fields included).
 func classifyType(t reflect.Type) (classes string, ok bool) {
@@ -37,7 +38,7 @@ func classifyType(t reflect.Type) (classes string, ok bool) {
 }
 
 // wordLayout is a type's flattened register-word layout: classes[k] is the k-th
-// word's class (p/i/f) and offs[k]/sizes[k] are that word's leaf byte offset and
+// word's class (p/i/f/g) and offs[k]/sizes[k] are that word's leaf byte offset and
 // meaningful byte width in the value's memory. The per-leaf offsets (not a
 // uniform 8-byte stride) place sub-word-packed and padded struct fields correctly.
 type wordLayout struct {
@@ -63,11 +64,13 @@ func wordLayoutOf(t reflect.Type) (wordLayout, bool) {
 // register word. A scalar/pointer leaf takes a whole register regardless of its
 // byte size (Go's register ABI), so a struct flattens to one word per leaf field
 // at that field's true offset and width -- inter-field padding and sub-word
-// packing are fine, since each word reads/writes only its own bytes. complex128
-// is two float64 in two FP registers ("ff"). float32, complex64, and arrays have
-// no leaf rule and drop the whole type: a float32 needs an FP register a float64
-// stub cannot address, and an array of length > 1 is stack-passed. The wasm path
-// (synth_word_abi0.go) carries all of these as stack bytes instead.
+// packing are fine, since each word reads/writes only its own bytes. float64 is
+// one FP register ("f") and complex128 two ("ff"); float32 is one single-precision
+// FP register ("g") and complex64 two ("gg") -- 'g' is a distinct class because a
+// float32 stub param decodes its FP register differently than a float64 one.
+// Arrays of length > 1 have no leaf rule and drop the whole type (they are
+// stack-passed). The wasm path (synth_word_abi0.go) carries every type as stack
+// bytes instead.
 //
 // Example: time.Time -> "iip"; vg.Point{X,Y float64} -> "ff";
 // fixed.Point26_6{X,Y int32} -> "ii" (two int words at offsets 0 and 4).
@@ -90,6 +93,11 @@ func appendWordLeaves(t reflect.Type, base uintptr, b *strings.Builder, lay *wor
 	case reflect.Complex128:
 		push('f', base, wordSize)          // real
 		push('f', base+wordSize, wordSize) // imag
+	case reflect.Float32:
+		push('g', base, 4) // single-precision FP-register word
+	case reflect.Complex64:
+		push('g', base, 4)   // real
+		push('g', base+4, 4) // imag
 	case reflect.String:
 		push('p', base, wordSize)          // data
 		push('i', base+wordSize, wordSize) // len
@@ -137,14 +145,14 @@ var argIntRegs, argFloatRegs = func() (int, int) {
 	}
 }()
 
-// wordsFitRegs reports whether classes (one side's flat p/i/f word string) fits
+// wordsFitRegs reports whether classes (one side's flat p/i/f/g word string) fits
 // the arch's argument registers. The params side reserves one integer register
 // for the receiver.
 func wordsFitRegs(classes string, isParams bool) bool {
 	ints, floats := 0, 0
 	for i := range len(classes) {
-		if classes[i] == 'f' {
-			floats++
+		if classes[i] == 'f' || classes[i] == 'g' {
+			floats++ // float32 ('g') and float64 ('f') both consume an FP register
 		} else {
 			ints++
 		}
@@ -262,6 +270,10 @@ func marshalResults(sig reflect.Type, layouts []wordLayout, out []reflect.Value,
 				rfw[fi] = out[j].Float()
 				fi++
 				continue
+			case t.Kind() == reflect.Float32:
+				rfw[fi] = out[j].Float() // already the float32 value widened to float64
+				fi++
+				continue
 			}
 		}
 		tmp := reflect.New(t)
@@ -326,6 +338,9 @@ func writeWords(lay wordLayout, dst unsafe.Pointer, pw []unsafe.Pointer, sw []ui
 		case 'f':
 			*(*float64)(unsafe.Add(dst, off)) = fw[fi]
 			fi++
+		case 'g':
+			*(*float32)(unsafe.Add(dst, off)) = float32(fw[fi]) // narrow back to single
+			fi++
 		default:
 			writeIntWord(unsafe.Add(dst, off), sw[si], lay.sizes[k])
 			si++
@@ -345,6 +360,9 @@ func readWords(lay wordLayout, src unsafe.Pointer, rpw []unsafe.Pointer, rsw []u
 			pi++
 		case 'f':
 			rfw[fi] = *(*float64)(unsafe.Add(src, off))
+			fi++
+		case 'g':
+			rfw[fi] = float64(*(*float32)(unsafe.Add(src, off))) // widen single to fw slot
 			fi++
 		default:
 			rsw[si] = readIntWord(unsafe.Add(src, off), lay.sizes[k])

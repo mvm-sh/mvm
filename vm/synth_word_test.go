@@ -38,8 +38,8 @@ func TestClassifyType(t *testing.T) {
 		{reflect.TypeOf((*error)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf(float64(0)), "f", true},                // float64 is an FP-register word
 		{reflect.TypeOf(complex128(0)), "ff", true},            // two float64 in two FP registers
-		{reflect.TypeOf(float32(0)), "", false},                // float32 is sub-word, dropped
-		{reflect.TypeOf(complex64(0)), "", false},              // complex64 (two float32) dropped
+		{reflect.TypeOf(float32(0)), "g", true},                // float32 is a single-precision FP word
+		{reflect.TypeOf(complex64(0)), "gg", true},             // complex64 is two float32 halves
 		{reflect.TypeOf([2]int{}), "", false},                  // arrays of len > 1 are stack-passed
 		{reflect.TypeOf(struct{ X, Y float64 }{}), "ff", true}, // all-float struct
 		// word-sized-leaf structs flatten to their leaves' words.
@@ -74,7 +74,9 @@ func TestDetectWordShape(t *testing.T) {
 		{reflect.TypeOf((func() any)(nil)), "_pp", true},
 		{reflect.TypeOf((func(string) (any, error))(nil)), "pi_pppp", true},
 		{reflect.TypeOf((func(string) ([]int, error))(nil)), "pi_piipp", true},
-		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true}, // word-sized-leaf struct result
+		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true},     // word-sized-leaf struct result
+		{reflect.TypeOf((func(float32) float32)(nil)), "g_g", true}, // single-precision unary op
+		{reflect.TypeOf((func() complex64)(nil)), "_gg", true},      // complex64 result -> two 'g' halves
 		// no generated pool for this word-shape -> drop (not error).
 		{reflect.TypeOf((func() (int, int, int))(nil)), "", false},
 		// a sub-word-packed struct param flattens to its leaves' words (ii) -> "ii_i".
@@ -110,7 +112,13 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		time.Date(2026, 6, 2, 10, 30, 0, 0, time.UTC), // word-sized-leaf struct
 		float64(3.14159265358979),                     // 'f' word
 		complex128(complex(1.5, -2.5)),                // two float64 halves -> "ff"
-		struct{ X, Y float64 }{1.5, -2.5},             // all-float struct -> "ff"
+		float32(-2.5),                                 // 'g' word (single-precision)
+		complex64(complex(float32(3), float32(-4))),   // two float32 halves -> "gg"
+		struct { // mixed float64/float32 -> "fg"
+			A float64
+			B float32
+		}{1.5, -2.5},
+		struct{ X, Y float64 }{1.5, -2.5}, // all-float struct -> "ff"
 		struct { // mixed int/float/ptr -> "ifp"
 			A int64
 			B float64
@@ -135,7 +143,7 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		}
 		pw := make([]unsafe.Pointer, strings.Count(lay.classes, "p"))
 		sw := make([]uint64, strings.Count(lay.classes, "i"))
-		fw := make([]float64, strings.Count(lay.classes, "f"))
+		fw := make([]float64, strings.Count(lay.classes, "f")+strings.Count(lay.classes, "g")) // 'g' rides fw
 
 		src := reflect.New(rt)
 		src.Elem().Set(reflect.ValueOf(v))

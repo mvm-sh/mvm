@@ -68,9 +68,10 @@ func abi0Align(off, a uintptr) uintptr {
 // value is passed as its exact memory bytes, so every type is classifiable: only
 // pointer leaves (kept GC-visible via a 'p' slot) and float64 leaves (an 'f' slot,
 // for key parity with the register ABI) need a non-default class; everything else
-// is raw 'i' bytes. So unlike the register classifier (appendWordLeaves, which
-// drops float32/complex/arrays), this accepts them as sub-word/packed byte ranges.
-// ok=false is unreachable for a real type, kept only as a defensive default.
+// is raw 'i' bytes (float32 included -- no FP-register 'g' distinction on a stack
+// ABI). So unlike the register classifier (appendWordLeaves, which drops arrays of
+// length > 1), this accepts arrays as packed byte ranges. ok=false is unreachable
+// for a real type, kept only as a defensive default.
 func abi0Leaves(t reflect.Type, base uintptr, out *[]abi0Leaf) bool {
 	switch t.Kind() {
 	case reflect.Bool,

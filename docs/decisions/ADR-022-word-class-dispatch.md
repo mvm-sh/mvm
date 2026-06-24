@@ -76,13 +76,18 @@ boundary and occupies a whole number of register words, so the flattened word
 sequence equals the memory layout (`time.Time{wall uint64; ext int64; loc
 *Location}` -> `iip`).
 `float64` is an FP-register word (`f`) and `complex128` two of them (`ff`);
-sub-word-packed and padded struct fields each still take one whole register word
-at their true byte offset.
-`float32`, `complex64`, and arrays of length > 1 return `!ok`, so
-`detectWordShape` drops them -- the method simply does not attach, never
-mis-marshaled: a `float32` needs an FP register a `float64` stub cannot address,
-and such arrays are stack-passed under the register ABI.
-The wasm/ABI0 path (below) carries all of these as stack bytes.
+`float32` is a single-precision FP-register word (`g`) and `complex64` two (`gg`).
+`g` is a distinct class from `f` because a `float32` stub param decodes its FP
+register as single-precision; the two cannot share a pool even though both land in
+the FP register file.
+A `g` word still rides the shared `fw` float64 slot, widened to float64 at the stub
+boundary and narrowed back by the vm -- exact for every float32 value.
+Sub-word-packed and padded struct fields each still take one whole register word at
+their true byte offset.
+Only arrays of length > 1 return `!ok`, so `detectWordShape` drops them -- the
+method simply does not attach, never mis-marshaled: such arrays are stack-passed
+under the register ABI.
+The wasm/ABI0 path (below) carries arrays as stack bytes.
 `detectWordShape` joins the param words, an underscore, and the result words into
 the key (`pi_pppp`) and confirms a generated pool exists, so an attach never
 errors on an unsupported shape.
@@ -164,9 +169,11 @@ a `float64`, else `i`; ABI0 pads each side to a pointer-word boundary, so a
 sub-word tail (a lone `bool` result) sits in a full slot whose high bytes are
 frame padding.
 Because an `i` slot is raw bytes, the stack ABI carries *every* type: `float32`
-and `complex64` are sub-word `i` bytes, `complex128` is two `f` halves (matching
-the register `ff`), and arrays pack like structs -- all types the register
-classifier drops.
+and `complex64` are sub-word `i` bytes (not the register path's FP-register `g`),
+`complex128` is two `f` halves (matching the register `ff`), and arrays pack like
+structs -- arrays being the one family the register classifier still drops.
+So a `float32` signature keys differently per arch (register `g`, wasm `i`); both
+pools are generated, each arch attaches under its own key.
 All-8-byte signatures (the vast majority: pointers, `int`/`int64`, `string`,
 slice, interface, `float64`) decompose identically to the register path, so they
 share the same generated pools and keys; only the packed-aggregate keys differ
@@ -191,11 +198,10 @@ CI (the `wasm` job runs the synth-dispatch and interptest suites under wasip1).
   key to add to `wordShapes` or an "unsupported" reason (floats / over budget).
 
 **Harder / limitations:**
-- Under the register ABI, `float32`, `complex64`, and arrays of length > 1 drop
-  (no attach), as do signatures over the arch's argument-register budget; the
-  wasm/ABI0 path has no budget and carries every type as stack bytes, so it drops
-  only on a missing pool. A register-ABI `float32` stub class is a possible
-  follow-up.
+- Under the register ABI, arrays of length > 1 drop (no attach), as do signatures
+  over the arch's argument-register budget; the wasm/ABI0 path has no budget and
+  carries every type as stack bytes, so it drops only on a missing pool. (`float32`
+  and `complex64` now classify on both arches -- register `g`, wasm `i`.)
 - The path is gated to 64-bit little-endian (amd64/arm64/.../wasm); on 32-bit or
   big-endian targets only the typed shapes work.
 - The word pools are finite and consumed monotonically like the typed pools.

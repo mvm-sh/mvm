@@ -14,10 +14,11 @@ import (
 // result words back from rpw/rsw/rfw.
 //
 // pw/rpw are typed []unsafe.Pointer so the GC scans the pointer words; sw/rsw
-// carry integer words as raw bits; fw/rfw carry float64 words (the value held
-// in the FP register). recv is the receiver pointer per Go's iface-dispatch
-// convention. The vm builds core; it does the reflect-driven value<->word
-// marshaling and owns the error policy (a failed dispatch panics).
+// carry integer words as raw bits; fw/rfw carry FP-register words as float64 --
+// float32 ('g') words ride the same slots widened to float64 (exact for every
+// float32), narrowed back by the vm. recv is the receiver pointer per Go's
+// iface-dispatch convention. The vm builds core; it does the reflect-driven
+// value<->word marshaling and owns the error policy (a failed dispatch panics).
 type CoreFunc = func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64)
 
 // wordPool is one word-shape's stub-PC pool and parallel slot table.

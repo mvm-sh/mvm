@@ -762,15 +762,73 @@ func main() {
 	}
 }
 
-// TestSynthFloat32ArrayMethodIface exercises the float32 and array word paths,
-// which only the wasm/ABI0 classifier supports (the register ABI would need a
-// float32 stub class, and arrays of len > 1 are stack-passed there). SetF(float32)
-// and SetA([2]int32) carry sub-word/packed bytes in an 'i' slot; GetF/SumA read
-// them back. Skipped off wasm, where these methods drop and the synth rtype would
-// not implement Box.
+// TestSynthFloat32MethodIface exercises the single-precision word path on every
+// arch: float32 is a 'g' word (its own FP-register stub, distinct from float64),
+// and complex64 is two 'g' halves ("gg"). SetF/GetF/Twice resolve to "g_"/"_g"/
+// "g_g"; SetC/GetC to "gg_"/"_gg". An interpreted concrete satisfies the interface
+// and its methods are invoked through reflect (a NATIVE-boundary call), forcing the
+// synth stub + the float32<->float64 marshaling on the register ABI.
+func TestSynthFloat32MethodIface(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Box interface {
+	SetF(f float32)
+	GetF() float32
+	Twice(f float32) float32
+	SetC(c complex64)
+	GetC() complex64
+}
+
+type cell struct {
+	f float32
+	c complex64
+}
+
+func (c *cell) SetF(f float32)          { c.f = f }
+func (c *cell) GetF() float32           { return c.f }
+func (c *cell) Twice(f float32) float32 { return f * 2 }
+func (c *cell) SetC(v complex64)        { c.c = v }
+func (c *cell) GetC() complex64         { return c.c }
+
+func makeBox() Box { return &cell{} }
+
+func main() {
+	b := reflect.ValueOf(makeBox).Call(nil)[0].Interface().(Box)
+	bv := reflect.ValueOf(b)
+	bv.MethodByName("SetF").Call([]reflect.Value{reflect.ValueOf(float32(2.5))})
+	f := bv.MethodByName("GetF").Call(nil)[0].Interface().(float32)
+	d := bv.MethodByName("Twice").Call([]reflect.Value{reflect.ValueOf(float32(2.5))})[0].Interface().(float32)
+	bv.MethodByName("SetC").Call([]reflect.Value{reflect.ValueOf(complex64(complex(3, -4)))})
+	c := bv.MethodByName("GetC").Call(nil)[0].Interface().(complex64)
+	fmt.Printf("%.1f %.1f %.1f %.1f", f, d, real(c), imag(c))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("synth_float32_iface_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "2.5 5.0 3.0 -4.0"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestSynthFloat32ArrayMethodIface exercises the array word path, which only the
+// wasm/ABI0 classifier supports (arrays of len > 1 are stack-passed on the register
+// ABI, so they drop there). SetA([2]int32) carries packed bytes in an 'i' slot and
+// SumA reads them back; the float32 methods ride along (they work on every arch --
+// see TestSynthFloat32MethodIface). Skipped off wasm, where the array method drops
+// and the synth rtype would not implement Box.
 func TestSynthFloat32ArrayMethodIface(t *testing.T) {
 	if runtime.GOARCH != "wasm" {
-		t.Skip("float32/array word stubs are wasm/ABI0-only")
+		t.Skip("array word stubs are wasm/ABI0-only")
 	}
 	const src = `package main
 

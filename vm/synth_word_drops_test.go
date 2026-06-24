@@ -27,10 +27,11 @@ func TestWordShapeDropReport(t *testing.T) {
 	}
 	want := []string{"missing pools", "iii_i", "uintptr"}
 
-	// A float32 param is unclassifiable on the register ABI (no FP-register-half
-	// stub); on wasm it classifies, so the unsupported bucket stays empty there.
+	// An array param (length > 1) is stack-passed and unclassifiable on the
+	// register ABI; on wasm it packs to stack bytes, so the unsupported bucket
+	// stays empty there. (float32 now classifies on both arches.)
 	if !wordABI0 {
-		unclassifiable := reflect.TypeOf((func(float32) bool)(nil))
+		unclassifiable := reflect.TypeOf((func([2]int) bool)(nil))
 		if _, ok := detectWordShape(unclassifiable); ok {
 			t.Fatalf("expected %v to drop (unclassifiable)", unclassifiable)
 		}

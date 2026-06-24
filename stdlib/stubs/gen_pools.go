@@ -99,10 +99,10 @@ var shapes = []shape{
 }
 
 // wordShapes are the ABI word-class shapes: params and results as flat class
-// strings over {p,i} (p = pointer word, i = integer word), key "params_results".
-// Many Go signatures collapse to one word-shape, so the list does not grow per
-// signature; grow it from the MVM_WORDDROPS report. See ADR-022 and
-// docs/modules/stubs.md.
+// strings over {p,i,f,g} (p = pointer word, i = integer word, f = float64 word,
+// g = float32 word), key "params_results". Many Go signatures collapse to one
+// word-shape, so the list does not grow per signature; grow it from the
+// MVM_WORDDROPS report. See ADR-022 and docs/modules/stubs.md.
 var wordShapes = []wordShape{
 	// W_pp (niladic 2-pointer-word result) and W_i (niladic int-word result)
 	// dominate descriptor-heavy code. Slots are monotonic and never reclaimed;
@@ -157,9 +157,19 @@ var wordShapes = []wordShape{
 	{Params: "f", Results: "f", Size: 1024}, // unary float op, e.g. func(float64) float64
 	{Params: "ff", Results: ""},             // Translate(Point), Scale(float64,float64)
 	{Params: "", Results: "ff"},             // Size() (Length, Length)
-	{Params: "piif", Results: ""},           // SetLineDash([]Length, Length)
-	{Params: "ppffpi", Results: ""},         // FillString(font.Face, Point, string)
-	{Params: "ffffpp", Results: ""},         // DrawImage(Rectangle, image.Image)
+	// Single-precision (float32, 'g') shapes mirror the float64 set above. A 'g'
+	// word is a float32 in its own FP-register ABI (distinct stub from float64);
+	// complex64 is two halves ("gg"), so "gg_"/"_gg" serve both func(float32,float32)
+	// and func(complex64)/func() complex64. Register-ABI only -- the wasm/ABI0
+	// classifier carries float32 as raw stack bytes (class 'i'), so it never keys 'g'.
+	{Params: "g", Results: ""},      // setter, e.g. func(float32)
+	{Params: "", Results: "g"},      // getter, e.g. func() float32
+	{Params: "g", Results: "g"},     // unary float32 op, e.g. func(float32) float32
+	{Params: "gg", Results: ""},     // func(float32, float32) / func(complex64)
+	{Params: "", Results: "gg"},     // func() (float32, float32) / func() complex64
+	{Params: "piif", Results: ""},   // SetLineDash([]Length, Length)
+	{Params: "ppffpi", Results: ""}, // FillString(font.Face, Point, string)
+	{Params: "ffffpp", Results: ""}, // DrawImage(Rectangle, image.Image)
 	// Integer-word shapes the drops report flagged as missing pools.
 	{Params: "ppp", Results: ""},   // http.Handler.ServeHTTP(ResponseWriter, *Request)
 	{Params: "p", Results: "pp"},   // gorm hook func(*gorm.DB) error: one ptr arg, error result
@@ -212,8 +222,8 @@ var wordShapes = []wordShape{
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class
-// strings over {p,i,f} (p = pointer word, i = integer word, f = FP-register
-// word), in signature order.
+// strings over {p,i,f,g} (p = pointer word, i = integer word, f = float64
+// FP-register word, g = float32 FP-register word), in signature order.
 type wordShape struct {
 	Params  string
 	Results string
@@ -246,7 +256,9 @@ func main() {
 // statements (each param word into pw[]/sw[]/fw[]), and the pointer/integer/float
 // counts. A 'p' word is typed unsafe.Pointer and an 'i' word uint64 (both land in
 // integer registers); an 'f' word is typed float64 so the Go compiler places it
-// in an FP register, matching the real signature's float arg ABI.
+// in an FP register, matching the real signature's float arg ABI. A 'g' word is a
+// float32 param (its own FP-register ABI) carried in the shared fw slot, widened
+// to float64 -- exact for every float32 value, so the vm narrows it back losslessly.
 func wordParamParts(classes string) (decl, args, scatter string, npw, nsw, nfw int) {
 	for k, c := range classes {
 		name := fmt.Sprintf("w%d", k)
@@ -258,6 +270,10 @@ func wordParamParts(classes string) (decl, args, scatter string, npw, nsw, nfw i
 		case 'f':
 			decl += fmt.Sprintf(", %s float64", name)
 			scatter += fmt.Sprintf("\tfw[%d] = %s\n", nfw, name)
+			nfw++
+		case 'g':
+			decl += fmt.Sprintf(", %s float32", name)
+			scatter += fmt.Sprintf("\tfw[%d] = float64(%s)\n", nfw, name)
 			nfw++
 		default:
 			decl += fmt.Sprintf(", %s uint64", name)
@@ -285,6 +301,10 @@ func wordResultParts(classes string) (decl, gather string, nrpw, nrsw, nrfw int)
 		case 'f':
 			types = append(types, "float64")
 			vals = append(vals, fmt.Sprintf("rfw[%d]", nrfw))
+			nrfw++
+		case 'g':
+			types = append(types, "float32")
+			vals = append(vals, fmt.Sprintf("float32(rfw[%d])", nrfw))
 			nrfw++
 		default:
 			types = append(types, "uint64")
