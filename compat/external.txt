@@ -121,6 +121,13 @@ github.com/gorilla/mux
 
 #: database Databases
 modernc.org/sqlite
+# gorm ORM: pure-Go core packages with real test suites.
+gorm.io/gorm
+gorm.io/gorm/schema
+gorm.io/gorm/clause
+gorm.io/gorm/callbacks
+gorm.io/gorm/utils
+gorm.io/gorm/logger
 
 #: grpc gRPC
 # Self-contained leaf packages; server/network packages are excluded.
