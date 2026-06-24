@@ -724,3 +724,58 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// A &slot taken in an earlier switch case marks the slot addressed, so a later
+// &slot reads via GetLocalSync. That later &slot must still become AddrLocal
+// (aliasing the slot) so a native callee's write through the first pointer is
+// visible to the second read. Models libc varargs: VaInt32(&ap) advances the
+// cursor in place, then VaUintptr(&ap) must read the advanced position.
+// Was modernc.org/sqlite Xsqlite3_db_config nil-deref (pRes re-read slot 0).
+func TestAddrSyncSlotAliasesAcrossCases(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"unsafe"
+)
+
+func vaInt32(app *uintptr) int32 {
+	ap := *app
+	v := int32(*(*int64)(unsafe.Pointer(ap)))
+	*app = ap + 8
+	return v
+}
+
+func vaUintptr(app *uintptr) uintptr {
+	ap := *app
+	v := *(*uintptr)(unsafe.Pointer(ap))
+	*app = ap + 8
+	return v
+}
+
+func config(op int32, va uintptr) (onoff int32, pRes uintptr) {
+	var ap uintptr
+	ap = va
+	switch op {
+	case 100:
+		pRes = vaUintptr(&ap) // marks ap addressed first
+	default:
+		onoff = vaInt32(&ap)  // advances cursor through &ap
+		pRes = vaUintptr(&ap) // must read the advanced slot, not re-read slot 0
+	}
+	return
+}
+
+func main() {
+	var buf [2]uintptr
+	buf[0] = 1
+	buf[1] = 0
+	bp := uintptr(unsafe.Pointer(&buf[0]))
+	onoff, pRes := config(1, bp)
+	fmt.Println(onoff, pRes)
+}
+`
+	if got, want := evalOut(t, "addr_sync_cases.go", src), "1 0\n"; got != want {
+		t.Errorf("output: got %q, want %q", got, want)
+	}
+}

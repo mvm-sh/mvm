@@ -1428,7 +1428,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			switch {
 			case n > 0 && c.Code[n-1].Op == vm.Index:
 				c.Code[n-1].Op = vm.IndexAddr
-			case concrete && n > 0 && c.Code[n-1].Op == vm.GetLocal:
+			// GetLocalSync is the read form of an already-addressed slot; a later
+			// &slot must still become AddrLocal so the pointer aliases the slot
+			// (else it boxes a detached copy and writes through it are lost). This
+			// fires when an earlier &slot in a sibling branch marked it addressed.
+			case concrete && n > 0 && (c.Code[n-1].Op == vm.GetLocal || c.Code[n-1].Op == vm.GetLocalSync):
 				c.Code[n-1].Op = vm.AddrLocal
 				c.Code[n-1].B = int32(funcRetypeOp)
 				markAddressed(int(c.Code[n-1].A))
@@ -2955,7 +2959,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						// mutation is lost. Mark the slot so later reads re-sync.
 						n := len(c.Code)
 						switch {
-						case n > 0 && c.Code[n-1].Op == vm.GetLocal:
+						case n > 0 && (c.Code[n-1].Op == vm.GetLocal || c.Code[n-1].Op == vm.GetLocalSync):
 							c.Code[n-1].Op = vm.AddrLocal
 							c.Code[n-1].B = 0
 							markAddressed(int(c.Code[n-1].A))
