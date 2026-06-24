@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 
@@ -17,7 +18,26 @@ import (
 	"github.com/mvm-sh/mvm/stdlib"
 	_ "github.com/mvm-sh/mvm/stdlib/all"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
+	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
+
+// poolStatsReport formats each stub pool's slot high-water against its
+// capacity (MVM_POOLSTATS), highest utilization first.
+func poolStatsReport() string {
+	stats := stubs.HighWater()
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Used > stats[j].Used
+	})
+	var b strings.Builder
+	b.WriteString("stub pool high-water (MVM_POOLSTATS): name used/cap\n")
+	for _, s := range stats {
+		if s.Used == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "  %-12s %d/%d\n", s.Name, s.Used, s.Cap)
+	}
+	return b.String()
+}
 
 // buildModFS builds the modfs the parser uses for both stdlib redirects
 // and third-party imports, applying GOPROXY semantics from the Go
@@ -178,6 +198,11 @@ func main() {
 	// still reports its dropped word-shapes (see ADR-022).
 	if r := interp.WordShapeDropReport(); r != "" {
 		fmt.Fprint(os.Stderr, r)
+	}
+	// MVM_POOLSTATS telemetry: dump per-pool slot high-water vs capacity, for
+	// right-sizing the stub pools (each slot is one generated function).
+	if os.Getenv("MVM_POOLSTATS") != "" {
+		fmt.Fprint(os.Stderr, poolStatsReport())
 	}
 	if err != nil {
 		var ee *interp.ExitError

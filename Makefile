@@ -1,5 +1,10 @@
 all: lint fast
 
+# GOGC value used when building the -race test binaries; see the test target.
+# Lower trims compiler peak RSS (more GC CPU); override on the command line for
+# memory-constrained machines, e.g. `make fast BUILD_GOGC=10`.
+BUILD_GOGC ?= 20
+
 # Static linting of Go source files. See .golangci.yaml for options.
 lint:
 	golangci-lint run
@@ -24,12 +29,15 @@ clean_generate:
 	rm -f stdlib/src.zip
 
 # Run the test suite with the race detector.
+# GOGC is lowered for the build: the stdlib/stubs package compiles ~58k stub
+# functions, and -race nearly triples per-function compiler memory (~2.4G->~6.8G).
+# Aggressive GC keeps the compile subprocess's transient peak off the OOM line.
 test:
-	go test -race ./interptest ./interp
+	GOGC=$(BUILD_GOGC) go test -race ./interptest ./interp
 
 # Like `test` but `-short` skips the heavy x/text network integration test.
 fast:
-	go test -short -race ./interptest ./interp
+	GOGC=$(BUILD_GOGC) go test -short -race ./interptest ./interp
 
 # Measure coverage of the interpreter implementation package.
 COVERPKG = $(shell go list ./... | grep -vE '/(stdlib|cmd|examples|compat|interptest)($$|/)' | paste -sd, -)

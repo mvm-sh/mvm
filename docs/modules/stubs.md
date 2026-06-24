@@ -59,6 +59,11 @@ Inverting the attach API (PC-based `runtype.MethodSpec`) lets `stubs` depend on
   key, so the vm drops (not errors on) an unsupported word-shape.
 - **`SlotsUsedS1` ... `SlotsUsedS38`** -- slot-pool usage counters (for tests /
   metrics).
+- **`HighWater`** -- per-pool slot high-water vs capacity (typed and word
+  shapes). `mvm` dumps it on exit when `MVM_POOLSTATS` is set; use it to
+  right-size pools, since each slot is one generated function and the whole
+  package compiles ~50k of them (under `-race` that roughly triples compiler
+  memory, so `make fast` lowers `GOGC` for the build).
 
 ## Internal design
 

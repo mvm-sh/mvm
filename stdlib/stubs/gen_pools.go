@@ -41,11 +41,11 @@ func (s shape) size() int {
 }
 
 var shapes = []shape{
-	// S1 (Stringer/Error) is the only shape whose cumulative attaches overflow
-	// 256 in the test suite (~271); size generously to absorb suite growth.
-	// S1 (Stringer/Error) peaks at ~3144 attaches compiling protobuf/proto's
-	// test suite (~4.5x recompilation dup over ~692 distinct types).
-	{ID: "S1", Results: "string", Size: 4096},
+	// S1 (Stringer/Error) is the most pervasive shape. Re-measured 2026-06-24
+	// (MVM_POOLSTATS) it peaks ~990 attaches over protobuf/proto's ~692 distinct
+	// types (~1.4x dup, far below the historical ~3144/~4.5x it was first sized
+	// for). Kept at ~3x for headroom.
+	{ID: "S1", Results: "string", Size: 3072},
 	{ID: "S2", Results: "([]byte, error)"},
 	{ID: "S3", Params: ", data []byte", ArgList: ", data", Results: "error", Size: 512},
 	{ID: "S4", Params: ", target error", ArgList: ", target", Results: "bool"},
@@ -92,8 +92,10 @@ var shapes = []shape{
 	{ID: "S36", Results: "slog.Value", Imports: []string{"log/slog"}},                                                                                      // slog.LogValuer.LogValue
 	{ID: "S37", Results: "(rune, int, error)"}, // io.RuneReader.ReadRune
 	// S38 (niladic markers Reset/ProtoMessage) is pervasive in generated protobuf
-	// code: proto's test suite peaks at ~4733 attaches (~3.5x recompilation dup).
-	{ID: "S38", Size: 8192},
+	// code. Re-measured 2026-06-24 (MVM_POOLSTATS) it peaks ~1726 attaches over
+	// proto's test suite (far below the historical ~4733/~3.5x dup it was first
+	// sized for). Kept at ~3x.
+	{ID: "S38", Size: 5120},
 }
 
 // wordShapes are the ABI word-class shapes: params and results as flat class
@@ -103,11 +105,13 @@ var shapes = []shape{
 // docs/modules/stubs.md.
 var wordShapes = []wordShape{
 	// W_pp (niladic 2-pointer-word result) and W_i (niladic int-word result)
-	// dominate descriptor-heavy code: protobuf/proto's test suite peaks at ~2571
-	// W_pp / ~2143 W_i attaches (~5x recompilation dup). Slots are monotonic and
-	// never reclaimed; size for the largest single-process attach count.
-	{Params: "", Results: "i", Size: 4096},
-	{Params: "", Results: "pp", Size: 4096},
+	// dominate descriptor-heavy code. Slots are monotonic and never reclaimed;
+	// size for the largest single-process attach count. Re-measured 2026-06-24
+	// (MVM_POOLSTATS) across the heaviest compat workloads: W_i peaks ~1158, W_pp
+	// ~817 (proto/structpb/protoreflect/protojson; recompilation dup is much lower
+	// than the historical ~2143/~2571 it was first sized for). Kept at ~3x.
+	{Params: "", Results: "i", Size: 3072},
+	{Params: "", Results: "pp", Size: 2560},
 	{Params: "", Results: "pppp"},
 	{Params: "pi", Results: "pppp"},
 	{Params: "pi", Results: "piipp"},
