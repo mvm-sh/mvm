@@ -3,6 +3,7 @@ package interptest
 import (
 	"bytes"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -711,6 +712,110 @@ func main() {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "https golang.org /pkg/flag/"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestSynthComplexMethodIface exercises the complex128 word path on every arch:
+// complex128 is two float64 in two FP registers ("ff"), so Set(complex128) and
+// Get() complex128 resolve to the "ff_" and "_ff" stub pools. An interpreted
+// concrete satisfies the interface and its methods are invoked through reflect (a
+// NATIVE-boundary call), forcing the synth stub + the two-float marshaling -- this
+// pins the register-ABI claim that one complex128 arg passes like two float64.
+func TestSynthComplexMethodIface(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Box interface {
+	Set(v complex128)
+	Get() complex128
+}
+
+type cell struct{ v complex128 }
+
+func (c *cell) Set(v complex128) { c.v = v }
+func (c *cell) Get() complex128  { return c.v }
+
+func makeBox() Box { return &cell{} }
+
+func main() {
+	b := reflect.ValueOf(makeBox).Call(nil)[0].Interface().(Box)
+	bv := reflect.ValueOf(b)
+	bv.MethodByName("Set").Call([]reflect.Value{reflect.ValueOf(complex(1.5, -2.5))})
+	got := bv.MethodByName("Get").Call(nil)[0].Interface().(complex128)
+	fmt.Printf("%.1f %.1f", real(got), imag(got))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("synth_complex_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "1.5 -2.5"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// TestSynthFloat32ArrayMethodIface exercises the float32 and array word paths,
+// which only the wasm/ABI0 classifier supports (the register ABI would need a
+// float32 stub class, and arrays of len > 1 are stack-passed there). SetF(float32)
+// and SetA([2]int32) carry sub-word/packed bytes in an 'i' slot; GetF/SumA read
+// them back. Skipped off wasm, where these methods drop and the synth rtype would
+// not implement Box.
+func TestSynthFloat32ArrayMethodIface(t *testing.T) {
+	if runtime.GOARCH != "wasm" {
+		t.Skip("float32/array word stubs are wasm/ABI0-only")
+	}
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Box interface {
+	SetF(f float32)
+	GetF() float32
+	SetA(a [2]int32)
+	SumA() int64
+}
+
+type cell struct {
+	f float32
+	a [2]int32
+}
+
+func (c *cell) SetF(f float32) { c.f = f }
+func (c *cell) GetF() float32  { return c.f }
+func (c *cell) SetA(a [2]int32) { c.a = a }
+func (c *cell) SumA() int64    { return int64(c.a[0]) + int64(c.a[1]) }
+
+func makeBox() Box { return &cell{} }
+
+func main() {
+	b := reflect.ValueOf(makeBox).Call(nil)[0].Interface().(Box)
+	bv := reflect.ValueOf(b)
+	bv.MethodByName("SetF").Call([]reflect.Value{reflect.ValueOf(float32(2.5))})
+	bv.MethodByName("SetA").Call([]reflect.Value{reflect.ValueOf([2]int32{-7, 100})})
+	f := bv.MethodByName("GetF").Call(nil)[0].Interface().(float32)
+	sum := bv.MethodByName("SumA").Call(nil)[0].Interface().(int64)
+	fmt.Printf("%.1f %d", f, sum)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("synth_float32_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "2.5 93"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }

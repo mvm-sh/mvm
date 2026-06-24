@@ -7,8 +7,10 @@ import (
 )
 
 // TestWordShapeDropReport checks that, with logging enabled, detectWordShape
-// records a classifiable-but-poolless signature under "missing pools" and an
-// unclassifiable one under "unsupported".
+// records a classifiable-but-poolless signature under "missing pools" and (on the
+// register ABI) an unclassifiable one under "unsupported". The wasm/ABI0 classifier
+// carries every type as stack bytes, so it has no unclassifiable case -- only
+// missing-pool drops.
 func TestWordShapeDropReport(t *testing.T) {
 	if !wordShapesSupported {
 		t.Skip("word shapes need a 64-bit little-endian target")
@@ -16,22 +18,29 @@ func TestWordShapeDropReport(t *testing.T) {
 	wordDropLog.Store(true)
 	defer wordDropLog.Store(false)
 
-	// "iii_i" has no generated pool; a complex128 param is unclassifiable. Both
-	// use signatures no real method has, so the assertions are immune to drops
-	// other tests record into the shared collectors.
+	// "iii_i" has no generated pool on either arch. It uses a signature no real
+	// method has, so the assertion is immune to drops other tests record into the
+	// shared collectors.
 	noPool := reflect.TypeOf((func(uintptr, uintptr, uintptr) bool)(nil))
 	if _, ok := detectWordShape(noPool); ok {
 		t.Fatalf("expected %v to drop (no pool)", noPool)
 	}
-	unclassifiable := reflect.TypeOf((func(complex128) bool)(nil))
-	if _, ok := detectWordShape(unclassifiable); ok {
-		t.Fatalf("expected %v to drop (unclassifiable)", unclassifiable)
+	want := []string{"missing pools", "iii_i", "uintptr"}
+
+	// A float32 param is unclassifiable on the register ABI (no FP-register-half
+	// stub); on wasm it classifies, so the unsupported bucket stays empty there.
+	if !wordABI0 {
+		unclassifiable := reflect.TypeOf((func(float32) bool)(nil))
+		if _, ok := detectWordShape(unclassifiable); ok {
+			t.Fatalf("expected %v to drop (unclassifiable)", unclassifiable)
+		}
+		want = append(want, "unsupported")
 	}
 
 	r := WordShapeDropReport()
-	for _, want := range []string{"missing pools", "iii_i", "uintptr", "unsupported"} {
-		if !strings.Contains(r, want) {
-			t.Errorf("report missing %q:\n%s", want, r)
+	for _, w := range want {
+		if !strings.Contains(r, w) {
+			t.Errorf("report missing %q:\n%s", w, r)
 		}
 	}
 }

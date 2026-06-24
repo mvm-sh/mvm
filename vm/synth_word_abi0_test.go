@@ -46,7 +46,16 @@ func TestABI0ClassifyKeys(t *testing.T) {
 		{name: "two int32 params pack", in: []reflect.Type{tp(int32(0)), tp(int32(0))}, want: "i_"},
 		{name: "lone int32 param pads to a slot", in: []reflect.Type{tp(int32(0))}, want: "i_"},
 		{name: "bool result pads to a slot", out: []reflect.Type{tp(true)}, want: "_i"},
-		{name: "float32 drops", out: []reflect.Type{tp(float32(0))}, drop: true},
+		// On the stack ABI sub-word floats are raw bytes in an 'i' slot; complex128
+		// is two float64 halves ("ff", matching the register ABI); arrays pack like
+		// structs. The register classifier drops all of these except complex128.
+		{name: "float32 packs to a slot", out: []reflect.Type{tp(float32(0))}, want: "_i"},
+		{name: "complex128 result", out: []reflect.Type{tp(complex128(0))}, want: "_ff"},
+		{name: "complex128 param", in: []reflect.Type{tp(complex128(0))}, want: "ff_"},
+		{name: "complex64 packs to a slot", out: []reflect.Type{tp(complex64(0))}, want: "_i"},
+		{name: "array [2]int32 packs to one slot", in: []reflect.Type{tp([2]int32{})}, want: "i_"},
+		{name: "array [2]int spans two slots", out: []reflect.Type{tp([2]int{})}, want: "_ii"},
+		{name: "array [4]byte packs to one slot", in: []reflect.Type{tp([4]byte{})}, want: "i_"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -124,6 +133,16 @@ func TestABI0MemoryImage(t *testing.T) {
 			P *byte
 		}{true, &hi[0]}),
 		reflect.ValueOf(time.Unix(1700000000, 42)),
+		reflect.ValueOf(float32(-1.5)),
+		reflect.ValueOf(complex128(complex(1.5, -2.5))),
+		reflect.ValueOf(complex64(complex(float32(3), float32(-4)))),
+		reflect.ValueOf([3]int32{-1, 2, -3}),    // packed array spanning 2 slots
+		reflect.ValueOf([2]float64{1.25, -6.5}), // float-leaf array -> "ff"
+		reflect.ValueOf([2]*int{&nine, &nine}),  // pointer array (GC-visible slots)
+		reflect.ValueOf(struct { // float32 packed beside an int32
+			A float32
+			B int32
+		}{-2.5, 7}),
 	}
 	for _, v := range vals {
 		if _, ok := classifyABI0Region([]reflect.Type{v.Type()}); !ok {
@@ -131,8 +150,11 @@ func TestABI0MemoryImage(t *testing.T) {
 		}
 		got := abi0Image(t, v)
 		want := memBytes(v)
-		if string(got) != string(want) {
-			t.Fatalf("%v: slot image %x != memory image %x", v.Type(), got, want)
+		// The region rounds up to whole 8-byte slots, so a sub-8-multiple value
+		// (float32, [3]int32) leaves trailing frame padding; the value occupies the
+		// low Size bytes, which must equal its memory image.
+		if string(got[:v.Type().Size()]) != string(want) {
+			t.Fatalf("%v: slot image %x != memory image %x", v.Type(), got[:v.Type().Size()], want)
 		}
 	}
 }
@@ -146,6 +168,9 @@ func TestABI0RoundTrip(t *testing.T) {
 		{reflect.ValueOf(uint32(0xAA)), reflect.ValueOf(uint32(0xBB)), reflect.ValueOf(uint32(0xCC)), reflect.ValueOf(uint32(0xDD))},
 		{reflect.ValueOf(int64(-1234567)), reflect.ValueOf(int32(99)), reflect.ValueOf(int32(-99))},
 		{reflect.ValueOf(3.14159), reflect.ValueOf(2.71828)},
+		{reflect.ValueOf(float32(-1.5)), reflect.ValueOf(float32(2.25))},
+		{reflect.ValueOf(complex128(complex(1.5, -2.5))), reflect.ValueOf(complex64(complex(float32(3), float32(-4))))},
+		{reflect.ValueOf([3]int32{-1, 2, -3}), reflect.ValueOf([2]float64{1.25, -6.5})},
 	}
 	for ci, vals := range cases {
 		types := make([]reflect.Type, len(vals))

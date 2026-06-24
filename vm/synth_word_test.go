@@ -37,9 +37,10 @@ func TestClassifyType(t *testing.T) {
 		{reflect.TypeOf((*any)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf((*error)(nil)).Elem(), "pp", true},
 		{reflect.TypeOf(float64(0)), "f", true},                // float64 is an FP-register word
+		{reflect.TypeOf(complex128(0)), "ff", true},            // two float64 in two FP registers
 		{reflect.TypeOf(float32(0)), "", false},                // float32 is sub-word, dropped
-		{reflect.TypeOf(complex128(0)), "", false},             // complex dropped
-		{reflect.TypeOf([2]int{}), "", false},                  // and arrays
+		{reflect.TypeOf(complex64(0)), "", false},              // complex64 (two float32) dropped
+		{reflect.TypeOf([2]int{}), "", false},                  // arrays of len > 1 are stack-passed
 		{reflect.TypeOf(struct{ X, Y float64 }{}), "ff", true}, // all-float struct
 		// word-sized-leaf structs flatten to their leaves' words.
 		{reflect.TypeOf(struct{ a, b int }{}), "ii", true},
@@ -108,6 +109,7 @@ func TestWordMarshalRoundTrip(t *testing.T) {
 		errors.New("boom"),
 		time.Date(2026, 6, 2, 10, 30, 0, 0, time.UTC), // word-sized-leaf struct
 		float64(3.14159265358979),                     // 'f' word
+		complex128(complex(1.5, -2.5)),                // two float64 halves -> "ff"
 		struct{ X, Y float64 }{1.5, -2.5},             // all-float struct -> "ff"
 		struct { // mixed int/float/ptr -> "ifp"
 			A int64
@@ -175,7 +177,8 @@ func TestABI0MatchesRegabiExceptPacked(t *testing.T) {
 		reflect.FuncOf([]reflect.Type{tp([]byte(nil))}, []reflect.Type{tp(0), errT}, false), // Reader
 		reflect.FuncOf(nil, []reflect.Type{tp(time.Time{})}, false),                         // time.Time (all 8-byte)
 		reflect.FuncOf([]reflect.Type{tp(float64(0))}, []reflect.Type{tp(float64(0))}, false),
-		reflect.FuncOf([]reflect.Type{errT}, []reflect.Type{tp(true)}, false), // func(error) bool
+		reflect.FuncOf([]reflect.Type{errT}, []reflect.Type{tp(true)}, false),                       // func(error) bool
+		reflect.FuncOf([]reflect.Type{tp(complex128(0))}, []reflect.Type{tp(complex128(0))}, false), // complex128 -> "ff" both
 	}
 	for _, ft := range same {
 		r, _, rok := classifyWordSig(ft)

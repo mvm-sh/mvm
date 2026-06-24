@@ -63,8 +63,11 @@ func wordLayoutOf(t reflect.Type) (wordLayout, bool) {
 // register word. A scalar/pointer leaf takes a whole register regardless of its
 // byte size (Go's register ABI), so a struct flattens to one word per leaf field
 // at that field's true offset and width -- inter-field padding and sub-word
-// packing are fine, since each word reads/writes only its own bytes. float32,
-// complex, and arrays have no leaf rule and drop the whole type.
+// packing are fine, since each word reads/writes only its own bytes. complex128
+// is two float64 in two FP registers ("ff"). float32, complex64, and arrays have
+// no leaf rule and drop the whole type: a float32 needs an FP register a float64
+// stub cannot address, and an array of length > 1 is stack-passed. The wasm path
+// (synth_word_abi0.go) carries all of these as stack bytes instead.
 //
 // Example: time.Time -> "iip"; vg.Point{X,Y float64} -> "ff";
 // fixed.Point26_6{X,Y int32} -> "ii" (two int words at offsets 0 and 4).
@@ -84,6 +87,9 @@ func appendWordLeaves(t reflect.Type, base uintptr, b *strings.Builder, lay *wor
 		push('p', base, wordSize)
 	case reflect.Float64:
 		push('f', base, wordSize)
+	case reflect.Complex128:
+		push('f', base, wordSize)          // real
+		push('f', base+wordSize, wordSize) // imag
 	case reflect.String:
 		push('p', base, wordSize)          // data
 		push('i', base+wordSize, wordSize) // len

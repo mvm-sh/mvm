@@ -46,6 +46,9 @@ jobs:
   # Build both wasm OSes (guards the chunked stub-pool init against the 65536-block
   # limit) and run the synth-dispatch tests under wazero to verify the ABI0
   # marshaling and the stub-PC-into-method-table call path on a real wasm runtime.
+  # The full interptest sample suite (TestFile) drives the whole interpreter
+  # pipeline end-to-end on wasm, asserting byte-identical output to the regabi
+  # host across every language feature and ABI shape it covers.
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -70,4 +73,4 @@ jobs:
         export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
         GOOS=wasip1 GOARCH=wasm go test ./runtype ./stdlib/stubs
         GOOS=wasip1 GOARCH=wasm go test ./vm -run TestABI0
-        GOOS=wasip1 GOARCH=wasm go test ./interptest -run TestSynth
+        GOOS=wasip1 GOARCH=wasm go test ./interptest -run 'TestSynth|TestFile$'

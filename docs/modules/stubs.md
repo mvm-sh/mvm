@@ -143,9 +143,11 @@ after editing the shape catalog in `gen_pools.go`.
 - A new *typed* shape is append-only edits to `gen_pools.go` + a hand-written
   `registry_sN.go` + a `makeHandlerSN`/`detectShape` case in `vm/synth_bridge.go`;
   an ABI-compatible signature needs none of that and rides an existing word-shape.
-- The word path drops floats, complex, arrays, sub-word-packed structs, and
-  signatures over six words per side, and is disabled on non-64-bit or big-endian
-  targets (float `f`-class words are a deferred extension).
+- Under the register ABI the word path carries `float64`, `complex128`, and
+  sub-word-packed structs, but drops `float32`, `complex64`, arrays of length > 1,
+  and signatures over the arch's register budget. The wasm/ABI0 path has no budget
+  and carries every type as stack bytes, so it drops only on a missing pool. The
+  path is disabled entirely on non-64-bit or big-endian targets.
 - The word-shape catalog is hand-curated (full enumeration would explode), so
   growing it is guided by telemetry: run with `MVM_WORDDROPS=1` and the process
   reports, at exit, every signature `detectWordShape` dropped -- a "missing pools"

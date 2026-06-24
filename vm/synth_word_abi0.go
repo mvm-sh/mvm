@@ -64,9 +64,13 @@ func abi0Align(off, a uintptr) uintptr {
 	return (off + a - 1) &^ (a - 1)
 }
 
-// abi0Leaves appends t's primitive leaves at region offset base, or ok=false for a
-// type with no slot rule (float32, complex, array). The accepted set mirrors the
-// register classifier (appendWordLeaves) so wasm and non-wasm drop the same types.
+// abi0Leaves appends t's primitive leaves at region offset base. On a stack ABI a
+// value is passed as its exact memory bytes, so every type is classifiable: only
+// pointer leaves (kept GC-visible via a 'p' slot) and float64 leaves (an 'f' slot,
+// for key parity with the register ABI) need a non-default class; everything else
+// is raw 'i' bytes. So unlike the register classifier (appendWordLeaves, which
+// drops float32/complex/arrays), this accepts them as sub-word/packed byte ranges.
+// ok=false is unreachable for a real type, kept only as a defensive default.
 func abi0Leaves(t reflect.Type, base uintptr, out *[]abi0Leaf) bool {
 	switch t.Kind() {
 	case reflect.Bool,
@@ -78,6 +82,20 @@ func abi0Leaves(t reflect.Type, base uintptr, out *[]abi0Leaf) bool {
 		*out = append(*out, abi0Leaf{'p', base})
 	case reflect.Float64:
 		*out = append(*out, abi0Leaf{'f', base})
+	case reflect.Float32:
+		*out = append(*out, abi0Leaf{'i', base}) // sub-word: raw 4 bytes, not an FP slot
+	case reflect.Complex128:
+		// Two float64 halves -> 'f','f', matching the register ABI's "ff" key.
+		*out = append(*out, abi0Leaf{'f', base}, abi0Leaf{'f', base + wordSize})
+	case reflect.Complex64:
+		*out = append(*out, abi0Leaf{'i', base}) // two float32 halves packed in one slot
+	case reflect.Array:
+		el := t.Elem()
+		for i := range t.Len() {
+			if !abi0Leaves(el, base+uintptr(i)*el.Size(), out) {
+				return false
+			}
+		}
 	case reflect.String:
 		*out = append(*out, abi0Leaf{'p', base}, abi0Leaf{'i', base + wordSize})
 	case reflect.Slice:
