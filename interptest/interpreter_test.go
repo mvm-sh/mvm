@@ -3780,6 +3780,27 @@ done := func(s string) { out = s }
 func run(s string) { defer done(s); done = nil }
 run("hi")
 out`, res: "hi"},
+		{n: "defer_builtin_with_return", src: `
+// A deferred BUILTIN (close) in a value-returning func must not clobber the
+// return value: the builtin's record (opcode + arg slots) sat where the
+// return values are read, so the caller saw the ChanClose opcode int.
+// Regression for gorm.io/gorm/callbacks (schema.Parse: int -> *Schema).
+type T struct{ Name string }
+func build() (*T, error) {
+	ch := make(chan struct{})
+	defer close(ch)
+	return &T{Name: "ok"}, nil
+}
+s, _ := build()
+s.Name`, res: "ok"},
+		{n: "defer_builtin_print_with_return", src: `
+// Same with a different deferred builtin and arg, single return value.
+func g() int {
+	xs := []int{1, 2, 3}
+	defer print("")
+	return len(xs)
+}
+g()`, res: "3"},
 	})
 }
 

@@ -2681,6 +2681,11 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						continue
 					}
 					m.execBuiltinDeferred(Op(funcVal.num), dh-narg-2, narg, mem)
+					// Move the return values down past the defer record, as deferRet
+					// does for VM defers; otherwise the func/arg slots of the record
+					// are read as the return values (e.g. `defer close(ch)` would
+					// return the ChanClose opcode number where a pointer is expected).
+					copy(mem[retBase:retBase+nret], mem[dh+1:dh+1+nret])
 					clear(mem[retBase+nret : sp+1])
 					sp = retBase + nret - 1
 					mem[fp-3].num = uint64(prevHead)
