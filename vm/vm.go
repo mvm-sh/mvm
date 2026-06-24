@@ -1521,9 +1521,15 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// callee writing through the pushed pointer bypasses slot.num.
 			// Re-read num from ref so subsequent reads see native writes
 			// (e.g. flag.BoolVar(&b, ...) + Parse must update `b`).
+			// Only when the slot was actually promoted (ref addressable): the
+			// addressed flag is set at compile time for the whole function, but
+			// the AddrLocal that promotes the slot is control-flow dependent. If
+			// the &local sits in a not-taken sibling branch (e.g. another switch
+			// case), the slot stays unpromoted with num authoritative and ref a
+			// stale type-zero; syncing would clobber num to 0.
 			sp++
 			mem[sp] = mem[int(c.A)+fp-1]
-			if isNum(mem[sp].ref.Kind()) {
+			if mem[sp].ref.CanAddr() && isNum(mem[sp].ref.Kind()) {
 				mem[sp].num = numBits(mem[sp].ref)
 			}
 		case GetLocalAddIntImm:

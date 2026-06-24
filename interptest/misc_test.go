@@ -688,3 +688,39 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// A local numeric var whose address is taken in a switch case that does NOT
+// execute must still read its assigned value in the case that does. The compiler
+// marks the slot "addressed" for the whole function (so reads emit GetLocalSync),
+// but the AddrLocal that promotes the slot to addressable ref storage is
+// control-flow dependent. When it never runs, num stays authoritative and ref is
+// a stale type-zero; GetLocalSync must not clobber num from ref in that case.
+// Regression for the modernc.org/sqlite Xsqlite3_config varargs nil-deref:
+// `ap = va` then a sibling case's `&ap` made the executed case read ap as 0.
+func TestAddrInUnreachedCaseKeepsValue(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func sink(p *uintptr) uintptr { return *p }
+
+func config(op int32, va uintptr) uintptr {
+	var ap uintptr
+	ap = va
+	switch op {
+	case 1:
+		_ = sink(&ap)
+	case 2:
+		return ap // plain read; must see va, not 0
+	}
+	return 0
+}
+
+func main() {
+	fmt.Println(config(2, 0xdead))
+}
+`
+	if got, want := evalOut(t, "addr_case.go", src), "57005\n"; got != want {
+		t.Errorf("output: got %q, want %q", got, want)
+	}
+}
