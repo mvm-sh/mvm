@@ -67,17 +67,16 @@ func methodFingerprint(t *mtype.Type) string {
 }
 
 // materializingRtypes holds struct layout rtypes whose placeholder/reservation is
-// installed but not yet patched to the real layout (in-flight). A struct that
-// embeds one of these by value cannot size itself correctly yet -- the placeholder
-// is word-sized -- so it defers its own finalization (pendingFinalize) until the
-// dependency is filled. Guarded by derivedMu.
+// installed but not yet patched to the real layout (in-flight). Guarded by derivedMu.
 var materializingRtypes = map[reflect.Type]bool{}
 
+// reservingStruct holds named structs whose field loop is live on the current call stack.
+// A re-entry while the entry is live is a type cycle that reaches the struct by value:
+// return the in-flight identity instead of recursing. Guarded by derivedMu.
+var reservingStruct = map[*mtype.Type]bool{}
+
 // pendingFinalize holds structs that installed their placeholder but deferred the
-// real-layout patch because a by-value field was still in-flight. FinalizeDeferred
-// drains them once the cycle settles. Guarded by derivedMu. pendingCount mirrors
-// its size for a lock-free fast check on the hot MaterializeRtype early return,
-// which is empty whenever the program has no such cycle (the common case).
+// real-layout patch because a by-value field was still in-flight.
 var (
 	pendingFinalize = map[*mtype.Type]bool{}
 	pendingCount    atomic.Int64
@@ -175,6 +174,26 @@ func isMaterializing(rt reflect.Type) bool {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	return materializingRtypes[rt]
+}
+
+// enterReserving marks named struct t as live on the current reserve/placeholder
+// stack. reentrant=true means t was already live (a by-value type cycle reached it,
+// e.g. a `func(t, ...)` field): the caller returns t's in-flight identity instead
+// of recursing into the field loop again. Otherwise release clears the mark and
+// must run on every return path (defer).
+func enterReserving(t *mtype.Type) (release func(), reentrant bool) {
+	derivedMu.Lock()
+	if reservingStruct[t] {
+		derivedMu.Unlock()
+		return nil, true
+	}
+	reservingStruct[t] = true
+	derivedMu.Unlock()
+	return func() {
+		derivedMu.Lock()
+		delete(reservingStruct, t)
+		derivedMu.Unlock()
+	}, false
 }
 
 // geomDepInFlight reports whether t's inline (by-value) layout reaches a still-
@@ -621,6 +640,14 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 	reserved := res.value.Type()
 	t.Rtype = reserved // stable identity for field cycles during this pass
 	markMaterializing(reserved)
+	release, reentrant := enterReserving(t)
+	if reentrant {
+		// A by-value type cycle re-entered this struct (a func-typed field taking
+		// the struct by value); hand back the reserved identity instead of recursing.
+		// The outer call still fills the real layout in place once its loop completes.
+		return reserved, true
+	}
+	defer release()
 	for _, f := range t.Fields {
 		materialize(f)
 	}
@@ -1010,6 +1037,11 @@ func materialize(t *mtype.Type) reflect.Type {
 			}
 			t.Rtype = ph
 			markMaterializing(ph)
+			release, reentrant := enterReserving(t)
+			if reentrant {
+				return ph // by-value cycle re-entered this struct; reuse its placeholder
+			}
+			defer release()
 			// Stamp the real name before materializing fields so a self-referential
 			// field (S *S, []*S, map[K]*S, ...) bakes the correct name into its
 			// derived rtype: reflect.PointerTo/SliceOf/MapOf snapshot the element's

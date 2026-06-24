@@ -956,6 +956,20 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
+func fieldShadowsPromotedMethod(typ *vm.Type, name string, methDepth int) bool {
+	if methDepth == 0 || typ == nil {
+		return false
+	}
+	if typ.IsPtr() {
+		typ = typ.Elem()
+	}
+	if typ == nil || typ.Kind() != reflect.Struct {
+		return false
+	}
+	fp, _ := vm.CanonicalType(typ).FieldLookup(name)
+	return fp != nil && len(fp)-1 < methDepth
+}
+
 func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *vm.Type) error {
 	return goparser.ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
@@ -2911,7 +2925,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					c.emit(t, vm.IfaceCall, c.methodID(methodName))
 					break
 				}
-				if m, fieldPath := c.Symbols.MethodByName(s, t.Str[1:], c.Seg); m != nil {
+				m, mFieldPath := c.Symbols.MethodByName(s, t.Str[1:], c.Seg)
+				if m != nil && s.Kind != symbol.Type && fieldShadowsPromotedMethod(s.Type, t.Str[1:], len(mFieldPath)) {
+					// A same-named field shallower than a promoted method shadows it.
+					// Drop the method so the field probe below resolves it.
+					m = nil
+				}
+				if m != nil {
+					fieldPath := mFieldPath
 					// Method expression: Type.Method yields a func with receiver as first arg.
 					// A composite literal (T{}.Method) is a value, not a method expression.
 					if s.Kind == symbol.Type && !s.Composite {

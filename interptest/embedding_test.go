@@ -710,3 +710,36 @@ func main() {
 		t.Errorf("got %q, want %q", got, "4\n")
 	}
 }
+
+// Regression for `mvm test gorm.io/gorm`: a struct embeds *DB whose type also has
+// a method named DB (gorm's (*DB).DB() *sql.DB). Go's selector depth rule picks the
+// shallower embedded field over the promoted method, so `stmt.DB.DryRun` reads the
+// field; mvm wrongly bound the promoted method, failing with "undefined: DryRun".
+func TestEmbeddedFieldShadowsPromotedMethod(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Config struct{ DryRun bool }
+
+type DB struct {
+	*Config
+	Error error
+}
+
+func (db *DB) DB() (int, error) { return 1, nil }
+
+type Statement struct {
+	*DB
+	Table string
+}
+
+func main() {
+	stmt := &Statement{DB: &DB{Config: &Config{DryRun: true}}}
+	fmt.Println(stmt.DB.DryRun)
+}
+`
+	if got := evalOut(t, "fieldshadow", src); got != "true\n" {
+		t.Errorf("got %q, want %q", got, "true\n")
+	}
+}
