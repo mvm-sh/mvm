@@ -1582,7 +1582,8 @@ var (
 // TestRemoteUnexportedMethodInterfaceSatisfaction is the grpc registration
 // pattern: a server embeds a foreign Unimplemented base to satisfy an interface
 // with an unexported method. Native reflect.Implements matches that method by
-// name and declaring package, so its promoted synth name must carry "svc".
+// name and declaring package, so its promoted synth pkgPath must carry the
+// declaring package's import path ("example.com/svc").
 func TestRemoteUnexportedMethodInterfaceSatisfaction(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/svc",
@@ -1642,8 +1643,8 @@ func main() {
 
 // TestRemoteUnexportedMethodMultiLevelPromotion is the two-level variant: the
 // unexported method is declared in "inner" and reaches main through "mid". Its
-// synth name must carry "inner" (the deepest embed), not "mid" (the first hop),
-// so the pkgPath walk must follow the full method.Path.
+// synth pkgPath must carry "example.com/inner" (the deepest embed), not "mid"
+// (the first hop), so the pkgPath walk must follow the full method.Path.
 func TestRemoteUnexportedMethodMultiLevelPromotion(t *testing.T) {
 	url, _ := startFakeProxy(t,
 		remoteModule{

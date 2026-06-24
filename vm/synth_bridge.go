@@ -203,12 +203,12 @@ func synthIfaceRtype(t *Type) reflect.Type {
 	}
 	if ims, ok := collectImethods(t, false); ok {
 		// All signatures materialized: no cycle to break, build atomically.
-		rt := runtype.InterfaceOf(name, t.PkgName, ims)
+		rt := runtype.InterfaceOf(name, rtypePkgPath(t), ims)
 		cacheSynthIface(t, key, rt)
 		derivedMu.Unlock()
 		return rt
 	}
-	h := runtype.ReserveInterface(name, t.PkgName)
+	h := runtype.ReserveInterface(name, rtypePkgPath(t))
 	rt := h.Type()
 	cacheSynthIface(t, key, rt)
 	derivedMu.Unlock()
@@ -286,6 +286,17 @@ func isExportedName(name string) bool {
 	}
 	r, _ := utf8.DecodeRuneInString(name)
 	return unicode.IsUpper(r)
+}
+
+// rtypePkgPath is the import path stamped into a synth rtype's uncommon section,
+// surfaced by reflect.Type.PkgPath(). Native Go returns the full import path
+// ("gorm.io/gorm"), not the short package name ("gorm"); prefer ImportPath and
+// fall back to PkgName for main/REPL/synthetic types (ImportPath == "").
+func rtypePkgPath(t *Type) string {
+	if t.ImportPath != "" {
+		return t.ImportPath
+	}
+	return t.PkgName
 }
 
 func qualifiedTypeName(t *Type) string {
@@ -375,7 +386,10 @@ func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) strin
 		}
 		cur = next
 	}
-	return cur.PkgName
+	// Use the declaring package's full import path so an unexported method matches
+	// reflect.Implements: it compares this embedded pkgPath against the interface
+	// type's PkgPath, which rtypePkgPath also resolves to the import path.
+	return rtypePkgPath(cur)
 }
 
 func embeddedTypeAt(t *Type, idx int) *Type {

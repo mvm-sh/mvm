@@ -554,7 +554,7 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	defer derivedMu.Unlock()
 	res := sharedCarriers[key]
 	if res == nil {
-		vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgName)
+		vr, err := runtype.ReserveMethods(layoutRT, name, rtypePkgPath(t))
 		if err != nil {
 			return layoutRT
 		}
@@ -569,13 +569,14 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 
 func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	name := qualifiedTypeName(t)
-	vr, err := runtype.ReserveMethods(layoutRT, name, t.PkgName)
+	pkgPath := rtypePkgPath(t)
+	vr, err := runtype.ReserveMethods(layoutRT, name, pkgPath)
 	if err != nil {
 		return layoutRT
 	}
 	res := &synthReservation{value: vr}
 	valueRT := vr.Type()
-	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, t.PkgName); err == nil {
+	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, pkgPath); err == nil {
 		res.ptr = r
 		AttachPtrDerived(t, r.Type())
 	}
@@ -624,12 +625,13 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 			return nil, false // methodless struct: native identity is stable already
 		}
 		name := qualifiedTypeName(t)
-		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, t.PkgName)
+		pkgPath := rtypePkgPath(t)
+		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, pkgPath)
 		if err != nil {
 			return nil, false
 		}
 		res = &synthReservation{value: vr}
-		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, t.PkgName); err == nil {
+		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, pkgPath); err == nil {
 			res.ptr = pr
 			AttachPtrDerived(t, pr.Type())
 		}
@@ -1106,7 +1108,7 @@ func materialize(t *mtype.Type) reflect.Type {
 		ph := t.Rtype
 		// Patch ph to the current best-effort layout.
 		layout := mtype.FinalizeStruct(t)
-		runtype.StampName(ph, layout.String()) // PatchRtype keeps ph's Str; restore the anon shape
+		runtype.StampString(ph, layout.String()) // PatchRtype keeps ph's Str; restore the anon shape (stays unnamed)
 		return finishStructOrDefer(t, ph)
 	default:
 		// Basic kind with no rtype yet: materialize to the canonical native basic
@@ -1221,7 +1223,7 @@ func reserveSelfRef(t *mtype.Type, donor reflect.Type) reflect.Type {
 	if hasReservableMethods(t) {
 		return reserveValueAndPtr(t, donor)
 	}
-	vr, err := runtype.ReserveMethods(donor, qualifiedTypeName(t), t.PkgName)
+	vr, err := runtype.ReserveMethods(donor, qualifiedTypeName(t), rtypePkgPath(t))
 	if err != nil {
 		return nil
 	}

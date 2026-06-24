@@ -347,6 +347,18 @@ func StampName(t reflect.Type, name string) {
 	rt.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
+// StampString overwrites t's String() text in place without marking it named,
+// so reflect.Type.Name() stays "". Use it to restore an anonymous struct's
+// canonical String() after PatchRtype kept a placeholder's stale Str.
+func StampString(t reflect.Type, s string) {
+	rt := rtypePtr(t)
+	if rt == nil {
+		return
+	}
+	rt.TFlag &^= (tflagExtraStar | tflagNamed)
+	rt.Str = addReflectOff(unsafe.Pointer(encodeName(s, true).Bytes))
+}
+
 // IsSynth reports whether t is a synth-built rtype (produced by the Reserve* or
 // derive constructors in this package).
 // The Derive* helpers below route between reflect.*Of (native rtype identity

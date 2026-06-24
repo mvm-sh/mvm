@@ -158,6 +158,7 @@ var wordShapes = []wordShape{
 	{Params: "ffffpp", Results: ""},         // DrawImage(Rectangle, image.Image)
 	// Integer-word shapes the drops report flagged as missing pools.
 	{Params: "ppp", Results: ""},   // http.Handler.ServeHTTP(ResponseWriter, *Request)
+	{Params: "p", Results: "pp"},   // gorm hook func(*gorm.DB) error: one ptr arg, error result
 	{Params: "pp", Results: ""},    // SetColor(color.Color)
 	{Params: "pii", Results: ""},   // Stroke(Path), Fill(Path)
 	{Params: "pp", Results: "ipp"}, // io.WriterTo.WriteTo(io.Writer) (int64, error)

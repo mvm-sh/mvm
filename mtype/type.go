@@ -839,9 +839,10 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}
-		case embSet[i] && i > 0 &&
+		case embSet[i] && (i > 0 || rf[i].Type != nil && rf[i].Type.Kind() == reflect.Pointer) &&
 			(embedFieldHasMethods(f, rf[i].Type) || runtype.EmbedTripsStructOf(rf[i].Type)):
-			// reflect.StructOf only promotes a method-bearing embed at field 0; a later one panics.
+			// reflect.StructOf only promotes a method-bearing VALUE embed at field 0; a pointer
+			// embed (e.g. gorm IndexOption's *Field) panics there too, and any embed past 0 panics.
 			// Give it a methodless layout-equivalent so the field stays Anonymous (json/fmt flatten it); mvm promotes the methods itself.
 			// That layout is unnamed, so reflect would report this field's type -- and box a
 			// direct field read into an interface -- as *struct{...} not the canonical named
