@@ -61,20 +61,25 @@ var Core = map[string]bool{
 // for whole stdlib packages that only build on newer Go releases.
 // Per-symbol additions go in SymbolBuildTags instead.
 var BuildTags = map[string]string{
-	"runtime/cgo":        "cgo",
-	"crypto/hpke":        "go1.26",
-	"testing/cryptotest": "go1.26",
-	"testing/synctest":   "go1.25", // GA in go1.25; GOEXPERIMENT-gated in go1.24
+	"runtime/cgo": "cgo",
 	// Interpreted from the mirror on wasm, not bridged; each must be in ~/src/std.
-	"fmt":           "!wasm",
-	"strconv":       "!wasm",
-	"strings":       "!wasm",
-	"bytes":         "!wasm",
-	"bufio":         "!wasm",
-	"sort":          "!wasm",
-	"unicode":       "!wasm",
-	"unicode/utf8":  "!wasm",
-	"unicode/utf16": "!wasm",
+	"fmt":             "!wasm",
+	"strconv":         "!wasm",
+	"strings":         "!wasm",
+	"bytes":           "!wasm",
+	"bufio":           "!wasm",
+	"sort":            "!wasm",
+	"unicode":         "!wasm",
+	"unicode/utf8":    "!wasm",
+	"unicode/utf16":   "!wasm",
+	"io":              "!wasm",
+	"io/fs":           "!wasm",
+	"context":         "!wasm",
+	"encoding":        "!wasm",
+	"encoding/json":   "!wasm",
+	"encoding/binary": "!wasm",
+	"encoding/hex":    "!wasm",
+	"encoding/base64": "!wasm",
 }
 
 // WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the
@@ -142,104 +147,16 @@ func wasmDropTag(importPath, tag string) string {
 
 // SymbolBuildTags lists individual exported symbols that were added in a newer
 // Go release, keyed by import path then by build expression.
-// Tagged symbols are emitted in a supplement file <pkg>_<suffix>.go (e.g. crypto_go126.go).
+// Tagged symbols are emitted in a supplement file <pkg>_<suffix>.go (e.g. crypto_go127.go).
 //
-// This list is hand-maintained.
-var SymbolBuildTags = map[string]map[string][]string{
-	"crypto": {
-		"go1.25": {"MessageSigner", "SignMessage"},
-		"go1.26": {"Decapsulator", "Encapsulator"},
-	},
-	"crypto/ecdh": {
-		"go1.26": {"KeyExchanger"},
-	},
-	"crypto/ecdsa": {
-		"go1.25": {"ParseRawPrivateKey", "ParseUncompressedPublicKey"},
-	},
-	"crypto/fips140": {
-		"go1.26": {"Enforced", "Version", "WithoutEnforcement"},
-	},
-	"crypto/rsa": {
-		"go1.26": {"EncryptOAEPWithOptions"},
-	},
-	"crypto/tls": {
-		"go1.26": {"QUICErrorEvent", "SecP256r1MLKEM768", "SecP384r1MLKEM1024"},
-	},
-	"crypto/x509": {
-		"go1.26": {"OIDFromASN1OID"},
-	},
-	"debug/elf": {
-		"go1.25": {"PT_RISCV_ATTRIBUTES", "SHT_RISCV_ATTRIBUTES"},
-		"go1.26": {
-			"R_LARCH_CALL36",
-			"R_LARCH_TLS_DESC32",
-			"R_LARCH_TLS_DESC64",
-			"R_LARCH_TLS_DESC64_HI12",
-			"R_LARCH_TLS_DESC64_LO20",
-			"R_LARCH_TLS_DESC64_PC_HI12",
-			"R_LARCH_TLS_DESC64_PC_LO20",
-			"R_LARCH_TLS_DESC_CALL",
-			"R_LARCH_TLS_DESC_HI20",
-			"R_LARCH_TLS_DESC_LD",
-			"R_LARCH_TLS_DESC_LO12",
-			"R_LARCH_TLS_DESC_PCREL20_S2",
-			"R_LARCH_TLS_DESC_PC_HI20",
-			"R_LARCH_TLS_DESC_PC_LO12",
-			"R_LARCH_TLS_GD_PCREL20_S2",
-			"R_LARCH_TLS_LD_PCREL20_S2",
-			"R_LARCH_TLS_LE_ADD_R",
-			"R_LARCH_TLS_LE_HI20_R",
-			"R_LARCH_TLS_LE_LO12_R",
-		},
-	},
-	"go/ast": {
-		"go1.25": {"PreorderStack"},
-		"go1.26": {"ParseDirective", "Directive", "DirectiveArg"},
-	},
-	"go/types": {
-		"go1.25": {
-			"FieldVar", "LocalVar", "PackageVar", "ParamVar", "RecvVar", "ResultVar",
-			"LookupSelection", "VarKind",
-		},
-	},
-	"hash": {
-		"go1.25": {"Cloner", "XOF"},
-	},
-	"io/fs": {
-		"go1.25": {"Lstat", "ReadLink", "ReadLinkFS"},
-	},
-	"log/slog": {
-		"go1.25": {"GroupAttrs"},
-		"go1.26": {"NewMultiHandler", "MultiHandler"},
-	},
-	"mime/multipart": {
-		"go1.25": {"FileContentDisposition"},
-	},
-	"net/http": {
-		"go1.25": {"CrossOriginProtection", "NewCrossOriginProtection"},
-		"go1.26": {"ClientConn"},
-	},
-	"os": {
-		"go1.26": {"ErrNoHandle"},
-	},
-	"runtime": {
-		"go1.25": {"SetDefaultGOMAXPROCS"},
-	},
-	"runtime/trace": {
-		"go1.25": {"FlightRecorder", "FlightRecorderConfig", "NewFlightRecorder"},
-	},
-	"unicode": {
-		"go1.25": {"CategoryAliases", "Cn", "LC"},
-	},
-}
+// Empty: the go.mod floor (go1.26) absorbs every symbol added through go1.26.
+// Populate when a release past the floor adds symbols. This list is hand-maintained.
+var SymbolBuildTags = map[string]map[string][]string{}
 
 // tagFileSuffix maps a build expression to the filename suffix used for
 // supplement files. Only expressions actually used in SymbolBuildTags need
 // to be listed.
-var tagFileSuffix = map[string]string{
-	"go1.25": "go125",
-	"go1.26": "go126",
-}
+var tagFileSuffix = map[string]string{}
 
 func subDir(importPath string) string {
 	if Core[importPath] {

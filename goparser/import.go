@@ -78,10 +78,7 @@ func (e *pkgNotFoundError) Is(target error) bool { return target == ErrPkgNotFou
 
 // importNotFoundError explains an unresolvable import, with a wasm-specific hint.
 func importNotFoundError(importPath string) error {
-	first := importPath
-	if i := strings.IndexByte(importPath, '/'); i >= 0 {
-		first = importPath[:i]
-	}
+	first, _, _ := strings.Cut(importPath, "/")
 	stdlibish := !strings.ContainsRune(first, '.')
 	var reason string
 	switch {

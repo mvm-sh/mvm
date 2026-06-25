@@ -122,15 +122,23 @@ mirror or it is absent on wasm. A bridge never loads mirror source on native, so
 native keeps the reflect bindings.
 
 Phase 3 grows this from `fmt` toward all dispatchers: the mirror also ships
-`strconv`, `strings`, `bytes`, `bufio`, `sort`, `unicode*`, `encoding/csv`, and
-the internal floor they need (`internal/strconv`, a pure-Go `internal/bytealg`
-overlay). Internal floor that can't be mirrored is re-exported under its import
-path in `stdlib/internal_stubs.go` (`internal/abi.NoEscape`, `internal/reflectlite`).
+`strconv`, `strings`, `bytes`, `bufio`, `sort`, `unicode*`, `io`, `io/fs`,
+`context`, the `encoding/*` family (`json`, `gob`, `xml`, `binary`, `csv`,
+`base64`, `hex`, ...), and `net/url`, `net/netip`. Their internal floor is
+mirrored with pure-Go overlays where upstream is asm/linkname/runtime-coupled:
+`internal/bytealg`, `internal/godebug` (reports defaults), `unique` (a map-based
+interner, no weak GC). Floor that can't be mirrored is re-exported under its
+import path in `stdlib/internal_stubs.go` (`internal/abi.NoEscape`,
+`internal/reflectlite`).
 
-Keep-native (bridged, never interpreted, for speed): the floor
+Keep-native (bridged, never interpreted): the floor
 (reflect/runtime/sync/unsafe/syscall + asm internals) plus the pure-compute
-families `math*`, `crypto*`, `hash*`, `compress*`, `archive*` -- they never
-dispatch an interpreted method, so they need no stubs.
+families `math*`, `crypto*`, `hash*`, `compress*`, `archive*` (for speed; they
+never dispatch an interpreted method, so they need no stubs) and the host floor
+`os`/`syscall`/`internal/poll`/`internal/syscall/*` (their raw-syscall internals
+use go:linkname, which mvm does not interpret; bridging also lets native
+compress/archive wrap an `os.File` without hitting the trap). `net` sockets stay
+likewise bridged/absent; only the pure-Go `net/url`/`net/netip` are interpreted.
 
 `MVM_INTERP=<list>` drops those bridges on a native build, to validate
 interpretation without a wasm rebuild. After editing the mirror, regenerate
