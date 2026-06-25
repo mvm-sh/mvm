@@ -427,6 +427,15 @@ type Machine struct {
 	funcWrappers *funcWrapTable   // see funcWrapTable doc
 	typesByRtype *typesIndex      // see typesIndex doc
 
+	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
+	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
+	sharedMethodStructs map[methodStructKey]*synthReservation
+
+	// synthReleases nil this Machine's stub-pool handler slots (each captures the
+	// Machine) on disposal; see ReleaseSynthMethods, Interp.Close.
+	synthReleasesMu sync.Mutex
+	synthReleases   []func()
+
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
 	faultContinue bool            // policy seed copied into fault when it is created
 	isRoot        bool            // the top-level machine; only it aborts channel waits on a fault

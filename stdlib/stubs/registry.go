@@ -159,13 +159,9 @@ type Method struct {
 
 var errInvalidHandlerType = errors.New("stubs: handler type does not match shape")
 
-// acquireSlot claims a free slot in the pool for m.Shape and returns the
-// stub PC for Ifn/Tfn plus a release closure.
-// release nils the slot's handler entry, freeing captured closure state
-// (*Machine/*Type references) for GC.
-// The slot INDEX itself remains consumed: the per-shape counter is
-// monotonic with no safe decrement under concurrent acquires.
-// Release is best-effort memory hygiene, not pool reclamation.
+// acquireSlot claims a free slot in the pool for m.Shape, returning the stub PC
+// (Ifn/Tfn) and a release closure that nils the slot's handler (freeing its
+// *Machine/*Type capture). The slot index stays consumed (counter is monotonic).
 func acquireSlot(m Method) (pc uintptr, release func(), err error) {
 	if m.WordKey != "" {
 		return acquireWordSlot(m.WordKey, m.Core)

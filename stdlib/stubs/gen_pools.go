@@ -25,12 +25,10 @@ import (
 // in the interp test suite exceed it; S1 carries a larger Size below.
 const poolSize = 256
 
-// Wasm carries NO per-signature stub pools. Every interpreted method shares one
-// stub PC (see vm.synthSharedPC and stubs/fill_wasm.go) because no native caller
-// dispatches an interpreted method on the all-interpreted wasm target. So the
-// generated pool files below are //go:build !wasm; the wasm build only needs the
-// empty stubs<id> array declarations (arrays_wasm.go) so the hand-written
-// registry_s*.go still compile. See ADR-022 and docs/modules/stubs.md.
+// Wasm carries NO per-signature stub pools: every interpreted method's entry is
+// the -1 unreachable sentinel (no native caller dispatches it; see vm.synthSharedPC
+// and fill_wasm.go). So the pool files below are //go:build !wasm; wasm needs only
+// the empty stubs<id> arrays (arrays_wasm.go). See ADR-022, docs/modules/stubs.md.
 
 type shape struct {
 	ID      string   // "S1", "S2", ...
@@ -340,12 +338,10 @@ func emitSizes() {
 	writeFormatted("sizes.go", &b)
 }
 
-// emitArraysWasm writes the empty typed-shape stubs<id> arrays for wasm. The
-// hand-written registry_s*.go reference stubs<id>; on wasm the !wasm pool files
-// that normally declare them are absent, so this provides the declarations (the
-// arrays are never populated -- FillMethods on wasm uses one shared PC -- and the
-// linker drops them since acquireSlot* is unreachable). Word-shape arrays need no
-// companion: only the generated pool_w*.go reference them.
+// emitArraysWasm writes the empty typed-shape stubs<id> arrays for wasm:
+// registry_s*.go reference them, but the !wasm pool files that declare them are
+// absent (the arrays are never populated, and the linker drops them). Word-shape
+// arrays need no companion: only the generated pool_w*.go reference them.
 func emitArraysWasm() {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "//go:build wasm\n\n")

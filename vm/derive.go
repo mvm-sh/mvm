@@ -38,20 +38,15 @@ var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derive
 // layout) across Evals and field clones; sound for the same reason as sharedStructs.
 var sharedCarriers = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
 
-// sharedMethodStructs shares a method-bearing struct's reserved identity across
-// re-materializations within ONE Machine, so a drop-retry re-Eval reusing the same
-// Go type does not mint a distinct rtype each pass (which breaks reflect.Type ==).
-// Machine-keyed because a method stub closes over the attaching Machine; reuse
-// under a different Machine would dispatch to a dead one. Machine from ActiveMachine,
-// set by the interp around materialize+attach.
+// methodStructKey keys Machine.sharedMethodStructs: dedup a method-bearing
+// struct's rtype across re-Evals on one Machine so reflect.Type stays ==.
+// Per-Machine, not global-keyed-by-*Machine: the stub captures the Machine, so a
+// global would pin it forever.
 type methodStructKey struct {
-	machine   *Machine
 	name      string
 	layoutSig string
 	methodSig string
 }
-
-var sharedMethodStructs = map[methodStructKey]*synthReservation{} // guarded by derivedMu
 
 // methodFingerprint is the set of resolved/symbolic method indices (= the method
 // name set, IDs being global per name), so two same-name+layout types with
@@ -702,16 +697,15 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		t.Rtype = reserved
 		return reserved, true
 	}
-	// Method-bearing: share per Machine across re-Evals. See sharedMethodStructs.
+	// Method-bearing: share per Machine across re-Evals. See Machine.sharedMethodStructs.
 	if mach := ActiveMachine(); mach != nil {
 		key := methodStructKey{
-			machine:   mach,
 			name:      qualifiedTypeName(t),
 			layoutSig: realLayout.String(),
 			methodSig: methodFingerprint(t),
 		}
 		derivedMu.Lock()
-		if shared := sharedMethodStructs[key]; shared != nil {
+		if shared := mach.sharedMethodStructs[key]; shared != nil {
 			sharedRT := shared.value.Type()
 			reservations[t] = shared
 			derivedMu.Unlock()
@@ -723,7 +717,10 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 			return sharedRT, true
 		}
 		runtype.FillStructLayout(reserved, realLayout)
-		sharedMethodStructs[key] = res
+		if mach.sharedMethodStructs == nil {
+			mach.sharedMethodStructs = map[methodStructKey]*synthReservation{}
+		}
+		mach.sharedMethodStructs[key] = res
 		derivedMu.Unlock()
 		clearMaterializing(reserved)
 		t.Rtype = reserved

@@ -69,6 +69,14 @@ type Interp struct {
 	Stats         Stats
 }
 
+// Close releases the interpreter's stub-pool handler slots (native only) and
+// breaks the Machine->Interp link so it becomes collectable. Long-lived hosts
+// spawning many interpreters should call it; do not use the interpreter after.
+func (i *Interp) Close() {
+	i.Machine.ReleaseSynthMethods()
+	i.SetDebugInfo(nil)
+}
+
 // UseHostStdio keeps the interpreted os.Std{in,out,err} bound to the host's real
 // *os.File streams rather than routing them through the machine's SetIO writers.
 // The CLI (mvm run / mvm test) sets this so interpreted code sees genuine *os.File

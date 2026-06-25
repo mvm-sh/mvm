@@ -6,7 +6,6 @@ import (
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/runtype"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
 // bridgeStructEmbedIface builds, on demand, a reserved synth rtype over the
@@ -70,7 +69,7 @@ func (m *Machine) buildStructEmbedSynth(layout, target reflect.Type, fieldIdx in
 		}
 		specs = append(specs, spec)
 	}
-	if err := stubs.FillMethods(res, toSynthMethods(m, synthT, specs)); err != nil {
+	if err := m.fillSynthMethods(res, toSynthMethods(m, synthT, specs)); err != nil {
 		return nil
 	}
 	return res.Type()

@@ -102,12 +102,17 @@ none (all `pool_*.go` are `//go:build !wasm`).
 This is sound because no native caller dispatches an interpreted method on wasm:
 interpreted code uses `IfaceCall`, and interpreted reflect is intercepted by the
 vm (`reflectValueShim`/`reflectTypeShim`).
-The stub PC is never invoked; it exists only so the synth rtype carries a method
-set for reflect introspection, which reads name/signature metadata, not the PC.
+The method entry is never invoked; it exists only so the synth rtype carries a
+method set for reflect introspection, which reads name/signature metadata, not
+the entry.
 
-So wasm wires every `Ifn`/`Tfn` to one shared trap PC (`fill_wasm.go`'s
-`sharedStub`, which panics if reached), and `vm.synthSharedPC` makes
-`resolveDispatch` attach every method without building handlers.
+So wasm wires every `Ifn`/`Tfn` to the runtime's `-1` unreachable TextOff
+sentinel (`fill_wasm.go` leaves `MethodSpec.StubPC` zero; `runtype.makeMethod`
+maps that to `-1`, which `reflect`/`runtime` resolve to `runtime.unreachableMethod`).
+A real PC is deliberately not wired: it would enter reflect's GC-scanned
+`reflectOffs` table, where on wasm a code PC aliases a heap span and crashes the
+GC. `vm.synthSharedPC` makes `resolveDispatch` attach every method without
+building handlers.
 `arrays_wasm.go` declares empty `stubsSN` arrays so `registry_sN.go` still
 compile (unreachable; the linker drops them).
 Native dispatch is unchanged. See

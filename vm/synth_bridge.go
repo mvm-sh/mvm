@@ -331,7 +331,31 @@ func (m *Machine) attachValueRecv(t *Type) error {
 	if res == nil || res.value == nil {
 		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
 	}
-	return stubs.FillMethods(res.value, methods)
+	return m.fillSynthMethods(res.value, methods)
+}
+
+// fillSynthMethods installs methods, recording the release closure for ReleaseSynthMethods.
+func (m *Machine) fillSynthMethods(res *runtype.Reservation, methods []stubs.Method) error {
+	release, err := stubs.FillMethods(res, methods)
+	if release != nil {
+		m.synthReleasesMu.Lock()
+		m.synthReleases = append(m.synthReleases, release)
+		m.synthReleasesMu.Unlock()
+	}
+	return err
+}
+
+// ReleaseSynthMethods nils the stub-pool handler slots this Machine acquired so a
+// disposed interpreter becomes collectable (slot indices stay consumed). Do not
+// dispatch its synth methods after. Backs Interp.Close; no-op on wasm.
+func (m *Machine) ReleaseSynthMethods() {
+	m.synthReleasesMu.Lock()
+	releases := m.synthReleases
+	m.synthReleases = nil
+	m.synthReleasesMu.Unlock()
+	for _, r := range releases {
+		r()
+	}
 }
 
 func (m *Machine) attachPtrRecv(t *Type) error {
@@ -348,7 +372,7 @@ func (m *Machine) attachPtrRecv(t *Type) error {
 	if res == nil || res.ptr == nil {
 		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
 	}
-	return stubs.FillMethods(res.ptr, methods)
+	return m.fillSynthMethods(res.ptr, methods)
 }
 
 // recvForm tells a handler how to reconstruct the receiver from the stub's iface data word.
