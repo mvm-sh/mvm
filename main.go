@@ -113,6 +113,21 @@ func goModCacheDownload() string {
 	return dir
 }
 
+// applyInterpOverrides drops the bridges named in MVM_INTERP (comma/space list)
+// so those packages interpret from the mirror, for validating interpretation on
+// a native build.
+func applyInterpOverrides(i *interp.Interp) {
+	v := os.Getenv("MVM_INTERP")
+	if v == "" {
+		return
+	}
+	for _, p := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if p = strings.TrimSpace(p); p != "" {
+			i.SkipBridges(p)
+		}
+	}
+}
+
 func wireFS(i *interp.Interp) *modfs.FS {
 	mfs := buildModFS()
 	if err := mfs.Inject(stdmod.ModulePath, stdmod.Version, stdlib.EmbeddedStd()); err != nil {

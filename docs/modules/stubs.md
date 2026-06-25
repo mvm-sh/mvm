@@ -115,13 +115,27 @@ Native dispatch is unchanged. See
 
 ### Interpreting dispatchers from the mirror
 
-The trap is only avoided once method-dispatching packages (`fmt`, ...) are
-interpreted rather than bridged.
-`fmt` is the first: `BuildTags["fmt"] = "!wasm"` drops its bridge on wasm, so it
-loads from the embedded mirror (`github.com/mvm-sh/std`, which ships `fmt`,
-`internal/fmtsort`, and a bytealg-free `internal/stringslite`).
-A bridge never loads mirror source on native (`LoadPackageSources` skips it), so
-native `fmt` keeps using the reflect bindings.
+The trap is only avoided once dispatching packages are interpreted, not bridged.
+`cmd/extract`'s `BuildTags[pkg] = "!wasm"` drops a bridge on wasm, so the package
+loads from the embedded mirror (`github.com/mvm-sh/std`) -- it must be in the
+mirror or it is absent on wasm. A bridge never loads mirror source on native, so
+native keeps the reflect bindings.
+
+Phase 3 grows this from `fmt` toward all dispatchers: the mirror also ships
+`strconv`, `strings`, `bytes`, `bufio`, `sort`, `unicode*`, `encoding/csv`, and
+the internal floor they need (`internal/strconv`, a pure-Go `internal/bytealg`
+overlay). Internal floor that can't be mirrored is re-exported under its import
+path in `stdlib/internal_stubs.go` (`internal/abi.NoEscape`, `internal/reflectlite`).
+
+Keep-native (bridged, never interpreted, for speed): the floor
+(reflect/runtime/sync/unsafe/syscall + asm internals) plus the pure-compute
+families `math*`, `crypto*`, `hash*`, `compress*`, `archive*` -- they never
+dispatch an interpreted method, so they need no stubs.
+
+`MVM_INTERP=<list>` drops those bridges on a native build, to validate
+interpretation without a wasm rebuild. After editing the mirror, regenerate
+`stdlib/src.zip` (`go run stdlib/gen_stdzip.go`) and `touch stdlib/srcfs.go` so
+the embed refreshes.
 
 ### Dropping bridges to shrink the wasm binary
 
@@ -132,8 +146,9 @@ archive/zip via `modfs`), so most bridge weight is unused functions.
 bridges `!wasm` (crypto, net, image, debug, go, compress, archive, database/sql,
 ...); they then interpret from the mirror or error until mirrored.
 This cut the binary 39.1 -> 24.2 MB (bridge-free floor ~19 MB).
-The floor stays bridged: reflect/runtime/sync/unsafe/syscall plus common
-pure/host packages (os, io, strings, strconv, math, unicode, time, regexp, ...).
+The keep-native set stays bridged: reflect/runtime/sync/unsafe/syscall plus the
+pure-compute families (math*, crypto*, hash*, compress*, archive*); the rest is
+interpreted from the mirror as it is filled in (phase 3).
 
 ### Word-class shapes
 

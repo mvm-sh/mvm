@@ -65,8 +65,16 @@ var BuildTags = map[string]string{
 	"crypto/hpke":        "go1.26",
 	"testing/cryptotest": "go1.26",
 	"testing/synctest":   "go1.25", // GA in go1.25; GOEXPERIMENT-gated in go1.24
-	// fmt is interpreted from the mirror on wasm, not bridged (see stubs.md).
-	"fmt": "!wasm",
+	// Interpreted from the mirror on wasm, not bridged; each must be in ~/src/std.
+	"fmt":           "!wasm",
+	"strconv":       "!wasm",
+	"strings":       "!wasm",
+	"bytes":         "!wasm",
+	"bufio":         "!wasm",
+	"sort":          "!wasm",
+	"unicode":       "!wasm",
+	"unicode/utf8":  "!wasm",
+	"unicode/utf16": "!wasm",
 }
 
 // WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the

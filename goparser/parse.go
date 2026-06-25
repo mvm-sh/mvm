@@ -210,6 +210,15 @@ func (p *Parser) ImportPackageValues(m map[string]map[string]reflect.Value) {
 	}
 }
 
+// SkipBridges unregisters the named packages' native bridges so they resolve
+// from interpreted source instead, as the wasm `!wasm` tags do. No-op for
+// unregistered paths.
+func (p *Parser) SkipBridges(paths ...string) {
+	for _, path := range paths {
+		delete(p.Packages, path)
+	}
+}
+
 // SetPkgfs sets the parser virtual filesystem for reading sources.
 func (p *Parser) SetPkgfs(pkgPath string) {
 	p.pkgfs = os.DirFS(pkgPath)
