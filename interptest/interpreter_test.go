@@ -2920,7 +2920,7 @@ func TestImport(t *testing.T) {
 `
 	run(t, []etest{
 		{n: "#00", src: "fmt.Println(4)", err: "undefined: fmt"},
-		{n: "#01", src: `import "xxx"`, err: "stat xxx: no such file or directory"},
+		{n: "#01", src: `import "xxx"`, err: `cannot find package "xxx": no bridge is registered for this standard-library package`},
 		{n: "#02", src: `import "fmt"; fmt.Println(4)`, res: "<nil>"},
 		{n: "#03", src: src0 + "fmt.Println(4)", res: "<nil>"},
 		{n: "#04", src: `func main() {import "fmt"; fmt.Println("hello")}`, err: "unexpected import"},

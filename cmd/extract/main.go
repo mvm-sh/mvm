@@ -382,6 +382,7 @@ func runGen(outDir, dir, importPath string) error {
 	if baseTag == "" && *targetOS != "" && *targetArch != "" {
 		baseTag = fmt.Sprintf("%s && %s", *targetOS, *targetArch)
 	}
+	baseTag = wasmDropTag(importPath, baseTag)
 	if err := writeBinding(filepath.Join(outDir, baseName), importPath, baseTag, false, baseValues, baseVars, baseTypes, typedConsts, constExacts); err != nil {
 		return err
 	}
@@ -391,10 +392,13 @@ func runGen(outDir, dir, importPath string) error {
 		if len(tv) == 0 && len(tvars) == 0 && len(ttypes) == 0 {
 			continue
 		}
+		// Keep the filename keyed on the original tag; fold !wasm only into the
+		// emitted //go:build constraint so a dropped package's supplement also
+		// vanishes on wasm.
 		suppName := supplementFilename(importPath, tag, *targetOS, *targetArch)
 		// Float constants are platform-independent and never tagged, so the
 		// high-precision registry is emitted only in the base file.
-		if err := writeBinding(filepath.Join(outDir, suppName), importPath, tag, true, tv, tvars, ttypes, typedConsts, nil); err != nil {
+		if err := writeBinding(filepath.Join(outDir, suppName), importPath, wasmDropTag(importPath, tag), true, tv, tvars, ttypes, typedConsts, nil); err != nil {
 			return err
 		}
 	}

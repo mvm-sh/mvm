@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // Core lists the stdlib import paths that go into stdlib/core/.
 // Everything not listed here goes to stdlib/ext/.
 // Pure-compute, browser-safe packages with modest transitive footprint belong here.
@@ -63,6 +65,71 @@ var BuildTags = map[string]string{
 	"crypto/hpke":        "go1.26",
 	"testing/cryptotest": "go1.26",
 	"testing/synctest":   "go1.25", // GA in go1.25; GOEXPERIMENT-gated in go1.24
+	// fmt is interpreted from the mirror on wasm, not bridged (see stubs.md).
+	"fmt": "!wasm",
+}
+
+// WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the
+// linker then DCEs their unused exported functions. See docs/modules/stubs.md.
+var WasmDropPrefixes = []string{
+	"crypto",
+	"net",
+	"image",
+	"debug",
+	"go",
+	"compress",
+	"archive",
+	"mime",
+	"text/template",
+	"html/template",
+}
+
+var WasmDropExact = map[string]bool{
+	"database/sql":        true,
+	"database/sql/driver": true,
+	"expvar":              true,
+	"index/suffixarray":   true,
+	"math/big":            true,
+	"os/user":             true,
+	"log/syslog":          true,
+	"encoding/gob":        true,
+	"encoding/asn1":       true,
+	"encoding/csv":        true,
+	"encoding/xml":        true,
+	"encoding/pem":        true,
+	"encoding/ascii85":    true,
+	"encoding/base32":     true,
+	"runtime/pprof":       true,
+	"runtime/trace":       true,
+	"runtime/metrics":     true,
+	"runtime/coverage":    true,
+	"testing/fstest":      true,
+	"testing/slogtest":    true,
+	"testing/iotest":      true,
+	"testing/cryptotest":  true,
+}
+
+func isWasmDropped(importPath string) bool {
+	if WasmDropExact[importPath] {
+		return true
+	}
+	for _, pre := range WasmDropPrefixes {
+		if importPath == pre || strings.HasPrefix(importPath, pre+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// wasmDropTag folds !wasm into a dropped package's build constraint.
+func wasmDropTag(importPath, tag string) string {
+	if !isWasmDropped(importPath) {
+		return tag
+	}
+	if tag == "" {
+		return "!wasm"
+	}
+	return tag + " && !wasm"
 }
 
 // SymbolBuildTags lists individual exported symbols that were added in a newer

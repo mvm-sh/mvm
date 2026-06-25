@@ -721,3 +721,29 @@ func main() {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }
+
+// `cmp.Compare(real(a), real(b))` (in internal/fmtsort) failed "cannot infer
+// type parameter T": postfixType didn't type the real/imag/complex builtins.
+func TestGenericInferRealImagComplex(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func id[T any](x T) T { return x }
+
+func main() {
+	c := complex(3.0, 4.0)
+	fmt.Println(id(real(c)), id(imag(c)), id(c))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "3 4 (3+4i)\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}

@@ -1126,6 +1126,30 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 			case "min", "max":
 				// min/max yield their operands' (shared) type.
 				return firstArgType, totalLen
+			case "real", "imag":
+				// real/imag of a complex yield the matching float type.
+				if firstArgType == nil {
+					return nil, 0
+				}
+				switch firstArgType.Kind() {
+				case reflect.Complex64:
+					return p.Symbols["float32"].Type, totalLen
+				case reflect.Complex128:
+					return p.Symbols["float64"].Type, totalLen
+				}
+				return nil, 0
+			case "complex":
+				// complex of floats yields the matching complex type.
+				if firstArgType == nil {
+					return nil, 0
+				}
+				switch firstArgType.Kind() {
+				case reflect.Float32:
+					return p.Symbols["complex64"].Type, totalLen
+				case reflect.Float64:
+					return p.Symbols["complex128"].Type, totalLen
+				}
+				return nil, 0
 			}
 			s, _, ok := p.Symbols.Get(fnTok.Str, p.scope)
 			if !ok {

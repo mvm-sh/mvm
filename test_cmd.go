@@ -290,7 +290,13 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	// overlay is test-runner-only, so `mvm run` never sees these symbols.
 	vals := make(map[string]map[string]reflect.Value, len(stdlib.Values))
 	maps.Copy(vals, stdlib.Values)
-	maps.Copy(vals, stdlib.TestOverlay())
+	// Overlay stand-ins only onto bridged packages; a stand-ins-only entry for a
+	// mirror-interpreted package (fmt on wasm) would shadow the mirror.
+	for pkg, syms := range stdlib.TestOverlay() {
+		if _, bridged := vals[pkg]; bridged {
+			vals[pkg] = syms
+		}
+	}
 	i.ImportPackageValues(vals)
 	i.ImportPackageConsts(stdlib.ConstValues)
 	mfs := wireFS(i)

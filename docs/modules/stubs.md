@@ -97,31 +97,43 @@ S1 carries 3072 slots (Stringer/Error are the most-attached shape) and S38 5120
 
 ### wasm carries no pools (shared-PC dispatch)
 
-Every slot is one generated function, so the ~53k of them were about half the wasm
-binary. The wasm target carries **none** of them: all `pool_*.go` are
-`//go:build !wasm`. This is sound because on the all-interpreted wasm target no
-native caller dispatches an interpreted method through an itab or native-internal
-reflect -- interpreted code uses `IfaceCall`, and interpreted reflect is
-intercepted by the vm (`reflectValueShim`/`reflectTypeShim`). So the stub PC is
-never invoked; it exists only so the synth rtype carries a method set for reflect
-introspection (`Implements`/`NumMethod`/`MethodByName`), which read method
-name/signature metadata, not the PC.
+The ~53k stub functions were about half the wasm binary; the wasm target carries
+none (all `pool_*.go` are `//go:build !wasm`).
+This is sound because no native caller dispatches an interpreted method on wasm:
+interpreted code uses `IfaceCall`, and interpreted reflect is intercepted by the
+vm (`reflectValueShim`/`reflectTypeShim`).
+The stub PC is never invoked; it exists only so the synth rtype carries a method
+set for reflect introspection, which reads name/signature metadata, not the PC.
 
-The wasm build therefore wires every method's `Ifn`/`Tfn` to one shared trap PC:
-`stubs.FillMethods` (`fill_wasm.go`) points them all at `sharedStub`, which panics
-if ever reached (i.e. if interpreted-method dispatch is ever attempted from native
-code -- which means a package that should have been interpreted is still a native
-bridge). On the vm side, `vm.synthSharedPC` (build-tagged) makes `resolveDispatch`
-attach every method regardless of shape and skips handler/word-core building.
-`arrays_wasm.go` declares the empty `stubsSN` arrays so the hand-written
-`registry_sN.go` still compile on wasm; they are unreachable and the linker drops
-them. This cuts the wasm binary ~30 MB (68.8 -> 39 MB). Native dispatch is
-unchanged -- it still uses the full per-signature pools. See
+So wasm wires every `Ifn`/`Tfn` to one shared trap PC (`fill_wasm.go`'s
+`sharedStub`, which panics if reached), and `vm.synthSharedPC` makes
+`resolveDispatch` attach every method without building handlers.
+`arrays_wasm.go` declares empty `stubsSN` arrays so `registry_sN.go` still
+compile (unreachable; the linker drops them).
+Native dispatch is unchanged. See
 [ADR-022](../decisions/ADR-022-word-class-dispatch.md).
 
-This is the first step of removing stubs on wasm; it only pays off once the
-method-dispatching stdlib packages (`fmt`, `encoding/*`, `sort`, ...) are
-interpreted from source rather than bridged, so no native caller hits the trap.
+### Interpreting dispatchers from the mirror
+
+The trap is only avoided once method-dispatching packages (`fmt`, ...) are
+interpreted rather than bridged.
+`fmt` is the first: `BuildTags["fmt"] = "!wasm"` drops its bridge on wasm, so it
+loads from the embedded mirror (`github.com/mvm-sh/std`, which ships `fmt`,
+`internal/fmtsort`, and a bytealg-free `internal/stringslite`).
+A bridge never loads mirror source on native (`LoadPackageSources` skips it), so
+native `fmt` keeps using the reflect bindings.
+
+### Dropping bridges to shrink the wasm binary
+
+A bridge `reflect.ValueOf`s every exported symbol, pinning it against dead-code
+elimination -- even in packages mvm's own code keeps (crypto, net/http,
+archive/zip via `modfs`), so most bridge weight is unused functions.
+`cmd/extract`'s `WasmDropPrefixes`/`WasmDropExact` tag heavy, rarely-needed
+bridges `!wasm` (crypto, net, image, debug, go, compress, archive, database/sql,
+...); they then interpret from the mirror or error until mirrored.
+This cut the binary 39.1 -> 24.2 MB (bridge-free floor ~19 MB).
+The floor stays bridged: reflect/runtime/sync/unsafe/syscall plus common
+pure/host packages (os, io, strings, strconv, math, unicode, time, regexp, ...).
 
 ### Word-class shapes
 
@@ -168,8 +180,7 @@ after editing the shape catalog in `gen_pools.go`.
 
 - Pools are finite; a process attaching more distinct methods of one shape than
   its pool holds errors out (`stubs: shape SN stub pool exhausted`). Sizes are a
-  static guess tuned to the test suite, with the wasm build deliberately smaller
-  (see "Pool sizes and the wasm binary" above).
+  static guess tuned to the test suite (wasm carries no pools; see above).
 - A new *typed* shape is append-only edits to `gen_pools.go` + a hand-written
   `registry_sN.go` + a `makeHandlerSN`/`detectShape` case in `vm/synth_bridge.go`;
   an ABI-compatible signature needs none of that and rides an existing word-shape.
