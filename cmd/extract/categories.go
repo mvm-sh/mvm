@@ -94,7 +94,6 @@ var BuildTags = map[string]string{
 // WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the
 // linker then DCEs their unused exported functions. See docs/modules/stubs.md.
 var WasmDropPrefixes = []string{
-	"crypto",
 	"net",
 	"image",
 	"debug",
@@ -106,12 +105,12 @@ var WasmDropPrefixes = []string{
 	"html/template",
 }
 
-// WasmKeepExact overrides a WasmDrop prefix: these packages stay native bridges
-// on wasm because an interpreted package needs them and they cross the boundary
-// by value only (no interpreted-method dispatch, so no shared-PC trap).
-var WasmKeepExact = map[string]bool{
-	"crypto/rand": true, // mime/multipart Writer boundary; host random source
-}
+// WasmKeepExact overrides a WasmDrop prefix: a package listed here stays a native
+// bridge on wasm even though its prefix is dropped, for a package that an
+// interpreted dependency needs and that crosses the boundary by value only (no
+// interpreted-method dispatch, so no shared-PC trap). Empty now that all of
+// crypto is bridged on wasm; repopulate if a dropped prefix needs an exception.
+var WasmKeepExact = map[string]bool{}
 
 var WasmDropExact = map[string]bool{
 	"database/sql":        true,
