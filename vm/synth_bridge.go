@@ -402,6 +402,11 @@ func embeddedTypeAt(t *Type, idx int) *Type {
 }
 
 func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
+	if synthSharedPC {
+		// wasm: attach every method via one shared PC; no shape needed.
+		s.method.Rtype = precise
+		return true
+	}
 	shape, shapeOK := detectShape(erased)
 	if shapeOK && !forceWordShape && erased == precise {
 		s.shape = shape
@@ -442,6 +447,17 @@ func toSynthMethods(
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
+		if synthSharedPC {
+			// wasm: shared-PC attach ignores shape/handler; only the method's
+			// name/signature metadata is needed for reflect introspection.
+			out[i] = stubs.Method{
+				Name:     s.name,
+				Exported: isExportedName(s.name),
+				PkgPath:  s.pkgName,
+				Sig:      s.method.Rtype,
+			}
+			continue
+		}
 		if s.wordKey != "" {
 			out[i] = stubs.Method{
 				Name:     s.name,

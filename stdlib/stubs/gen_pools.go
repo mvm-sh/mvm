@@ -25,21 +25,12 @@ import (
 // in the interp test suite exceed it; S1 carries a larger Size below.
 const poolSize = 256
 
-// Wasm pool-size policy. The stub pools are ~half the wasm binary (one generated
-// function per slot), so wasm trades pool headroom for binary size while the
-// native/register-ABI targets keep the full sizes the compat matrix needs. A
-// shape's wasm size is min(fullSize, wasmMax) for the pervasive (explicitly-sized)
-// shapes and wasmTail for the rare default-sized tail. The slots a shape drops on
-// wasm are still generated for native into //go:build !wasm extension files, so
-// only the wasm binary shrinks. Pool exhaustion is a clean error (stubs: ...
-// exhausted), so undersizing degrades gracefully; raise these if a heavy workload
-// runs on wasm. See ADR-022 and docs/modules/stubs.md.
-const (
-	wasmMax  = 1024 // cap for explicitly-sized (pervasive) shapes on wasm
-	wasmTail = 256  // default-sized (rare) shapes: native parity, so only the
-	// pervasive pools shrink. The compat matrix under wasm showed 128 too low
-	// (grpc/status's "pp_" tail peaks at 180), so the tail keeps the native default.
-)
+// Wasm carries NO per-signature stub pools. Every interpreted method shares one
+// stub PC (see vm.synthSharedPC and stubs/fill_wasm.go) because no native caller
+// dispatches an interpreted method on the all-interpreted wasm target. So the
+// generated pool files below are //go:build !wasm; the wasm build only needs the
+// empty stubs<id> array declarations (arrays_wasm.go) so the hand-written
+// registry_s*.go still compile. See ADR-022 and docs/modules/stubs.md.
 
 type shape struct {
 	ID      string   // "S1", "S2", ...
@@ -55,14 +46,6 @@ func (s shape) size() int {
 		return s.Size
 	}
 	return poolSize
-}
-
-// wasmSize is the slot count built into the wasm binary (<= size()).
-func (s shape) wasmSize() int {
-	if s.Size == 0 {
-		return wasmTail
-	}
-	return min(s.Size, wasmMax)
 }
 
 // spec captures everything needed to emit one typed-shape stub function.
@@ -271,22 +254,13 @@ func (w wordShape) size() int {
 	return poolSize
 }
 
-// wasmSize is the slot count built into the wasm binary (<= size()).
-func (w wordShape) wasmSize() int {
-	if w.Size == 0 {
-		return wasmTail
-	}
-	return min(w.Size, wasmMax)
-}
-
 // key is the runtime lookup key the vm computes independently (params_results).
 func (w wordShape) key() string { return w.Params + "_" + w.Results }
 
 // ident is the Go-identifier base for this shape's generated symbols.
 func (w wordShape) ident() string { return "W" + w.Params + "_" + w.Results }
 
-// stubSpec captures everything needed to emit one stub function and its PC-table
-// fill, shared by the main (wasm-built) pool file and the !wasm extension files.
+// stubSpec captures everything needed to emit one stub function and its PC-table fill.
 type stubSpec struct {
 	id      string   // "S1" / "Wpi_pppp"
 	params  string   // typed params after recv (leading ", " or "")
@@ -296,24 +270,23 @@ type stubSpec struct {
 	imports []string // extra imports the signature needs
 }
 
-// extStub is one stub slot the wasm build omits; collected for the !wasm files.
-type extStub struct {
-	sp  stubSpec
-	idx int
-}
-
-// sizeRow is one shape's per-arch pool size, emitted into the build-tagged sizes files.
+// sizeRow is one shape's pool size, emitted into sizes.go.
 type sizeRow struct {
-	id         string
-	full, wasm int
+	id   string
+	full int
 }
 
-var (
-	extStubs []extStub
-	sizeRows []sizeRow
-)
+var sizeRows []sizeRow
 
 func main() {
+	for _, f := range mustGlob("pool_ext_*.go") { // stale files from the old wasm-split scheme
+		mustRemove(f)
+	}
+	for _, f := range []string{"sizes_regabi.go", "sizes_wasm.go"} {
+		if _, err := os.Stat(f); err == nil {
+			mustRemove(f)
+		}
+	}
 	for _, s := range shapes {
 		emit(s)
 	}
@@ -321,7 +294,15 @@ func main() {
 		emitWord(w)
 	}
 	emitSizes()
-	emitExt()
+	emitArraysWasm()
+}
+
+func mustGlob(pat string) []string { m, _ := filepath.Glob(pat); return m }
+
+func mustRemove(f string) {
+	if err := os.Remove(f); err != nil {
+		log.Fatalf("remove %s: %v", f, err)
+	}
 }
 
 // writeStub emits one stub function: a noinline forwarder to its dispatcher.
@@ -329,15 +310,6 @@ func writeStub(b *bytes.Buffer, sp stubSpec, i int) {
 	fmt.Fprintf(b, "//go:noinline\n")
 	fmt.Fprintf(b, "func stub%s_%d(recv unsafe.Pointer%s) %s { %sdispatch%s(%d, recv%s) }\n\n",
 		sp.id, i, sp.params, sp.results, sp.ret, sp.id, i, sp.args)
-}
-
-// collectExt records the slots [wasmN, fullN) the wasm build omits (emitted into
-// the !wasm extension files) plus the shape's per-arch sizes.
-func collectExt(sp stubSpec, wasmN, fullN int) {
-	for i := wasmN; i < fullN; i++ {
-		extStubs = append(extStubs, extStub{sp, i})
-	}
-	sizeRows = append(sizeRows, sizeRow{sp.id, fullN, wasmN})
 }
 
 // writeFormatted gofmt-formats b and writes it to name.
@@ -352,84 +324,39 @@ func writeFormatted(name string, b *bytes.Buffer) {
 	fmt.Printf("wrote %s\n", name)
 }
 
-// emitSizes writes the build-tagged poolSize<id> constants: full sizes for native,
-// reduced sizes for wasm. The slot arrays and cap checks key on these, so the wasm
-// build allocates and bounds its smaller pools while native keeps the full ones.
+// emitSizes writes the poolSize<id> constants (one untagged file). The hand-written
+// registry_s*.go size their slot arrays on these on every arch; the !wasm pool
+// files and the wasm arrays_wasm.go both size stubs<id> on them too.
 func emitSizes() {
-	emitSizeFile("sizes_regabi.go", "!wasm",
-		"Full pool sizes for native/register-ABI targets, tuned for the compat\nmatrix's heaviest single-process attach counts.",
-		func(r sizeRow) int { return r.full })
-	emitSizeFile("sizes_wasm.go", "wasm",
-		"Reduced pool sizes for wasm: the stub pools are ~half the wasm binary, so\nwasm trades pool headroom for size (see gen_pools.go wasmMax/wasmTail).\nExhaustion is a clean error; raise the sizes if a heavy workload runs on wasm.",
-		func(r sizeRow) int { return r.wasm })
-}
-
-func emitSizeFile(name, tag, doc string, pick func(sizeRow) int) {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "//go:build %s\n\n", tag)
 	fmt.Fprintf(&b, "// Code generated by gen_pools.go; DO NOT EDIT.\n")
-	for _, line := range strings.Split(doc, "\n") {
-		fmt.Fprintf(&b, "// %s\n", line)
-	}
-	fmt.Fprintf(&b, "\npackage stubs\n\nconst (\n")
+	fmt.Fprintf(&b, "// Per-shape stub-pool sizes, tuned for the compat matrix's heaviest\n")
+	fmt.Fprintf(&b, "// single-process attach counts.\n\n")
+	fmt.Fprintf(&b, "package stubs\n\nconst (\n")
 	for _, r := range sizeRows {
-		fmt.Fprintf(&b, "\tpoolSize%s = %d\n", r.id, pick(r))
+		fmt.Fprintf(&b, "\tpoolSize%s = %d\n", r.id, r.full)
 	}
 	fmt.Fprintf(&b, ")\n")
-	writeFormatted(name, &b)
+	writeFormatted("sizes.go", &b)
 }
 
-// extChunk bounds the stub functions per extension file (these are //go:build
-// !wasm so the wasm 65536-block init limit does not apply; the cap just keeps each
-// generated file a reasonable size).
-const extChunk = 4000
-
-// emitExt writes the slots the wasm build omits into a few !wasm extension files,
-// each filling its slice of the (native-sized) stub arrays. Stale extension files
-// from a prior run are removed first: a size change can shrink the file count, and
-// a leftover would redeclare stubs (duplicate symbol).
-func emitExt() {
-	old, _ := filepath.Glob("pool_ext_*.go")
-	for _, f := range old {
-		if err := os.Remove(f); err != nil {
-			log.Fatalf("remove stale %s: %v", f, err)
-		}
-	}
-	for start, file := 0, 0; start < len(extStubs); start, file = start+extChunk, file+1 {
-		emitExtFile(file, extStubs[start:min(start+extChunk, len(extStubs))])
-	}
-}
-
-func emitExtFile(n int, chunk []extStub) {
-	seen := map[string]bool{}
-	var extra []string
-	for _, e := range chunk {
-		for _, imp := range e.sp.imports {
-			if !seen[imp] {
-				seen[imp] = true
-				extra = append(extra, imp)
-			}
-		}
-	}
+// emitArraysWasm writes the empty typed-shape stubs<id> arrays for wasm. The
+// hand-written registry_s*.go reference stubs<id>; on wasm the !wasm pool files
+// that normally declare them are absent, so this provides the declarations (the
+// arrays are never populated -- FillMethods on wasm uses one shared PC -- and the
+// linker drops them since acquireSlot* is unreachable). Word-shape arrays need no
+// companion: only the generated pool_w*.go reference them.
+func emitArraysWasm() {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "//go:build !wasm\n\n")
+	fmt.Fprintf(&b, "//go:build wasm\n\n")
 	fmt.Fprintf(&b, "// Code generated by gen_pools.go; DO NOT EDIT.\n")
-	fmt.Fprintf(&b, "// Stub slots the wasm build omits (native only); see gen_pools.go.\n\n")
-	fmt.Fprintf(&b, "package stubs\n\n")
-	fmt.Fprintf(&b, "import (\n\t\"unsafe\"\n")
-	for _, imp := range extra {
-		fmt.Fprintf(&b, "\t%q\n", imp)
+	fmt.Fprintf(&b, "// Empty stub-PC arrays so registry_s*.go compile on wasm; see gen_pools.go.\n\n")
+	fmt.Fprintf(&b, "package stubs\n\nvar (\n")
+	for _, s := range shapes {
+		fmt.Fprintf(&b, "\tstubs%s [poolSize%s]uintptr\n", s.ID, s.ID)
 	}
-	fmt.Fprintf(&b, "\n\t\"github.com/mvm-sh/mvm/runtype\"\n)\n\n")
-	for _, e := range chunk {
-		writeStub(&b, e.sp, e.idx)
-	}
-	fmt.Fprintf(&b, "func init() {\n")
-	for _, e := range chunk {
-		fmt.Fprintf(&b, "\tstubs%s[%d] = runtype.FuncPC(stub%s_%d)\n", e.sp.id, e.idx, e.sp.id, e.idx)
-	}
-	fmt.Fprintf(&b, "}\n")
-	writeFormatted(fmt.Sprintf("pool_ext_%d.go", n), &b)
+	fmt.Fprintf(&b, ")\n")
+	writeFormatted("arrays_wasm.go", &b)
 }
 
 // wordParamParts builds the typed param list, the dispatch arg list, the scatter
@@ -496,7 +423,7 @@ func wordResultParts(classes string) (decl, gather string, nrpw, nrsw, nrfw int)
 }
 
 func emitWord(w wordShape) {
-	sz, wn := w.size(), w.wasmSize()
+	sz := w.size()
 	id := w.ident()
 	pDecl, pArgs, scatter, npw, nsw, nfw := wordParamParts(w.Params)
 	rDecl, gather, nrpw, nrsw, nrfw := wordResultParts(w.Results)
@@ -507,13 +434,14 @@ func emitWord(w wordShape) {
 	sp := stubSpec{id: id, params: pDecl, results: rDecl, ret: ret, args: pArgs}
 
 	var b bytes.Buffer
+	fmt.Fprintf(&b, "//go:build !wasm\n\n")
 	fmt.Fprintf(&b, "// Code generated by gen_pools.go; DO NOT EDIT.\n")
-	fmt.Fprintf(&b, "// Word-shape %s pool: %d slots (%d on wasm).\n\n", w.key(), sz, wn)
+	fmt.Fprintf(&b, "// Word-shape %s pool: %d slots. Native only (see gen_pools.go).\n\n", w.key(), sz)
 	fmt.Fprintf(&b, "package stubs\n\n")
 	fmt.Fprintf(&b, "import (\n\t\"sync/atomic\"\n\t\"unsafe\"\n\n\t\"github.com/mvm-sh/mvm/runtype\"\n)\n\n")
 	fmt.Fprintf(&b, "var (\n\tslotPool%s [poolSize%s]CoreFunc\n\tnextSlot%s atomic.Uint32\n)\n\n", id, id, id)
 
-	for i := range wn {
+	for i := range sz {
 		writeStub(&b, sp, i)
 	}
 
@@ -532,10 +460,8 @@ func emitWord(w wordShape) {
 	}
 	fmt.Fprintf(&b, "}\n\n")
 
-	// Fill the wasm-resident slots [0,wn) and register; the !wasm extension files
-	// fill [wn,sz). One init per file keeps each under wasm's 65536-block limit.
 	fmt.Fprintf(&b, "func init() {\n")
-	for i := range wn {
+	for i := range sz {
 		fmt.Fprintf(&b, "\tstubs%s[%d] = runtype.FuncPC(stub%s_%d)\n", id, i, id, i)
 	}
 	fmt.Fprintf(&b, "\tregisterWordPool(%q, &wordPool{\n", w.key())
@@ -543,15 +469,16 @@ func emitWord(w wordShape) {
 	fmt.Fprintf(&b, "\t\tstubs: stubs%s[:],\n\t\tslots: slotPool%s[:],\n\t\tname:  %q,\n\t})\n}\n", id, id, id)
 
 	writeFormatted(fmt.Sprintf("pool_%s.go", lower(id)), &b)
-	collectExt(sp, wn, sz)
+	sizeRows = append(sizeRows, sizeRow{id, sz})
 }
 
 func emit(s shape) {
-	sz, wn := s.size(), s.wasmSize()
+	sz := s.size()
 	sp := s.spec()
 	var b bytes.Buffer
+	fmt.Fprintf(&b, "//go:build !wasm\n\n")
 	fmt.Fprintf(&b, "// Code generated by gen_pools.go; DO NOT EDIT.\n")
-	fmt.Fprintf(&b, "// Shape %s pool: %d slots (%d on wasm).\n\n", s.ID, sz, wn)
+	fmt.Fprintf(&b, "// Shape %s pool: %d slots. Native only (see gen_pools.go).\n\n", s.ID, sz)
 	fmt.Fprintf(&b, "package stubs\n\n")
 	fmt.Fprintf(&b, "import (\n\t\"unsafe\"\n")
 	for _, imp := range s.Imports {
@@ -559,20 +486,18 @@ func emit(s shape) {
 	}
 	fmt.Fprintf(&b, "\n\t\"github.com/mvm-sh/mvm/runtype\"\n")
 	fmt.Fprintf(&b, ")\n\n")
-	for i := range wn {
+	for i := range sz {
 		writeStub(&b, sp, i)
 	}
-	// Fill the wasm-resident slots [0,wn); the !wasm extension files fill [wn,sz).
-	// One init per file keeps each under wasm's 65536-block per-function limit.
 	fmt.Fprintf(&b, "var stubs%s [poolSize%s]uintptr\n\n", s.ID, s.ID)
 	fmt.Fprintf(&b, "func init() {\n")
-	for i := range wn {
+	for i := range sz {
 		fmt.Fprintf(&b, "\tstubs%s[%d] = runtype.FuncPC(stub%s_%d)\n", s.ID, i, s.ID, i)
 	}
 	fmt.Fprintf(&b, "}\n")
 
 	writeFormatted(fmt.Sprintf("pool_%s.go", lower(s.ID)), &b)
-	collectExt(sp, wn, sz)
+	sizeRows = append(sizeRows, sizeRow{s.ID, sz})
 }
 
 func lower(s string) string {
