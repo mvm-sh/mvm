@@ -466,6 +466,19 @@ func (p *Parser) parseTypeSwitchClause(in Tokens, index, maximum int, tsName, va
 	var vScoped string
 	if varName != "" {
 		vScoped = p.addTempVar(varName)
+		// Type the case variable for a single-type case so the body's parse-time
+		// inference (e.g. a field access feeding a generic call) can resolve it.
+		// Multi-type and nil cases keep the interface type (set at runtime).
+		if cs := conds.Split(lang.Comma); len(cs) == 1 {
+			c := cs[0]
+			if !(len(c) == 1 && c[0].Tok == lang.Ident && c[0].Str == "nil") {
+				if t, _, e := p.parseTypeExpr(c); e == nil && t != nil {
+					if sym := p.Symbols[vScoped]; sym != nil {
+						sym.Type = t
+					}
+				}
+			}
+		}
 	}
 	body, err := p.parseStmts(in[ci+1:])
 	p.popScope() // back to switchScope

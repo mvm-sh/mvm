@@ -1194,7 +1194,14 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				if st.Kind() == reflect.Pointer {
 					st = st.Elem()
 				}
-				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
+				// Probe the pointer-receiver key (*T.m) too: a pointer receiver and an
+				// addressable value both expose pointer methods, keyed "*T.m". MethodByName
+				// falls back from *T to T, so this still finds value-receiver methods.
+				lookupName := st.Name
+				if lookupName != "" {
+					lookupName = "*" + lookupName
+				}
+				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: lookupName, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
 					return funcReturnType(ms.Type), totalLen
 				}
 				// Interface receiver: the method set lives in IfaceMethods, not as

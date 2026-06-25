@@ -84,6 +84,11 @@ var BuildTags = map[string]string{
 	"container/list":  "!wasm",
 	"container/ring":  "!wasm",
 	"flag":            "!wasm",
+	"regexp":          "!wasm",
+	"regexp/syntax":   "!wasm",
+	"text/scanner":    "!wasm",
+	"text/tabwriter":  "!wasm",
+	"html":            "!wasm",
 }
 
 // WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the
@@ -106,7 +111,6 @@ var WasmDropExact = map[string]bool{
 	"database/sql/driver": true,
 	"expvar":              true,
 	"index/suffixarray":   true,
-	"math/big":            true,
 	"os/user":             true,
 	"log/syslog":          true,
 	"encoding/gob":        true,
