@@ -60,13 +60,21 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 	if !isSynthIfaceTargetFunc(fn) {
 		return reflect.Value{}
 	}
-	// Fill unmaterialized method sigs before building the synth rtype.
-	// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
-	// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
-	for i := range et.IfaceMethods {
-		MaterializeIfaceMethod(&et.IfaceMethods[i])
+	// A native-bridged interface (error, io.Writer) already carries its canonical
+	// rtype; reuse it so the retyped pointer's element keeps that identity
+	// (reflect.TypeFor[error]() stays == a func's error result). Only an
+	// interpreted/anonymous interface erased to interface{} needs a synth carrier
+	// built here to expose its method set to the native callee.
+	st := et.Rtype
+	if st == AnyRtype || st.NumMethod() == 0 {
+		// Fill unmaterialized method sigs before building the synth rtype.
+		// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
+		// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
+		for i := range et.IfaceMethods {
+			MaterializeIfaceMethod(&et.IfaceMethods[i])
+		}
+		st = synthIfaceRtype(et)
 	}
-	st := synthIfaceRtype(et)
 	if st == nil {
 		return reflect.Value{}
 	}

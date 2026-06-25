@@ -877,3 +877,75 @@ func main() {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }
+
+// evalNoPanic runs an interpreted program that panics on its own assertion
+// failure, so the check works on the wasm build too (where interpreted fmt
+// output is not captured by the in-process SetIO buffer).
+func evalNoPanic(t *testing.T, name, src string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval(name, src); err != nil {
+		t.Fatalf("Eval: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+}
+
+// TestSynthConcreteMethodByNameCall exercises reflect.Value.MethodByName().Call()
+// on a CONCRETE interpreted type whose method is never reached through an
+// interface (so it is absent from the global interface-method table). On the
+// shared-PC (wasm) build the native uncommon-table entry is a trap stub, so the
+// shim routes through VM dispatch; the bound func type must come from the
+// method's own signature (mtype.Method.Rtype), not the iface-method table -- else
+// MethodByName returns an invalid Value and the call drops silently (text/template
+// method pipelines rendered empty). On non-wasm builds the native table serves it.
+func TestSynthConcreteMethodByNameCall(t *testing.T) {
+	evalNoPanic(t, "synth_concrete_method_test.go", `package main
+
+import "reflect"
+
+type Item struct{ Price int }
+
+func (i Item) Discounted(p int) int { return i.Price - p }
+
+func main() {
+	m := reflect.ValueOf(Item{Price: 40}).MethodByName("Discounted")
+	if !m.IsValid() {
+		panic("MethodByName returned an invalid Value")
+	}
+	out := m.Call([]reflect.Value{reflect.ValueOf(7)})
+	if got := out[0].Interface().(int); got != 33 {
+		panic("wrong method result")
+	}
+}
+`)
+}
+
+// TestSynthErrorTypeIdentity pins the canonical identity of the predeclared
+// error interface across reflect: reflect.TypeFor[error]() (the interpreted shim
+// TypeOf((*error)(nil)).Elem()) must equal the error result type of an
+// interpreted func signature. A bridgePtrToIface bug synthesized a fresh
+// interface rtype for the (*error)(nil) type tag even though error already
+// carries its canonical native rtype, so reflect.TypeFor[error]() != Out(1) and
+// text/template's goodFunc rejected every (bool, error) builtin ("second return
+// value should be error; is error"). That specific regression only surfaces
+// through the full `mvm run` path on the shared-PC (wasm) build (validated
+// end-to-end via text/template under wazero); this test guards the invariant.
+func TestSynthErrorTypeIdentity(t *testing.T) {
+	evalNoPanic(t, "synth_error_identity_test.go", `package main
+
+import "reflect"
+
+func le(a, b int) (bool, error) { return a < b, nil }
+
+func main() {
+	tf := reflect.TypeFor[error]()
+	te := reflect.TypeOf((*error)(nil)).Elem()
+	out1 := reflect.TypeOf(le).Out(1)
+	if out1 != tf || out1 != te {
+		panic("error interface rtype identity split across the bridge boundary")
+	}
+}
+`)
+}

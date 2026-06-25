@@ -192,7 +192,14 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 				if !found {
 					return zeroReflectValueResult
 				}
-				ft := m.ifaceMethodFuncType(methodName)
+				// Prefer the method's own bound signature. The global
+				// interface-method table only registers methods reached through
+				// an interface, so a concrete method invoked solely via reflect
+				// (text/template's MethodByName.Call) is absent there.
+				ft := method.Rtype
+				if ft == nil {
+					ft = m.ifaceMethodFuncType(methodName)
+				}
 				if ft == nil {
 					return zeroReflectValueResult
 				}
