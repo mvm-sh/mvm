@@ -73,7 +73,7 @@ type Interp struct {
 // breaks the Machine->Interp link so it becomes collectable. Long-lived hosts
 // spawning many interpreters should call it; do not use the interpreter after.
 func (i *Interp) Close() {
-	i.Machine.ReleaseSynthMethods()
+	i.ReleaseSynthMethods()
 	i.SetDebugInfo(nil)
 }
 

@@ -106,6 +106,13 @@ var WasmDropPrefixes = []string{
 	"html/template",
 }
 
+// WasmKeepExact overrides a WasmDrop prefix: these packages stay native bridges
+// on wasm because an interpreted package needs them and they cross the boundary
+// by value only (no interpreted-method dispatch, so no shared-PC trap).
+var WasmKeepExact = map[string]bool{
+	"crypto/rand": true, // mime/multipart Writer boundary; host random source
+}
+
 var WasmDropExact = map[string]bool{
 	"database/sql":        true,
 	"database/sql/driver": true,
@@ -131,6 +138,9 @@ var WasmDropExact = map[string]bool{
 }
 
 func isWasmDropped(importPath string) bool {
+	if WasmKeepExact[importPath] {
+		return false
+	}
 	if WasmDropExact[importPath] {
 		return true
 	}

@@ -41,4 +41,4 @@ func asReflectType(t *abiType) reflect.Type {
 }
 
 // sampleReflectType carries the canonical (*rtype, reflect.Type) itab.
-var sampleReflectType reflect.Type = reflect.TypeOf(struct{}{})
+var sampleReflectType = reflect.TypeOf(struct{}{})
