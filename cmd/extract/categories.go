@@ -80,6 +80,10 @@ var BuildTags = map[string]string{
 	"encoding/binary": "!wasm",
 	"encoding/hex":    "!wasm",
 	"encoding/base64": "!wasm",
+	"container/heap":  "!wasm",
+	"container/list":  "!wasm",
+	"container/ring":  "!wasm",
+	"flag":            "!wasm",
 }
 
 // WasmDropPrefixes and WasmDropExact tag bridges !wasm to shrink the binary; the
