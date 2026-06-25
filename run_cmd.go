@@ -46,6 +46,7 @@ func runCmd(arg []string) error {
 	args := rflag.Args()
 
 	i := interp.NewInterpreter(golang.GoSpec)
+	i.UseHostStdio()
 	i.ImportPackageValues(stdlib.Values)
 	i.ImportPackageConsts(stdlib.ConstValues)
 	applyInterpOverrides(i)

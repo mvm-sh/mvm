@@ -35,6 +35,7 @@ import (
 //export MvmNew
 func MvmNew() C.uintptr_t {
 	i := interp.NewInterpreter(golang.GoSpec)
+	i.UseHostStdio() // interpreted os.Stdout stays the host *os.File
 	i.ImportPackageValues(stdlib.Values)
 
 	// Pre-register a custom "host" package. Interpreted code can call

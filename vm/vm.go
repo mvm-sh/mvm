@@ -494,6 +494,12 @@ func (m *Machine) SetIO(in io.Reader, out, err io.Writer) { m.in = in; m.out = o
 // Out returns the machine's standard output writer.
 func (m *Machine) Out() io.Writer { return m.out }
 
+// Err returns the machine's standard error writer.
+func (m *Machine) Err() io.Writer { return m.err }
+
+// In returns the machine's standard input reader.
+func (m *Machine) In() io.Reader { return m.in }
+
 // SetDebugInfo registers a function that builds DebugInfo on demand and
 // invalidates the trace-step cache so the next traceStep call rebuilds.
 func (m *Machine) SetDebugInfo(fn func() *DebugInfo) {

@@ -317,7 +317,7 @@ func main() {
 	if got, want := stdout.String(), "[1,2]"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := stubs.SlotsUsedS2(); got <= before {
+	if got := stubs.SlotsUsedS2(); runtime.GOARCH != "wasm" && got <= before {
 		t.Errorf("SlotsUsedS2 did not advance (before=%d after=%d); "+
 			"synth S2 path was not exercised", before, got)
 	}
@@ -360,7 +360,7 @@ func main() {
 	if got, want := stdout.String(), "9"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := stubs.SlotsUsedS3(); got <= before {
+	if got := stubs.SlotsUsedS3(); runtime.GOARCH != "wasm" && got <= before {
 		t.Errorf("SlotsUsedS3 did not advance (before=%d after=%d); "+
 			"synth S3 path was not exercised", before, got)
 	}
@@ -463,6 +463,9 @@ func main() {
 // (compiler.go:136), so without per-*Type dedup the walker would attach each
 // rtype twice, doubling consumption to 4.
 func TestSynthAttachIdempotent(t *testing.T) {
+	if runtime.GOARCH == "wasm" {
+		t.Skip("stub pools are collapsed to a shared PC on wasm; SlotsUsed never advances")
+	}
 	const src = `package main
 
 import "fmt"

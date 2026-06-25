@@ -25,6 +25,7 @@ import (
 
 func main() {
 	i := interp.NewInterpreter(golang.GoSpec)
+	i.UseHostStdio() // interpreted os.Stdout stays the host *os.File
 	i.SetIO(os.Stdin, os.Stdout, os.Stderr)
 
 	// Bring in the standard library bindings (fmt, strings, strconv, ...).

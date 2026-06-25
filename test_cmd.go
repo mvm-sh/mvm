@@ -285,6 +285,7 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	// retry past) does not spuriously "flag redefined" and drop the owning file.
 	resetCommandLineFlags()
 	i := interp.NewInterpreter(golang.GoSpec)
+	i.UseHostStdio()
 	// Install bridges, then layer in test-only export_test stand-ins (e.g.
 	// strings.StringFind) so external stdlib tests that use them resolve. The
 	// overlay is test-runner-only, so `mvm run` never sees these symbols.
