@@ -36,7 +36,9 @@ const poolSize = 256
 // runs on wasm. See ADR-022 and docs/modules/stubs.md.
 const (
 	wasmMax  = 1024 // cap for explicitly-sized (pervasive) shapes on wasm
-	wasmTail = 128  // default-sized (rare) shapes on wasm
+	wasmTail = 256  // default-sized (rare) shapes: native parity, so only the
+	// pervasive pools shrink. The compat matrix under wasm showed 128 too low
+	// (grpc/status's "pp_" tail peaks at 180), so the tail keeps the native default.
 )
 
 type shape struct {

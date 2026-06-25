@@ -102,13 +102,17 @@ S1 carries 3072 slots (Stringer/Error are the most-attached shape) and S38 5120
 Every slot is one generated function, so the ~53k of them are about half the wasm
 binary. Native/register-ABI targets keep the full sizes (`sizes_regabi.go`), tuned
 for the compat matrix's heaviest single-process attach counts. The wasm build uses
-reduced sizes (`sizes_wasm.go`): pervasive shapes are capped at `wasmMax` (1024)
-and the rare default-sized tail drops to `wasmTail` (128), cutting the wasm binary
-from ~80 MB to ~60 MB. The slots wasm omits are still generated for native in the
-`//go:build !wasm` `pool_ext_*.go` files, so only the wasm binary shrinks; native
-dispatch is unchanged. Pool exhaustion is a clean error, so the smaller wasm pools
-degrade gracefully -- raise `wasmMax`/`wasmTail` in `gen_pools.go` if a heavy
-workload runs on wasm.
+reduced sizes (`sizes_wasm.go`): the pervasive (explicitly-sized) shapes are capped
+at `wasmMax` (1024) while the rare default-sized tail keeps native parity
+(`wasmTail` 256), cutting the wasm binary from ~80 MB to ~69 MB. The slots wasm
+omits are still generated for native in the `//go:build !wasm` `pool_ext_*.go`
+files, so only the wasm binary shrinks; native dispatch is unchanged. Pool
+exhaustion is a clean error, so the smaller wasm pools degrade gracefully: only
+protobuf-class workloads (which attach ~1700 of the `S38` marker shape, above the
+1024 wasm cap) exhaust -- raise `wasmMax`/`wasmTail` in `gen_pools.go` if such a
+workload must run on wasm. (`wasmTail` was lowered to 128 first, but the compat
+matrix under wasm showed mainstream packages like grpc/status hitting the tail, so
+it was restored to the native 256.)
 
 ### Word-class shapes
 
