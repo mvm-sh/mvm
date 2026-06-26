@@ -502,11 +502,12 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 	return out, err
 }
 
-func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
-	ctype := typ.String()
-	key := ctype
-	// Qualify a named type under the compiling/importing package's canonical key
-	// only when the type actually belongs to that package.
+// canonicalTypeKey returns the package-level key for named type typ:
+// pkg-qualified when typ belongs to the compiling/importing pkg, else
+// typ.String() ("net.Conn"). Never function-scoped, so it can't shadow a
+// same-named package type.
+func (p *Parser) canonicalTypeKey(typ *vm.Type) string {
+	key := typ.String()
 	if typ.Name != "" {
 		switch {
 		case p.CompilingPkg != "" && p.typeBelongsTo(typ, p.CompilingPkg):
@@ -515,6 +516,11 @@ func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
 			key = p.importingPkg + "." + typ.Name
 		}
 	}
+	return key
+}
+
+func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
+	key := p.canonicalTypeKey(typ)
 	if existing, ok := p.Symbols[key]; !ok || existing.Type != typ {
 		p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(typ), symbol.Type, typ)
 	}

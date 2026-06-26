@@ -1432,9 +1432,10 @@ func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
 			}
 		}
 		if typKey == "" {
-			// Type not yet in the symbol table; register it now at the
-			// canonical pkgKey (qualified for imported pkgs, bare for main/REPL).
-			typKey = p.pkgKey(typName)
+			// Register at the canonical package-level key, never a scoped one:
+			// a scoped "<func>/Conn" for a `var c net.Conn` local would shadow a
+			// same-named package type (a struct Conn) for the rest of the function.
+			typKey = p.canonicalTypeKey(typ)
 			p.SymAdd(symbol.UnsetAddr, typKey, typeTokenValue(typ), symbol.Type, typ)
 		}
 		out = append(out, newIdent(v, 0))

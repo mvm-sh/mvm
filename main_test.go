@@ -35,6 +35,27 @@ func TestRewriteTestFlags(t *testing.T) {
 	}
 }
 
+func TestHasTimeoutFlag(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"-v", "-run", "X"}, false},
+		{[]string{"-timeout", "30s"}, true},
+		{[]string{"-timeout=30s"}, true},
+		{[]string{"--timeout=30s"}, true},
+		{[]string{"-test.timeout=30s"}, true},
+		{[]string{"-v", "-timeout", "1m"}, true},
+		{[]string{"-timeouts"}, false}, // not the timeout flag
+	}
+	for _, c := range cases {
+		if got := hasTimeoutFlag(c.in); got != c.want {
+			t.Errorf("hasTimeoutFlag(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestSplitTestArgs(t *testing.T) {
 	cases := []struct {
 		in       []string

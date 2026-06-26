@@ -46,8 +46,11 @@ Target may be a local directory (default ".") or an import path
 (e.g. "github.com/google/uuid") fetched dynamically via the Go module proxy.
 Test flags use the same names as "go test": -v for verbose output,
 -run REGEX to select tests, -bench REGEX to run benchmarks, -count N,
--short, etc.
+-short, etc. A 10m0s -timeout is applied by default, as in "go test".
 `
+
+// defaultTestTimeout mirrors go test's default; applied when -timeout is absent.
+const defaultTestTimeout = "10m0s"
 
 func isMvmTestFlag(a string) bool {
 	switch a {
@@ -125,6 +128,18 @@ func hasShortFlag(args []string) bool {
 	return false
 }
 
+// hasTimeoutFlag reports whether -timeout was set in any form.
+func hasTimeoutFlag(args []string) bool {
+	for _, a := range args {
+		s := strings.TrimLeft(a, "-")
+		if s == "timeout" || s == "test.timeout" ||
+			strings.HasPrefix(s, "timeout=") || strings.HasPrefix(s, "test.timeout=") {
+			return true
+		}
+	}
+	return false
+}
+
 func rewriteTestFlags(args []string) []string {
 	out := make([]string, len(args))
 	for i, a := range args {
@@ -168,6 +183,12 @@ func testCmd(arg []string) error {
 	if stdlib.ForceShort(target) && !hasShortFlag(testFlags) {
 		fmt.Fprintf(os.Stderr, "mvm test: %s: forcing -short (stress tests impractical under the interpreter)\n", target)
 		testFlags = append([]string{"-short"}, testFlags...)
+	}
+
+	// Match go test's default timeout; testing.MainStart applies none on its own,
+	// so a blocking test would hang forever.
+	if !hasTimeoutFlag(testFlags) {
+		testFlags = append([]string{"-timeout=" + defaultTestTimeout}, testFlags...)
 	}
 
 	os.Args = append([]string{"mvm-test"}, rewriteTestFlags(testFlags)...)

@@ -1077,7 +1077,9 @@ func (t *Type) FieldLookup(name string) ([]int, *Type) {
 // embedded-field recursion, so mutually-embedding types (legal Go: `type A
 // struct{ *B }; type B struct{ *A }`) cannot loop forever.
 func (t *Type) fieldLookupSeen(name string, seen map[*Type]bool) ([]int, *Type) {
-	if t.Rtype == nil {
+	if t.Rtype == nil || t.Rtype.Kind() != reflect.Struct {
+		// A non-struct Rtype has no visible fields; reflect.VisibleFields would
+		// panic, so use the symbolic path.
 		return t.symFieldLookup(name)
 	}
 	for _, f := range reflect.VisibleFields(t.Rtype) {

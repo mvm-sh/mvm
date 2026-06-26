@@ -501,3 +501,43 @@ func main() {
 		t.Errorf("stdout:\n got %q\nwant %q", got, want)
 	}
 }
+
+// A local `var inner io.Writer` once registered io.Writer under a function-scoped
+// key ("<func>/Writer"), shadowing the same-named package struct so a later
+// `&Writer{...}` resolved to the interface and hit "reflect.VisibleFields of
+// non-struct type". Was golang.org/x/net/internal/socks (paho.mqtt.golang).
+func TestLocalVarTypeDoesNotShadowPackageType(t *testing.T) {
+	const src = `
+import "io"
+
+type Writer struct {
+	io.Writer
+	tag string
+}
+
+type Maker struct{ n int }
+
+func (m *Maker) make(w io.Writer) (io.Writer, string) {
+	var inner io.Writer
+	_ = inner
+	c := &Writer{Writer: w, tag: "ok"}
+	return c, c.tag
+}
+
+func run() string {
+	m := &Maker{}
+	_, tag := m.make(nil)
+	return tag
+}
+run()
+`
+	intp := interp.NewInterpreter(golang.GoSpec)
+	intp.ImportPackageValues(stdlib.Values)
+	r, err := intp.Eval("local_var_type_shadow", src)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "ok" {
+		t.Errorf("got %q, want %q", got, "ok")
+	}
+}
