@@ -127,7 +127,7 @@ func bindingFilename(importPath, goos, goarch string) string {
 // by kind, plus a map from const name to an explicit Go type wrapper needed
 // to avoid `reflect.ValueOf(untyped int constant) overflows int` errors when
 // the constant value cannot fit in the default Go type (e.g. uint64 > MaxInt64).
-func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[string]string, error) {
+func extract(dir, selfPath string) (map[symbol.Kind][]string, map[string]string, map[string]string, error) {
 	imports, err := extractImports(dir, *targetOS, *targetArch)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("scanning imports of %s: %w", dir, err)
@@ -139,6 +139,13 @@ func extract(dir string) (map[symbol.Kind][]string, map[string]string, map[strin
 	}
 
 	for _, imp := range imports {
+		// A package never imports itself; a self-import harvested from a doc
+		// comment (flag.go) or a //go:build ignore generator (time/genzabbrs.go)
+		// would register the package as its own Bin bridge, making
+		// LoadPackageSources short-circuit and emit an empty binding.
+		if imp == selfPath {
+			continue
+		}
 		p.Packages[imp] = &symbol.Package{
 			Path:   imp,
 			Bin:    true,
@@ -218,7 +225,7 @@ func constWrapFor(sym *symbol.Symbol) string {
 }
 
 func run(out io.Writer, dir string) error {
-	groups, _, _, err := extract(dir)
+	groups, _, _, err := extract(dir, "")
 	if err != nil {
 		return err
 	}
@@ -241,7 +248,7 @@ func runValues(out io.Writer, importPath, dirOverride string) error {
 	if err != nil {
 		return err
 	}
-	groups, typedConsts, _, err := extract(dir)
+	groups, typedConsts, _, err := extract(dir, canonPath)
 	if err != nil {
 		return err
 	}
@@ -354,7 +361,7 @@ func buildValuesFile(importPath, alias, pkgName string, groups map[symbol.Kind][
 }
 
 func runGen(outDir, dir, importPath string) error {
-	groups, typedConsts, constExacts, err := extract(dir)
+	groups, typedConsts, constExacts, err := extract(dir, importPath)
 	if err != nil {
 		return err
 	}

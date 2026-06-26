@@ -134,7 +134,7 @@ func TestExtractFromInsideDir(t *testing.T) {
 	}
 	t.Chdir(dir)
 
-	groups, _, _, err := extract(".")
+	groups, _, _, err := extract(".", "")
 	if err != nil {
 		t.Fatalf("extract(%q): %v", ".", err)
 	}
@@ -143,6 +143,28 @@ func TestExtractFromInsideDir(t *testing.T) {
 	}
 	if !slices.Contains(groups[symbol.Func], "Sleep") {
 		t.Errorf("missing func Sleep; got funcs %v", groups[symbol.Func])
+	}
+}
+
+// TestExtractSelfImportNotBlanked guards against a package's own import path
+// leaking into the harvested imports (from a doc-comment example or a
+// //go:build ignore generator) and registering it as a self-bridge, which
+// short-circuits source loading and yields an empty binding (regression: the
+// time and flag bridges blanked this way).
+func TestExtractSelfImportNotBlanked(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "selfimportpkg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, _, _, err := extract(dir, "selfimportpkg")
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if !slices.Contains(groups[symbol.Type], "Thing") {
+		t.Errorf("missing type Thing; got types %v", groups[symbol.Type])
+	}
+	if !slices.Contains(groups[symbol.Func], "Answer") {
+		t.Errorf("missing func Answer; got funcs %v", groups[symbol.Func])
 	}
 }
 
