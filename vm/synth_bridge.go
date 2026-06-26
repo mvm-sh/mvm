@@ -1344,6 +1344,73 @@ func (m *Machine) callPromotedConcrete(
 	return nil, fmt.Errorf("synth: promoted method %q not found", name)
 }
 
+// bindPromotedNative resolves, on the shared-PC (wasm) build, a method promoted
+// from a native embed of a synth receiver.
+func (m *Machine) bindPromotedNative(recv reflect.Value, name string) (reflect.Value, bool) {
+	if !synthSharedPC {
+		return reflect.Value{}, false
+	}
+	cv := recv
+	if cv.Kind() == reflect.Interface && !cv.IsNil() {
+		cv = cv.Elem()
+	}
+	if !cv.IsValid() || !isSynthOrSynthPtr(cv.Type()) {
+		return reflect.Value{}, false
+	}
+	var st *Type
+	if t := m.typeByRtype(cv.Type()); t != nil {
+		if st = t; st.IsPtr() {
+			st = st.ElemType
+		}
+	}
+	return m.promotedNativeMethod(cv, st, name)
+}
+
+// promotedNativeMethod binds a method promoted from a NATIVE embedded field of a synth struct receiver.
+func (m *Machine) promotedNativeMethod(rv reflect.Value, st *Type, name string) (reflect.Value, bool) {
+	base := reflect.Indirect(rv)
+	if !base.IsValid() || base.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+	bt := base.Type()
+	seen := map[int]bool{}
+	tryIdx := func(idx int) (reflect.Value, bool) {
+		if idx < 0 || idx >= base.NumField() || seen[idx] {
+			return reflect.Value{}, false
+		}
+		seen[idx] = true
+		ft := bt.Field(idx).Type
+		if ft.Kind() == reflect.Interface || isSynthOrSynthPtr(ft) {
+			return reflect.Value{}, false
+		}
+		fv := Exportable(base.Field(idx))
+		if mv := nativeMethodLookup(m, fv, name); mv.IsValid() {
+			return mv, true
+		}
+		if fv.CanAddr() {
+			if mv := nativeMethodLookup(m, fv.Addr(), name); mv.IsValid() {
+				return mv, true
+			}
+		}
+		return reflect.Value{}, false
+	}
+	if st != nil {
+		for _, emb := range st.Embedded {
+			if mv, ok := tryIdx(emb.FieldIdx); ok {
+				return mv, true
+			}
+		}
+	}
+	for i := range base.NumField() {
+		if bt.Field(i).Anonymous {
+			if mv, ok := tryIdx(i); ok {
+				return mv, true
+			}
+		}
+	}
+	return reflect.Value{}, false
+}
+
 func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
 	if mv.Type().IsVariadic() {
 		return mv.CallSlice(args)

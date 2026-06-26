@@ -1793,6 +1793,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cp.Set(Exportable(recvRV))
 					recvRV = cp
 				}
+				if mv, ok := m.bindPromotedNative(recvRV, methodName); ok {
+					mem[sp] = Value{ref: mv}
+					break
+				}
 				rv := nativeMethodLookup(m, recvRV, methodName)
 				if !rv.IsValid() && recvHint != 0 {
 					// Numeric value lost its named type (e.g. time.Duration stored as int64).
@@ -1822,6 +1826,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					m.raiseNilDeref()
 					ip = m.stageUnwind(ip, fp, mem)
 					continue
+				}
+				if mv, ok := m.bindPromotedNative(rv, m.MethodNames[methodID]); ok {
+					mem[sp] = Value{ref: mv}
+					break
 				}
 				mem[sp] = Value{ref: nativeMethodLookup(m, rv, m.MethodNames[methodID])}
 				break
@@ -1876,6 +1884,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					}
 					if isNilReceiver(rv) {
 						outcome = outNilRcv
+					} else if mv, ok := m.bindPromotedNative(rv, m.MethodNames[methodID]); ok {
+						mem[sp] = Value{ref: mv}
+						outcome = outNative
 					} else {
 						mem[sp] = Value{ref: nativeMethodLookup(m, rv, m.MethodNames[methodID])}
 						outcome = outNative
