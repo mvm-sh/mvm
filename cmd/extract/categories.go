@@ -63,6 +63,7 @@ var Core = map[string]bool{
 var BuildTags = map[string]string{
 	"runtime/cgo": "cgo",
 	// Interpreted from the mirror on wasm, not bridged; each must be in ~/src/std.
+	"errors":          "!wasm",
 	"fmt":             "!wasm",
 	"strconv":         "!wasm",
 	"strings":         "!wasm",
