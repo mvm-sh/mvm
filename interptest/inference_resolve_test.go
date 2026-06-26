@@ -88,3 +88,20 @@ func main() {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// (e) a slice from a native bridge (strings.Split -> []string) carries an Rtype
+// but no symbolic ElemType, so unifyTP must derive the element from Rtype or
+// slices.Sort's inner pdqsortOrdered(x []E) cannot infer E. Surfaced
+// interpreting testing/fstest (slices.Sort over Glob/Keys results) on wasm.
+func TestInferBridgeSliceElem(t *testing.T) {
+	const src = `package main
+import ("fmt"; "slices"; "strings")
+func main() {
+	names := strings.Split("c,a,b", ",")
+	slices.Sort(names)
+	fmt.Println(names)
+}`
+	if got, want := evalOut(t, "bridgeslice.go", src), "[a b c]\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

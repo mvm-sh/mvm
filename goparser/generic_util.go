@@ -352,6 +352,29 @@ func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred m
 	return unifyTP(pType, argType, tpNames, inferred, nil)
 }
 
+// elemOf and keyOf return the element/key type, deriving it from Rtype when the
+// symbolic field is unset (a generic-instance param can carry a concrete Rtype
+// like []string with a nil ElemType, which would block element-type inference).
+func elemOf(t *vm.Type) *vm.Type {
+	if t == nil {
+		return nil
+	}
+	if t.ElemType == nil && t.Rtype != nil {
+		return t.Elem()
+	}
+	return t.ElemType
+}
+
+func keyOf(t *vm.Type) *vm.Type {
+	if t == nil {
+		return nil
+	}
+	if t.KeyType == nil && t.Rtype != nil {
+		return t.Key()
+	}
+	return t.KeyType
+}
+
 func isUntypedConstArg(argExpr Tokens) bool {
 	if len(argExpr) != 1 {
 		return false
@@ -375,15 +398,15 @@ func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[stri
 		if argType.Kind() != pType.Kind() {
 			return false
 		}
-		return unifyTP(pType.ElemType, argType.ElemType, tpNames, inferred, seen)
+		return unifyTP(pType.ElemType, elemOf(argType), tpNames, inferred, seen)
 	case reflect.Map:
 		if argType.Kind() != reflect.Map {
 			return false
 		}
-		if !unifyTP(pType.KeyType, argType.KeyType, tpNames, inferred, seen) {
+		if !unifyTP(pType.KeyType, keyOf(argType), tpNames, inferred, seen) {
 			return false
 		}
-		return unifyTP(pType.ElemType, argType.ElemType, tpNames, inferred, seen)
+		return unifyTP(pType.ElemType, elemOf(argType), tpNames, inferred, seen)
 	case reflect.Func:
 		if argType.Kind() != reflect.Func {
 			return false
