@@ -1005,6 +1005,15 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				break
 			}
 		}
+		// Native/bridged method value (f.Readdir): bound func type from the
+		// rtype so callFuncType reads its return tuple for `a, b := f.M()`.
+		if leftTyp.Rtype != nil {
+			if m, ok := leftTyp.Rtype.MethodByName(fieldName); ok {
+				if bound := boundMethodType(m.Type); bound != nil {
+					return &vm.Type{Rtype: bound}, 1 + ln
+				}
+			}
+		}
 		return nil, 0
 
 	case id.IsBinaryOp():
@@ -1126,6 +1135,30 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 			case "min", "max":
 				// min/max yield their operands' (shared) type.
 				return firstArgType, totalLen
+			case "real", "imag":
+				// real/imag of a complex yield the matching float type.
+				if firstArgType == nil {
+					return nil, 0
+				}
+				switch firstArgType.Kind() {
+				case reflect.Complex64:
+					return p.Symbols["float32"].Type, totalLen
+				case reflect.Complex128:
+					return p.Symbols["float64"].Type, totalLen
+				}
+				return nil, 0
+			case "complex":
+				// complex of floats yields the matching complex type.
+				if firstArgType == nil {
+					return nil, 0
+				}
+				switch firstArgType.Kind() {
+				case reflect.Float32:
+					return p.Symbols["complex64"].Type, totalLen
+				case reflect.Float64:
+					return p.Symbols["complex128"].Type, totalLen
+				}
+				return nil, 0
 			}
 			s, _, ok := p.Symbols.Get(fnTok.Str, p.scope)
 			if !ok {
@@ -1170,7 +1203,14 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				if st.Kind() == reflect.Pointer {
 					st = st.Elem()
 				}
-				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: st.Name, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
+				// Probe the pointer-receiver key (*T.m) too: a pointer receiver and an
+				// addressable value both expose pointer methods, keyed "*T.m". MethodByName
+				// falls back from *T to T, so this still finds value-receiver methods.
+				lookupName := st.Name
+				if lookupName != "" {
+					lookupName = "*" + lookupName
+				}
+				if ms, _ := p.Symbols.MethodByName(&symbol.Symbol{Kind: symbol.Type, Name: lookupName, Type: st}, member, p.Seg); ms != nil && ms.Type != nil {
 					return funcReturnType(ms.Type), totalLen
 				}
 				// Interface receiver: the method set lives in IfaceMethods, not as

@@ -206,10 +206,12 @@ CI (the `wasm` job runs the synth-dispatch and interptest suites under wasip1).
   big-endian targets only the typed shapes work.
 - The word pools are finite and consumed monotonically like the typed pools.
   Each slot is one generated function, so the ~53k of them are about half the wasm
-  binary; the wasm build caps the pervasive shapes (`sizes_wasm.go`: <=1024, tail at
-  the native 256) so its binary is ~69 MB vs ~80 MB, while native keeps the full
-  sizes via the `//go:build !wasm` `pool_ext_*.go` slots. Only protobuf-class
-  workloads exhaust on wasm (cleanly). See docs/modules/stubs.md.
+  binary. The wasm target carries **none** of them: all `pool_*.go` are
+  `//go:build !wasm` and every interpreted method shares one trap PC
+  (`vm.synthSharedPC` + `stubs/fill_wasm.go`), sound because no native caller
+  dispatches an interpreted method on the all-interpreted wasm target. This cuts
+  the wasm binary ~30 MB (68.8 -> 39 MB); native keeps the full pools. See
+  docs/modules/stubs.md ("wasm carries no pools").
 - Per-call cost is higher than a typed shape (reflect marshaling plus a
   `reflect.New` per argument), so a hot interface still warrants a typed shape.
 

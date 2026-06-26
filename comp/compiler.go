@@ -1642,9 +1642,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			leftStart := codeStarts[len(stack)-2]
 			shift := pop() // shift amount
 			left := pop()  // left operand
-			// A shift of two constants is itself a constant. Folding it gives the
-			// exact arbitrary-precision value, and emitFoldedConst widens a result
-			// past int64 to uint64 (e.g. 1<<63) or float64 (e.g. 1<<120).
+			// A shift of two constants is itself a constant.
 			if h, err := foldBinaryConst(t, left, shift, leftStart); err != nil {
 				return err
 			} else if h {
@@ -1653,12 +1651,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			leftTyp := shiftLeftType(left, c.Symbols["int"].Type)
 			c.emitConstConvert(t, left, leftTyp, 1)
 			kind := constKind(left, shift)
-			// An untyped-const left operand of a non-constant shift assumes the
-			// type of its context (spec: Operators), not its default type.
-			// Keep the result Const-kinded (Cval nil, so no fold applies) so binary-op
-			// contexts adopt the other operand's type and retype via Convert.
-			// A nil-Cval Const left is itself such a marker (chained shifts).
-			if left.Kind == symbol.Const {
+			// An untyped-const left operand of a non-constant shift adopts its context type (spec: Operators).
+			if left.Kind == symbol.Const && (left.Cval == nil || c.isUntypedConst(left)) {
 				kind = symbol.Const
 			}
 			push(&symbol.Symbol{Kind: kind, Type: leftTyp})
@@ -2044,8 +2038,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.emit(t, vm.FieldSet, j...)
 				break
 			}
-			vs := pop() // value
-			ks := pop() // key or index
+			vsStart := codeStarts[len(stack)-1] // value's load offset, for const fold
+			vs := pop()                         // value
+			ks := pop()                         // key or index
 			ts := top()
 			if ts.IsPtr() {
 				// Resolve index on the element type
@@ -2090,7 +2085,8 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if ts.Type.Elem().IsPtr() && vs.Kind == symbol.Type {
 						c.emit(t, vm.Addr)
 					}
-					c.emitNumConvert(t, ts.Type.Elem(), symbol.Vtype(vs), 0)
+					// Fold a const element from its exact Cval.
+					c.convertOperand(t, vs, vsStart, ts.Type.Elem(), 0)
 					c.emitIfaceWrap(t, ts.Type.Elem(), vs.Type)
 					c.emit(t, vm.IndexSet)
 				}
@@ -4010,9 +4006,7 @@ func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.
 				c.emitConstLoad(t, val, typ)
 				return &symbol.Symbol{Kind: symbol.Const, Value: val, Cval: cv, Type: typ}, nil
 			}
-			f, _ := constant.Float64Val(cv)
-			cv = constant.MakeFloat64(f)
-			typ = c.Symbols["float64"].Type
+			// Beyond uint64: stay arbitrary-precision (Go spec).
 		}
 	}
 	cv = goparser.ConstConvert(cv, typ)

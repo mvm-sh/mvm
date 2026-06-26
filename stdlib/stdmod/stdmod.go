@@ -6,6 +6,7 @@ package stdmod
 import (
 	"io/fs"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -48,15 +49,29 @@ func FS(backing *modfs.FS) fs.FS {
 
 // DefaultFS returns a stdlib redirect FS backed by an offline modfs
 // pre-populated with the embedded std zip.
-func DefaultFS() fs.FS { return defaultFS() }
+func DefaultFS() fs.FS { return FS(defaultModFS()) }
 
-var defaultFS = sync.OnceValue(func() fs.FS {
+// DefaultRemoteFS returns the raw offline modfs backing DefaultFS, for use as
+// the third-party (non-stdlib) import FS. On wasm it also serves the embedded
+// golang.org/x/net + x/text subset that interpreted net/http imports.
+func DefaultRemoteFS() fs.FS { return defaultModFS() }
+
+var defaultModFS = sync.OnceValue(func() *modfs.FS {
 	mp, ver := Resolve()
 	mfs := modfs.New(modfs.Options{Offline: true})
 	if err := mfs.Inject(mp, ver, stdlib.EmbeddedStd()); err != nil {
 		panic("stdmod: inject embedded std: " + err.Error())
 	}
-	return FS(mfs)
+	// On wasm, interpreted net/http pulls golang.org/x/net + x/text from source
+	// with no cache/proxy; inject the embedded subset (see wireFS in main).
+	if runtime.GOARCH == "wasm" {
+		for _, v := range stdlib.EmbeddedVendor() {
+			if err := mfs.Inject(v.Path, v.Version, v.Zip); err != nil {
+				panic("stdmod: inject " + v.Path + ": " + err.Error())
+			}
+		}
+	}
+	return mfs
 })
 
 type redirectFS struct {

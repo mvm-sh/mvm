@@ -181,7 +181,9 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 			func(args []reflect.Value) []reflect.Value {
 				methodName := args[0].String()
 				// Supported-shape methods are in the native table; prefer them.
-				if synthRecv {
+				// On the shared-PC (wasm) build the native table entry is a trap
+				// stub, so always route through VM dispatch instead.
+				if synthRecv && !synthSharedPC {
 					if nm := innerRV.MethodByName(methodName); nm.IsValid() {
 						return []reflect.Value{reflect.ValueOf(nm)}
 					}
@@ -190,7 +192,14 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 				if !found {
 					return zeroReflectValueResult
 				}
-				ft := m.ifaceMethodFuncType(methodName)
+				// Prefer the method's own bound signature. The global
+				// interface-method table only registers methods reached through
+				// an interface, so a concrete method invoked solely via reflect
+				// (text/template's MethodByName.Call) is absent there.
+				ft := method.Rtype
+				if ft == nil {
+					ft = m.ifaceMethodFuncType(methodName)
+				}
 				if ft == nil {
 					return zeroReflectValueResult
 				}
@@ -229,8 +238,12 @@ func reflectTypeShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 		func(args []reflect.Value) []reflect.Value {
 			methodName := args[0].String()
 			// Supported-shape methods live in the native uncommon table; prefer them.
-			if mm, found := rt.MethodByName(methodName); found {
-				return []reflect.Value{reflect.ValueOf(mm), reflect.ValueOf(true)}
+			// On the shared-PC (wasm) build that entry is a trap stub, so route
+			// through VM dispatch (synthMethodExpr) instead.
+			if !synthSharedPC {
+				if mm, found := rt.MethodByName(methodName); found {
+					return []reflect.Value{reflect.ValueOf(mm), reflect.ValueOf(true)}
+				}
 			}
 			mm, found := m.synthMethodExpr(rt, methodName)
 			if !found {

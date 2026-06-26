@@ -33,9 +33,25 @@ func makeMethod(m MethodSpec) abiMethod {
 		Name: uint32(addReflectOff(unsafe.Pointer(
 			encodeNamePkg(m.Name, m.Exported, m.PkgPath).Bytes))),
 		Mtyp: uint32(addReflectOff(unsafe.Pointer(rtypePtr(m.Sig)))),
-		Ifn:  uint32(addReflectOff(ptrFromPC(m.StubPC))),
-		Tfn:  uint32(addReflectOff(ptrFromPC(m.StubPC))),
+		Ifn:  textOffForPC(m.StubPC),
+		Tfn:  textOffForPC(m.StubPC),
 	}
+}
+
+// unreachableTextOff is the runtime's TextOff sentinel (-1): textOff resolves it
+// to runtime.unreachableMethod without a moduledata or reflectOffs lookup.
+const unreachableTextOff = ^uint32(0) // int32(-1)
+
+// textOffForPC returns the method-dispatch TextOff for a stub entry PC.
+// A zero PC means the method is never invoked (the all-interpreted wasm target,
+// where dispatch is intercepted by the vm): return the unreachable sentinel so
+// no synthetic code PC enters reflect's GC-scanned reflectOffs table. On wasm a
+// PC stored there aliases a heap span and the GC crashes (bad pointer).
+func textOffForPC(pc uintptr) uint32 {
+	if pc == 0 {
+		return unreachableTextOff
+	}
+	return uint32(addReflectOff(ptrFromPC(pc)))
 }
 
 func installMethods(dst []abiMethod, methods []MethodSpec) {

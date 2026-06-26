@@ -427,6 +427,15 @@ type Machine struct {
 	funcWrappers *funcWrapTable   // see funcWrapTable doc
 	typesByRtype *typesIndex      // see typesIndex doc
 
+	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
+	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
+	sharedMethodStructs map[methodStructKey]*synthReservation
+
+	// synthReleases nil this Machine's stub-pool handler slots (each captures the
+	// Machine) on disposal; see ReleaseSynthMethods, Interp.Close.
+	synthReleasesMu sync.Mutex
+	synthReleases   []func()
+
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
 	faultContinue bool            // policy seed copied into fault when it is created
 	isRoot        bool            // the top-level machine; only it aborts channel waits on a fault
@@ -493,6 +502,12 @@ func (m *Machine) SetIO(in io.Reader, out, err io.Writer) { m.in = in; m.out = o
 
 // Out returns the machine's standard output writer.
 func (m *Machine) Out() io.Writer { return m.out }
+
+// Err returns the machine's standard error writer.
+func (m *Machine) Err() io.Writer { return m.err }
+
+// In returns the machine's standard input reader.
+func (m *Machine) In() io.Reader { return m.in }
 
 // SetDebugInfo registers a function that builds DebugInfo on demand and
 // invalidates the trace-step cache so the next traceStep call rebuilds.
@@ -1778,6 +1793,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cp.Set(Exportable(recvRV))
 					recvRV = cp
 				}
+				if mv, ok := m.bindPromotedNative(recvRV, methodName); ok {
+					mem[sp] = Value{ref: mv}
+					break
+				}
 				rv := nativeMethodLookup(m, recvRV, methodName)
 				if !rv.IsValid() && recvHint != 0 {
 					// Numeric value lost its named type (e.g. time.Duration stored as int64).
@@ -1807,6 +1826,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					m.raiseNilDeref()
 					ip = m.stageUnwind(ip, fp, mem)
 					continue
+				}
+				if mv, ok := m.bindPromotedNative(rv, m.MethodNames[methodID]); ok {
+					mem[sp] = Value{ref: mv}
+					break
 				}
 				mem[sp] = Value{ref: nativeMethodLookup(m, rv, m.MethodNames[methodID])}
 				break
@@ -1861,6 +1884,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					}
 					if isNilReceiver(rv) {
 						outcome = outNilRcv
+					} else if mv, ok := m.bindPromotedNative(rv, m.MethodNames[methodID]); ok {
+						mem[sp] = Value{ref: mv}
+						outcome = outNative
 					} else {
 						mem[sp] = Value{ref: nativeMethodLookup(m, rv, m.MethodNames[methodID])}
 						outcome = outNative

@@ -839,8 +839,11 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}
-		case embSet[i] && (i > 0 || rf[i].Type != nil && rf[i].Type.Kind() == reflect.Pointer) &&
+		case embSet[i] && rf[i].Type != nil && rf[i].Type.Kind() != reflect.Interface &&
+			(i > 0 || rf[i].Type.Kind() == reflect.Pointer) &&
 			(embedFieldHasMethods(f, rf[i].Type) || runtype.EmbedTripsStructOf(rf[i].Type)):
+			// Interfaces are excluded: StructOf promotes them at any position, and the
+			// dance's clone would strip that method set.
 			// reflect.StructOf only promotes a method-bearing VALUE embed at field 0; a pointer
 			// embed (e.g. gorm IndexOption's *Field) panics there too, and any embed past 0 panics.
 			// Give it a methodless layout-equivalent so the field stays Anonymous (json/fmt flatten it); mvm promotes the methods itself.

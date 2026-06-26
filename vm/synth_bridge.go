@@ -60,13 +60,21 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 	if !isSynthIfaceTargetFunc(fn) {
 		return reflect.Value{}
 	}
-	// Fill unmaterialized method sigs before building the synth rtype.
-	// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
-	// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
-	for i := range et.IfaceMethods {
-		MaterializeIfaceMethod(&et.IfaceMethods[i])
+	// A native-bridged interface (error, io.Writer) already carries its canonical
+	// rtype; reuse it so the retyped pointer's element keeps that identity
+	// (reflect.TypeFor[error]() stays == a func's error result). Only an
+	// interpreted/anonymous interface erased to interface{} needs a synth carrier
+	// built here to expose its method set to the native callee.
+	st := et.Rtype
+	if st == AnyRtype || st.NumMethod() == 0 {
+		// Fill unmaterialized method sigs before building the synth rtype.
+		// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
+		// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
+		for i := range et.IfaceMethods {
+			MaterializeIfaceMethod(&et.IfaceMethods[i])
+		}
+		st = synthIfaceRtype(et)
 	}
-	st := synthIfaceRtype(et)
 	if st == nil {
 		return reflect.Value{}
 	}
@@ -323,7 +331,31 @@ func (m *Machine) attachValueRecv(t *Type) error {
 	if res == nil || res.value == nil {
 		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
 	}
-	return stubs.FillMethods(res.value, methods)
+	return m.fillSynthMethods(res.value, methods)
+}
+
+// fillSynthMethods installs methods, recording the release closure for ReleaseSynthMethods.
+func (m *Machine) fillSynthMethods(res *runtype.Reservation, methods []stubs.Method) error {
+	release, err := stubs.FillMethods(res, methods)
+	if release != nil {
+		m.synthReleasesMu.Lock()
+		m.synthReleases = append(m.synthReleases, release)
+		m.synthReleasesMu.Unlock()
+	}
+	return err
+}
+
+// ReleaseSynthMethods nils the stub-pool handler slots this Machine acquired so a
+// disposed interpreter becomes collectable (slot indices stay consumed). Do not
+// dispatch its synth methods after. Backs Interp.Close; no-op on wasm.
+func (m *Machine) ReleaseSynthMethods() {
+	m.synthReleasesMu.Lock()
+	releases := m.synthReleases
+	m.synthReleases = nil
+	m.synthReleasesMu.Unlock()
+	for _, r := range releases {
+		r()
+	}
 }
 
 func (m *Machine) attachPtrRecv(t *Type) error {
@@ -340,7 +372,7 @@ func (m *Machine) attachPtrRecv(t *Type) error {
 	if res == nil || res.ptr == nil {
 		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
 	}
-	return stubs.FillMethods(res.ptr, methods)
+	return m.fillSynthMethods(res.ptr, methods)
 }
 
 // recvForm tells a handler how to reconstruct the receiver from the stub's iface data word.
@@ -402,6 +434,11 @@ func embeddedTypeAt(t *Type, idx int) *Type {
 }
 
 func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
+	if synthSharedPC {
+		// wasm: attach every method via one shared PC; no shape needed.
+		s.method.Rtype = precise
+		return true
+	}
 	shape, shapeOK := detectShape(erased)
 	if shapeOK && !forceWordShape && erased == precise {
 		s.shape = shape
@@ -442,6 +479,17 @@ func toSynthMethods(
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
+		if synthSharedPC {
+			// wasm: shared-PC attach ignores shape/handler; only the method's
+			// name/signature metadata is needed for reflect introspection.
+			out[i] = stubs.Method{
+				Name:     s.name,
+				Exported: isExportedName(s.name),
+				PkgPath:  s.pkgName,
+				Sig:      s.method.Rtype,
+			}
+			continue
+		}
 		if s.wordKey != "" {
 			out[i] = stubs.Method{
 				Name:     s.name,
@@ -1294,6 +1342,73 @@ func (m *Machine) callPromotedConcrete(
 		}
 	}
 	return nil, fmt.Errorf("synth: promoted method %q not found", name)
+}
+
+// bindPromotedNative resolves, on the shared-PC (wasm) build, a method promoted
+// from a native embed of a synth receiver.
+func (m *Machine) bindPromotedNative(recv reflect.Value, name string) (reflect.Value, bool) {
+	if !synthSharedPC {
+		return reflect.Value{}, false
+	}
+	cv := recv
+	if cv.Kind() == reflect.Interface && !cv.IsNil() {
+		cv = cv.Elem()
+	}
+	if !cv.IsValid() || !isSynthOrSynthPtr(cv.Type()) {
+		return reflect.Value{}, false
+	}
+	var st *Type
+	if t := m.typeByRtype(cv.Type()); t != nil {
+		if st = t; st.IsPtr() {
+			st = st.ElemType
+		}
+	}
+	return m.promotedNativeMethod(cv, st, name)
+}
+
+// promotedNativeMethod binds a method promoted from a NATIVE embedded field of a synth struct receiver.
+func (m *Machine) promotedNativeMethod(rv reflect.Value, st *Type, name string) (reflect.Value, bool) {
+	base := reflect.Indirect(rv)
+	if !base.IsValid() || base.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+	bt := base.Type()
+	seen := map[int]bool{}
+	tryIdx := func(idx int) (reflect.Value, bool) {
+		if idx < 0 || idx >= base.NumField() || seen[idx] {
+			return reflect.Value{}, false
+		}
+		seen[idx] = true
+		ft := bt.Field(idx).Type
+		if ft.Kind() == reflect.Interface || isSynthOrSynthPtr(ft) {
+			return reflect.Value{}, false
+		}
+		fv := Exportable(base.Field(idx))
+		if mv := nativeMethodLookup(m, fv, name); mv.IsValid() {
+			return mv, true
+		}
+		if fv.CanAddr() {
+			if mv := nativeMethodLookup(m, fv.Addr(), name); mv.IsValid() {
+				return mv, true
+			}
+		}
+		return reflect.Value{}, false
+	}
+	if st != nil {
+		for _, emb := range st.Embedded {
+			if mv, ok := tryIdx(emb.FieldIdx); ok {
+				return mv, true
+			}
+		}
+	}
+	for i := range base.NumField() {
+		if bt.Field(i).Anonymous {
+			if mv, ok := tryIdx(i); ok {
+				return mv, true
+			}
+		}
+	}
+	return reflect.Value{}, false
 }
 
 func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {

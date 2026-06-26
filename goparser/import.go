@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"runtime"
 	"strings"
 	"unicode"
 
@@ -36,31 +37,59 @@ func (p *Parser) LoadPackageSources(importPath string, includeTests bool) ([]Pac
 	}
 	fsys := p.pkgfs
 	fi, err := fs.Stat(fsys, importPath)
-	for _, fb := range []fs.FS{p.stdlibfs, p.remotefs} {
-		if err == nil || fb == nil {
-			break
-		}
-		if fi2, err2 := fs.Stat(fb, importPath); err2 == nil {
-			fsys, fi, err = fb, fi2, nil
-		}
-	}
-	if err != nil {
-		// Fallback for `mvm test <stdlib-path>` on bridge-only packages
-		// (strings, bytes, fmt, ...): no source in pkgfs/stdlibfs/remotefs,
-		// but the bridge is registered. Pull external `package X_test`
-		// files from testSrcFS ($GOROOT/src) so their Test* funcs can run
-		// against the existing reflect bindings.
-		if includeTests && p.testSrcFS != nil {
-			if pkg, ok := p.Packages[importPath]; ok && pkg.Bin {
-				return p.loadBridgedTestSources(importPath)
+	// A bridge must not also load mirror source (would double-define symbols);
+	// such pkgs are mirrored only for the wasm floor, where they aren't bridged.
+	pkg, bridged := p.Packages[importPath]
+	bridged = bridged && pkg != nil && pkg.Bin
+	if !bridged {
+		for _, fb := range []fs.FS{p.stdlibfs, p.remotefs} {
+			if err == nil || fb == nil {
+				break
+			}
+			if fi2, err2 := fs.Stat(fb, importPath); err2 == nil {
+				fsys, fi, err = fb, fi2, nil
 			}
 		}
-		return nil, err
+	}
+	if err != nil || bridged {
+		// mvm test <bridge>: pull external _test.go from testSrcFS ($GOROOT/src).
+		if includeTests && p.testSrcFS != nil && bridged {
+			return p.loadBridgedTestSources(importPath)
+		}
+		if bridged {
+			return nil, fs.ErrNotExist
+		}
+		return nil, importNotFoundError(importPath)
 	}
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("%s: not a package directory", importPath)
 	}
 	return p.collectPackageSources(fsys, importPath, importPath, includeTests)
+}
+
+// ErrPkgNotFound marks an import that resolved to neither a bridge nor source.
+var ErrPkgNotFound = errors.New("package not found")
+
+// pkgNotFoundError has a clean message but still matches ErrPkgNotFound via Is.
+type pkgNotFoundError struct{ msg string }
+
+func (e *pkgNotFoundError) Error() string        { return e.msg }
+func (e *pkgNotFoundError) Is(target error) bool { return target == ErrPkgNotFound }
+
+// importNotFoundError explains an unresolvable import, with a wasm-specific hint.
+func importNotFoundError(importPath string) error {
+	first, _, _ := strings.Cut(importPath, "/")
+	stdlibish := !strings.ContainsRune(first, '.')
+	var reason string
+	switch {
+	case stdlibish && runtime.GOARCH == "wasm":
+		reason = "not bridged on the wasm build and not in the stdlib mirror (github.com/mvm-sh/std); add it to the mirror to interpret it"
+	case stdlibish:
+		reason = "no bridge is registered for this standard-library package"
+	default:
+		reason = "no source in the package path, module cache, or proxy"
+	}
+	return &pkgNotFoundError{msg: fmt.Sprintf("cannot find package %q: %s", importPath, reason)}
 }
 
 // LoadLocalPackageSources is LoadPackageSources for `mvm test <dir>`: a package
@@ -398,6 +427,9 @@ func (p *Parser) importSrc(pkgPath string) (err error) {
 
 	remaining, err := p.ParseAll(pkgPath, "")
 	if err != nil {
+		if errors.Is(err, ErrPkgNotFound) {
+			return err // already names the package
+		}
 		return fmt.Errorf("while importing %q: %w", pkgPath, err)
 	}
 
@@ -511,6 +543,10 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 	p.batchFuncDecls = map[string]bool{}
 	defer func() { p.batchFuncDecls = savedBatch }()
 
+	savedForward := p.forwardDecls
+	p.forwardDecls = map[string]bool{}
+	defer func() { p.forwardDecls = savedForward }()
+
 	// Fresh generation per resolveDecls (nestable), gating type reuse; see reuseDeclaredType.
 	savedGen := p.curGen
 	p.genCounter++
@@ -546,6 +582,10 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 				// limitations, unimplemented syntax).
 				var pathErr *fs.PathError
 				if errors.As(parseErr, &pathErr) {
+					return out, parseErr
+				}
+				// Unresolvable import: hard error, not a parser limitation.
+				if errors.Is(parseErr, ErrPkgNotFound) {
 					return out, parseErr
 				}
 				var overflowErr ErrConstOverflow

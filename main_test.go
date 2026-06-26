@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mvm-sh/mvm/stdlib"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
 )
 
@@ -106,6 +107,36 @@ func TestNewTestInterpResetsFlags(t *testing.T) {
 	}
 	// Re-registering the same name must now be safe (the next attempt's var init).
 	flag.Bool("inner", false, "re-registered on the retry")
+}
+
+// The export_test overlay must not register a stand-ins-only fmt bridge that
+// shadows the mirror. Simulate the wasm floor by removing the fmt bridge and
+// checking the mirror still serves fmt.Sprint.
+func TestNewTestInterpOverlaySkipsUnbridged(t *testing.T) {
+	savedFlags := flag.CommandLine
+	defer func() { flag.CommandLine = savedFlags }() // newTestInterp wipes it
+
+	saved, had := stdlib.Values["fmt"]
+	delete(stdlib.Values, "fmt")
+	defer func() {
+		if had {
+			stdlib.Values["fmt"] = saved
+		}
+	}()
+
+	i, _ := newTestInterp(traceFlag{})
+	src := `package main
+import "fmt"
+func main() {
+	if s := fmt.Sprint("ok", 42); s != "ok42" {
+		panic(s)
+	}
+}
+`
+	// A partial fmt bridge would fail "symbol not found in package fmt: Sprint".
+	if _, err := i.Eval("a.go", src); err != nil {
+		t.Fatalf("Eval failed (partial fmt bridge shadowed the mirror?): %v", err)
+	}
 }
 
 func TestBuildModFS(t *testing.T) {

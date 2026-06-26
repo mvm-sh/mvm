@@ -1,11 +1,10 @@
 package stdlib
 
 import (
-	"bytes"
 	"os/exec"
 	"reflect"
-	"strings"
 	"testing"
+	"unsafe"
 )
 
 // Stub bindings for std-internal packages that external stdlib test files
@@ -50,6 +49,7 @@ func init() {
 		"Kind":      reflect.ValueOf((*reflect.Kind)(nil)),
 		"Ptr":       reflect.ValueOf(reflect.Pointer),
 		"Interface": reflect.ValueOf(reflect.Interface),
+		"Swapper":   reflect.ValueOf(reflect.Swapper),
 	}
 	Values["internal/testenv"] = map[string]reflect.Value{
 		"Builder":               reflect.ValueOf(func() string { return "" }),
@@ -76,22 +76,11 @@ func init() {
 			return exec.Command(name, args...)
 		}),
 	}
-	// internal/bytealg provides assembly-accelerated byte/string scanning used
-	// by source-loaded mirror packages (e.g. path imports it for IndexByteString
-	// and LastIndexByteString). It is unreachable for a real bridge under
-	// internal/, so re-export the equivalent bytes/strings helpers. The generic
-	// helpers (HashStr, IndexRabinKarp) cannot be reflect-bridged and are omitted.
-	Values["internal/bytealg"] = map[string]reflect.Value{
-		"IndexByte":           reflect.ValueOf(bytes.IndexByte),
-		"IndexByteString":     reflect.ValueOf(strings.IndexByte),
-		"LastIndexByte":       reflect.ValueOf(bytes.LastIndexByte),
-		"LastIndexByteString": reflect.ValueOf(strings.LastIndexByte),
-		"Index":               reflect.ValueOf(bytes.Index),
-		"IndexString":         reflect.ValueOf(strings.Index),
-		"Compare":             reflect.ValueOf(bytes.Compare),
-		"CompareString":       reflect.ValueOf(strings.Compare),
-		"Equal":               reflect.ValueOf(bytes.Equal),
-		"Count":               reflect.ValueOf(func(b []byte, c byte) int { return bytes.Count(b, []byte{c}) }),
-		"CountString":         reflect.ValueOf(func(s string, c byte) int { return strings.Count(s, string(c)) }),
+	// internal/abi.NoEscape is an escape-analysis hint (strings, bytes); the rest
+	// of internal/abi is never referenced by interpreted source.
+	Values["internal/abi"] = map[string]reflect.Value{
+		"NoEscape": reflect.ValueOf(func(p unsafe.Pointer) unsafe.Pointer { return p }),
 	}
+	// internal/bytealg is interpreted from the mirror (pure-Go overlay), not
+	// bridged: bytes/strings need its generic helpers that can't be reflect-bound.
 }

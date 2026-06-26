@@ -152,6 +152,14 @@ func (p *Parser) inferRangeTypes(operand Tokens, lhs []Tokens, lhsPositions []in
 		setType(1, rt.Elem())
 	case reflect.Chan:
 		setType(0, rt.Elem())
+	case reflect.Func:
+		// Range-over-func: rt is func(yield func(V) bool) or func(yield func(K, V) bool);
+		// the iteration variables are the yield func's parameters (iter.Seq[V]/Seq2[K,V]).
+		if yt := rt.ParamType(0); yt != nil && yt.Kind() == reflect.Func {
+			for i := 0; i < yt.NumIn(); i++ {
+				setType(i, yt.ParamType(i))
+			}
+		}
 	}
 }
 

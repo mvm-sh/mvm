@@ -113,10 +113,36 @@ func goModCacheDownload() string {
 	return dir
 }
 
+// applyInterpOverrides drops the bridges named in MVM_INTERP (comma/space list)
+// so those packages interpret from the mirror, for validating interpretation on
+// a native build.
+func applyInterpOverrides(i *interp.Interp) {
+	v := os.Getenv("MVM_INTERP")
+	if v == "" {
+		return
+	}
+	for _, p := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if p = strings.TrimSpace(p); p != "" {
+			i.SkipBridges(p)
+		}
+	}
+}
+
 func wireFS(i *interp.Interp) *modfs.FS {
 	mfs := buildModFS()
 	if err := mfs.Inject(stdmod.ModulePath, stdmod.Version, stdlib.EmbeddedStd()); err != nil {
 		panic("modfs inject embedded std: " + err.Error())
+	}
+	// On wasm net/http is interpreted and pulls golang.org/x/net + x/text from
+	// source; there is no module cache or proxy, so inject the embedded subset.
+	// Native resolves the full modules from the cache/proxy, so injecting a
+	// trimmed copy there would shadow their other packages -- skip it.
+	if runtime.GOARCH == "wasm" {
+		for _, v := range stdlib.EmbeddedVendor() {
+			if err := mfs.Inject(v.Path, v.Version, v.Zip); err != nil {
+				panic("modfs inject " + v.Path + ": " + err.Error())
+			}
+		}
 	}
 	i.SetStdlibFS(stdmod.FS(mfs))
 	i.SetRemoteFS(mfs)

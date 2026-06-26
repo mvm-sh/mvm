@@ -15,6 +15,7 @@ func init() {
 		"DecryptPKCS1v15":           reflect.ValueOf(rsa.DecryptPKCS1v15),
 		"DecryptPKCS1v15SessionKey": reflect.ValueOf(rsa.DecryptPKCS1v15SessionKey),
 		"EncryptOAEP":               reflect.ValueOf(rsa.EncryptOAEP),
+		"EncryptOAEPWithOptions":    reflect.ValueOf(rsa.EncryptOAEPWithOptions),
 		"EncryptPKCS1v15":           reflect.ValueOf(rsa.EncryptPKCS1v15),
 		"GenerateKey":               reflect.ValueOf(rsa.GenerateKey),
 		"GenerateMultiPrimeKey":     reflect.ValueOf(rsa.GenerateMultiPrimeKey),

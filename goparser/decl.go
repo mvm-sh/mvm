@@ -1102,9 +1102,13 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 		for k, v := range pkg.Values {
 			// An interpreted package publishes a func as its code address (an
 			// int), so bind the pkg-qualified symbol, which carries the real
-			// kind and type, when one exists.
+			// kind and type, when one exists. Bind a copy under the bare name so
+			// foreignBareAlias (which defers a foreign pkg's qualified-named bare
+			// alias) keeps it -- a dot-import is unqualified by name, by contract.
 			if qs, ok := p.Symbols[pp+"."+k]; ok {
-				p.SymSet(k, qs) // mvm:symkey-ok: dot-import binds bare names
+				bound := *qs
+				bound.Name = k
+				p.SymSet(k, &bound) // mvm:symkey-ok: dot-import binds bare names
 				continue
 			}
 			if rtype, ok := v.UnwrapType(); ok {

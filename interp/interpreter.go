@@ -64,9 +64,26 @@ type Interp struct {
 	*comp.Compiler
 	*vm.Machine
 	stdlibPatched bool
+	hostStdio     bool              // keep interpreted os.Std* bound to host *os.File
 	synthAttached map[*vm.Type]bool // types already passed through AttachSynthMethods
 	Stats         Stats
 }
+
+// Close releases the interpreter's stub-pool handler slots (native only) and
+// breaks the Machine->Interp link so it becomes collectable. Long-lived hosts
+// spawning many interpreters should call it; do not use the interpreter after.
+func (i *Interp) Close() {
+	i.ReleaseSynthMethods()
+	i.SetDebugInfo(nil)
+}
+
+// UseHostStdio keeps the interpreted os.Std{in,out,err} bound to the host's real
+// *os.File streams rather than routing them through the machine's SetIO writers.
+// The CLI (mvm run / mvm test) sets this so interpreted code sees genuine *os.File
+// stdio -- os.Stdout.Fd(), isatty, a *os.File-typed parameter. Embedders and the
+// in-process test harness leave it off so interpreted output (interpreted fmt,
+// text/template writing os.Stdout) follows their SetIO writer. Call before Eval.
+func (i *Interp) UseHostStdio() { i.hostStdio = true }
 
 // Stats accumulates timing across all Eval calls on an Interp.
 type Stats struct {
@@ -78,6 +95,7 @@ type Stats struct {
 func NewInterpreter(s *lang.Spec) *Interp {
 	i := &Interp{Compiler: comp.NewCompiler(s), Machine: vm.NewMachine()}
 	i.SetStdlibFS(stdmod.DefaultFS())
+	i.SetRemoteFS(stdmod.DefaultRemoteFS())
 	return i
 }
 
@@ -270,6 +288,7 @@ func FormatStats(i *Interp) string {
 
 func (i *Interp) patchStdlibOverrides() {
 	i.patchFmtBindings()
+	i.patchStdStreams()
 	i.installExitVirtualization()
 	for importPath, fns := range stdlib.PackagePatchers() {
 		pkg, ok := i.Packages[importPath]
@@ -302,6 +321,45 @@ func (i *Interp) patchFmtBindings() {
 	if _, ok := pkg.Values["Stringer"]; !ok {
 		pkg.Values["Stringer"] = vm.FromReflect(reflect.ValueOf((*fmt.Stringer)(nil)))
 	}
+}
+
+// machineStream backs the interpreted os.Stdin/Stdout/Stderr bindings so that
+// interpreted code routes through the interpreter's SetIO streams rather than the
+// host fd. It matters when fmt/text-template etc. are interpreted (no fmt bridge
+// to patch, e.g. on wasm) and write to os.Stdout directly: a host *os.File would
+// reach the real fd 1, escaping a caller's SetIO writer (an embedder's buffer, a
+// test's bytes.Buffer). The streams are used only as io.Reader/io.Writer.
+type machineStream struct {
+	m   *vm.Machine
+	std int // 0=stdin, 1=stdout, 2=stderr
+}
+
+func (s *machineStream) Write(p []byte) (int, error) {
+	if s.std == 2 {
+		return s.m.Err().Write(p)
+	}
+	return s.m.Out().Write(p)
+}
+
+func (s *machineStream) Read(p []byte) (int, error) { return s.m.In().Read(p) }
+
+// patchStdStreams redirects the interpreted os.Std{in,out,err} bindings to the
+// machine's SetIO streams. A patched binding is consumed as-is (unlike the
+// original reflect.ValueOf(&os.Stdout) var binding, which the importer derefs),
+// so each value is a single *machineStream -- the type os.Std* keeps for its
+// io.Reader/io.Writer uses.
+func (i *Interp) patchStdStreams() {
+	if i.hostStdio {
+		return
+	}
+	pkg, ok := i.Packages["os"]
+	if !ok {
+		return
+	}
+	m := i.Machine
+	pkg.Values["Stdin"] = vm.FromReflect(reflect.ValueOf(&machineStream{m: m, std: 0}))
+	pkg.Values["Stdout"] = vm.FromReflect(reflect.ValueOf(&machineStream{m: m, std: 1}))
+	pkg.Values["Stderr"] = vm.FromReflect(reflect.ValueOf(&machineStream{m: m, std: 2}))
 }
 
 // FuncNames returns top-level functions whose name matches cmd/go's isTest for

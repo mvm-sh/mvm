@@ -285,14 +285,22 @@ func newTestInterp(trace traceFlag) (*interp.Interp, *modfs.FS) {
 	// retry past) does not spuriously "flag redefined" and drop the owning file.
 	resetCommandLineFlags()
 	i := interp.NewInterpreter(golang.GoSpec)
+	i.UseHostStdio()
 	// Install bridges, then layer in test-only export_test stand-ins (e.g.
 	// strings.StringFind) so external stdlib tests that use them resolve. The
 	// overlay is test-runner-only, so `mvm run` never sees these symbols.
 	vals := make(map[string]map[string]reflect.Value, len(stdlib.Values))
 	maps.Copy(vals, stdlib.Values)
-	maps.Copy(vals, stdlib.TestOverlay())
+	// Overlay stand-ins only onto bridged packages; a stand-ins-only entry for a
+	// mirror-interpreted package (fmt on wasm) would shadow the mirror.
+	for pkg, syms := range stdlib.TestOverlay() {
+		if _, bridged := vals[pkg]; bridged {
+			vals[pkg] = syms
+		}
+	}
 	i.ImportPackageValues(vals)
 	i.ImportPackageConsts(stdlib.ConstValues)
+	applyInterpOverrides(i)
 	mfs := wireFS(i)
 	// Test-source FS feeds `mvm test <stdlib-pkg>` external _test.go files
 	// against the existing reflect bridge. Kept off the shared wireFS so

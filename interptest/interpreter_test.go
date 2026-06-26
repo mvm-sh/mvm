@@ -200,6 +200,10 @@ func TestNumericWidening(t *testing.T) {
 		// An untyped-const operand (incl. a context-typed shift result) stays accepted.
 		{n: "uint64_var_or_const", src: `var u uint64 = 6; u | 1`, res: "7"},
 		{n: "uint64_var_or_shift", src: `var u uint64 = 6; var s uint = 0; u | 1<<s`, res: "7"},
+		// Typed-const shift keeps its type; `- 1` must not retype to int (internal/strconv atoi).
+		{n: "typed_const_shift_minus_one", src: `func f(b int) uint64 { m := uint64(1)<<uint(b) - 1; var n uint64 = 5; if n > m { return 0 }; return m }; f(8)`, res: "255"},
+		// Over-uint64 const stays arbitrary-precision: `% (1<<64)` exact, not float-widened.
+		{n: "over_uint64_const_mod", src: `const x = (12345678901234567890 * 5 * 5 * 5 * 5) % (1 << 64); x`, res: "5310290461012355762"},
 		{n: "float_ge_maxuint64_const", src: `import "math"; var f float64 = 42; f >= math.MaxUint64`, res: "false"},
 		// Untyped const widens in arithmetic too (was NaN; x == x is false only for NaN).
 		{n: "float_add_maxuint64_const", src: `import "math"; var f float64 = 42; x := f + math.MaxUint64; x == x`, res: "true"},
@@ -2920,7 +2924,7 @@ func TestImport(t *testing.T) {
 `
 	run(t, []etest{
 		{n: "#00", src: "fmt.Println(4)", err: "undefined: fmt"},
-		{n: "#01", src: `import "xxx"`, err: "stat xxx: no such file or directory"},
+		{n: "#01", src: `import "xxx"`, err: `cannot find package "xxx": no bridge is registered for this standard-library package`},
 		{n: "#02", src: `import "fmt"; fmt.Println(4)`, res: "<nil>"},
 		{n: "#03", src: src0 + "fmt.Println(4)", res: "<nil>"},
 		{n: "#04", src: `func main() {import "fmt"; fmt.Println("hello")}`, err: "unexpected import"},

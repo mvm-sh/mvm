@@ -42,15 +42,6 @@ func main() {
 	}
 }
 
-// TestSynthFloatMethodIface exercises the float word-class dispatch: an interface
-// whose methods carry float64 params/results and a float-field struct param/result
-// (Vec) is satisfied by an interpreted concrete, and the concrete is returned as
-// that interface across a reflect.Call (MakeFunc) boundary -- so its synth rtype
-// must actually implement the interface (reflect.Implements), which needs the
-// float methods installed. Pre-float-words, float methods dropped (classifyType
-// rejected floats), so Shape's rtype lacked Area/MoveTo/At/Scale and the boxing
-// panicked "not assignable". Shapes: Scale -> "f_f", MoveTo(Vec) -> "ff_",
-// At() Vec -> "_ff", Area() -> "_f".
 func TestSynthFloatMethodIface(t *testing.T) {
 	const src = `package main
 
@@ -105,15 +96,6 @@ func main() {
 	}
 }
 
-// TestSynthSubWordPointIface exercises the sub-word-packed struct word path:
-// fixed.Point26_6 is struct{X,Y int32}, two int32 in one 8-byte word, so its
-// register-ABI words are "ii" with leaves at offsets 0 and 4. An interface whose
-// methods take one and two such points (like freetype's raster.Adder) is
-// satisfied by an interpreted concrete, and the methods are invoked through
-// reflect (a NATIVE-boundary call), forcing the synth stub + marshalArgs layout
-// -- not interpreted dispatch. Adversarial negative/large coords pin that each
-// leaf lands at its true byte offset (a uniform 8-byte stride would corrupt Y).
-// Shapes: Start(Pt) -> "ii_", Add2(Pt,Pt) -> "iiii_", Sum() int64 -> "_i".
 func TestSynthSubWordPointIface(t *testing.T) {
 	const src = `package main
 
@@ -166,9 +148,6 @@ func main() {
 	}
 }
 
-// TestSynthPtrStringerEndToEnd is the pointer-receiver counterpart of
-// TestSynthStringerEndToEnd: the reserve path synthesizes a *T rtype and wires
-// PtrToThis so &T satisfies fmt.Stringer.
 func TestSynthPtrStringerEndToEnd(t *testing.T) {
 	const src = `package main
 
@@ -199,10 +178,6 @@ func main() {
 	}
 }
 
-// TestSynthKindsValueRecv exercises the synth kind catalog end-to-end:
-// each named non-struct kind (primitive, slice, array, map) with a value
-// receiver Stringer must satisfy fmt.Stringer and dispatch through the
-// synthesized rtype.
 func TestSynthKindsValueRecv(t *testing.T) {
 	cases := []struct {
 		name string
@@ -282,9 +257,6 @@ func main() {
 	}
 }
 
-// TestSynthMarshalJSON exercises shape S2 end-to-end: interpreted
-// MarshalJSON on a struct value type satisfies json.Marshaler via the
-// synthesized rtype, with no bridge proxy.
 func TestSynthMarshalJSON(t *testing.T) {
 	const src = `package main
 
@@ -317,15 +289,12 @@ func main() {
 	if got, want := stdout.String(), "[1,2]"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := stubs.SlotsUsedS2(); got <= before {
+	if got := stubs.SlotsUsedS2(); runtime.GOARCH != "wasm" && got <= before {
 		t.Errorf("SlotsUsedS2 did not advance (before=%d after=%d); "+
 			"synth S2 path was not exercised", before, got)
 	}
 }
 
-// TestSynthUnmarshalJSON exercises shape S3 end-to-end: interpreted
-// UnmarshalJSON on a *T satisfies json.Unmarshaler via the synthesized
-// *T rtype, with mutations to the receiver visible after dispatch returns.
 func TestSynthUnmarshalJSON(t *testing.T) {
 	const src = `package main
 
@@ -360,18 +329,12 @@ func main() {
 	if got, want := stdout.String(), "9"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
-	if got := stubs.SlotsUsedS3(); got <= before {
+	if got := stubs.SlotsUsedS3(); runtime.GOARCH != "wasm" && got <= before {
 		t.Errorf("SlotsUsedS3 did not advance (before=%d after=%d); "+
 			"synth S3 path was not exercised", before, got)
 	}
 }
 
-// TestSynthMultiMethod verifies that a type with BOTH a value-recv
-// Stringer AND a value-recv MarshalJSON gets both installed on the synth
-// rtype, so it satisfies both fmt.Stringer AND json.Marshaler natively.
-// Pre-Phase-2d this was impossible: the synth1 container held one method, so
-// the priority fix (S1 > S2) gave only Stringer and Marshaler fell through
-// to the bridge.
 func TestSynthMultiMethod(t *testing.T) {
 	const src = `package main
 
@@ -408,12 +371,6 @@ func main() {
 	}
 }
 
-// TestSynthCompositeInterfaceReverseDecl pins the alphabetical-sort fix:
-// when a type defines methods in REVERSE alphabetical order, the synth
-// rtype must still satisfy a composite interface that requires both.
-// Go's reflect.implements does a forward linear merge of two pre-sorted
-// method arrays, so unsorted entries silently fail multi-method
-// satisfaction (and the negative result is cached in the itab).
 func TestSynthCompositeInterfaceReverseDecl(t *testing.T) {
 	// Methods declared in REVERSE alphabetical order (String first, then
 	// MarshalJSON). Pre-fix, the synth rtype's method array preserved
@@ -455,14 +412,10 @@ func main() {
 	}
 }
 
-// TestSynthAttachIdempotent verifies that a single Eval consumes the
-// expected number of S1 slots: one for the value type T and one for the
-// synthesized *T, which carries T's value-receiver methods (Go's rule that
-// method-set(*T) includes value methods, so *T satisfies fmt.Stringer too).
-// The compiler aliases each Type symbol under bare and pkg-qualified keys
-// (compiler.go:136), so without per-*Type dedup the walker would attach each
-// rtype twice, doubling consumption to 4.
 func TestSynthAttachIdempotent(t *testing.T) {
+	if runtime.GOARCH == "wasm" {
+		t.Skip("stub pools are collapsed to a shared PC on wasm; SlotsUsed never advances")
+	}
 	const src = `package main
 
 import "fmt"
@@ -491,9 +444,6 @@ func main() {
 	}
 }
 
-// An interpreted UnmarshalJSON returning a concrete struct error must
-// propagate through the synth S3 bridge without an IsNil-on-struct panic
-// (the github.com/google/uuid TestJSONUnmarshal regression).
 func TestSynthUnmarshalConcreteError(t *testing.T) {
 	const src = `package main
 
@@ -538,10 +488,6 @@ func main() {
 	}
 }
 
-// A named slice type with a method, used as a struct field, must keep its named
-// identity (and method set) -- not degrade to the underlying []elem. fmt must
-// dispatch the named type's Format, not default slice formatting.
-// (github.com/pkg/errors TestStackTraceFormat regression.)
 func TestSynthNamedSliceField(t *testing.T) {
 	const src = `package main
 
@@ -582,9 +528,6 @@ func main() {
 	}
 }
 
-// TestSynthDirectIfaceFuncRecv covers a value-receiver method on a named func
-// type (kindDirectIface) dispatched through a synth stub: the stub's recv is
-// the receiver word itself, not its address (pflag boolfuncValue.Set).
 func TestSynthDirectIfaceFuncRecv(t *testing.T) {
 	const src = `package main
 
@@ -624,9 +567,6 @@ func main() {
 	}
 }
 
-// TestSynthPromotedDirectIfaceValue covers a promoted method on a VALUE of a
-// direct-iface struct (struct{*bytes.Buffer} -> io.Writer): the stub recv is
-// the embedded pointer word itself; formerly skipped, then mis-dereferenced.
 func TestSynthPromotedDirectIfaceValue(t *testing.T) {
 	const src = `package main
 
@@ -659,12 +599,6 @@ func main() {
 	}
 }
 
-// TestSynthPtrIdentValueRecvDirectIface covers a VALUE-receiver method reached
-// through the *T identity of a direct-iface struct (flag's ExampleValue:
-// fs.Var(&URLValue{u}, ...) with String/Set on URLValue = struct{*url.URL}).
-// The stub recv is the *T pointer and must be dereferenced; reinterpreting it
-// as the receiver word (correct only on T's own value identity) reconstructs a
-// bogus inner pointer and faults.
 func TestSynthPtrIdentValueRecvDirectIface(t *testing.T) {
 	const src = `package main
 
@@ -716,12 +650,6 @@ func main() {
 	}
 }
 
-// TestSynthComplexMethodIface exercises the complex128 word path on every arch:
-// complex128 is two float64 in two FP registers ("ff"), so Set(complex128) and
-// Get() complex128 resolve to the "ff_" and "_ff" stub pools. An interpreted
-// concrete satisfies the interface and its methods are invoked through reflect (a
-// NATIVE-boundary call), forcing the synth stub + the two-float marshaling -- this
-// pins the register-ABI claim that one complex128 arg passes like two float64.
 func TestSynthComplexMethodIface(t *testing.T) {
 	const src = `package main
 
@@ -762,12 +690,6 @@ func main() {
 	}
 }
 
-// TestSynthFloat32MethodIface exercises the single-precision word path on every
-// arch: float32 is a 'g' word (its own FP-register stub, distinct from float64),
-// and complex64 is two 'g' halves ("gg"). SetF/GetF/Twice resolve to "g_"/"_g"/
-// "g_g"; SetC/GetC to "gg_"/"_gg". An interpreted concrete satisfies the interface
-// and its methods are invoked through reflect (a NATIVE-boundary call), forcing the
-// synth stub + the float32<->float64 marshaling on the register ABI.
 func TestSynthFloat32MethodIface(t *testing.T) {
 	const src = `package main
 
@@ -820,12 +742,6 @@ func main() {
 	}
 }
 
-// TestSynthFloat32ArrayMethodIface exercises the array word path, which only the
-// wasm/ABI0 classifier supports (arrays of len > 1 are stack-passed on the register
-// ABI, so they drop there). SetA([2]int32) carries packed bytes in an 'i' slot and
-// SumA reads them back; the float32 methods ride along (they work on every arch --
-// see TestSynthFloat32MethodIface). Skipped off wasm, where the array method drops
-// and the synth rtype would not implement Box.
 func TestSynthFloat32ArrayMethodIface(t *testing.T) {
 	if runtime.GOARCH != "wasm" {
 		t.Skip("array word stubs are wasm/ABI0-only")
@@ -874,6 +790,86 @@ func main() {
 		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "2.5 93"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+func evalNoPanic(t *testing.T, name, src string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval(name, src); err != nil {
+		t.Fatalf("Eval: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+}
+
+func TestSynthConcreteMethodByNameCall(t *testing.T) {
+	evalNoPanic(t, "synth_concrete_method_test.go", `package main
+
+import "reflect"
+
+type Item struct{ Price int }
+
+func (i Item) Discounted(p int) int { return i.Price - p }
+
+func main() {
+	m := reflect.ValueOf(Item{Price: 40}).MethodByName("Discounted")
+	if !m.IsValid() {
+		panic("MethodByName returned an invalid Value")
+	}
+	out := m.Call([]reflect.Value{reflect.ValueOf(7)})
+	if got := out[0].Interface().(int); got != 33 {
+		panic("wrong method result")
+	}
+}
+`)
+}
+
+func TestSynthErrorTypeIdentity(t *testing.T) {
+	evalNoPanic(t, "synth_error_identity_test.go", `package main
+
+import "reflect"
+
+func le(a, b int) (bool, error) { return a < b, nil }
+
+func main() {
+	tf := reflect.TypeFor[error]()
+	te := reflect.TypeOf((*error)(nil)).Elem()
+	out1 := reflect.TypeOf(le).Out(1)
+	if out1 != tf || out1 != te {
+		panic("error interface rtype identity split across the bridge boundary")
+	}
+}
+`)
+}
+
+func TestSynthEmbeddedInterfacePromotion(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"io"
+)
+
+func main() {
+	v := struct {
+		io.Reader
+		io.WriterTo
+	}{}
+	fmt.Printf("%T", io.NopCloser(v))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("synth_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "io.nopCloserWriterTo"; got != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }

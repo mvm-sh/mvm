@@ -1,3 +1,5 @@
+//go:build !wasm
+
 package stubs
 
 import (
@@ -25,7 +27,7 @@ func mkSynth(layout reflect.Type, name, pkgPath string, methods []Method) (refle
 	if err != nil {
 		return nil, err
 	}
-	if err := FillMethods(res, methods); err != nil {
+	if _, err := FillMethods(res, methods); err != nil {
 		return nil, err
 	}
 	return res.Type(), nil
@@ -37,7 +39,7 @@ func mkSynthPtr(elem reflect.Type, name, pkgPath string, methods []Method) (refl
 	if err != nil {
 		return nil, err
 	}
-	if err := FillMethods(res, methods); err != nil {
+	if _, err := FillMethods(res, methods); err != nil {
 		return nil, err
 	}
 	return res.Type(), nil
@@ -195,7 +197,7 @@ func TestAcquireSlotsPartialRollback(t *testing.T) {
 		{Name: "C", Exported: true, Sig: stringerSig, Shape: ShapeS1, Handler: "not a func"},
 	}
 	beforeUsed := SlotsUsedS1()
-	_, err := acquireSlots(methods)
+	_, _, err := acquireSlots(methods)
 	if err == nil {
 		t.Fatal("expected error from invalid handler type")
 	}
