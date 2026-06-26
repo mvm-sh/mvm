@@ -62,6 +62,7 @@ type Parser struct {
 	curGen         int                   // generation of the current resolveDecls (nestable; saved/restored)
 	typeGen        map[*vm.Type]int      // generation each declared placeholder *Type was minted in; gates reuse (see reuseDeclaredType)
 	batchFuncDecls map[string]bool       // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
+	forwardDecls   map[string]bool       // batch keys registered bodyless; a later body fills them instead of redeclaring
 	instanceDecls  []DeferredDecl        // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
 	funcInstArgs   map[string][]*vm.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
 	instantiating  map[string]bool       // generic-type instances whose body is parsing now; self-refs reuse the mid-build placeholder, a failed-instantiation leftover is rebuilt on retry

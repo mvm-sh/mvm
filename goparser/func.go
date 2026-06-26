@@ -117,26 +117,33 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 		return false, nil // Anonymous function.
 	}
 
+	bodyless := bi <= 0 // forward decl (asm/linkname stub)
 	key := p.pkgKey(fname)
 	s, ok := p.Symbols[key]
 	if ok && s.Type != nil {
-		// A second declaration of this name within the same compilation unit is a redeclaration.
-		if p.batchFuncDecls[key] {
+		switch {
+		case !p.batchFuncDecls[key]:
+			// A prior unit's bare alias of an import-path target's symbol (made by
+			// aliasTargetTopLevel for the test driver) must not shadow this unit's
+			// own same-named top-level func: an external `package X_test` legally
+			// shares a name with an unexported X func. Re-register so this decl wins.
+			if !p.bareAliases[key] {
+				return false, nil
+			}
+			delete(p.bareAliases, key)
+			ok = false // fall through to fresh registration, replacing the alias
+		case bodyless:
+			return false, nil // forward decl of an already-declared func: no-op
+		case p.forwardDecls[key]:
+			delete(p.forwardDecls, key) // a body fills a prior forward decl (overlay)
+		default:
+			// A second declaration of this name within the same compilation unit.
 			nameTok := toks[1]
 			if nameTok.Tok == lang.ParenBlock { // method: name follows the receiver
 				nameTok = toks[2]
 			}
 			return false, ErrRedeclared{Name: fname, Loc: p.Sources.FormatPos(nameTok.Pos), Pos: nameTok.Pos}
 		}
-		// A prior unit's bare alias of an import-path target's symbol (made by
-		// aliasTargetTopLevel for the test driver) must not shadow this unit's
-		// own same-named top-level func: an external `package X_test` legally
-		// shares a name with an unexported X func. Re-register so this decl wins.
-		if !p.bareAliases[key] {
-			return false, nil
-		}
-		delete(p.bareAliases, key)
-		ok = false // fall through to fresh registration, replacing the alias
 	}
 	if !ok {
 		s = &symbol.Symbol{Name: fname, Used: true, Index: symbol.UnsetAddr}
@@ -157,6 +164,9 @@ func (p *Parser) registerFunc(toks Tokens) (bool, error) {
 	s.OutNames = outNames
 	if p.batchFuncDecls != nil {
 		p.batchFuncDecls[key] = true
+	}
+	if bodyless && p.forwardDecls != nil {
+		p.forwardDecls[key] = true
 	}
 	return false, nil
 }

@@ -543,6 +543,10 @@ func (p *Parser) resolveDecls(decls []Tokens, pkgTag string) (out []DeferredDecl
 	p.batchFuncDecls = map[string]bool{}
 	defer func() { p.batchFuncDecls = savedBatch }()
 
+	savedForward := p.forwardDecls
+	p.forwardDecls = map[string]bool{}
+	defer func() { p.forwardDecls = savedForward }()
+
 	// Fresh generation per resolveDecls (nestable), gating type reuse; see reuseDeclaredType.
 	savedGen := p.curGen
 	p.genCounter++
