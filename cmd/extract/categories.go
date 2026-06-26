@@ -106,11 +106,10 @@ var WasmDropPrefixes = []string{
 }
 
 // WasmKeepExact overrides a WasmDrop prefix: a package listed here stays a native
-// bridge on wasm even though its prefix is dropped, for a package that an
-// interpreted dependency needs and that crosses the boundary by value only (no
-// interpreted-method dispatch, so no shared-PC trap). Empty now that all of
-// crypto is bridged on wasm; repopulate if a dropped prefix needs an exception.
-var WasmKeepExact = map[string]bool{}
+// bridge on wasm even though its prefix is dropped.
+var WasmKeepExact = map[string]bool{
+	"net": true,
+}
 
 var WasmDropExact = map[string]bool{
 	"database/sql":        true,

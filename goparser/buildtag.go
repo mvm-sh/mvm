@@ -11,7 +11,8 @@ import (
 type buildContext struct {
 	GOOS      string
 	GOARCH    string
-	GoVersion string // major.minor only, e.g. "go1.24"
+	GoVersion string          // major.minor only, e.g. "go1.24"
+	tags      map[string]bool // extra satisfied build tags (besides GOOS/GOARCH/unix/go1.x)
 }
 
 func defaultBuildContext() *buildContext {
@@ -19,6 +20,18 @@ func defaultBuildContext() *buildContext {
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
 		GoVersion: version.Lang(runtime.Version()),
+		tags:      defaultTags(),
+	}
+}
+
+// defaultTags are the configurable build tags mvm sets by default (purego/safe
+// are universal invariants handled in matchTag). nethttpomithttp2 drops
+// net/http's bundled HTTP/2 stack -- mvm interprets net/http HTTP/1.1-only, so
+// the HTTP/2 bundle (and its x/net/http2/hpack dep) is excluded by its own
+// //go:build constraint instead of by a mirror patch.
+func defaultTags() map[string]bool {
+	return map[string]bool{
+		"nethttpomithttp2": true,
 	}
 }
 
@@ -108,13 +121,12 @@ func (ctx *buildContext) matchTag(tag string) bool {
 	if strings.HasPrefix(tag, "go1.") {
 		return version.Compare(ctx.GoVersion, tag) >= 0
 	}
-	// mvm interprets Go source: no assembly, and reflect internals differ from
-	// the native runtime. Enable the conventional tags that select pure-Go,
-	// unsafe-free fallbacks (e.g. go-spew's bypasssafe.go, x/crypto purego).
+	// purego/safe: mvm interprets source (no assembly, unsafe-free reflect), so
+	// the conventional pure-Go fallback tags are always satisfied.
 	if tag == "purego" || tag == "safe" {
 		return true
 	}
-	return false
+	return ctx.tags[tag]
 }
 
 var knownOS = map[string]bool{
@@ -138,6 +150,19 @@ func (p *Parser) SetBuildContext(goos, goarch string) {
 		GOOS:      goos,
 		GOARCH:    goarch,
 		GoVersion: p.buildCtx.GoVersion,
+		tags:      p.buildCtx.tags,
+	}
+}
+
+// AddBuildTags marks additional build tags as satisfied (like `go build -tags`).
+func (p *Parser) AddBuildTags(tags ...string) {
+	if p.buildCtx.tags == nil {
+		p.buildCtx.tags = map[string]bool{}
+	}
+	for _, t := range tags {
+		if t != "" {
+			p.buildCtx.tags[t] = true
+		}
 	}
 }
 

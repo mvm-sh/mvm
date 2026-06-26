@@ -133,6 +133,17 @@ func wireFS(i *interp.Interp) *modfs.FS {
 	if err := mfs.Inject(stdmod.ModulePath, stdmod.Version, stdlib.EmbeddedStd()); err != nil {
 		panic("modfs inject embedded std: " + err.Error())
 	}
+	// On wasm net/http is interpreted and pulls golang.org/x/net + x/text from
+	// source; there is no module cache or proxy, so inject the embedded subset.
+	// Native resolves the full modules from the cache/proxy, so injecting a
+	// trimmed copy there would shadow their other packages -- skip it.
+	if runtime.GOARCH == "wasm" {
+		for _, v := range stdlib.EmbeddedVendor() {
+			if err := mfs.Inject(v.Path, v.Version, v.Zip); err != nil {
+				panic("modfs inject " + v.Path + ": " + err.Error())
+			}
+		}
+	}
 	i.SetStdlibFS(stdmod.FS(mfs))
 	i.SetRemoteFS(mfs)
 	stdlib.RegisterModuleFS(mfs)

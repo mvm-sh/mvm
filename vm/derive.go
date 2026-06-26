@@ -353,10 +353,7 @@ func hasReservableMethods(t *mtype.Type) bool {
 func hasPromotedShapedMethods(t *mtype.Type) bool {
 	for _, emb := range t.Embedded {
 		ft := embeddedFieldRtype(t, emb)
-		if ft == nil {
-			continue
-		}
-		if ft.Kind() == reflect.Interface || (emb.Type != nil && emb.Type.IsInterface()) {
+		if (ft != nil && ft.Kind() == reflect.Interface) || (emb.Type != nil && emb.Type.IsInterface()) {
 			// A struct embedding a method-bearing interface may not get usable
 			// reflect.StructOf promotion, so its promoted EmbedIface methods are
 			// synth-attached and the struct must be reserved. Over-reserving when
@@ -366,27 +363,29 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 			}
 			continue
 		}
-		sets := []reflect.Type{ft}
-		if ft.Kind() != reflect.Pointer {
-			sets = append(sets, reflect.PointerTo(ft))
-		}
-		for _, st := range sets {
-			for meth := range st.Methods() {
-				if !meth.IsExported() {
-					continue
-				}
-				sig := stripRecvType(meth.Type)
-				if _, ok := detectShape(sig); ok {
-					return true
-				}
-				if wordShapeAvailable(sig) {
-					return true
+		if ft != nil {
+			sets := []reflect.Type{ft}
+			if ft.Kind() != reflect.Pointer {
+				sets = append(sets, reflect.PointerTo(ft))
+			}
+			for _, st := range sets {
+				for meth := range st.Methods() {
+					if !meth.IsExported() {
+						continue
+					}
+					sig := stripRecvType(meth.Type)
+					if _, ok := detectShape(sig); ok {
+						return true
+					}
+					if wordShapeAvailable(sig) {
+						return true
+					}
 				}
 			}
 		}
-		// The embed's rtype publishes its methods only after ITS attach; walk
-		// the mvm graph too. Over-reserving is safe (the reserve gate is a
-		// superset of the attach trigger).
+		// The embed's rtype publishes its methods only after ITS attach (so ft may
+		// be nil or method-less here); walk the mvm graph too. Over-reserving is
+		// safe (the reserve gate is a superset of the attach trigger).
 		if embTypeHasMethods(emb.Type) {
 			return true
 		}

@@ -141,3 +141,39 @@ func TestMatchTagUnix(t *testing.T) {
 		t.Error("matchTag(\"unix\") = true for GOOS=windows, want false")
 	}
 }
+
+// TestBuildTags covers the satisfied-tag set: defaults (purego/safe/
+// nethttpomithttp2) plus AddBuildTags, all evaluated through //go:build.
+func TestBuildTags(t *testing.T) {
+	dir := func(src string, ctx *buildContext) bool { return matchBuildDirective(src, ctx) }
+
+	def := defaultBuildContext()
+	cases := []struct {
+		desc string
+		src  string
+		ctx  *buildContext
+		want bool
+	}{
+		{"default purego", "//go:build purego\n\npackage p", def, true},
+		{"default nethttpomithttp2", "//go:build nethttpomithttp2\n\npackage p", def, true},
+		{"its negation excluded", "//go:build !nethttpomithttp2\n\npackage p", def, false},
+		{"unknown tag false", "//go:build sqlite_omit_load_extension\n\npackage p", def, false},
+		{"GOOS still works", "//go:build wasip1\n\npackage p", &buildContext{GOOS: "wasip1", GOARCH: "wasm", GoVersion: "go1.26", tags: defaultTags()}, true},
+	}
+	for _, c := range cases {
+		if got := dir(c.src, c.ctx); got != c.want {
+			t.Errorf("%s: matchBuildDirective = %v, want %v", c.desc, got, c.want)
+		}
+	}
+
+	// AddBuildTags marks an otherwise-unknown tag as satisfied (like -tags).
+	p := &Parser{buildCtx: defaultBuildContext()}
+	const src = "//go:build sqlite_omit_load_extension\n\npackage p"
+	if matchBuildDirective(src, p.buildCtx) {
+		t.Fatal("tag satisfied before AddBuildTags")
+	}
+	p.AddBuildTags("sqlite_omit_load_extension")
+	if !matchBuildDirective(src, p.buildCtx) {
+		t.Error("tag not satisfied after AddBuildTags")
+	}
+}

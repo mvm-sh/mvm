@@ -28,6 +28,7 @@ func runCmd(arg []string) error {
 		str   string    // the string to eval
 		trace traceFlag // to print executed code lines
 		stat  bool      // to print execution statistics afterward
+		tags  string    // comma-separated build tags, like `go build -tags`
 	)
 	rflag := flag.NewFlagSet("run", flag.ContinueOnError)
 	rflag.Usage = func() {
@@ -37,6 +38,7 @@ func runCmd(arg []string) error {
 	rflag.StringVar(&str, "e", "", "string to eval")
 	rflag.Var(&trace, "x", "trace mode (bare -x = line; -x=op, -x=all, -x=line,op)")
 	rflag.BoolVar(&stat, "stat", false, "print compile/run statistics on exit")
+	rflag.StringVar(&tags, "tags", "", "comma-separated build tags")
 	if err := rflag.Parse(arg); err != nil {
 		if errors.Is(err, flag.ErrHelp) { // -h already printed usage
 			return nil
@@ -49,6 +51,7 @@ func runCmd(arg []string) error {
 	i.UseHostStdio()
 	i.ImportPackageValues(stdlib.Values)
 	i.ImportPackageConsts(stdlib.ConstValues)
+	i.AddBuildTags(strings.FieldsFunc(tags, func(r rune) bool { return r == ',' || r == ' ' })...)
 	applyInterpOverrides(i)
 	mfs := wireFS(i)
 	if trace.line {

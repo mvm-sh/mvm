@@ -95,6 +95,7 @@ type Stats struct {
 func NewInterpreter(s *lang.Spec) *Interp {
 	i := &Interp{Compiler: comp.NewCompiler(s), Machine: vm.NewMachine()}
 	i.SetStdlibFS(stdmod.DefaultFS())
+	i.SetRemoteFS(stdmod.DefaultRemoteFS())
 	return i
 }
 
