@@ -216,3 +216,30 @@ func TestFillRejectsBadCounts(t *testing.T) {
 		t.Fatal("Fill over maxMethods should error")
 	}
 }
+
+// TestCloneStructLayoutWithFieldsNativeSrc: a native src (StructOf shape collision)
+// has module-relative Str/PtrToThis; copied onto a heap clone they make
+// reflect.New/String throw "offset base pointer out of range" (the net/http case).
+func TestCloneStructLayoutWithFieldsNativeSrc(t *testing.T) {
+	type leaf struct{ p *int }
+	// A struct-literal type is compiled in -> native, positive Str (the cache hit).
+	src := reflect.TypeOf(struct {
+		A *int
+		B *int
+	}{})
+	clone := CloneStructLayoutWithFields(src, map[int]reflect.Type{
+		0: reflect.TypeFor[*leaf](),
+	})
+	// These read the clone's name/type offset and threw before the fix.
+	_ = reflect.New(clone)
+	_ = reflect.PointerTo(clone)
+	if got := clone.String(); got == "" || got[0] != 's' { // not "truct {...}"
+		t.Errorf("clone.String() = %q, want a 'struct {...}' string", got)
+	}
+	if clone.NumField() != 2 {
+		t.Fatalf("NumField = %d, want 2", clone.NumField())
+	}
+	if clone.Field(0).Type != reflect.TypeFor[*leaf]() {
+		t.Errorf("field 0 type = %v, want *leaf", clone.Field(0).Type)
+	}
+}

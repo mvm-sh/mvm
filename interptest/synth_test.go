@@ -952,3 +952,41 @@ func main() {
 }
 `)
 }
+
+// TestSynthEmbeddedInterfacePromotion: a struct embedding io.Reader and io.WriterTo
+// must implement both, so native io.NopCloser(io.Reader) accepts it. The
+// methodless-layout dance used to strip the promoted method set off non-first
+// embedded interfaces (net/http transfer.go nopCloserWriterToType).
+func TestSynthEmbeddedInterfacePromotion(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"io"
+	"reflect"
+)
+
+func main() {
+	v := struct {
+		io.Reader
+		io.WriterTo
+	}{}
+	rt := reflect.TypeOf(v)
+	rdr := reflect.TypeOf((*io.Reader)(nil)).Elem()
+	wto := reflect.TypeOf((*io.WriterTo)(nil)).Elem()
+	fmt.Printf("nm=%d r=%v w=%v ", rt.NumMethod(), rt.Implements(rdr), rt.Implements(wto))
+	fmt.Printf("%T", io.NopCloser(v))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("synth_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "nm=2 r=true w=true io.nopCloserWriterTo"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}

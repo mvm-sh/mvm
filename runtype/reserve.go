@@ -260,6 +260,12 @@ func CloneStructLayoutWithFields(src reflect.Type, fieldTypes map[int]reflect.Ty
 	s := (*abiStructType)(unsafe.Pointer(rtypePtr(src)))
 	b := new(abiStructType)
 	*b = *s
+	// src may be a cached NATIVE type (StructOf shape collision) whose module-relative
+	// Str/PtrToThis are invalid on this heap clone; re-register them like the derive
+	// constructors. tflagExtraStar off so reflect keeps the fresh name's first byte.
+	b.TFlag &^= tflagExtraStar
+	b.PtrToThis = 0
+	b.Str = addReflectOff(unsafe.Pointer(encodeName(src.String(), false).Bytes))
 	b.Fields = make([]abiStructField, len(s.Fields))
 	copy(b.Fields, s.Fields)
 	for i, ft := range fieldTypes {
