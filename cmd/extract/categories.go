@@ -74,6 +74,7 @@ var BuildTags = map[string]string{
 	"unicode/utf16":   "!wasm",
 	"io":              "!wasm",
 	"io/fs":           "!wasm",
+	"io/ioutil":       "!wasm",
 	"context":         "!wasm",
 	"encoding":        "!wasm",
 	"encoding/json":   "!wasm",

@@ -1005,6 +1005,15 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				break
 			}
 		}
+		// Native/bridged method value (f.Readdir): bound func type from the
+		// rtype so callFuncType reads its return tuple for `a, b := f.M()`.
+		if leftTyp.Rtype != nil {
+			if m, ok := leftTyp.Rtype.MethodByName(fieldName); ok {
+				if bound := boundMethodType(m.Type); bound != nil {
+					return &vm.Type{Rtype: bound}, 1 + ln
+				}
+			}
+		}
 		return nil, 0
 
 	case id.IsBinaryOp():

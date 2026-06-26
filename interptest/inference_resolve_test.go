@@ -71,3 +71,20 @@ func main() {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// (d) a slice from a 2-value bridged-method return (rows, _ := r.ReadAll())
+// types its LHS so slices.SortFunc can infer S. postfixType missed native
+// methods. Surfaced interpreting io/ioutil ReadDir (f.Readdir(-1)) on wasm.
+func TestInferNativeMethodReturnTuple(t *testing.T) {
+	const src = `package main
+import ("encoding/csv"; "fmt"; "slices"; "strings")
+func main() {
+	r := csv.NewReader(strings.NewReader("c,3\na,1\nb,2\n"))
+	rows, _ := r.ReadAll()
+	slices.SortFunc(rows, func(x, y []string) int { return strings.Compare(x[0], y[0]) })
+	fmt.Println(rows)
+}`
+	if got, want := evalOut(t, "methodtuple.go", src), "[[a 1] [b 2] [c 3]]\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

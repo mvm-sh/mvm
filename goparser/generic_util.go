@@ -546,3 +546,19 @@ func funcReturnType(typ *vm.Type) *vm.Type {
 	}
 	return nil
 }
+
+// boundMethodType drops the receiver (In(0)) from a method-expression rtype.
+func boundMethodType(mt reflect.Type) reflect.Type {
+	if mt == nil || mt.Kind() != reflect.Func || mt.NumIn() == 0 {
+		return mt
+	}
+	in := make([]reflect.Type, 0, mt.NumIn()-1)
+	for i := 1; i < mt.NumIn(); i++ {
+		in = append(in, mt.In(i))
+	}
+	out := make([]reflect.Type, mt.NumOut())
+	for i := range out {
+		out[i] = mt.Out(i)
+	}
+	return reflect.FuncOf(in, out, mt.IsVariadic())
+}
