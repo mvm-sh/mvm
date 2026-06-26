@@ -80,4 +80,11 @@ func init() {
 		"SockaddrUnix":              reflect.ValueOf((*syscall.SockaddrUnix)(nil)),
 		"SocketControlMessage":      reflect.ValueOf((*syscall.SocketControlMessage)(nil)),
 	}
+	stdlib.ConstValues["syscall"] = map[string]string{
+		"F_DUP2FD_CLOEXEC": "36",
+		"LOCK_EX":          "2",
+		"LOCK_NB":          "4",
+		"LOCK_SH":          "1",
+		"LOCK_UN":          "8",
+	}
 }
