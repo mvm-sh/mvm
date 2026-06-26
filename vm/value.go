@@ -432,24 +432,26 @@ func (v Value) Equal(u Value) bool {
 		u = FromReflect(u.ref.Elem())
 	}
 	if v.IsIface() {
-		if v.IfaceVal().Typ == nil {
+		iv := v.IfaceVal()
+		if iv.Typ == nil {
 			return nilEqual(u) // nil boxed interface
 		}
 		if !u.IsValid() {
 			return false // non-nil interface != nil
 		}
 		if u.IsIface() {
-			return v.IfaceVal().Val.Equal(u.IfaceVal().Val)
+			return iv.Val.Equal(u.IfaceVal().Val)
 		}
-		return v.IfaceVal().Val.Equal(u)
+		return iv.Val.Equal(u)
 	}
 	if u.IsIface() {
-		if u.IfaceVal().Typ == nil {
+		iu := u.IfaceVal()
+		if iu.Typ == nil {
 			return nilEqual(v)
 		}
 		// v is a concrete value, u is still boxed as Iface; compare
 		// against the boxed value.
-		return u.IfaceVal().Val.Equal(v)
+		return iu.Val.Equal(v)
 	}
 	if isNum(v.ref.Kind()) && isNum(u.ref.Kind()) {
 		// Floats are stored as Float64 bits; compare them as floats so the IEEE

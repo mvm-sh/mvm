@@ -650,10 +650,9 @@ func main() {
 	}
 }
 
-// A closure-captured interface variable holds its concrete value as a boxed
-// vm.Iface. Assigning nil must reset it to a true nil interface so `== nil`
-// and `!= nil` behave; a stale typed-nil made gorilla/websocket's
-// `defer func(){ if netConn != nil { netConn.Close() } }()` deref nil.
+// Assigning nil to a closure-captured interface (boxed as vm.Iface) must yield a
+// true nil interface, not a typed-nil; the latter made gorilla/websocket's
+// `if netConn != nil { netConn.Close() }` deref nil.
 func TestIfaceNilAssignCapturedCell(t *testing.T) {
 	src := `package main
 

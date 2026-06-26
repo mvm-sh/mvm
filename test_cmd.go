@@ -177,7 +177,9 @@ func testCmd(arg []string) error {
 	if absDir, aerr := filepath.Abs(target); aerr == nil {
 		if _, rerr := os.ReadDir(absDir); rerr == nil {
 			i, mfs := newTestInterp(trace)
-			i.PanicNilCompat = panicNilCompat(findGoModDir(absDir))
+			goMod := findGoModDir(absDir)
+			i.PanicNilCompat = panicNilCompat(goMod)
+			applyModuleGodebug(goMod)
 			flushStats := setupStats(i, mfs, stat)
 			if err := evalLocalDir(i, absDir); err != nil {
 				flushStats()
@@ -209,7 +211,9 @@ func testCmd(arg []string) error {
 	for {
 		i, mfs := newTestInterp(trace)
 		if mfs != nil {
-			i.PanicNilCompat = panicNilCompat(findGoModFS(mfs, target))
+			goMod := findGoModFS(mfs, target)
+			i.PanicNilCompat = panicNilCompat(goMod)
+			applyModuleGodebug(goMod)
 			// Materialize and chdir BEFORE Eval: top-level var inits in
 			// _test.go files may read testdata-relative paths at load time,
 			// not run time, so cwd must already be the package dir.
@@ -754,6 +758,20 @@ func runTestDriver(i *interp.Interp, pkgPath string, flushStats func()) error {
 	return nil
 }
 
+// goModMinor returns N from a `go 1.N` directive in goMod; ok is false if absent.
+func goModMinor(goMod []byte) (minor int, ok bool) {
+	for line := range strings.Lines(string(goMod)) {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == "go" {
+			var major int
+			if n, _ := fmt.Sscanf(f[1], "%d.%d", &major, &minor); n == 2 && major == 1 {
+				return minor, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // panicNilCompat reports whether panic(nil) should recover as nil (pre-Go 1.21
 // semantics) for the module whose go.mod content is given, mirroring the
 // runtime's GODEBUG panicnil default. An explicit GODEBUG setting wins.
@@ -763,16 +781,52 @@ func panicNilCompat(goMod []byte) bool {
 			return v == "1"
 		}
 	}
-	for line := range strings.Lines(string(goMod)) {
-		f := strings.Fields(line)
-		if len(f) >= 2 && f[0] == "go" {
-			var major, minor int
-			if n, _ := fmt.Sscanf(f[1], "%d.%d", &major, &minor); n == 2 {
-				return major == 1 && minor < 21
-			}
-		}
+	if minor, ok := goModMinor(goMod); ok {
+		return minor < 21
 	}
 	return false
+}
+
+// versionGatedGodebug lists GODEBUG settings whose default flipped at a Go
+// version; a module with an older go directive keeps oldValue. mvm applies them
+// via the GODEBUG env (native packages read internal/godebug at runtime), as the
+// go command does from the main module's go directive.
+var versionGatedGodebug = []struct {
+	key      string
+	changed  int    // go 1.N where the default flipped (internal/godebugs Changed)
+	oldValue string // value applied for modules with go < changed
+}{
+	{"randseednop", 24, "0"}, // math/rand.Seed stays deterministic pre-1.24
+}
+
+// applyModuleGodebug sets the target module's version-gated GODEBUG defaults in
+// the process env; an explicit GODEBUG entry wins.
+func applyModuleGodebug(goMod []byte) {
+	minor, ok := goModMinor(goMod)
+	if !ok {
+		return
+	}
+	cur := os.Getenv("GODEBUG")
+	set := map[string]bool{}
+	for kv := range strings.SplitSeq(cur, ",") {
+		if name, _, found := strings.Cut(kv, "="); found {
+			set[name] = true
+		}
+	}
+	var add []string
+	for _, g := range versionGatedGodebug {
+		if minor < g.changed && !set[g.key] {
+			add = append(add, g.key+"="+g.oldValue)
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	joined := strings.Join(add, ",")
+	if cur != "" {
+		joined = cur + "," + joined
+	}
+	os.Setenv("GODEBUG", joined)
 }
 
 // findGoModFS returns the go.mod content of the module enclosing pkgPath in
