@@ -63,8 +63,12 @@ func main() {
 	for _, m := range vendorMods {
 		root := filepath.Join(cache, filepath.FromSlash(m.path)+"@"+m.version)
 		if _, err := os.Stat(root); err != nil {
-			log.Fatalf("module not in cache: %s@%s (run `go mod download %s@%s`): %v",
-				m.path, m.version, m.path, m.version, err)
+			if err := downloadModule(m.path, m.version); err != nil {
+				log.Fatalf("module not in cache and download failed: %s@%s: %v", m.path, m.version, err)
+			}
+			if _, err := os.Stat(root); err != nil {
+				log.Fatalf("module not in cache after download: %s@%s: %v", m.path, m.version, err)
+			}
 		}
 		n, size, err := writeVendorZip(m, root)
 		if err != nil {
@@ -72,6 +76,17 @@ func main() {
 		}
 		fmt.Printf("wrote %s (%d bytes, %d files, %s@%s)\n", m.out, size, n, m.path, m.version)
 	}
+}
+
+// downloadModule fetches module@version into the cache. The explicit
+// path@version form does not modify go.mod, so it works in mvm's
+// zero-dependency module.
+func downloadModule(path, version string) error {
+	cmd := exec.Command("go", "mod", "download", path+"@"+version)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("go mod download %s@%s: %v: %s", path, version, err, out)
+	}
+	return nil
 }
 
 func goModCache() string {
