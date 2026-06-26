@@ -649,3 +649,48 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// A closure-captured interface variable holds its concrete value as a boxed
+// vm.Iface. Assigning nil must reset it to a true nil interface so `== nil`
+// and `!= nil` behave; a stale typed-nil made gorilla/websocket's
+// `defer func(){ if netConn != nil { netConn.Close() } }()` deref nil.
+func TestIfaceNilAssignCapturedCell(t *testing.T) {
+	src := `package main
+
+type Closer interface{ Close() error }
+type conn struct{ name string }
+
+func (c *conn) Close() error { return nil }
+
+func main() {
+	c := &conn{"x"}
+	var nc Closer = c
+	closed := false
+	defer func() {
+		if nc != nil {
+			nc.Close()
+			closed = true
+		}
+		println("defer nc==nil:", nc == nil, "closed:", closed)
+	}()
+	println("before nil, nc==nil:", nc == nil)
+	nc = nil
+	println("after nil, nc==nil:", nc == nil)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "panic") {
+		t.Fatalf("nil interface deref panicked: %s", stderr.String())
+	}
+	want := "before nil, nc==nil: false\nafter nil, nc==nil: true\ndefer nc==nil: true closed: false\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("output: got %q, want %q (stderr: %s)", got, want, stderr.String())
+	}
+}

@@ -394,6 +394,9 @@ func isNilable(rv reflect.Value) bool {
 }
 
 func nilEqual(v Value) bool {
+	if v.IsIface() {
+		return v.IfaceVal().Typ == nil
+	}
 	if isNilable(v.ref) {
 		return v.ref.IsNil()
 	}
@@ -429,6 +432,9 @@ func (v Value) Equal(u Value) bool {
 		u = FromReflect(u.ref.Elem())
 	}
 	if v.IsIface() {
+		if v.IfaceVal().Typ == nil {
+			return nilEqual(u) // nil boxed interface
+		}
 		if !u.IsValid() {
 			return false // non-nil interface != nil
 		}
@@ -438,6 +444,9 @@ func (v Value) Equal(u Value) bool {
 		return v.IfaceVal().Val.Equal(u)
 	}
 	if u.IsIface() {
+		if u.IfaceVal().Typ == nil {
+			return nilEqual(v)
+		}
 		// v is a concrete value, u is still boxed as Iface; compare
 		// against the boxed value.
 		return u.IfaceVal().Val.Equal(v)
