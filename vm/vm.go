@@ -1233,12 +1233,17 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// taken off an unexported struct field, which make .Interface() panics).
 			canCallInterface := fval.ref.IsValid() && fval.ref.CanInterface()
 			var clo Closure
+			var mframe *methodFrame
 			var isClosure, isInt bool
 			var iv int
 			if canCallInterface {
-				clo, isClosure = fval.ref.Interface().(Closure)
-				if !isClosure {
-					iv, isInt = fval.ref.Interface().(int)
+				switch v := fval.ref.Interface().(type) {
+				case *methodFrame:
+					mframe = v
+				case Closure:
+					clo, isClosure = v, true
+				case int:
+					iv, isInt = v, true
 				}
 			}
 			// Cannot use switch here: the final else branch contains a `break`
@@ -1248,6 +1253,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// Plain int code address stored inline in num.
 				nip = int(fval.num)
 				m.heap = nil
+			} else if mframe != nil {
+				nip = mframe.code
+				m.heap = mframe.slot[:]
 			} else if isClosure {
 				nip = clo.Code
 				m.heap = clo.Heap
@@ -1936,7 +1944,15 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// Build a closure with the concrete receiver as Heap[0], replacing the
 			// interface value on the stack. Same result as HeapAlloc+Get+Swap+MkClosure.
 			// For promoted methods, extract the embedded field as receiver.
-			cell := new(Value)
+			// The fused path packs the cell + 1-entry heap in one alloc (see methodFrame).
+			var mf *methodFrame
+			var cell *Value
+			if fusedMethodFrame {
+				mf = &methodFrame{code: codeAddr}
+				cell = &mf.cell
+			} else {
+				cell = new(Value)
+			}
 			*cell = ifc.Val
 			if path := method.Path; path != nil {
 				rv := reflect.Indirect(ifc.Val.Reflect())
@@ -1983,7 +1999,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cell.ref = nv
 				}
 			}
-			mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
+			if mf != nil {
+				mf.slot[0] = cell
+				mem[sp] = Value{ref: reflect.ValueOf(mf)}
+			} else {
+				mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
+			}
 
 		case TypeAssert:
 			dstTyp := m.globals[int(c.A)].ref.Interface().(*Type)

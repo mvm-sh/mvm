@@ -1,7 +1,8 @@
 # ADR-023: Index-based method dispatch
 
-**Status:** accepted -- phase 1 landed; phases 2-3 found already realized in the
-compiler; phase 4 deferred
+**Status:** accepted -- phase 1 (native tables) and phase 2' (fused method frame)
+landed; the embedding-flatten and direct-dispatch phases were already realized in
+the compiler; phase 4 deferred
 **Date:** 2026-06-27
 
 Concerns `IfaceCall`: interpreted code calling a method on an interpreted or
@@ -107,12 +108,14 @@ Each must map to a descriptor variant or pre-table interception:
 - Native dispatch is now O(1) index with no per-call `MethodByName`/binding
   allocation (phase 1); the leaf `reflect.Call` remains.
 - The interpreted path was already O(1) index with embedding flattened at compile
-  time, so the redesign's interpreted phases (2-3) reduced to a ~2% alloc-free
-  `ResolveMethodType` residue not worth an invasive change.
+  time; its real cost was allocation, not resolution (profiling showed 4
+  allocs/dispatch, all building the receiver closure, vs ~2% in
+  `ResolveMethodType`). The fused method frame cut that to 1-2 allocs/dispatch
+  (phase 2').
 - Per-type native tables are sparse under the global index (memory until
   compacted).
-- The win landed behind the `BenchmarkNativeBridgeTimeAdd` baseline and the
-  `interptest` suite.
+- The wins landed behind the `BenchmarkNativeBridgeTimeAdd` /
+  `BenchmarkIfaceDispatch*` baselines and the `interptest` suite.
 
 ## Alternatives considered
 
@@ -134,6 +137,14 @@ Each must map to a descriptor variant or pre-table interception:
    pre-fills promoted methods into `Methods[id]`. The only residue is the per-call
    `ResolveMethodType` (`*T`<->`T` bridging + `Base`-clone fallback, ~2%,
    alloc-free); not worth the invasive change to remove. Skipped.
+2'. **Fused method frame (landed).** Profiling the interpreted path found its cost
+   was allocation, not resolution: every dispatch built a receiver `Closure`
+   (cell + 1-entry heap slice + reflect box = 3-4 allocs). The fused frame packs
+   the cell and its single-entry heap in one allocation carried to `Call` as a
+   pointer, not a boxed `Closure`. Default-on (`MVM_FUSED_FRAME=off` kill switch).
+   Measured: native -20% time / 4 -> 2 allocs (1 for non-struct/pointer
+   receivers, the residue being the value-receiver struct copy); wasm -18%.
+   `vm/method_frame.go`.
 3. **Compile-time direct dispatch (already realized).** Concrete interpreted
    method calls already compile to a direct `Call`; `IfaceCall` is reserved for
    dynamic (interface) and native receivers. Skipped.
@@ -146,4 +157,6 @@ Each must map to a descriptor variant or pre-table interception:
 ## Files
 
 - `vm/native_methods.go` -- the table, descriptor, and resolution (phase 1).
-- `vm/vm.go` -- the `IfaceCall` native branch and the `cachedNativeCall` marker.
+- `vm/method_frame.go` -- the fused receiver frame (phase 2').
+- `vm/vm.go` -- the `IfaceCall` native and interpreted branches, the
+  `cachedNativeCall` and `methodFrame` markers consumed by `Call`.

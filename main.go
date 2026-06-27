@@ -121,6 +121,9 @@ func applyInterpOverrides(i *interp.Interp) {
 	if os.Getenv("MVM_NATIVE_TABLE") == "off" {
 		vm.SetNativeMethodTables(false) // kill switch for ADR-023 native method tables
 	}
+	if os.Getenv("MVM_FUSED_FRAME") == "off" {
+		vm.SetFusedMethodFrame(false) // kill switch for ADR-023 fused method frame
+	}
 	v := os.Getenv("MVM_INTERP")
 	if v == "" {
 		return

@@ -211,19 +211,25 @@ func run() int {
 }
 
 func benchIfaceDispatch(b *testing.B, src string) {
-	intp := interp.NewInterpreter(golang.GoSpec)
-	if _, err := intp.Eval("setup", src); err != nil {
-		b.Fatal(err)
-	}
-	if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int(400000) {
-		b.Fatalf("wrong result %v err %v", v, err)
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := intp.Eval("bench", "run()"); err != nil {
+	run := func(b *testing.B, fused bool) {
+		vm.SetFusedMethodFrame(fused)
+		defer vm.SetFusedMethodFrame(true)
+		intp := interp.NewInterpreter(golang.GoSpec)
+		if _, err := intp.Eval("setup", src); err != nil {
 			b.Fatal(err)
 		}
+		if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int(400000) {
+			b.Fatalf("wrong result %v err %v", v, err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := intp.Eval("bench", "run()"); err != nil {
+				b.Fatal(err)
+			}
+		}
 	}
+	b.Run("off", func(b *testing.B) { run(b, false) })
+	b.Run("on", func(b *testing.B) { run(b, true) })
 }
 
 // BenchmarkMarshalerDispatch: MarshalJSON() ([]byte, error) -- S2 vs _piipp.
