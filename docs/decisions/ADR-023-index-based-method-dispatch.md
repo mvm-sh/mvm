@@ -1,6 +1,7 @@
 # ADR-023: Index-based method dispatch
 
-**Status:** proposed
+**Status:** accepted -- phase 1 landed; phases 2-3 found already realized in the
+compiler; phase 4 deferred
 **Date:** 2026-06-27
 
 Concerns `IfaceCall`: interpreted code calling a method on an interpreted or
@@ -8,6 +9,10 @@ native receiver.
 This is the opposite direction from [ADR-021](ADR-021-synthesized-rtypes.md) and
 [ADR-022](ADR-022-word-class-dispatch.md) (native code dispatching an interpreted
 method), which are unchanged here.
+
+The native receiver was the cost and phase 1 fixed it.
+Inspecting the compiler then showed the interpreted-receiver phases (2-3) were
+already in place, so only phase 1 was implemented; see the phased plan.
 
 ## Context
 
@@ -18,8 +23,9 @@ addresses that name on every type and interface.
 At runtime `IfaceCall` branches on the receiver:
 
 - Interpreted (mvm `Iface`): `ifc.Typ.ResolveMethodType(methodID)` then
-  `Methods[methodID]` -- O(1), but `ResolveMethodType` walks the embedding chain
-  per call when the direct slot is empty.
+  `Methods[methodID]` -- O(1) index; the resolve walks the `Base`/pointer chain
+  per call only when the direct slot is empty (embedding is already flattened in,
+  see below).
 - Native: no table. `nativeMethodLookup` calls `reflect.Value.MethodByName`,
   binding a fresh method value (`makeMethodValue` + `FuncOf`) every call.
 
@@ -65,14 +71,26 @@ This removes `MethodByName`/`makeMethodValue`; the leaf `reflect.Call` remains
 Populate each table with the full accessible method set, promotion included, when
 the type is built -- not per call.
 Native types are free: `reflect`'s method set is already that flattened closure.
-Interpreted types resolve their embedding chain once, retiring the per-call
-`ResolveMethodType` walk.
+Interpreted types should carry their promoted methods directly.
+
+Already realized: the compiler's promotion pass (`comp/compiler.go`, the type
+`visit`) recursively copies each embedded method into the outer type's
+`Methods[id]` with the receiver `Path` pre-adjusted.
+The per-call `ResolveMethodType` no longer walks embedding; it only does the
+`*T`<->`T` value/pointer method-set bridging and the `Base`-clone fallback
+(~2%, alloc-free).
+Dispatch through an embedded *interface* field stays runtime-dynamic by nature
+(`EmbedIface`); flattening cannot remove it.
 
 ### Compile-time vs runtime
 
-Static concrete receiver: the compiler resolves the descriptor and emits a
-direct-call opcode -- no runtime lookup.
+Static concrete receiver: the compiler resolves the method and emits a direct
+`Call` -- no runtime lookup.
 Dynamic / interface receiver: emit the indexed `IfaceCall`.
+
+Already realized: a concrete interpreted method call compiles to a direct `Call`
+on the method's code address (`comp/compiler.go`); `IfaceCall` is emitted only for
+interface-typed receivers (dynamic) and native concrete types (phase 1's domain).
 
 ### Awkward cases
 
@@ -86,13 +104,15 @@ Each must map to a descriptor variant or pre-table interception:
 
 ## Consequences
 
-- Dispatch is O(1) index for both receiver kinds, with no per-call reflect
-  resolution, binding allocation, or embedding walk; the native/interpreted
-  branch in `IfaceCall` collapses to one mechanism.
-- Per-type tables are sparse under the global index (memory until compacted).
-- Construction must flatten embedding correctly; migration touches the hot path
-  and the awkward cases, so it lands behind the `BenchmarkNativeBridgeTimeAdd`
-  baseline and the `interptest` suite.
+- Native dispatch is now O(1) index with no per-call `MethodByName`/binding
+  allocation (phase 1); the leaf `reflect.Call` remains.
+- The interpreted path was already O(1) index with embedding flattened at compile
+  time, so the redesign's interpreted phases (2-3) reduced to a ~2% alloc-free
+  `ResolveMethodType` residue not worth an invasive change.
+- Per-type native tables are sparse under the global index (memory until
+  compacted).
+- The win landed behind the `BenchmarkNativeBridgeTimeAdd` baseline and the
+  `interptest` suite.
 
 ## Alternatives considered
 
@@ -104,24 +124,26 @@ Each must map to a descriptor variant or pre-table interception:
 
 ## Phased plan
 
-Each phase lands and is measured independently.
-
 1. **Native method tables (landed).** Per-type table indexed by `methodID`,
    resolved lazily to an unbound-func descriptor; the `IfaceCall` native branch
    indexes it instead of `MethodByName`/`makeMethodValue`. No compiler change,
    default-on (`MVM_NATIVE_TABLE=off` kill switch), supersedes the prototype.
    Measured (`time.Add` x100k): native -34% time / 13 -> 7 allocs; wasm -33%,
    byte-identical. `vm/native_methods.go`.
-2. **Flatten embedding** into tables at construction; drop the per-call
-   `ResolveMethodType` walk.
-3. **Compile-time direct dispatch** for static concrete receivers: a direct-call
-   opcode bypassing `IfaceCall`.
-4. **(later) Thunks + opcode unification.** Generated thunks remove `reflect.Call`;
-   one opcode serves both receiver kinds.
+2. **Flatten embedding (already realized).** The compiler's promotion pass
+   pre-fills promoted methods into `Methods[id]`. The only residue is the per-call
+   `ResolveMethodType` (`*T`<->`T` bridging + `Base`-clone fallback, ~2%,
+   alloc-free); not worth the invasive change to remove. Skipped.
+3. **Compile-time direct dispatch (already realized).** Concrete interpreted
+   method calls already compile to a direct `Call`; `IfaceCall` is reserved for
+   dynamic (interface) and native receivers. Skipped.
+4. **(deferred) Thunks + opcode unification.** Phase 1 left the leaf
+   `reflect.Call` (~17% of a native crossing). Removing it needs per-signature
+   generated code -- on wasm, a precompiled stub-pool mechanism like
+   [ADR-022](ADR-022-word-class-dispatch.md) in reverse. A separate project, not a
+   quick follow-on. Opcode unification is cosmetic cleanup.
 
 ## Files
 
 - `vm/native_methods.go` -- the table, descriptor, and resolution (phase 1).
 - `vm/vm.go` -- the `IfaceCall` native branch and the `cachedNativeCall` marker.
-- `comp/compiler.go` -- direct-call emission for static receivers (phase 3).
-- `vm/synth_bridge.go` -- shims rehomed as descriptor variants.

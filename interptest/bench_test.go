@@ -177,6 +177,55 @@ func run() int64 {
 	b.Run("on", func(b *testing.B) { run(b, true) })
 }
 
+// BenchmarkIfaceDispatchPlain: interface dispatch where the method sits in the
+// concrete type's direct Methods slot (ResolveMethodType resolves on entry 1).
+func BenchmarkIfaceDispatchPlain(b *testing.B) {
+	benchIfaceDispatch(b, `
+type Sounder interface{ Sound() int }
+type Dog struct{ n int }
+func (d Dog) Sound() int { return 4 }
+func run() int {
+	var s Sounder = Dog{}
+	t := 0
+	for i := 0; i < 100000; i++ { t += s.Sound() }
+	return t
+}
+`)
+}
+
+// BenchmarkIfaceDispatchPromoted: interface dispatch where the method is promoted
+// from an embedded field, so the direct slot may be empty and dispatch walks.
+func BenchmarkIfaceDispatchPromoted(b *testing.B) {
+	benchIfaceDispatch(b, `
+type Sounder interface{ Sound() int }
+type Base struct{ n int }
+func (b Base) Sound() int { return 4 }
+type Cat struct{ Base }
+func run() int {
+	var s Sounder = Cat{}
+	t := 0
+	for i := 0; i < 100000; i++ { t += s.Sound() }
+	return t
+}
+`)
+}
+
+func benchIfaceDispatch(b *testing.B, src string) {
+	intp := interp.NewInterpreter(golang.GoSpec)
+	if _, err := intp.Eval("setup", src); err != nil {
+		b.Fatal(err)
+	}
+	if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int(400000) {
+		b.Fatalf("wrong result %v err %v", v, err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := intp.Eval("bench", "run()"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkMarshalerDispatch: MarshalJSON() ([]byte, error) -- S2 vs _piipp.
 func BenchmarkMarshalerDispatch(b *testing.B) {
 	benchDispatch(b, `
