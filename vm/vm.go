@@ -1331,7 +1331,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					for i := range narg {
 						in[i+np] = mem[sp-narg+1+i].Reflect()
 					}
-					ifaceWB := m.bridgeArgs(in, funcType, rv)
+					ifaceWB := m.bridgeArgs(in, funcType, rv, np)
 					coerceInterfaceArgs(in, funcType)
 					m.wrapFuncArgs(in, mem[sp-narg+1:sp+1], funcType)
 					sp -= narg + 1
@@ -3654,14 +3654,18 @@ func (m *Machine) resolveIPAndHeap(funcVal Value) int {
 		m.heap = nil
 		return int(funcVal.num)
 	}
-	if clo, ok := funcVal.ref.Interface().(Closure); ok {
-		m.heap = clo.Heap
-		return clo.Code
+	switch v := funcVal.ref.Interface().(type) {
+	case *methodFrame:
+		m.heap = v.slot[:]
+		return v.code
+	case Closure:
+		m.heap = v.Heap
+		return v.Code
+	case int:
+		m.heap = nil
+		return v
 	}
 	m.heap = nil
-	if iv, ok := funcVal.ref.Interface().(int); ok {
-		return iv
-	}
 	return int(funcVal.num)
 }
 
@@ -5102,12 +5106,17 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	var heap []*Value
 	if isNum(fval.ref.Kind()) {
 		nip = int(fval.num)
-	} else if clo, ok := fval.ref.Interface().(Closure); ok {
-		nip, heap = clo.Code, clo.Heap
-	} else if iv, ok := fval.ref.Interface().(int); ok {
-		nip = iv
 	} else {
-		nip = int(fval.num)
+		switch v := fval.ref.Interface().(type) {
+		case *methodFrame:
+			nip, heap = v.code, v.slot[:]
+		case Closure:
+			nip, heap = v.Code, v.Heap
+		case int:
+			nip = v
+		default:
+			nip = int(fval.num)
+		}
 	}
 	if nip == nilFuncAddr {
 		// go of a nil func: panic synchronously, else the spawned goroutine
@@ -5684,10 +5693,17 @@ func (m *Machine) mapKey(t reflect.Type, src Value) reflect.Value {
 	return mapKeyReflect(t, src)
 }
 
-func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value) []ifaceWriteback {
+// skip leading args are native method receivers: pass them through untouched.
+// They are already-native values, so bridging is a no-op, and deep-unboxing a
+// live receiver (e.g. an active http.ResponseWriter) walks native maps a
+// concurrent goroutine may mutate, which is a data race.
+func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value, skip int) []ifaceWriteback {
 	var wb []ifaceWriteback
 	var retyped []int // args relabeled to *synthIface; excluded from the unbox walk
 	for i, rv := range in {
+		if i < skip {
+			continue
+		}
 		if !rv.IsValid() || rv.Type() != ifaceRtype {
 			if rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() &&
 				rv.Elem().Type() == ifaceRtype {
@@ -5716,7 +5732,7 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 	// Skip args relabeled to *synthIface: their pointee is the caller's interface
 	// cell in mvm form, which deepUnboxIface would misread as Go iface layout.
 	for i, rv := range in {
-		if slices.Contains(retyped, i) {
+		if i < skip || slices.Contains(retyped, i) {
 			continue
 		}
 		if w, ch := m.deepUnboxIface(rv, 0, 0, nil); ch {
