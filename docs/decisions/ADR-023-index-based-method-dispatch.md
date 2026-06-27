@@ -123,6 +123,12 @@ Each must map to a descriptor variant or pre-table interception:
   global index avoids, for no dispatch-speed gain in an interpreter.
 - **Inline cache over the name-based path (prototype).** Rejected as the end
   state: caches a lookup the design should not perform. Kept as the baseline.
+- **Inline the interface in `Value`** (a `typ *Type` field to drop the
+  `reflect.ValueOf(Iface{...})` box alloc). Rejected, measured: widening `Value`
+  32 -> 40 bytes (field unused) costs +12% geomean time (+17.6% on `Fib`, which
+  has no interfaces) -- a universal tax for a saving only interface-creation-heavy
+  code sees. Carrying `Iface` as a pointer does not help (`&Iface{...}` still
+  allocates).
 - **Status quo.** Rejected: the measured bottleneck, worst on wasm.
 
 ## Phased plan
