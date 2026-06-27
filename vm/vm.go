@@ -423,9 +423,10 @@ type Machine struct {
 	pooledCodeEpoch int           // codeEpoch pooledCode was built at
 	codeEpoch       int           // bumped by TrimCode: trim+regrow can hit the same length with different content
 
-	funcFields   *funcFieldsTable // see funcFieldsTable doc
-	funcWrappers *funcWrapTable   // see funcWrapTable doc
-	typesByRtype *typesIndex      // see typesIndex doc
+	funcFields    *funcFieldsTable                  // see funcFieldsTable doc
+	funcWrappers  *funcWrapTable                    // see funcWrapTable doc
+	typesByRtype  *typesIndex                       // see typesIndex doc
+	nativeMethods map[reflect.Type]*nativeMethodSet // per-type method tables (see native_methods.go)
 
 	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
 	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
@@ -1270,6 +1271,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					hookMethod = bhc.Method
 					hookRecv = bhc.Recv
 				}
+				// Native method-table marker: call Unbound with Recv prepended
+				// (see native_methods.go).
+				var cncRecv reflect.Value
+				if rv.IsValid() && rv.Type() == cachedNativeCallRtype {
+					cnc := rv.Interface().(cachedNativeCall)
+					rv = cnc.Unbound
+					cncRecv = cnc.Recv
+				}
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
 				}
@@ -1303,9 +1312,16 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						continue
 					}
 					funcType := rv.Type()
-					in := make([]reflect.Value, narg)
-					for i := range in {
-						in[i] = mem[sp-narg+1+i].Reflect()
+					np := 0
+					if cncRecv.IsValid() {
+						np = 1 // inline-cache call: receiver is arg 0 of the unbound func
+					}
+					in := make([]reflect.Value, narg+np)
+					if np == 1 {
+						in[0] = cncRecv
+					}
+					for i := range narg {
+						in[i+np] = mem[sp-narg+1+i].Reflect()
 					}
 					ifaceWB := m.bridgeArgs(in, funcType, rv)
 					coerceInterfaceArgs(in, funcType)
@@ -1792,6 +1808,18 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cp := reflect.New(recvRV.Type()).Elem()
 					cp.Set(Exportable(recvRV))
 					recvRV = cp
+				}
+				// Native method table (ADR-023): reuse a cached unbound func.
+				if nativeMethodTables && recvHint == 0 && c.B&IfaceCallDetachBit == 0 &&
+					recvRV.IsValid() && recvRV.Kind() != reflect.Interface {
+					if d := m.nativeMethodDesc(recvRV.Type(), methodID, methodName); d.ok && (!d.needAddr || recvRV.CanAddr()) {
+						recv := recvRV
+						if d.needAddr {
+							recv = recvRV.Addr()
+						}
+						mem[sp] = Value{ref: reflect.ValueOf(cachedNativeCall{Unbound: d.fn, Recv: Exportable(recv)})}
+						break
+					}
 				}
 				if mv, ok := m.bindPromotedNative(recvRV, methodName); ok {
 					mem[sp] = Value{ref: mv}

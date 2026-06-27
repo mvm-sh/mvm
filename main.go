@@ -19,6 +19,7 @@ import (
 	_ "github.com/mvm-sh/mvm/stdlib/all"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
+	"github.com/mvm-sh/mvm/vm"
 )
 
 // poolStatsReport formats each stub pool's slot high-water against its
@@ -117,6 +118,9 @@ func goModCacheDownload() string {
 // so those packages interpret from the mirror, for validating interpretation on
 // a native build.
 func applyInterpOverrides(i *interp.Interp) {
+	if os.Getenv("MVM_NATIVE_TABLE") == "off" {
+		vm.SetNativeMethodTables(false) // kill switch for ADR-023 native method tables
+	}
 	v := os.Getenv("MVM_INTERP")
 	if v == "" {
 		return

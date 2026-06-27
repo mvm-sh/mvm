@@ -141,6 +141,42 @@ func benchDispatch(b *testing.B, src string) {
 	b.Run("word", func(b *testing.B) { run(b, true) })
 }
 
+// BenchmarkNativeBridgeTimeAdd measures the cost of an interpreted->native
+// bridge crossing: each time.Add is a reflect.Call through invokeNative, with
+// per-call arg marshaling (Reflect/bridgeArgs/coerceInterfaceArgs/wrapFuncArgs)
+// and a make([]reflect.Value). On wasm this crossing is ~30x the native cost.
+func BenchmarkNativeBridgeTimeAdd(b *testing.B) {
+	run := func(b *testing.B, tbl bool) {
+		vm.SetNativeMethodTables(tbl)
+		defer vm.SetNativeMethodTables(true)
+		intp := interp.NewInterpreter(golang.GoSpec)
+		intp.ImportPackageValues(stdlib.Values)
+		if _, err := intp.Eval("setup", `
+import "time"
+func run() int64 {
+	t := time.Unix(0, 0)
+	for i := 0; i < 100000; i++ {
+		t = t.Add(time.Duration(i))
+	}
+	return t.UnixNano()
+}
+`); err != nil {
+			b.Fatal(err)
+		}
+		if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int64(4999950000) {
+			b.Fatalf("wrong result %v err %v", v, err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := intp.Eval("bench", "run()"); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	b.Run("off", func(b *testing.B) { run(b, false) })
+	b.Run("on", func(b *testing.B) { run(b, true) })
+}
+
 // BenchmarkMarshalerDispatch: MarshalJSON() ([]byte, error) -- S2 vs _piipp.
 func BenchmarkMarshalerDispatch(b *testing.B) {
 	benchDispatch(b, `

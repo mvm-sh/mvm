@@ -56,3 +56,4 @@ Architecture Decision Records:
 - [ADR-020: Type references resolved by identity slot, not by name](decisions/ADR-020-type-identity-slots.md)
 - [ADR-021: Synthesized rtypes for native method dispatch](decisions/ADR-021-synthesized-rtypes.md) (supersedes ADR-009, part of ADR-012)
 - [ADR-022: Word-class ABI register shapes for method dispatch](decisions/ADR-022-word-class-dispatch.md) (extends ADR-021)
+- [ADR-023: Index-based method dispatch](decisions/ADR-023-index-based-method-dispatch.md) (proposed)

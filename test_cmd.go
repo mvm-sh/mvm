@@ -847,7 +847,7 @@ func applyModuleGodebug(goMod []byte) {
 	if cur != "" {
 		joined = cur + "," + joined
 	}
-	os.Setenv("GODEBUG", joined)
+	_ = os.Setenv("GODEBUG", joined)
 }
 
 // findGoModFS returns the go.mod content of the module enclosing pkgPath in
