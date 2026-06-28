@@ -7,16 +7,13 @@ import (
 	"github.com/mvm-sh/mvm/vm"
 )
 
-// Allowlist the callees that may retype a pointer-to-interpreted-interface
-// argument to a method-bearing synth interface rtype (see vm.bridgePtrToIface
-// for why this is gated, not global).
-// errors.As matches by the target's method set; reflect.ValueOf/TypeOf read the
-// result back through the same pointer and must observe the same retype.
+// Allowlist callees that may retype a pointer-to-interpreted-interface argument
+// to a method-bearing synth interface rtype. reflect.TypeOf reads only the type
+// (safe; lets reflect.Implements see an interpreted interface's methods).
+// reflect.ValueOf must stay off: it reads the slot value, and the retype would
+// misread errors.As's normalized writeback (-> TestAs nil-deref).
 func init() {
 	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(errors.As))
-	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(reflect.ValueOf))
 	vm.RegisterSynthIfaceTargetFunc(reflect.ValueOf(reflect.TypeOf))
-	// errors.As writes the match through the retyped pointer, so its pointee
-	// needs normalizing back to mvm form afterward.
 	vm.RegisterSynthIfaceWriteTargetFunc(reflect.ValueOf(errors.As))
 }

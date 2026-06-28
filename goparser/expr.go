@@ -507,6 +507,12 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 // typ.String() ("net.Conn"). Never function-scoped, so it can't shadow a
 // same-named package type.
 func (p *Parser) canonicalTypeKey(typ *vm.Type) string {
+	// A derived pointer inherits its element's Name, so keying it by that Name
+	// would clobber the value type's symbol (*Level shadowing Level). Key it
+	// structurally; a defined `type P *T` keeps a distinct Name and is unaffected.
+	if typ.Kind() == reflect.Pointer && typ.ElemType != nil && typ.Name == typ.ElemType.Name {
+		return "*" + p.canonicalTypeKey(typ.ElemType)
+	}
 	key := typ.String()
 	if typ.Name != "" {
 		switch {

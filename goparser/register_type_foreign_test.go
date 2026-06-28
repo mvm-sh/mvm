@@ -45,3 +45,23 @@ func TestRegisterTypeForeignDoesNotClobberAlias(t *testing.T) {
 		t.Fatalf("local type keyed as %q, want pp.Local", key)
 	}
 }
+
+// Registering a derived *Level (it inherits the value's Name) must not clobber
+// the package's Level type symbol. Mirrors `mvm test github.com/rs/zerolog`.
+func TestRegisterTypeDerivedPtrDoesNotClobberValue(t *testing.T) {
+	p := NewParser(golang.GoSpec, false)
+	p.CompilingPkg = "pp"
+
+	value := &vm.Type{Name: "Level", PkgName: "pp", Rtype: reflect.TypeOf(int8(0))}
+	valueSym := &symbol.Symbol{Kind: symbol.Type, Name: "pp.Level", Type: value}
+	p.Symbols["pp.Level"] = valueSym
+
+	ptr := &vm.Type{Name: "Level", PkgName: "pp", ElemType: value, Rtype: reflect.PointerTo(reflect.TypeOf(int8(0)))}
+	var out Tokens
+	if key := p.registerType(ptr, 0, &out); key == "pp.Level" {
+		t.Fatalf("derived pointer keyed under the value type as %q, clobbering it", key)
+	}
+	if got := p.Symbols["pp.Level"]; got != valueSym || got.Type != value {
+		t.Fatal("value type pp.Level was overwritten by its derived pointer")
+	}
+}

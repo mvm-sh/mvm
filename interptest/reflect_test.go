@@ -57,6 +57,46 @@ func main() {
 	}
 }
 
+// reflect.TypeOf((*I)(nil)).Elem() must expose an interpreted interface's method
+// set so reflect.Implements distinguishes conforming from non-conforming types.
+// Without the synth-iface retype the interface erased to interface{}, so every
+// type "implemented" it -- testify assert.Implements/NotImplements (TestImplements).
+func TestReflectImplementsInterpretedIface(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type I interface{ TestMethod() }
+
+type Conform struct{}
+
+func (*Conform) TestMethod() {}
+
+type NonConform struct{}
+
+func main() {
+	it := reflect.TypeOf((*I)(nil)).Elem()
+	fmt.Println(it.NumMethod())
+	fmt.Println(reflect.TypeOf(new(Conform)).Implements(it))
+	fmt.Println(reflect.TypeOf(new(NonConform)).Implements(it))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("reflect_implements.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "1\ntrue\nfalse\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // The reflect.Value func-identity cache is keyed by {code address, rtype} on the
 // persistent Machine; these guard the cross-Eval (REPL) invariants keying relies
 // on: code addresses are monotonic across Evals, and a failed Eval's rollback

@@ -272,6 +272,10 @@ var Incompat = map[string]map[string]string{
 		"TestCallerReportingOverhead":           "wall-clock bound: 5000 log calls under 1s is a native-speed assertion; interpreted execution exceeds it",
 	},
 
+	"gorm.io/gorm/logger": {
+		"TestSlogLogger": "native-bridged slog computes AddSource via the real runtime, which can't decode mvm's synthetic interpreted-frame PCs, so the slog Record carries no source (cf. log/slog Example_wrapping)",
+	},
+
 	"github.com/shopspring/decimal": {
 		"TestDecimal_QuoRem2":   "stress test: ~1e6 combinatorial QuoRem cases (createDivTestCases); ~30s under the interpreter (no testing.Short path)",
 		"TestDecimal_DivRound2": "stress test: ~1e6 combinatorial DivRound cases (createDivTestCases); ~44s under the interpreter (no testing.Short path)",

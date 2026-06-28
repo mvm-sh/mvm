@@ -1106,6 +1106,13 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 			// foreignBareAlias (which defers a foreign pkg's qualified-named bare
 			// alias) keeps it -- a dot-import is unqualified by name, by contract.
 			if qs, ok := p.Symbols[pp+"."+k]; ok {
+				// Bind qs directly; a copy would freeze its still-UnsetAddr func
+				// slot, diverging from the address its Label writes later.
+				// Copy only to rename a foreign qualified Name (foreignBareAlias).
+				if qs.Name == k {
+					p.SymSet(k, qs) // mvm:symkey-ok: dot-import binds bare names
+					continue
+				}
 				bound := *qs
 				bound.Name = k
 				p.SymSet(k, &bound) // mvm:symkey-ok: dot-import binds bare names

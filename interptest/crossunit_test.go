@@ -181,6 +181,47 @@ func main() {
 	}
 }
 
+// TestDotImportedFuncCall pins the logrus hook_test crash: a bare-name call to a
+// dot-imported func from a freshly imported interpreted package jumped to a
+// never-filled global (the dot-import froze the func's not-yet-assigned slot).
+func TestDotImportedFuncCall(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/dotfn",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/dotfn\n",
+			"dotfn.go": `package dotfn
+
+func Apply(n int, f func(int) int) int { return f(n) }
+`,
+		},
+	})
+
+	src := `package main
+
+import (
+	"fmt"
+	. "example.com/x/dotfn"
+)
+
+func main() {
+	fmt.Println(Apply(21, func(x int) int { return x * 2 }))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+
+	if _, err := i.Eval("test", src); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got, want := stdout.String(), "42\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // TestImportedUntypedConstFloatField pins the gonum/plot axis-title bug.
 // A re-exported untyped int const folded to float64 in its owning package must
 // not retype the SHARED symbol, else a later assign of it to a float64 field
