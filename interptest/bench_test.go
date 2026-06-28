@@ -141,6 +141,97 @@ func benchDispatch(b *testing.B, src string) {
 	b.Run("word", func(b *testing.B) { run(b, true) })
 }
 
+// BenchmarkNativeBridgeTimeAdd measures the cost of an interpreted->native
+// bridge crossing: each time.Add is a reflect.Call through invokeNative, with
+// per-call arg marshaling (Reflect/bridgeArgs/coerceInterfaceArgs/wrapFuncArgs)
+// and a make([]reflect.Value). On wasm this crossing is ~30x the native cost.
+func BenchmarkNativeBridgeTimeAdd(b *testing.B) {
+	run := func(b *testing.B, tbl bool) {
+		vm.SetNativeMethodTables(tbl)
+		defer vm.SetNativeMethodTables(true)
+		intp := interp.NewInterpreter(golang.GoSpec)
+		intp.ImportPackageValues(stdlib.Values)
+		if _, err := intp.Eval("setup", `
+import "time"
+func run() int64 {
+	t := time.Unix(0, 0)
+	for i := 0; i < 100000; i++ {
+		t = t.Add(time.Duration(i))
+	}
+	return t.UnixNano()
+}
+`); err != nil {
+			b.Fatal(err)
+		}
+		if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int64(4999950000) {
+			b.Fatalf("wrong result %v err %v", v, err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := intp.Eval("bench", "run()"); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	b.Run("off", func(b *testing.B) { run(b, false) })
+	b.Run("on", func(b *testing.B) { run(b, true) })
+}
+
+// BenchmarkIfaceDispatchPlain: interface dispatch where the method sits in the
+// concrete type's direct Methods slot (ResolveMethodType resolves on entry 1).
+func BenchmarkIfaceDispatchPlain(b *testing.B) {
+	benchIfaceDispatch(b, `
+type Sounder interface{ Sound() int }
+type Dog struct{ n int }
+func (d Dog) Sound() int { return 4 }
+func run() int {
+	var s Sounder = Dog{}
+	t := 0
+	for i := 0; i < 100000; i++ { t += s.Sound() }
+	return t
+}
+`)
+}
+
+// BenchmarkIfaceDispatchPromoted: interface dispatch where the method is promoted
+// from an embedded field, so the direct slot may be empty and dispatch walks.
+func BenchmarkIfaceDispatchPromoted(b *testing.B) {
+	benchIfaceDispatch(b, `
+type Sounder interface{ Sound() int }
+type Base struct{ n int }
+func (b Base) Sound() int { return 4 }
+type Cat struct{ Base }
+func run() int {
+	var s Sounder = Cat{}
+	t := 0
+	for i := 0; i < 100000; i++ { t += s.Sound() }
+	return t
+}
+`)
+}
+
+func benchIfaceDispatch(b *testing.B, src string) {
+	run := func(b *testing.B, fused bool) {
+		vm.SetFusedMethodFrame(fused)
+		defer vm.SetFusedMethodFrame(true)
+		intp := interp.NewInterpreter(golang.GoSpec)
+		if _, err := intp.Eval("setup", src); err != nil {
+			b.Fatal(err)
+		}
+		if v, err := intp.Eval("check", "run()"); err != nil || v.Interface() != int(400000) {
+			b.Fatalf("wrong result %v err %v", v, err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := intp.Eval("bench", "run()"); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	b.Run("off", func(b *testing.B) { run(b, false) })
+	b.Run("on", func(b *testing.B) { run(b, true) })
+}
+
 // BenchmarkMarshalerDispatch: MarshalJSON() ([]byte, error) -- S2 vs _piipp.
 func BenchmarkMarshalerDispatch(b *testing.B) {
 	benchDispatch(b, `

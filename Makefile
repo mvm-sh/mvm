@@ -9,6 +9,11 @@ lint:
 	golangci-lint run
 	go run ./cmd/mvmlint .
 
+# Report each stdlib package's dispatch surface (interface params a bridge would
+# dispatch on wasm). Empty surface = safe to bridge; see docs/modules/stubs.md.
+dispatch-scan:
+	go run ./cmd/dispatchscan
+
 # Generate standard library bindings from Go toolchain source.
 # Also rebuilds the committed stdlib/src.zip from the sibling
 # github.com/mvm-sh/std clone (via the //go:generate directive in
@@ -60,8 +65,28 @@ bench:
 mvm.wasm:
 	GOOS=wasip1 GOARCH=wasm go build -o mvm.wasm .
 
+# Run each compat package's tests through mvm.wasm under wasmtime, streaming
+# output to stdout (no JSON). The package set mirrors the compat matrix: the
+# -stdlib directives in stdlib/gen.go plus the interpreted extras, then the
+# curated list in compat/external.txt. HOME+GOMODCACHE are required so the wasm
+# build can find the module-cache zips (it is offline, no proxy). Each run is
+# bounded by WASM_TIMEOUT seconds so a slow suite cannot hang the loop.
+WASM_TIMEOUT ?= 120
+compat-wasm: mvm.wasm
+	@command -v wasmtime >/dev/null || { echo "wasmtime not found in PATH"; exit 1; }
+	@GR=$$(go env GOROOT); GMC=$$(go env GOMODCACHE); \
+	pkgs="$$(awk '$$1=="//go:generate"&&$$5=="-stdlib"{print $$6}' stdlib/gen.go) \
+		cmp iter maps slices log \
+		$$(awk '{sub(/#.*/,"")} NF{print $$1}' compat/external.txt)"; \
+	for p in $$pkgs; do \
+		echo "== $$p =="; \
+		timeout $(WASM_TIMEOUT) wasmtime --dir=/::/ \
+			--env GOROOT="$$GR" --env HOME="$$HOME" --env GOMODCACHE="$$GMC" \
+			mvm.wasm test $$p -v || echo "[exit $$?]"; \
+	done
+
 clean:
 	rm -f mvm mvm.wasm extract demo cover.out
 	$(MAKE) -C examples/c clean
 
-.PHONY: all bench clean clean_generate compat cover cover-html fast generate lint mvm.wasm test
+.PHONY: all bench clean clean_generate compat compat-wasm cover cover-html dispatch-scan fast generate lint mvm.wasm test

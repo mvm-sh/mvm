@@ -47,6 +47,7 @@ var sc = scan.NewScanner(golang.GoSpec)
 var qualifiers = []string{
 	"pkgKey", "QualifyName", "scopedName", "labelName", "caseLabel",
 	"caseBodyLabel", "mangledName", "qualifyLabel", "resolveLabel",
+	"canonicalTypeKey",
 }
 
 // predeclared are bare names that are legitimately unqualified everywhere.

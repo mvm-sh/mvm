@@ -423,9 +423,10 @@ type Machine struct {
 	pooledCodeEpoch int           // codeEpoch pooledCode was built at
 	codeEpoch       int           // bumped by TrimCode: trim+regrow can hit the same length with different content
 
-	funcFields   *funcFieldsTable // see funcFieldsTable doc
-	funcWrappers *funcWrapTable   // see funcWrapTable doc
-	typesByRtype *typesIndex      // see typesIndex doc
+	funcFields    *funcFieldsTable                  // see funcFieldsTable doc
+	funcWrappers  *funcWrapTable                    // see funcWrapTable doc
+	typesByRtype  *typesIndex                       // see typesIndex doc
+	nativeMethods map[reflect.Type]*nativeMethodSet // per-type method tables (see native_methods.go)
 
 	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
 	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
@@ -1232,12 +1233,17 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// taken off an unexported struct field, which make .Interface() panics).
 			canCallInterface := fval.ref.IsValid() && fval.ref.CanInterface()
 			var clo Closure
+			var mframe *methodFrame
 			var isClosure, isInt bool
 			var iv int
 			if canCallInterface {
-				clo, isClosure = fval.ref.Interface().(Closure)
-				if !isClosure {
-					iv, isInt = fval.ref.Interface().(int)
+				switch v := fval.ref.Interface().(type) {
+				case *methodFrame:
+					mframe = v
+				case Closure:
+					clo, isClosure = v, true
+				case int:
+					iv, isInt = v, true
 				}
 			}
 			// Cannot use switch here: the final else branch contains a `break`
@@ -1247,6 +1253,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// Plain int code address stored inline in num.
 				nip = int(fval.num)
 				m.heap = nil
+			} else if mframe != nil {
+				nip = mframe.code
+				m.heap = mframe.slot[:]
 			} else if isClosure {
 				nip = clo.Code
 				m.heap = clo.Heap
@@ -1269,6 +1278,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					hookRecvType = bhc.RecvType
 					hookMethod = bhc.Method
 					hookRecv = bhc.Recv
+				}
+				// Native method-table marker: call Unbound with Recv prepended
+				// (see native_methods.go).
+				var cncRecv reflect.Value
+				if rv.IsValid() && rv.Type() == cachedNativeCallRtype {
+					cnc := rv.Interface().(cachedNativeCall)
+					rv = cnc.Unbound
+					cncRecv = cnc.Recv
 				}
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
@@ -1303,11 +1320,18 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						continue
 					}
 					funcType := rv.Type()
-					in := make([]reflect.Value, narg)
-					for i := range in {
-						in[i] = mem[sp-narg+1+i].Reflect()
+					np := 0
+					if cncRecv.IsValid() {
+						np = 1 // inline-cache call: receiver is arg 0 of the unbound func
 					}
-					ifaceWB := m.bridgeArgs(in, funcType, rv)
+					in := make([]reflect.Value, narg+np)
+					if np == 1 {
+						in[0] = cncRecv
+					}
+					for i := range narg {
+						in[i+np] = mem[sp-narg+1+i].Reflect()
+					}
+					ifaceWB := m.bridgeArgs(in, funcType, rv, np)
 					coerceInterfaceArgs(in, funcType)
 					m.wrapFuncArgs(in, mem[sp-narg+1:sp+1], funcType)
 					sp -= narg + 1
@@ -1793,6 +1817,18 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cp.Set(Exportable(recvRV))
 					recvRV = cp
 				}
+				// Native method table (ADR-023): reuse a cached unbound func.
+				if nativeMethodTables && recvHint == 0 && c.B&IfaceCallDetachBit == 0 &&
+					recvRV.IsValid() && recvRV.Kind() != reflect.Interface {
+					if d := m.nativeMethodDesc(recvRV.Type(), methodID, methodName); d.ok && (!d.needAddr || recvRV.CanAddr()) {
+						recv := recvRV
+						if d.needAddr {
+							recv = recvRV.Addr()
+						}
+						mem[sp] = Value{ref: reflect.ValueOf(cachedNativeCall{Unbound: d.fn, Recv: Exportable(recv)})}
+						break
+					}
+				}
 				if mv, ok := m.bindPromotedNative(recvRV, methodName); ok {
 					mem[sp] = Value{ref: mv}
 					break
@@ -1908,7 +1944,15 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// Build a closure with the concrete receiver as Heap[0], replacing the
 			// interface value on the stack. Same result as HeapAlloc+Get+Swap+MkClosure.
 			// For promoted methods, extract the embedded field as receiver.
-			cell := new(Value)
+			// The fused path packs the cell + 1-entry heap in one alloc (see methodFrame).
+			var mf *methodFrame
+			var cell *Value
+			if fusedMethodFrame {
+				mf = &methodFrame{code: codeAddr}
+				cell = &mf.cell
+			} else {
+				cell = new(Value)
+			}
 			*cell = ifc.Val
 			if path := method.Path; path != nil {
 				rv := reflect.Indirect(ifc.Val.Reflect())
@@ -1955,7 +1999,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					cell.ref = nv
 				}
 			}
-			mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
+			if mf != nil {
+				mf.slot[0] = cell
+				mem[sp] = Value{ref: reflect.ValueOf(mf)}
+			} else {
+				mem[sp] = Value{ref: reflect.ValueOf(Closure{Code: codeAddr, Heap: []*Value{cell}})}
+			}
 
 		case TypeAssert:
 			dstTyp := m.globals[int(c.A)].ref.Interface().(*Type)
@@ -3605,14 +3654,18 @@ func (m *Machine) resolveIPAndHeap(funcVal Value) int {
 		m.heap = nil
 		return int(funcVal.num)
 	}
-	if clo, ok := funcVal.ref.Interface().(Closure); ok {
-		m.heap = clo.Heap
-		return clo.Code
+	switch v := funcVal.ref.Interface().(type) {
+	case *methodFrame:
+		m.heap = v.slot[:]
+		return v.code
+	case Closure:
+		m.heap = v.Heap
+		return v.Code
+	case int:
+		m.heap = nil
+		return v
 	}
 	m.heap = nil
-	if iv, ok := funcVal.ref.Interface().(int); ok {
-		return iv
-	}
 	return int(funcVal.num)
 }
 
@@ -5053,12 +5106,17 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	var heap []*Value
 	if isNum(fval.ref.Kind()) {
 		nip = int(fval.num)
-	} else if clo, ok := fval.ref.Interface().(Closure); ok {
-		nip, heap = clo.Code, clo.Heap
-	} else if iv, ok := fval.ref.Interface().(int); ok {
-		nip = iv
 	} else {
-		nip = int(fval.num)
+		switch v := fval.ref.Interface().(type) {
+		case *methodFrame:
+			nip, heap = v.code, v.slot[:]
+		case Closure:
+			nip, heap = v.Code, v.Heap
+		case int:
+			nip = v
+		default:
+			nip = int(fval.num)
+		}
 	}
 	if nip == nilFuncAddr {
 		// go of a nil func: panic synchronously, else the spawned goroutine
@@ -5635,10 +5693,17 @@ func (m *Machine) mapKey(t reflect.Type, src Value) reflect.Value {
 	return mapKeyReflect(t, src)
 }
 
-func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value) []ifaceWriteback {
+// skip leading args are native method receivers: pass them through untouched.
+// They are already-native values, so bridging is a no-op, and deep-unboxing a
+// live receiver (e.g. an active http.ResponseWriter) walks native maps a
+// concurrent goroutine may mutate, which is a data race.
+func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn reflect.Value, skip int) []ifaceWriteback {
 	var wb []ifaceWriteback
 	var retyped []int // args relabeled to *synthIface; excluded from the unbox walk
 	for i, rv := range in {
+		if i < skip {
+			continue
+		}
 		if !rv.IsValid() || rv.Type() != ifaceRtype {
 			if rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() &&
 				rv.Elem().Type() == ifaceRtype {
@@ -5667,7 +5732,7 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 	// Skip args relabeled to *synthIface: their pointee is the caller's interface
 	// cell in mvm form, which deepUnboxIface would misread as Go iface layout.
 	for i, rv := range in {
-		if slices.Contains(retyped, i) {
+		if i < skip || slices.Contains(retyped, i) {
 			continue
 		}
 		if w, ch := m.deepUnboxIface(rv, 0, 0, nil); ch {

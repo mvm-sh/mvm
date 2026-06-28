@@ -2501,6 +2501,35 @@ w := wrapper{R: &myReader{data: "hello"}}
 b, _ := io.ReadAll(w.R)
 string(b)`, res: "hello"},
 
+		// Deferred and go-spawned interpreted method values resolve through
+		// resolveIPAndHeap / the go path, which must recognize the fused
+		// methodFrame (ADR-023), not just Closure.
+		{n: "defer_iface_method", src: `
+type I interface{ M() }
+type T struct{ p *int }
+func (t *T) M() { *t.p = 7 }
+func run() int {
+	n := 0
+	func() {
+		var i I = &T{&n}
+		defer i.M()
+	}()
+	return n
+}
+run()`, res: "7"},
+
+		{n: "go_iface_method", src: `
+type I interface{ M() }
+type T struct{ ch chan int }
+func (t *T) M() { t.ch <- 9 }
+func run() int {
+	ch := make(chan int)
+	var i I = &T{ch}
+	go i.M()
+	return <-ch
+}
+run()`, res: "9"},
+
 		{n: "iface_slice_spread_both", src: `
 type Option interface { val() int }
 type T struct{ v int }
