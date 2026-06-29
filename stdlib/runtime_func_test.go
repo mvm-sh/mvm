@@ -1,4 +1,4 @@
-package vm
+package stdlib
 
 import (
 	"runtime"

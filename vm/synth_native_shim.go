@@ -92,9 +92,12 @@ func (m *Machine) callSynthString(rv reflect.Value, name string) string {
 }
 
 // wrapSynthIfaceForNative returns a native forwarding shim for a synth
-// error/Stringer reaching a native interface target, or ok=false to leave the
-// value unchanged. error wins over Stringer to match fmt's dispatch order.
-func (m *Machine) wrapSynthIfaceForNative(val, targetType reflect.Type, rv reflect.Value) (reflect.Value, bool) {
+// error/Stringer/Reader/Writer reaching a native interface target, or ok=false
+// to leave the value unchanged. error wins over Stringer to match fmt's dispatch
+// order. readerWriterOnly skips the error/Stringer shims, for callers where the
+// native callee introspects the concrete type (errors.As, reflect) rather than
+// dispatching the method.
+func (m *Machine) wrapSynthIfaceForNative(val, targetType reflect.Type, rv reflect.Value, readerWriterOnly bool) (reflect.Value, bool) {
 	if rv.Kind() == reflect.Interface && !rv.IsNil() {
 		rv = rv.Elem()
 		val = rv.Type()
@@ -102,10 +105,10 @@ func (m *Machine) wrapSynthIfaceForNative(val, targetType reflect.Type, rv refle
 	if !isSynthOrSynthPtr(val) {
 		return reflect.Value{}, false
 	}
-	if val.Implements(errorIface) && synthErrShimType.AssignableTo(targetType) {
+	if !readerWriterOnly && val.Implements(errorIface) && synthErrShimType.AssignableTo(targetType) {
 		return reflect.ValueOf(synthErrShim{m, rv}), true
 	}
-	if val.Implements(stringerIface) && synthStrShimType.AssignableTo(targetType) {
+	if !readerWriterOnly && val.Implements(stringerIface) && synthStrShimType.AssignableTo(targetType) {
 		return reflect.ValueOf(synthStrShim{m, rv}), true
 	}
 	// The shims are AssignableTo `any`; excluding it keeps a value reaching an

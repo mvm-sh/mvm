@@ -3913,7 +3913,7 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 	if pf, ok := asMvmFunc(rv); ok {
 		rv = pf.GF
 	}
-	if shim := runtimeFuncShim(rv, name); shim.IsValid() {
+	if shim := tryMethodValueShim(rv, name); shim.IsValid() {
 		return shim
 	}
 	if shim := reflectValueShim(m, rv, name); shim.IsValid() {
@@ -4236,7 +4236,11 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 		}
 	}
 	if synthSharedPC && targetType != nil && targetType.Kind() == reflect.Interface && val.IsValid() {
-		if w, ok := m.wrapSynthIfaceForNative(val.Type(), targetType, val); ok {
+		// Reader/Writer only: a native sink dispatches the method, so the shim is
+		// needed. error/Stringer must keep concrete identity here -- they reach a
+		// native callee that introspects the type (errors.As, reflect), and their
+		// fmt method-dispatch case is handled on the variadic path instead.
+		if w, ok := m.wrapSynthIfaceForNative(val.Type(), targetType, val, true); ok {
 			return w
 		}
 	}
@@ -4738,7 +4742,8 @@ func (m *Machine) unwrapVariadicIface(last reflect.Value) reflect.Value {
 			inner, boxed = ifc.Val.Reflect(), true
 		}
 		if synthSharedPC && inner.IsValid() {
-			if w, ok := m.wrapSynthIfaceForNative(inner.Type(), elem.Type(), inner); ok {
+			// Variadic (fmt) path: dispatch the method, so wrap error/Stringer too.
+			if w, ok := m.wrapSynthIfaceForNative(inner.Type(), elem.Type(), inner, false); ok {
 				elem.Set(w)
 				continue
 			}
@@ -4757,8 +4762,8 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 	defer func() {
 		r := recover()
 		if r == nil {
-			if m.sentinels != nil {
-				m.canonNativeReturns(out)
+			if m.sentinels != nil && sentinelCanonReturns != nil {
+				sentinelCanonReturns(m, out)
 			}
 			return
 		}
@@ -5066,9 +5071,11 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 	out := make([]reflect.Value, nret)
 	for i := range out {
 		// A native sink (io.Copy, io.ReadAll) compares the return against host io.EOF.
-		if m.sentinels != nil && m.isInterpEOFReturn(m.mem[i]) {
-			out[i] = reflect.ValueOf(io.EOF)
-			continue
+		if m.sentinels != nil && sentinelMapInterpReturn != nil {
+			if nv, ok := sentinelMapInterpReturn(m, m.mem[i]); ok {
+				out[i] = nv
+				continue
+			}
 		}
 		rv := m.mem[i].Reflect()
 		if !rv.IsValid() {

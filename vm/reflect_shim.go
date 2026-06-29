@@ -2,127 +2,14 @@ package vm
 
 import (
 	"reflect"
-	"runtime"
-	"sync"
-	"sync/atomic"
-	"unsafe"
 
 	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
-// RuntimeFuncInfo holds the synthesized Name/FileLine for a *runtime.Func
-// sentinel allocated by the bridged runtime.FuncForPC.
-type RuntimeFuncInfo struct {
-	Name string
-	File string
-	Line int
-}
-
-// runtimeFuncEntry pairs a sentinel pointer with its metadata.
-type runtimeFuncEntry struct {
-	rf   *runtime.Func
-	info *RuntimeFuncInfo
-}
-
-var runtimeFuncMeta sync.Map // uintptr (sentinel addr) -> *runtimeFuncEntry
-
-// activeMachine tracks the currently running Machine per goroutine.
-type machineCell struct {
-	m atomic.Pointer[Machine]
-}
-
-var activeMachine sync.Map // uintptr (g pointer) -> *machineCell
-
-// SetActiveMachine records m as the running Machine for the current
-// goroutine and returns the previous value (nil if none).
-func SetActiveMachine(m *Machine) (prev *Machine) {
-	g := gid()
-	if v, ok := activeMachine.Load(g); ok {
-		cell := v.(*machineCell)
-		if m == nil {
-			prev = cell.m.Load()
-			activeMachine.Delete(g)
-			return prev
-		}
-		return cell.m.Swap(m)
-	}
-	if m == nil {
-		return nil
-	}
-	// First Run on this goroutine; g is unique to it, so Store is race-free.
-	cell := &machineCell{}
-	cell.m.Store(m)
-	activeMachine.Store(g, cell)
-	return nil
-}
-
-// ActiveMachine returns the Machine currently set via SetActiveMachine on
-// the calling goroutine, or nil if none.
-func ActiveMachine() *Machine {
-	if v, ok := activeMachine.Load(gid()); ok {
-		return v.(*machineCell).m.Load()
-	}
-	return nil
-}
-
-var runtimeFuncPtrType = reflect.TypeFor[*runtime.Func]()
-
-// runtimeFuncSentinel embeds runtime.Func together with padding so each
-// allocation gets a unique address.
-type runtimeFuncSentinel struct {
-	rf runtime.Func
-	_  [24]byte
-}
-
-// NewRuntimeFuncSentinel returns a fresh *runtime.Func whose address is unique.
-func NewRuntimeFuncSentinel() *runtime.Func {
-	s := &runtimeFuncSentinel{}
-	return (*runtime.Func)(unsafe.Pointer(s))
-}
-
-// RegisterRuntimeFunc associates Name/File/Line metadata with rf so that
-// interpreted code calling rf.Name() / rf.FileLine() observes the
-// recorded values instead of the host runtime's lookup.
-func RegisterRuntimeFunc(rf *runtime.Func, name, file string, line int) {
-	if rf == nil {
-		return
-	}
-	addr := uintptr(unsafe.Pointer(rf))
-	runtimeFuncMeta.Store(addr, &runtimeFuncEntry{
-		rf:   rf,
-		info: &RuntimeFuncInfo{Name: name, File: file, Line: line},
-	})
-}
-
-// LookupRuntimeFunc returns the registered metadata for rf, or nil if rf
-// was not produced by the mvm bridge.
-func LookupRuntimeFunc(rf *runtime.Func) *RuntimeFuncInfo {
-	if rf == nil {
-		return nil
-	}
-	v, ok := runtimeFuncMeta.Load(uintptr(unsafe.Pointer(rf)))
-	if !ok {
-		return nil
-	}
-	return v.(*runtimeFuncEntry).info
-}
-
-// LookupRuntimeFuncByPC returns the runtime Func and info from program counter.
-func LookupRuntimeFuncByPC(pc uintptr) (*runtime.Func, *RuntimeFuncInfo) {
-	if pc == 0 {
-		return nil, nil
-	}
-	if v, ok := runtimeFuncMeta.Load(pc - 1); ok {
-		e := v.(*runtimeFuncEntry)
-		return e.rf, e.info
-	}
-	if v, ok := runtimeFuncMeta.Load(pc); ok {
-		e := v.(*runtimeFuncEntry)
-		return e.rf, e.info
-	}
-	return nil, nil
-}
+// Interpreted code reaching native reflect (Value.MethodByName/Call, Type.MethodByName,
+// SliceOf/MapOf/...) on a synth type can't dispatch through the host: these shims
+// reroute it to VM method resolution. nativeMethodLookup invokes them.
 
 var reflectValueRtype = reflect.TypeFor[reflect.Value]()
 
@@ -396,31 +283,4 @@ func callWithSpread(fn reflect.Value, args []reflect.Value, spread bool) []refle
 		return fn.CallSlice(args)
 	}
 	return fn.Call(args)
-}
-
-func runtimeFuncShim(rv reflect.Value, name string) reflect.Value {
-	if !rv.IsValid() || rv.Type() != runtimeFuncPtrType || rv.IsNil() {
-		return reflect.Value{}
-	}
-	rf, ok := rv.Interface().(*runtime.Func)
-	if !ok {
-		return reflect.Value{}
-	}
-	info := LookupRuntimeFunc(rf)
-	if info == nil {
-		return reflect.Value{}
-	}
-	switch name {
-	case "Name":
-		return reflect.MakeFunc(reflect.TypeOf(func() string { return "" }),
-			func(_ []reflect.Value) []reflect.Value {
-				return []reflect.Value{reflect.ValueOf(info.Name)}
-			})
-	case "FileLine":
-		return reflect.MakeFunc(reflect.TypeOf(func(uintptr) (string, int) { return "", 0 }),
-			func(_ []reflect.Value) []reflect.Value {
-				return []reflect.Value{reflect.ValueOf(info.File), reflect.ValueOf(info.Line)}
-			})
-	}
-	return reflect.Value{}
 }

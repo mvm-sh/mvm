@@ -1,15 +1,10 @@
 package vm
 
 import (
-	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io/fs"
-	"log/slog"
 	"reflect"
 	"sync"
-	"time"
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/derive"
@@ -388,10 +383,6 @@ func toSynthMethods(
 			handler = makeHandlerS13(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS14:
 			handler = makeHandlerS14(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS15:
-			handler = makeHandlerS15(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS16:
-			handler = makeHandlerS16(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS17:
 			handler = makeHandlerS17(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS18:
@@ -402,40 +393,15 @@ func toSynthMethods(
 			handler = makeHandlerS20(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS21:
 			handler = makeHandlerS21(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS22:
-			handler = makeHandlerS22(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS23:
-			handler = makeHandlerS23(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS24:
-			handler = makeHandlerS24(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS25:
-			handler = makeHandlerS25(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS26:
-			handler = makeHandlerS26(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS27:
-			handler = makeHandlerS27(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS28:
-			handler = makeHandlerS28(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS29:
-			handler = makeHandlerS29(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS30:
-			handler = makeHandlerS30(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS31:
-			handler = makeHandlerS31(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS32:
-			handler = makeHandlerS32(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS33:
-			handler = makeHandlerS33(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS34:
-			handler = makeHandlerS34(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS35:
-			handler = makeHandlerS35(m, t, s.method, s.name, s.form)
-		case stubs.ShapeS36:
-			handler = makeHandlerS36(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS37:
 			handler = makeHandlerS37(m, t, s.method, s.name, s.form)
 		case stubs.ShapeS38:
 			handler = makeHandlerS38(m, t, s.method, s.name, s.form)
+		default:
+			if makeExtendedHandler != nil {
+				handler = makeExtendedHandler(
+					SynthCall{m: m, t: t, name: s.name, method: s.method, form: s.form}, s.shape)
+			}
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
@@ -616,56 +582,14 @@ func detectShape(sig reflect.Type) (stubs.Shape, bool) {
 	case nin == 2 && nout == 0 &&
 		sig.In(0) == fmtStateIface && sig.In(1).Kind() == reflect.Int32:
 		return stubs.ShapeS14, true
-	case nin == 2 && nout == 1 && sig.In(0) == xmlEncoderPtr &&
-		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
-		return stubs.ShapeS15, true
-	case nin == 2 && nout == 1 && sig.In(0) == xmlDecoderPtr &&
-		sig.In(1) == xmlStartElem && isErrorType(sig.Out(0)):
-		return stubs.ShapeS16, true
 	case nin == 2 && nout == 1 && sig.In(0) == fmtScanStateIface &&
 		sig.In(1).Kind() == reflect.Int32 && isErrorType(sig.Out(0)):
 		return stubs.ShapeS19, true
-
-	// io/fs cluster.
-	case nin == 0 && nout == 1 && sig.Out(0).Kind() == reflect.Int64:
-		return stubs.ShapeS22, true
-	case nin == 0 && nout == 1 && sig.Out(0) == fsFileModeType:
-		return stubs.ShapeS23, true
-	case nin == 0 && nout == 1 && sig.Out(0) == timeTimeType:
-		return stubs.ShapeS24, true
-	case nin == 0 && nout == 2 && sig.Out(0) == fsFileInfoIface && isErrorType(sig.Out(1)):
-		return stubs.ShapeS25, true
-	case nin == 1 && nout == 2 && sig.In(0).Kind() == reflect.String && isErrorType(sig.Out(1)):
-		switch sig.Out(0) {
-		case fsFileIface:
-			return stubs.ShapeS26, true
-		case fsFileInfoIface:
-			return stubs.ShapeS27, true
-		case fsFSIface:
-			return stubs.ShapeS28, true
-		case stringSliceType:
-			return stubs.ShapeS29, true
-		case dirEntrySliceType:
-			return stubs.ShapeS30, true
-		case byteSliceType:
-			return stubs.ShapeS31, true
+	}
+	if detectExtendedShape != nil {
+		if shape, ok := detectExtendedShape(sig); ok {
+			return shape, true
 		}
-
-	// log/slog cluster (slog.Handler).
-	case nin == 2 && nout == 1 && sig.In(0) == contextIface &&
-		sig.In(1) == slogLevelType && sig.Out(0).Kind() == reflect.Bool:
-		return stubs.ShapeS32, true
-	case nin == 2 && nout == 1 && sig.In(0) == contextIface &&
-		sig.In(1) == slogRecordType && isErrorType(sig.Out(0)):
-		return stubs.ShapeS33, true
-	case nin == 1 && nout == 1 && sig.In(0) == slogAttrSliceType &&
-		sig.Out(0) == slogHandlerIface:
-		return stubs.ShapeS34, true
-	case nin == 1 && nout == 1 && sig.In(0).Kind() == reflect.String &&
-		sig.Out(0) == slogHandlerIface:
-		return stubs.ShapeS35, true
-	case nin == 0 && nout == 1 && sig.Out(0) == slogValueType:
-		return stubs.ShapeS36, true
 	}
 	return 0, false
 }
@@ -680,26 +604,6 @@ var (
 	errorSliceType    = reflect.TypeFor[[]error]()
 	fmtStateIface     = reflect.TypeFor[fmt.State]()
 	fmtScanStateIface = reflect.TypeFor[fmt.ScanState]()
-	xmlEncoderPtr     = reflect.TypeFor[*xml.Encoder]()
-	xmlDecoderPtr     = reflect.TypeFor[*xml.Decoder]()
-	xmlStartElem      = reflect.TypeFor[xml.StartElement]()
-
-	// io/fs cluster.
-	fsFileModeType    = reflect.TypeFor[fs.FileMode]()
-	timeTimeType      = reflect.TypeFor[time.Time]()
-	fsFileInfoIface   = reflect.TypeFor[fs.FileInfo]()
-	fsFileIface       = reflect.TypeFor[fs.File]()
-	fsFSIface         = reflect.TypeFor[fs.FS]()
-	stringSliceType   = reflect.TypeFor[[]string]()
-	dirEntrySliceType = reflect.TypeFor[[]fs.DirEntry]()
-
-	// log/slog cluster.
-	contextIface      = reflect.TypeFor[context.Context]()
-	slogLevelType     = reflect.TypeFor[slog.Level]()
-	slogRecordType    = reflect.TypeFor[slog.Record]()
-	slogAttrSliceType = reflect.TypeFor[[]slog.Attr]()
-	slogHandlerIface  = reflect.TypeFor[slog.Handler]()
-	slogValueType     = reflect.TypeFor[slog.Value]()
 )
 
 func isByteSlice(t reflect.Type) bool { return t == byteSliceType }
@@ -748,7 +652,7 @@ func makeHandlerS2(m *Machine, t *Type, method Method, name string, form recvFor
 		if out[0].IsValid() && (out[0].Kind() != reflect.Slice || !out[0].IsNil()) {
 			data = out[0].Bytes()
 		}
-		return data, reflectToError(out[1])
+		return data, ReflectToError(out[1])
 	}
 }
 
@@ -764,8 +668,8 @@ func makeHandlerS3(m *Machine, t *Type, method Method, name string, form recvFor
 		if len(out) != 1 {
 			return errors.New("synth: S3 dispatch produced wrong arity")
 		}
-		// reflectToError, not bare IsNil: the return may be a concrete struct error.
-		return reflectToError(out[0])
+		// ReflectToError, not bare IsNil: the return may be a concrete struct error.
+		return ReflectToError(out[0])
 	}
 }
 
@@ -803,7 +707,7 @@ func makeHandlerS6(m *Machine, t *Type, method Method, name string, form recvFor
 		if err != nil || len(out) != 1 {
 			return nil
 		}
-		return reflectToError(out[0])
+		return ReflectToError(out[0])
 	}
 }
 
@@ -890,7 +794,7 @@ func makeHandlerS13(m *Machine, t *Type, method Method, name string, form recvFo
 		if len(out) != 2 {
 			return 0, errors.New("synth: S13 dispatch produced wrong arity")
 		}
-		return int(out[0].Int()), reflectToError(out[1])
+		return int(out[0].Int()), ReflectToError(out[1])
 	}
 }
 
@@ -903,38 +807,6 @@ func makeHandlerS14(m *Machine, t *Type, method Method, name string, form recvFo
 		if err != nil {
 			raiseMethodErr(err)
 		}
-	}
-}
-
-func makeHandlerS15(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS15 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(e), reflect.ValueOf(start)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S15 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
-	}
-}
-
-func makeHandlerS16(m *Machine, t *Type, method Method, name string, form recvForm) stubs.HandlerS16 {
-	methodSig := method.Rtype
-	return func(recv unsafe.Pointer, d *xml.Decoder, start xml.StartElement) error {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := []reflect.Value{reflect.ValueOf(d), reflect.ValueOf(start)}
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			return err
-		}
-		if len(out) != 1 {
-			return errors.New("synth: S16 dispatch produced wrong arity")
-		}
-		return reflectToError(out[0])
 	}
 }
 
@@ -975,7 +847,7 @@ func makeHandlerS19(m *Machine, t *Type, method Method, name string, form recvFo
 		if len(out) != 1 {
 			return errors.New("synth: S19 dispatch produced wrong arity")
 		}
-		return reflectToError(out[0])
+		return ReflectToError(out[0])
 	}
 }
 
@@ -991,7 +863,7 @@ func makeHandlerS20(m *Machine, t *Type, method Method, name string, form recvFo
 		if len(out) != 1 {
 			return errors.New("synth: S20 dispatch produced wrong arity")
 		}
-		return reflectToError(out[0])
+		return ReflectToError(out[0])
 	}
 }
 
@@ -1022,7 +894,7 @@ func makeHandlerS37(m *Machine, t *Type, method Method, name string, form recvFo
 		if len(out) != 3 {
 			return 0, 0, errors.New("synth: S37 dispatch produced wrong arity")
 		}
-		return rune(out[0].Int()), int(out[1].Int()), reflectToError(out[2])
+		return rune(out[0].Int()), int(out[1].Int()), ReflectToError(out[2])
 	}
 }
 
@@ -1037,7 +909,8 @@ func makeHandlerS38(m *Machine, t *Type, method Method, name string, form recvFo
 	}
 }
 
-func reflectToError(v reflect.Value) error {
+// ReflectToError unboxes v to an error, treating a typed-nil as nil.
+func ReflectToError(v reflect.Value) error {
 	if !v.IsValid() {
 		return nil
 	}
@@ -1062,7 +935,7 @@ func reflectToErrorSlice(v reflect.Value) []error {
 	}
 	res := make([]error, v.Len())
 	for i := range res {
-		res[i] = reflectToError(v.Index(i))
+		res[i] = ReflectToError(v.Index(i))
 	}
 	return res
 }
