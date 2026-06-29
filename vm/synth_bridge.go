@@ -7,10 +7,10 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
+	"github.com/mvm-sh/mvm/internal/stubs"
 	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/runtype"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
 // AttachSynthMethods fills t's interpreted methods into the synth rtype that was

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 // maxUnboxDepth bounds the deep-unbox walk on pathological data.

@@ -3,8 +3,8 @@ package vm
 import (
 	"reflect"
 
-	"github.com/mvm-sh/mvm/derive"
-	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 // Interpreted code reaching native reflect (Value.MethodByName/Call, Type.MethodByName,

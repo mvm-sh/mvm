@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/goparser"
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/modfs"

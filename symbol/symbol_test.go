@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/mtype"
 )
 

@@ -4,7 +4,7 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
 )
 
 // Interpreted log.Logger's synth out io.Writer field would erase to interface{};

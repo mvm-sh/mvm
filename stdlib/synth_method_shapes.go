@@ -10,8 +10,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/runtype"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
+	"github.com/mvm-sh/mvm/internal/runtype"
+	"github.com/mvm-sh/mvm/internal/stubs"
 	"github.com/mvm-sh/mvm/vm"
 )
 

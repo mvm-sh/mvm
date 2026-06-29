@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/runtype"
 )
 
 // A value-only interpreted type (its *Type never globalized) that round-tripped

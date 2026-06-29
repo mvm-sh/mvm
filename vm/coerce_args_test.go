@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 type coerceErr struct{}

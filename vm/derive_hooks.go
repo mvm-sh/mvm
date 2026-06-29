@@ -3,7 +3,7 @@ package vm
 import (
 	"reflect"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
 )
 
 // derive cannot import vm, so vm injects the hooks needing vm internals here.

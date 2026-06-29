@@ -13,12 +13,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mvm-sh/mvm/internal/stubs"
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/modfs"
 	"github.com/mvm-sh/mvm/stdlib"
 	_ "github.com/mvm-sh/mvm/stdlib/all"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
 	"github.com/mvm-sh/mvm/vm"
 )
 

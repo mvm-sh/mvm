@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib"

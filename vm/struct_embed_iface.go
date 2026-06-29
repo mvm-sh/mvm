@@ -5,9 +5,9 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/runtype"
 )
 
 // bridgeStructEmbedIface builds, on demand, a reserved synth rtype over the

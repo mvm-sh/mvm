@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/internal/stubs"
+	"github.com/mvm-sh/mvm/internal/wordabi"
 	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
-	"github.com/mvm-sh/mvm/wordabi"
 )
 
 // Word-class synth dispatch (vm seam).

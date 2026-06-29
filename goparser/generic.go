@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/scan"

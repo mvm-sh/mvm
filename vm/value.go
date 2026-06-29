@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/runtype"
 )
 
 // Iface represents a boxed interface value at runtime.

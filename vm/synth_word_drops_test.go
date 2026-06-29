@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mvm-sh/mvm/wordabi"
+	"github.com/mvm-sh/mvm/internal/wordabi"
 )
 
 // TestWordShapeDropReport checks that, with logging enabled, detectWordShape

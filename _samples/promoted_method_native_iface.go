@@ -26,8 +26,8 @@ func main() {
 	cb := &closableBuffer{Buffer: &bytes.Buffer{}}
 	a := Adapter{Writer: cb} // struct field
 	fmt.Fprint(a, "A")
-	sink(cb)              // native func arg
-	var w io.Writer = cb  // var
+	sink(cb)             // native func arg
+	var w io.Writer = cb // var
 	fmt.Fprint(w, "C")
 	// the value still satisfies io.Closer via its own method
 	_ = cb.Close()
