@@ -287,11 +287,8 @@ func FormatStats(i *Interp) string {
 	return b.String()
 }
 
-<<<<<<< HEAD
-=======
 // Needed only when io is interpreted (wasm, or MVM_INTERP=io); bridged io shares
 // the host io.EOF, so there is nothing to reconcile. See vm/sentinel.go.
->>>>>>> 694836c16db5967330372b301fdf32e788dc2f91
 func (i *Interp) configureSentinels() {
 	if i.SentinelsConfigured() {
 		return
