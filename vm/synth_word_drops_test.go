@@ -17,8 +17,8 @@ func TestWordShapeDropReport(t *testing.T) {
 	if !wordabi.WordShapesSupported {
 		t.Skip("word shapes need a 64-bit little-endian target")
 	}
-	wordDropLog.Store(true)
-	defer wordDropLog.Store(false)
+	wordabi.SetDropLog(true)
+	defer wordabi.SetDropLog(false)
 
 	// "iii_i" has no generated pool on either arch. It uses a signature no real
 	// method has, so the assertion is immune to drops other tests record into the

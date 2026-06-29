@@ -10,6 +10,7 @@ import (
 	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/internal/stubs"
+	"github.com/mvm-sh/mvm/internal/wordabi"
 	"github.com/mvm-sh/mvm/mtype"
 )
 
@@ -279,7 +280,7 @@ func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
 			s.method.Rtype = precise
 			return true
 		}
-		recordWordDrop(&wordDropDegraded, "erased typed fallback", precise)
+		wordabi.RecordDegradedDrop("erased typed fallback", precise)
 		s.shape = shape
 		s.method.Rtype = erased
 		return true

@@ -84,16 +84,20 @@ func detectWordShape(sig reflect.Type) (key string, ok bool) {
 	key, reason, ok := wordabi.ClassifyWordSig(sig)
 	switch {
 	case !ok && reason != "":
-		recordWordDrop(&wordDropUnsup, reason, sig)
+		wordabi.RecordUnsupDrop(reason, sig)
 		return "", false
 	case !ok:
 		return "", false
 	case !stubs.HasWordShape(key):
-		recordWordDrop(&wordDropPools, key, sig)
+		wordabi.RecordPoolDrop(key, sig)
 		return "", false
 	}
 	return key, true
 }
+
+// WordShapeDropReport summarizes the word-shapes detectWordShape dropped this
+// process (MVM_WORDDROPS; see ADR-022), or "" when unset or nothing dropped.
+func WordShapeDropReport() string { return wordabi.DropReport() }
 
 // wordShapeKey returns sig's word-shape key when a generated pool exists,
 // silently: reserve gates and typed-fallback probes must not pollute the
