@@ -66,7 +66,7 @@ jobs:
         set -euo pipefail
         export GOWASIRUNTIME=wazero
         export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
-        GOOS=wasip1 GOARCH=wasm go test ./runtype ./stdlib/stubs
+        GOOS=wasip1 GOARCH=wasm go test ./internal/runtype ./internal/stubs
         GOOS=wasip1 GOARCH=wasm go test ./vm -run TestABI0
         # Run each TestSynth case in its own process: wasm heap grows up into the
         # synthetic code-PC range (~0x10000000+); if a process's heap reaches it the
