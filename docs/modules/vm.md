@@ -544,7 +544,7 @@ type. For each method it:
    PC and fills them into the type's reserved synth rtype in place.
 
 The type's synth identity was reserved at materialize (`maybeReserve` /
-`maybeReserveStruct` in `vm/derive.go`), so the fill is in place and no rtype swap
+`maybeReserveStruct` in `derive/derive.go`), so the fill is in place and no rtype swap
 or cascade is needed -- a composite that captured the reserved rtype sees the
 methods afterward. See [runtype](runtype.md), [stubs](stubs.md), and
 [ADR-021](../decisions/ADR-021-synthesized-rtypes.md). This replaced the former
@@ -673,7 +673,7 @@ See [ADR-016](../decisions/ADR-016-runtime-introspection-bridge.md).
 ## Dependencies
 
 - `scan` -- for `scan.Sources` (source position registry used by `DebugInfo`).
-- `runtype` -- rtype synthesis + derive helpers used by `vm/type.go` and
+- `runtype` -- rtype synthesis + derive helpers used by `derive/` and
   `vm/synth_bridge.go` (see [runtype](runtype.md)).
 - `stdlib/stubs` -- the method-shape catalog and `Attach*` wrappers used by
   `vm/synth_bridge.go` (see [stubs](stubs.md)). `stubs` is a leaf package

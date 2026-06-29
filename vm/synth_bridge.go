@@ -8,13 +8,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
@@ -73,7 +71,7 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 		for i := range et.IfaceMethods {
 			MaterializeIfaceMethod(&et.IfaceMethods[i])
 		}
-		st = synthIfaceRtype(et)
+		st = derive.SynthIfaceRtype(et)
 	}
 	if st == nil {
 		return reflect.Value{}
@@ -177,161 +175,20 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	loc.Set(el)
 }
 
-// synthIfaceRtype returns t's method-bearing synthetic interface rtype, building
-// and caching it on first use (nil if a method signature cannot be built; the
-// any bridge stays and a later call retries). Clones of one named interface
-// dedupe by synthIfaceNameKey to a single rtype identity.
-//
-// When some method signature is still unmaterialized, t's rtype is reserved and
-// cached before the signatures are built, so a self- or mutually-recursive
-// reference within them (type EnumType <-> Enum) resolves to this final pointer
-// rather than erasing a cycle-breaking back-edge whose location -- and thus a
-// later reflect.Implements -- would depend on materialization order. That path
-// materializes signatures and so requires materializeMu; the only caller that
-// may pass unmaterialized signatures (materializeFuncIO) holds it, while callers
-// off the lock (bridgePtrToIface) pre-materialize first, taking the atomic path.
-func synthIfaceRtype(t *Type) reflect.Type {
-	derivedMu.Lock()
-	if st := synthIfaceCache[t]; st != nil {
-		derivedMu.Unlock()
-		return st
-	}
-	key := synthIfaceNameKey(t)
-	if key != "" {
-		if st := synthIfaceNamed[key]; st != nil {
-			synthIfaceCache[t] = st
-			derivedMu.Unlock()
-			return st
-		}
-	}
-	name := synthIfaceName(t)
-	if name == "" {
-		derivedMu.Unlock()
-		return nil
-	}
-	if ims, ok := collectImethods(t, false); ok {
-		// All signatures materialized: no cycle to break, build atomically.
-		rt := runtype.InterfaceOf(name, rtypePkgPath(t), ims)
-		cacheSynthIface(t, key, rt)
-		derivedMu.Unlock()
-		return rt
-	}
-	h := runtype.ReserveInterface(name, rtypePkgPath(t))
-	rt := h.Type()
-	cacheSynthIface(t, key, rt)
-	derivedMu.Unlock()
-
-	ims, ok := collectImethods(t, true)
-	if !ok {
-		derivedMu.Lock()
-		uncacheSynthIface(t, key)
-		derivedMu.Unlock()
-		return nil
-	}
-	h.FillMethods(ims)
-	return rt
-}
-
-// cacheSynthIface records rt as t's synth interface rtype and under its
-// cross-clone dedupe key. Caller holds derivedMu.
-func cacheSynthIface(t *Type, key string, rt reflect.Type) {
-	synthIfaceCache[t] = rt
-	if key != "" {
-		synthIfaceNamed[key] = rt
-	}
-}
-
-// uncacheSynthIface rolls back a reservation whose method sigs could not be
-// built. Caller holds derivedMu.
-func uncacheSynthIface(t *Type, key string) {
-	delete(synthIfaceCache, t)
-	if key != "" {
-		delete(synthIfaceNamed, key)
-	}
-}
-
-// synthIfaceName is t's interface name for the synth rtype, falling back to the
-// reflect string of an already-bound rtype for an unnamed interface.
-func synthIfaceName(t *Type) string {
-	if name := qualifiedTypeName(t); name != "" {
-		return name
-	}
-	if t.Rtype != nil {
-		return t.Rtype.String()
-	}
-	return ""
-}
-
-// collectImethods builds the runtype.Imethod set from t's interface methods.
-// With materializeSigs it fills an unset im.Rtype from im.Sig (needs materializeMu).
-// ok is false if any method signature is still missing or non-func.
-func collectImethods(t *Type, materializeSigs bool) (ims []runtype.Imethod, ok bool) {
-	ims = make([]runtype.Imethod, 0, len(t.IfaceMethods))
-	for i := range t.IfaceMethods {
-		im := &t.IfaceMethods[i]
-		if materializeSigs && im.Rtype == nil && im.Sig != nil {
-			im.Rtype = materialize(im.Sig)
-		}
-		if im.Rtype == nil || im.Rtype.Kind() != reflect.Func {
-			return nil, false
-		}
-		ims = append(ims, runtype.Imethod{
-			Name:     im.Name,
-			Exported: isExportedName(im.Name),
-			Sig:      im.Rtype,
-		})
-	}
-	return ims, len(ims) > 0
-}
-
-func isGenericInstanceName(name string) bool {
-	return strings.IndexByte(name, '#') >= 0
-}
-
-func isExportedName(name string) bool {
-	if name == "" {
-		return false
-	}
-	r, _ := utf8.DecodeRuneInString(name)
-	return unicode.IsUpper(r)
-}
-
-// rtypePkgPath is the import path stamped into a synth rtype's uncommon section,
-// surfaced by reflect.Type.PkgPath(). Native Go returns the full import path
-// ("gorm.io/gorm"), not the short package name ("gorm"); prefer ImportPath and
-// fall back to PkgName for main/REPL/synthetic types (ImportPath == "").
-func rtypePkgPath(t *Type) string {
-	if t.ImportPath != "" {
-		return t.ImportPath
-	}
-	return t.PkgName
-}
-
-func qualifiedTypeName(t *Type) string {
-	if t.PkgName == "" || t.Name == "" {
-		return t.Name
-	}
-	base := t.PkgName
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
-	}
-	return base + "." + t.Name
-}
-
 func (m *Machine) attachValueRecv(t *Type) error {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
 		return nil
 	}
 	methods := toSynthMethods(m, t, specs)
-	res := lookupReservation(t)
-	if res == nil && isGenericInstanceName(t.Name) {
+	res := derive.LookupReservation(t)
+	if res == nil && derive.IsGenericInstanceName(t.Name) {
 		return nil // see attachPtrRecv
 	}
-	if res == nil || res.value == nil {
-		return fmt.Errorf("synth: value-method type %s has no reservation at attach", qualifiedTypeName(t))
+	if res == nil || res.Value() == nil {
+		return fmt.Errorf("synth: value-method type %s has no reservation at attach", derive.QualifiedTypeName(t))
 	}
-	return m.fillSynthMethods(res.value, methods)
+	return m.fillSynthMethods(res.Value(), methods)
 }
 
 // fillSynthMethods installs methods, recording the release closure for ReleaseSynthMethods.
@@ -364,15 +221,15 @@ func (m *Machine) attachPtrRecv(t *Type) error {
 		return nil
 	}
 	methods := toSynthMethods(m, t, specs)
-	res := lookupReservation(t)
-	if res == nil && isGenericInstanceName(t.Name) {
+	res := derive.LookupReservation(t)
+	if res == nil && derive.IsGenericInstanceName(t.Name) {
 		// A monomorphized generic instance materialized before its method table was filled.
 		return nil
 	}
-	if res == nil || res.ptr == nil {
-		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", qualifiedTypeName(t))
+	if res == nil || res.Ptr() == nil {
+		return fmt.Errorf("synth: ptr-method type %s has no pointer reservation at attach", derive.QualifiedTypeName(t))
 	}
-	return m.fillSynthMethods(res.ptr, methods)
+	return m.fillSynthMethods(res.Ptr(), methods)
 }
 
 // recvForm tells a handler how to reconstruct the receiver from the stub's iface data word.
@@ -388,7 +245,7 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 	switch {
 	case ptrRecv:
 		return recvPtr
-	case !ptrIdent && isDirectIface(rtype):
+	case !ptrIdent && derive.IsDirectIface(rtype):
 		return recvWord
 	default:
 		return recvDeref
@@ -407,7 +264,7 @@ type synthMethodSpec struct {
 }
 
 func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) string {
-	if isExportedName(name) {
+	if derive.IsExportedName(name) {
 		return ""
 	}
 	cur := t
@@ -420,8 +277,8 @@ func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) strin
 	}
 	// Use the declaring package's full import path so an unexported method matches
 	// reflect.Implements: it compares this embedded pkgPath against the interface
-	// type's PkgPath, which rtypePkgPath also resolves to the import path.
-	return rtypePkgPath(cur)
+	// type's PkgPath, which derive.RtypePkgPath also resolves to the import path.
+	return derive.RtypePkgPath(cur)
 }
 
 func embeddedTypeAt(t *Type, idx int) *Type {
@@ -484,7 +341,7 @@ func toSynthMethods(
 			// name/signature metadata is needed for reflect introspection.
 			out[i] = stubs.Method{
 				Name:     s.name,
-				Exported: isExportedName(s.name),
+				Exported: derive.IsExportedName(s.name),
 				PkgPath:  s.pkgName,
 				Sig:      s.method.Rtype,
 			}
@@ -493,7 +350,7 @@ func toSynthMethods(
 		if s.wordKey != "" {
 			out[i] = stubs.Method{
 				Name:     s.name,
-				Exported: isExportedName(s.name),
+				Exported: derive.IsExportedName(s.name),
 				PkgPath:  s.pkgName,
 				Sig:      s.method.Rtype,
 				WordKey:  s.wordKey,
@@ -582,7 +439,7 @@ func toSynthMethods(
 		}
 		out[i] = stubs.Method{
 			Name:     s.name,
-			Exported: isExportedName(s.name),
+			Exported: derive.IsExportedName(s.name),
 			PkgPath:  s.pkgName,
 			Sig:      s.method.Rtype,
 			Shape:    s.shape,
@@ -626,7 +483,7 @@ func (m *Machine) allSynthMethods(
 			pkgName: m.unexportedMethodPkg(t, method, m.MethodNames[i]),
 		}
 		// Typed-shape tables erase synth-iface params to any.
-		if !spec.resolveDispatch(eraseSynthIfaceParams(method.Rtype), method.Rtype) {
+		if !spec.resolveDispatch(derive.EraseSynthIfaceParams(method.Rtype), method.Rtype) {
 			continue
 		}
 		specs = append(specs, spec)
@@ -667,7 +524,7 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 			if !meth.IsExported() || seen[meth.Name] {
 				continue
 			}
-			sig := stripRecvType(meth.Type)
+			sig := derive.StripRecvType(meth.Type)
 			spec := synthMethodSpec{
 				name:   meth.Name,
 				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
@@ -681,60 +538,6 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 		}
 	}
 	return specs
-}
-
-func eraseSynthIfaceParams(sig reflect.Type) reflect.Type {
-	if sig == nil || sig.Kind() != reflect.Func {
-		return sig
-	}
-	changed := false
-	conv := func(t reflect.Type) reflect.Type {
-		if t.Kind() == reflect.Interface && t.NumMethod() > 0 && runtype.IsSynth(t) {
-			changed = true
-			return anyIface
-		}
-		return t
-	}
-	in := make([]reflect.Type, sig.NumIn())
-	for i := range in {
-		in[i] = conv(sig.In(i))
-	}
-	out := make([]reflect.Type, sig.NumOut())
-	for i := range out {
-		out[i] = conv(sig.Out(i))
-	}
-	if !changed {
-		return sig
-	}
-	return reflect.FuncOf(in, out, sig.IsVariadic())
-}
-
-func isDirectIface(rt reflect.Type) bool {
-	switch rt.Kind() {
-	case reflect.Pointer, reflect.Chan, reflect.Map, reflect.Func, reflect.UnsafePointer:
-		return true
-	case reflect.Struct:
-		return rt.NumField() == 1 && isDirectIface(rt.Field(0).Type)
-	case reflect.Array:
-		return rt.Len() == 1 && isDirectIface(rt.Elem())
-	default:
-		return false
-	}
-}
-
-func stripRecvType(mt reflect.Type) reflect.Type {
-	if mt.NumIn() == 0 {
-		return mt
-	}
-	in := make([]reflect.Type, 0, mt.NumIn()-1)
-	for i := 1; i < mt.NumIn(); i++ {
-		in = append(in, mt.In(i))
-	}
-	out := make([]reflect.Type, mt.NumOut())
-	for i := range out {
-		out[i] = mt.Out(i)
-	}
-	return reflect.FuncOf(in, out, mt.IsVariadic())
 }
 
 // detectShape inspects a method signature and returns the matching stubs.Shape if any.

@@ -122,7 +122,7 @@ eface words native callers actually pack.
 `stubs.Method` gains `WordKey`/`Core`, and `acquireSlot` routes a non-empty
 `WordKey` to `acquireWordSlot` (the word-shape pool) instead of the typed
 handler pools.
-The reserve gates (`vm/derive.go`) count word-shaped methods via the silent
+The reserve gates (`derive/derive.go`) count word-shaped methods via the silent
 `wordShapeAvailable` probe, so a type whose only methods are word-shaped still
 gets a method-bearing reservation.
 
@@ -239,5 +239,5 @@ CI (the `wasm` job runs the synth-dispatch and interptest suites under wasip1).
   `WordKey`.
 - `vm/synth_bridge.go` -- `resolveDispatch` (typed first, word fallback);
   `toSynthMethods` builds the word-path `Method`.
-- `vm/derive.go` -- reserve gates accept word-shaped methods.
+- `derive/derive.go` -- reserve gates accept word-shaped methods (via the `derive.ShapeAvailable` hook the vm registers).
 - `.github/workflows/go.yml` -- amd64 + arm64 build matrix.

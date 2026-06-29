@@ -6,11 +6,14 @@
 ## Overview
 
 This is a cross-cutting concern, not a single package.
-The mechanism is split across [runtype](runtype.md) (low-level rtype
-fabrication), [stdlib/stubs](stubs.md) (method shapes + dispatch stubs),
-`vm/type.go` + `vm/derive.go` + `vm/synth_bridge.go` (the `*Type` model, the
-reserve gate, and the attach/fill step), and `comp/compiler.go` (materialize-time
-reservation + deferred slot fill).
+The mechanism is split across [mtype](../modules) (the symbolic `*Type` graph),
+[runtype](runtype.md) (low-level rtype fabrication), [stdlib/stubs](stubs.md)
+(method shapes + dispatch stubs), `derive/` (the memoized derived-type
+constructors, the materialization pass, the reserve gate, and the synth-iface
+rtype cache), `vm/synth_bridge.go` (the attach/fill step and stub dispatch), and
+`comp/compiler.go` (materialize-time reservation + deferred slot fill).
+`vm/type.go` re-exports the `derive`/`mtype` API under the old `vm.*` names for
+existing callers.
 This page explains the *system* those pieces form and the rules they must obey.
 See also [ADR-021](../decisions/ADR-021-synthesized-rtypes.md) (why we synthesize
 rtypes) and [ADR-020](../decisions/ADR-020-type-identity-slots.md) (keying type
@@ -129,9 +132,11 @@ slot, a derived `*T`/`[]T`/`map[T]V`, a struct field, a `make`d value -- capture
 the final reserved rtype directly, and the in-place fill is invisible to them.
 
 This rests on the reservation existing *before* anything captures the identity.
-The reserve gate lives in `vm/derive.go` (`maybeReserve` for non-struct kinds,
-`maybeReserveStruct` for structs; `hasReservableMethods` decides), driven from
-`MaterializeRtype`. For that gate to fire, the type's methods must be known when
+The reserve gate lives in `derive/derive.go` (`maybeReserve` for non-struct
+kinds, `maybeReserveStruct` for structs; `hasReservableMethods` decides), driven
+from `MaterializeRtype`. Its one dependency on the stub layer -- "does this
+method signature have a dispatch shape?" -- is the injected `derive.ShapeAvailable`
+predicate, registered by `vm` from `stdlib/stubs`. For that gate to fire, the type's methods must be known when
 it is first materialized:
 
 - **`comp.preregisterMethods`** populates each receiver type's method table (by

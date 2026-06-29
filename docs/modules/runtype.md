@@ -86,7 +86,7 @@ Uncommon-type offset is per-kind (pointer/slice/chan use a 56-byte
 
 - Standard library only: `reflect`, `unsafe`, `sync`, `sync/atomic`,
   `errors`/`fmt`/`sort`. No internal mvm imports.
-- Consumed by `vm/` (`vm/type.go` for the derive/predicate helpers,
+- Consumed by `derive/` (the derive/predicate helpers) and `vm/` (`vm/type.go` re-exports,
   `vm/synth_bridge.go` for `Clone`/`InterfaceOf`) and by `stdlib/stubs`
   (`FuncPC` + the `Attach*` entry points).
 

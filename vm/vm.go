@@ -18,6 +18,7 @@ import (
 	"unsafe" // to allow setting unexported struct fields
 	"weak"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
@@ -430,7 +431,7 @@ type Machine struct {
 
 	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
 	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
-	sharedMethodStructs map[methodStructKey]*synthReservation
+	sharedMethodStructs map[derive.MethodStructKey]*derive.SynthReservation
 
 	// synthReleases nil this Machine's stub-pool handler slots (each captures the
 	// Machine) on disposal; see ReleaseSynthMethods, Interp.Close.
@@ -4055,7 +4056,7 @@ func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 	// globals index; recover it from the reservation registry. Gate on a synth rtype
 	// so genuine native-rtype misses (the hot path) skip the scan.
 	if rt != nil && isSynthOrSynthPtr(rt) {
-		return typeForReservedRtype(rt)
+		return derive.TypeForReservedRtype(rt)
 	}
 	return nil
 }

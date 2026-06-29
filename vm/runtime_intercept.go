@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
@@ -368,7 +369,7 @@ func callSynthMethodFunc(fn reflect.Value, in []reflect.Value, spread bool) ([]r
 		return nil, false
 	}
 	recvT := ft.In(0)
-	if isDirectIface(recvT) || !runtype.IsSynth(recvT) ||
+	if derive.IsDirectIface(recvT) || !runtype.IsSynth(recvT) ||
 		!in[0].IsValid() || !in[0].Type().AssignableTo(recvT) {
 		return nil, false
 	}

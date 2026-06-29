@@ -5,6 +5,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
@@ -64,7 +65,7 @@ func (m *Machine) buildStructEmbedSynth(layout, target reflect.Type, fieldIdx in
 			method: Method{Index: -1, Path: []int{fieldIdx}, Rtype: sig},
 			form:   recvFormFor(res.Type(), false, false),
 		}
-		if !spec.resolveDispatch(eraseSynthIfaceParams(sig), sig) {
+		if !spec.resolveDispatch(derive.EraseSynthIfaceParams(sig), sig) {
 			return nil
 		}
 		specs = append(specs, spec)

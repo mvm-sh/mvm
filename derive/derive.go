@@ -1,4 +1,8 @@
-package vm
+// Package derive builds reflect.Types from mvm's symbolic mtype.Type graph:
+// memoized derived-type construction, materialization via runtype, the
+// synth-rtype reserve/fill gate, and the synth-interface rtype cache.
+// It sits above mtype and runtype, below vm.
+package derive
 
 import (
 	"fmt"
@@ -14,14 +18,20 @@ import (
 	"github.com/mvm-sh/mvm/runtype"
 )
 
-// synthReservation holds a named type's reserved value (method-set T) and
+// SynthReservation holds a named type's reserved value (method-set T) and
 // pointer (method-set *T) rtypes, awaiting Fill at attach.
-type synthReservation struct {
+type SynthReservation struct {
 	value *runtype.Reservation // method-set T
 	ptr   *runtype.Reservation // method-set *T
 }
 
-var reservations = map[*mtype.Type]*synthReservation{} // guarded by derivedMu
+// Value returns the method-set-T (value receiver) reservation.
+func (r *SynthReservation) Value() *runtype.Reservation { return r.value }
+
+// Ptr returns the method-set-*T (pointer receiver) reservation.
+func (r *SynthReservation) Ptr() *runtype.Reservation { return r.ptr }
+
+var reservations = map[*mtype.Type]*SynthReservation{} // guarded by derivedMu
 
 // sharedStructs shares one reserved rtype per (name, layout) across Evals so a
 // process-global registry keyed by reflect.Type (gob's nameToConcreteType) sees a
@@ -32,17 +42,16 @@ type sharedStructKey struct {
 	layoutSig string
 }
 
-var sharedStructs = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
+var sharedStructs = map[sharedStructKey]*SynthReservation{} // guarded by derivedMu
 
 // sharedCarriers shares one methodless named non-struct identity per (name,
 // layout) across Evals and field clones; sound for the same reason as sharedStructs.
-var sharedCarriers = map[sharedStructKey]*synthReservation{} // guarded by derivedMu
+var sharedCarriers = map[sharedStructKey]*SynthReservation{} // guarded by derivedMu
 
-// methodStructKey keys Machine.sharedMethodStructs: dedup a method-bearing
-// struct's rtype across re-Evals on one Machine so reflect.Type stays ==.
-// Per-Machine, not global-keyed-by-*Machine: the stub captures the Machine, so a
-// global would pin it forever.
-type methodStructKey struct {
+// MethodStructKey keys the per-execution rtype cache (ActiveRtypeCache), deduping
+// a method-bearing struct's rtype across re-Evals so reflect.Type identity holds.
+// Per-execution, not global: the stub captures the Machine, so a global would pin it.
+type MethodStructKey struct {
 	name      string
 	layoutSig string
 	methodSig string
@@ -373,11 +382,8 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 					if !meth.IsExported() {
 						continue
 					}
-					sig := stripRecvType(meth.Type)
-					if _, ok := detectShape(sig); ok {
-						return true
-					}
-					if wordShapeAvailable(sig) {
+					sig := StripRecvType(meth.Type)
+					if ShapeAvailable(sig) {
 						return true
 					}
 				}
@@ -394,11 +400,7 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 }
 
 func sigHasSynthShape(sig reflect.Type) bool {
-	erased := eraseSynthIfaceParams(sig)
-	if _, ok := detectShape(erased); ok {
-		return true
-	}
-	return wordShapeAvailable(erased)
+	return ShapeAvailable(EraseSynthIfaceParams(sig))
 }
 
 func embIfaceHasShapedMethod(e *mtype.Type) bool {
@@ -474,13 +476,34 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 	return false
 }
 
-func lookupReservation(t *mtype.Type) *synthReservation {
+// LookupReservation returns t's synth-rtype reservation, or nil if never reserved.
+func LookupReservation(t *mtype.Type) *SynthReservation {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	return reservations[t]
 }
 
-func typeForReservedRtype(rt reflect.Type) *mtype.Type {
+// SetValueReservation seeds t's method-set-T reservation directly; normally
+// materialization populates the registry.
+// Used to exercise the TypeForReservedRtype recovery fallback.
+func SetValueReservation(t *mtype.Type, value *runtype.Reservation) {
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	reservations[t] = &SynthReservation{value: value}
+}
+
+// DeleteReservation drops t's reservation.
+func DeleteReservation(t *mtype.Type) {
+	derivedMu.Lock()
+	defer derivedMu.Unlock()
+	delete(reservations, t)
+}
+
+// TypeForReservedRtype recovers the *Type whose reserved synth rtype is rt.
+// It is the fallback for a value-only type that round-tripped through native
+// reflect and so is absent from the globals index.
+// Returns nil for a genuine native rtype.
+func TypeForReservedRtype(rt reflect.Type) *mtype.Type {
 	if rt == nil {
 		return nil
 	}
@@ -514,7 +537,7 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		layoutRT.Kind() == reflect.Struct || !runtype.SupportedKind(layoutRT.Kind()) {
 		return layoutRT
 	}
-	if lookupReservation(t) != nil {
+	if LookupReservation(t) != nil {
 		return t.Rtype
 	}
 	if isFieldClone(t) {
@@ -542,19 +565,19 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 }
 
 func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
-	name := qualifiedTypeName(t)
+	name := QualifiedTypeName(t)
 	key := sharedStructKey{name: name, layoutSig: layoutRT.String()}
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	res := sharedCarriers[key]
 	if res == nil {
-		vr, err := runtype.ReserveMethods(layoutRT, name, rtypePkgPath(t))
+		vr, err := runtype.ReserveMethods(layoutRT, name, RtypePkgPath(t))
 		if err != nil {
 			return layoutRT
 		}
 		// Carriers never fill methods; see ClearUncommon for the StructOf constraint.
 		runtype.ClearUncommon(vr.Type())
-		res = &synthReservation{value: vr}
+		res = &SynthReservation{value: vr}
 		sharedCarriers[key] = res
 	}
 	reservations[t] = res
@@ -562,13 +585,13 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 }
 
 func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
-	name := qualifiedTypeName(t)
-	pkgPath := rtypePkgPath(t)
+	name := QualifiedTypeName(t)
+	pkgPath := RtypePkgPath(t)
 	vr, err := runtype.ReserveMethods(layoutRT, name, pkgPath)
 	if err != nil {
 		return layoutRT
 	}
-	res := &synthReservation{value: vr}
+	res := &SynthReservation{value: vr}
 	valueRT := vr.Type()
 	if r, err := runtype.ReservePtrMethods(valueRT, "*"+name, pkgPath); err == nil {
 		res.ptr = r
@@ -587,7 +610,7 @@ func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 // fits a genuine defined type. A methodless or field-clone type defers to
 // maybeReserve unchanged (field clones carry no own methods, so the gate is safe).
 func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
-	if lookupReservation(t) != nil {
+	if LookupReservation(t) != nil {
 		return t.Rtype
 	}
 	if t.Name != "" && hasReservableMethods(t) {
@@ -613,18 +636,18 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		t.Rtype = rt
 		return rt, true
 	}
-	res := lookupReservation(t)
+	res := LookupReservation(t)
 	if res == nil {
 		if !hasReservableMethods(t) && !hasPromotedShapedMethods(t) {
 			return nil, false // methodless struct: native identity is stable already
 		}
-		name := qualifiedTypeName(t)
-		pkgPath := rtypePkgPath(t)
+		name := QualifiedTypeName(t)
+		pkgPath := RtypePkgPath(t)
 		vr, err := runtype.ReserveMethods(mtype.NewPlaceholderRtype(t.Name), name, pkgPath)
 		if err != nil {
 			return nil, false
 		}
-		res = &synthReservation{value: vr}
+		res = &SynthReservation{value: vr}
 		if pr, err := runtype.ReservePtrMethods(vr.Type(), "*"+name, pkgPath); err == nil {
 			res.ptr = pr
 			AttachPtrDerived(t, pr.Type())
@@ -675,7 +698,7 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 	clearPending(t)
 	// Methodless-table identity is safe to share across Evals (see sharedStructs).
 	if !hasSynthTableMethods(t) {
-		key := sharedStructKey{name: qualifiedTypeName(t), layoutSig: realLayout.String()}
+		key := sharedStructKey{name: QualifiedTypeName(t), layoutSig: realLayout.String()}
 		derivedMu.Lock()
 		if shared := sharedStructs[key]; shared != nil {
 			sharedRT := shared.value.Type()
@@ -696,15 +719,15 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		t.Rtype = reserved
 		return reserved, true
 	}
-	// Method-bearing: share per Machine across re-Evals. See Machine.sharedMethodStructs.
-	if mach := ActiveMachine(); mach != nil {
-		key := methodStructKey{
-			name:      qualifiedTypeName(t),
+	// Method-bearing: share per execution across re-Evals via the injected cache.
+	if cachep := ActiveRtypeCache(); cachep != nil {
+		key := MethodStructKey{
+			name:      QualifiedTypeName(t),
 			layoutSig: realLayout.String(),
 			methodSig: methodFingerprint(t),
 		}
 		derivedMu.Lock()
-		if shared := mach.sharedMethodStructs[key]; shared != nil {
+		if shared := (*cachep)[key]; shared != nil {
 			sharedRT := shared.value.Type()
 			reservations[t] = shared
 			derivedMu.Unlock()
@@ -716,10 +739,10 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 			return sharedRT, true
 		}
 		runtype.FillStructLayout(reserved, realLayout)
-		if mach.sharedMethodStructs == nil {
-			mach.sharedMethodStructs = map[methodStructKey]*synthReservation{}
+		if *cachep == nil {
+			*cachep = map[MethodStructKey]*SynthReservation{}
 		}
-		mach.sharedMethodStructs[key] = res
+		(*cachep)[key] = res
 		derivedMu.Unlock()
 		clearMaterializing(reserved)
 		t.Rtype = reserved
@@ -1048,7 +1071,7 @@ func materialize(t *mtype.Type) reflect.Type {
 			// Method-bearing types get their name from attach instead.
 			named := len(t.Methods) == 0
 			if named {
-				runtype.StampName(ph, qualifiedTypeName(t))
+				runtype.StampName(ph, QualifiedTypeName(t))
 			}
 			for _, f := range t.Fields {
 				materialize(f)
@@ -1063,7 +1086,7 @@ func materialize(t *mtype.Type) reflect.Type {
 			// Patch ph to the current best-effort layout.
 			mtype.PatchRtype(ph, mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags))
 			if named {
-				runtype.StampName(ph, qualifiedTypeName(t))
+				runtype.StampName(ph, QualifiedTypeName(t))
 			}
 			return finishStructOrDefer(t, ph)
 		}
@@ -1213,20 +1236,20 @@ func materializeSelfRef(t *mtype.Type) (rt reflect.Type, handled bool) {
 }
 
 func reserveSelfRef(t *mtype.Type, donor reflect.Type) reflect.Type {
-	if res := lookupReservation(t); res != nil {
+	if res := LookupReservation(t); res != nil {
 		return res.value.Type()
 	}
 	if hasReservableMethods(t) {
 		return reserveValueAndPtr(t, donor)
 	}
-	vr, err := runtype.ReserveMethods(donor, qualifiedTypeName(t), rtypePkgPath(t))
+	vr, err := runtype.ReserveMethods(donor, QualifiedTypeName(t), RtypePkgPath(t))
 	if err != nil {
 		return nil
 	}
 	// Carriers never fill methods; see ClearUncommon for the StructOf constraint.
 	runtype.ClearUncommon(vr.Type())
 	derivedMu.Lock()
-	reservations[t] = &synthReservation{value: vr}
+	reservations[t] = &SynthReservation{value: vr}
 	derivedMu.Unlock()
 	return vr.Type()
 }
@@ -1257,8 +1280,8 @@ func materializeFuncIO(p *mtype.Type) reflect.Type {
 	// materialization-order-dependent; erase it to any on both sides so reflect.Implements still matches.
 	if p != nil && p.Name != "" && p.Kind() == reflect.Interface && len(p.IfaceMethods) > 0 &&
 		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && allIfaceMethodsExported(p) &&
-		!isGenericInstanceName(p.Name) {
-		if rt := synthIfaceRtype(p); rt != nil {
+		!IsGenericInstanceName(p.Name) {
+		if rt := SynthIfaceRtype(p); rt != nil {
 			return rt
 		}
 	}
@@ -1273,7 +1296,7 @@ func materializeFuncIO(p *mtype.Type) reflect.Type {
 func ifaceSynthDeferrable(p *mtype.Type) bool {
 	if p == nil || p.Name == "" || p.Kind() != reflect.Interface ||
 		len(p.IfaceMethods) == 0 || !allIfaceMethodsExported(p) ||
-		isGenericInstanceName(p.Name) { // generic instances erase to any, never synth precisely
+		IsGenericInstanceName(p.Name) { // generic instances erase to any, never synth precisely
 		return false
 	}
 	if p.Rtype != nil && p.Rtype != mtype.AnyRtype {
@@ -1306,7 +1329,7 @@ func anyFieldPending(t *mtype.Type) bool {
 
 func allIfaceMethodsExported(p *mtype.Type) bool {
 	for _, im := range p.IfaceMethods {
-		if !isExportedName(im.Name) {
+		if !IsExportedName(im.Name) {
 			return false
 		}
 	}

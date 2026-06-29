@@ -1,8 +1,10 @@
-package vm
+package derive
 
 import (
 	"reflect"
 	"sync"
+
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 var nativeLayoutTypes sync.Map // qualified type name -> native reflect.Type
@@ -18,8 +20,8 @@ func RegisterNativeLayout(name string, rt reflect.Type) {
 
 // nativeLayoutRegistered reports whether t was registered. The native field count
 // must match, so a stdlib version skew falls back to the synth layout.
-func nativeLayoutRegistered(t *Type) bool {
-	v, ok := nativeLayoutTypes.Load(qualifiedTypeName(t))
+func nativeLayoutRegistered(t *mtype.Type) bool {
+	v, ok := nativeLayoutTypes.Load(QualifiedTypeName(t))
 	if !ok {
 		return false
 	}

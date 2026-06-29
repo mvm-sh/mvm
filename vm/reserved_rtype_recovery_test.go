@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 )
@@ -26,17 +27,11 @@ func TestTypeByRtypeReservationFallback(t *testing.T) {
 	}
 
 	typ := &mtype.Type{Name: "valueOnlyConn", Rtype: rt}
-	derivedMu.Lock()
-	reservations[typ] = &synthReservation{value: vr}
-	derivedMu.Unlock()
-	defer func() {
-		derivedMu.Lock()
-		delete(reservations, typ)
-		derivedMu.Unlock()
-	}()
+	derive.SetValueReservation(typ, vr)
+	defer derive.DeleteReservation(typ)
 
-	if got := typeForReservedRtype(rt); got != typ {
-		t.Fatalf("typeForReservedRtype = %v, want %v", got, typ)
+	if got := derive.TypeForReservedRtype(rt); got != typ {
+		t.Fatalf("TypeForReservedRtype = %v, want %v", got, typ)
 	}
 
 	// Via a Machine with empty globals: the globals index misses, the synth-gated
