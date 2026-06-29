@@ -15,10 +15,33 @@ import (
 )
 
 // Synth method shapes whose native callback types name a specific stdlib package
-// (io/fs, log/slog, encoding/xml). Registering them here keeps vm core free of
-// those imports; the generic shapes stay in vm.
+// (io/fs, log/slog, encoding/xml). Registering them here, alongside the generic
+// shapes (synth_generic_shapes.go), keeps vm core free of all synth-shape
+// knowledge; vm only re-enters the interpreter via vm.SynthCall.
 func init() {
-	vm.RegisterExtendedShapes(detectExtendedShape, makeExtendedHandler)
+	vm.RegisterSynthShapes(detectSynthShape, makeSynthHandler)
+}
+
+// detectSynthShape classifies a method signature, trying the generic shapes first
+// then the package-specific ones (the two sets are disjoint). The generic-first
+// order preserves vm's historical resolution exactly.
+func detectSynthShape(sig reflect.Type) (stubs.Shape, bool) {
+	if sig == nil || sig.Kind() != reflect.Func {
+		return 0, false
+	}
+	if s, ok := detectGenericShape(sig); ok {
+		return s, true
+	}
+	return detectStdlibShape(sig)
+}
+
+// makeSynthHandler builds the native callback for a classified shape, generic or
+// package-specific.
+func makeSynthHandler(call vm.SynthCall, shape stubs.Shape) any {
+	if h := makeGenericHandler(call, shape); h != nil {
+		return h
+	}
+	return makeStdlibHandler(call, shape)
 }
 
 var (
@@ -47,9 +70,9 @@ var (
 
 func isErr(t reflect.Type) bool { return t == errorIface }
 
-// detectExtendedShape classifies a method signature into one of the stdlib-specific
-// shapes, run only after vm's generic classifier fails (the two are disjoint).
-func detectExtendedShape(sig reflect.Type) (stubs.Shape, bool) {
+// detectStdlibShape classifies a method signature into one of the package-specific
+// shapes, run only after the generic classifier fails (the two are disjoint).
+func detectStdlibShape(sig reflect.Type) (stubs.Shape, bool) {
 	nin, nout := sig.NumIn(), sig.NumOut()
 	switch {
 	// encoding/xml cluster.
@@ -118,10 +141,10 @@ func ctxArg(ctx context.Context) reflect.Value {
 	return reflect.ValueOf(&ctx).Elem()
 }
 
-// makeExtendedHandler builds the native callback for a classified extended shape.
-// Each closure re-enters the interpreter via call.Invoke, then marshals the
-// result(s) back to the native return types.
-func makeExtendedHandler(call vm.SynthCall, shape stubs.Shape) any {
+// makeStdlibHandler builds the native callback for a classified package-specific
+// shape, or nil if shape is generic. Each closure re-enters the interpreter via
+// call.Invoke, then marshals the result(s) back to the native return types.
+func makeStdlibHandler(call vm.SynthCall, shape stubs.Shape) any {
 	switch shape {
 	case stubs.ShapeS15: // (T).MarshalXML(*xml.Encoder, xml.StartElement) error
 		return func(recv unsafe.Pointer, e *xml.Encoder, start xml.StartElement) error {

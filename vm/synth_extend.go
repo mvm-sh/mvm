@@ -7,7 +7,7 @@ import (
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
-// SynthCall bundles one synth method dispatch so an out-of-vm bridge handler can
+// SynthCall bundles one synth method dispatch so an out-of-vm shape handler can
 // re-enter the interpreter without reaching into vm internals.
 type SynthCall struct {
 	m      *Machine
@@ -24,20 +24,29 @@ func (c SynthCall) Invoke(recv unsafe.Pointer, args []reflect.Value) ([]reflect.
 	return callMethod(c.m, c.t, c.name, rv, c.method, c.method.Rtype, args)
 }
 
-// Extended shapes are the stdlib-specific method shapes (io/fs, log/slog,
-// encoding/xml); stdlib registers them so vm core need not import those packages.
+// All synth method shapes (generic and package-specific) live in stdlib so vm
+// core holds no synth-shape knowledge; stdlib registers them via init().
 var (
-	detectExtendedShape func(reflect.Type) (stubs.Shape, bool)
-	makeExtendedHandler func(SynthCall, stubs.Shape) any
+	detectShapeHook func(reflect.Type) (stubs.Shape, bool)
+	makeHandlerHook func(SynthCall, stubs.Shape) any
 )
 
-// RegisterExtendedShapes plugs the stdlib-specific synth method shapes into the
-// bridge. detect classifies a method signature; makeHandler builds the native
+// RegisterSynthShapes plugs the synth method shapes into the bridge. detect
+// classifies a method signature into a stubs.Shape; makeHandler builds the native
 // callback for a classified shape.
-func RegisterExtendedShapes(
+func RegisterSynthShapes(
 	detect func(reflect.Type) (stubs.Shape, bool),
 	makeHandler func(SynthCall, stubs.Shape) any,
 ) {
-	detectExtendedShape = detect
-	makeExtendedHandler = makeHandler
+	detectShapeHook = detect
+	makeHandlerHook = makeHandler
+}
+
+// detectShape classifies a method signature into the matching stubs.Shape, via
+// the stdlib-registered classifier; (0, false) when stdlib is not linked.
+func detectShape(sig reflect.Type) (stubs.Shape, bool) {
+	if detectShapeHook == nil {
+		return 0, false
+	}
+	return detectShapeHook(sig)
 }
