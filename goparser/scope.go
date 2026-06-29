@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // fileScopedAliasKey is the symbol-table key for an import alias scoped to the
@@ -77,7 +77,7 @@ func (p *Parser) pkgShortName(path string) string {
 // typeBelongsTo reports whether named typ is a member of pkgPath. typ.PkgName
 // carries the type's own (short) package name; an empty PkgName is treated as
 // belonging (an unqualified local type keeps the old qualify-by-context path).
-func (p *Parser) typeBelongsTo(typ *vm.Type, pkgPath string) bool {
+func (p *Parser) typeBelongsTo(typ *mtype.Type, pkgPath string) bool {
 	if typ.PkgName == "" {
 		return true
 	}

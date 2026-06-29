@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -707,9 +708,9 @@ func (p *Parser) preRegisterGenericFuncs(decls []Tokens) {
 	}
 }
 
-func (p *Parser) recordTypeGen(t *vm.Type) {
+func (p *Parser) recordTypeGen(t *mtype.Type) {
 	if p.typeGen == nil {
-		p.typeGen = map[*vm.Type]int{}
+		p.typeGen = map[*mtype.Type]int{}
 	}
 	p.typeGen[t] = p.curGen
 }
@@ -718,7 +719,7 @@ func (p *Parser) recordTypeGen(t *vm.Type) {
 // It reuses an unfilled placeholder, or one filled in the current generation so a
 // fixpoint re-parse of a grouped decl keeps one identity instead of minting a twin.
 // A type filled by a prior compile (REPL redefinition) is older, so it gets a fresh one.
-func (p *Parser) reuseDeclaredType(key string, kind reflect.Kind) *vm.Type {
+func (p *Parser) reuseDeclaredType(key string, kind reflect.Kind) *mtype.Type {
 	s, ok := p.Symbols[key]
 	if !ok || s.Kind != symbol.Type || s.Type == nil || s.Type.Kind() != kind {
 		return nil
@@ -729,11 +730,11 @@ func (p *Parser) reuseDeclaredType(key string, kind reflect.Kind) *vm.Type {
 	return nil
 }
 
-func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
+func (p *Parser) registerStructPlaceholder(key, short string) *mtype.Type {
 	if t := p.reuseDeclaredType(key, reflect.Struct); t != nil {
 		return t
 	}
-	ph := vm.NewStructType(short)
+	ph := mtype.NewStructType(short)
 	ph.Name = short
 	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
@@ -742,22 +743,22 @@ func (p *Parser) registerStructPlaceholder(key, short string) *vm.Type {
 
 // registerNamedPlaceholder registers or reuses a kind-agnostic placeholder for a
 // self-referential composite named type, filled in place by parseTypeLine.
-func (p *Parser) registerNamedPlaceholder(key, short string) *vm.Type {
+func (p *Parser) registerNamedPlaceholder(key, short string) *mtype.Type {
 	if s, ok := p.Symbols[key]; ok && s.Kind == symbol.Type && s.Type != nil &&
 		(s.Type.Placeholder || p.typeGen[s.Type] == p.curGen) {
 		return s.Type
 	}
-	ph := &vm.Type{Name: short, Placeholder: true}
+	ph := &mtype.Type{Name: short, Placeholder: true}
 	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph
 }
 
-func (p *Parser) registerInterfacePlaceholder(key, short string) *vm.Type {
+func (p *Parser) registerInterfacePlaceholder(key, short string) *mtype.Type {
 	if t := p.reuseDeclaredType(key, reflect.Interface); t != nil {
 		return t
 	}
-	ph := &vm.Type{Rtype: vm.AnyRtype, Name: short, Placeholder: true}
+	ph := &mtype.Type{Rtype: mtype.AnyRtype, Name: short, Placeholder: true}
 	p.recordTypeGen(ph)
 	p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(ph), symbol.Type, ph)
 	return ph

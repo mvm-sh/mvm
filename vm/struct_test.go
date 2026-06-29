@@ -4,6 +4,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 // These tests cover the post-flip flow: NewStructType yields a symbolic
@@ -12,22 +15,22 @@ import (
 // rtype patched in place.
 func TestNewStructTypeSetFields(t *testing.T) {
 	// ptrField returns a *placeholder field type named name.
-	ptrField := func(name string, elem *Type) *Type {
-		f := *SymPtr(elem)
+	ptrField := func(name string, elem *mtype.Type) *mtype.Type {
+		f := *derive.SymPtr(elem)
 		f.Name = name
-		f.Base = SymPtr(elem)
+		f.Base = derive.SymPtr(elem)
 		return &f
 	}
 
 	t.Run("self_referential", func(t *testing.T) {
 		// Simulate: type T struct { V int; Next *T }
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "V", Rtype: reflect.TypeOf(0)},
 			ptrField("Next", placeholder),
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 
 		if placeholder.Rtype.Size() == 0 {
 			t.Fatal("expected non-zero size after materialize")
@@ -54,13 +57,13 @@ func TestNewStructTypeSetFields(t *testing.T) {
 
 	t.Run("pointer_elem", func(t *testing.T) {
 		// PointerTo(placeholder).Elem() returns the finalized struct.
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "X", Rtype: reflect.TypeOf(0)},
 			ptrField("Self", placeholder),
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 		ptrRtype := reflect.PointerTo(placeholder.Rtype)
 
 		elem := ptrRtype.Elem()
@@ -73,15 +76,15 @@ func TestNewStructTypeSetFields(t *testing.T) {
 	})
 
 	t.Run("size_and_align", func(t *testing.T) {
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "A", Rtype: reflect.TypeOf(int64(0))},
 			{Name: "B", Rtype: reflect.TypeOf(true)},
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 
-		direct := StructOf(fields, nil, nil)
+		direct := mtype.StructOf(fields, nil, nil)
 		if placeholder.Rtype.Size() != direct.Rtype.Size() {
 			t.Fatalf("size mismatch: %d vs %d", placeholder.Rtype.Size(), direct.Rtype.Size())
 		}
@@ -91,13 +94,13 @@ func TestNewStructTypeSetFields(t *testing.T) {
 	})
 
 	t.Run("non_recursive", func(t *testing.T) {
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "Name", Rtype: reflect.TypeOf("")},
 			{Name: "Age", Rtype: reflect.TypeOf(0)},
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 
 		v := reflect.New(placeholder.Rtype).Elem()
 		v.Field(0).SetString("hello")
@@ -111,18 +114,18 @@ func TestNewStructTypeSetFields(t *testing.T) {
 	})
 
 	t.Run("patched_as_field_type", func(t *testing.T) {
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "X", Rtype: reflect.TypeOf(0)},
 			{Name: "Y", Rtype: reflect.TypeOf("")},
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 
 		if placeholder.Rtype.String() == "" {
 			t.Fatal("expected non-empty type string after materialize")
 		}
-		outer := StructOf([]*Type{
+		outer := mtype.StructOf([]*mtype.Type{
 			{Name: "Inner", Rtype: placeholder.Rtype},
 			{Name: "Z", Rtype: reflect.TypeOf(0)},
 		}, nil, nil)
@@ -135,22 +138,22 @@ func TestNewStructTypeSetFields(t *testing.T) {
 		// The placeholder cycle-breaking rtype embeds the type name in its sole
 		// field, and patchRtype preserves Str, so the materialized type's String()
 		// keeps identifying the interpreted type in native diagnostics.
-		placeholder := NewStructType("Vector")
-		placeholder.SetFields(SymStruct([]*Type{{Name: "X", Rtype: reflect.TypeOf(0)}}, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder := mtype.NewStructType("Vector")
+		placeholder.SetFields(mtype.SymStruct([]*mtype.Type{{Name: "X", Rtype: reflect.TypeOf(0)}}, nil, nil))
+		derive.MaterializeRtype(placeholder)
 		if s := placeholder.Rtype.String(); !strings.Contains(s, "Vector") {
 			t.Fatalf("finalized type string %q does not identify the type name", s)
 		}
 	})
 
 	t.Run("linked_list_reflect", func(t *testing.T) {
-		placeholder := NewStructType("T")
-		fields := []*Type{
+		placeholder := mtype.NewStructType("T")
+		fields := []*mtype.Type{
 			{Name: "V", Rtype: reflect.TypeOf(0)},
 			ptrField("Next", placeholder),
 		}
-		placeholder.SetFields(SymStruct(fields, nil, nil))
-		MaterializeRtype(placeholder)
+		placeholder.SetFields(mtype.SymStruct(fields, nil, nil))
+		derive.MaterializeRtype(placeholder)
 
 		node2 := reflect.New(placeholder.Rtype)
 		node2.Elem().Field(0).SetInt(2)

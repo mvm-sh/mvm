@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
@@ -56,13 +57,13 @@ func (m *Machine) buildStructEmbedSynth(layout, target reflect.Type, fieldIdx in
 	if err != nil {
 		return nil
 	}
-	synthT := &Type{Rtype: res.Type()} // Kind() derives Struct from Rtype
+	synthT := &mtype.Type{Rtype: res.Type()} // Kind() derives Struct from Rtype
 	specs := make([]synthMethodSpec, 0, target.NumMethod())
 	for meth := range target.Methods() {
 		sig := meth.Type // interface method type: no receiver
 		spec := synthMethodSpec{
 			name:   meth.Name,
-			method: Method{Index: -1, Path: []int{fieldIdx}, Rtype: sig},
+			method: mtype.Method{Index: -1, Path: []int{fieldIdx}, Rtype: sig},
 			form:   recvFormFor(res.Type(), false, false),
 		}
 		if !spec.resolveDispatch(derive.EraseSynthIfaceParams(sig), sig) {

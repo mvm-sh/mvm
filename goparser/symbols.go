@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -122,7 +124,7 @@ func (p *Parser) addOrRebindGlobalVar(name string) string {
 	return p.addPkgVar(name)
 }
 
-func (p *Parser) setLHSType(i int, t *vm.Type, lhs []Tokens, lhsPositions []int, out Tokens) {
+func (p *Parser) setLHSType(i int, t *mtype.Type, lhs []Tokens, lhsPositions []int, out Tokens) {
 	if t == nil || i >= len(lhs) || len(lhs[i]) != 1 || lhs[i][0].Tok != lang.Ident || lhs[i][0].Str == "_" {
 		return
 	}
@@ -138,7 +140,7 @@ func (p *Parser) inferRangeTypes(operand Tokens, lhs []Tokens, lhsPositions []in
 	if rt == nil {
 		return
 	}
-	setType := func(i int, t *vm.Type) { p.setLHSType(i, t, lhs, lhsPositions, out) }
+	setType := func(i int, t *mtype.Type) { p.setLHSType(i, t, lhs, lhsPositions, out) }
 	switch rt.Kind() {
 	case reflect.Slice, reflect.Array, reflect.String:
 		setType(0, p.Symbols["int"].Type)
@@ -183,7 +185,7 @@ func (p *Parser) inferDefineType(rhs Tokens, scopedName string) {
 	if compositeIdx >= 0 && rhs[compositeIdx].Tok == lang.Composite && rhs[compositeIdx].Str != "" {
 		if s, _, ok := p.Symbols.Get(rhs[compositeIdx].Str, p.scope); ok && s.Kind == symbol.Type && s.Type != nil {
 			if hasAddr {
-				sym.Type = vm.SymPtr(s.Type)
+				sym.Type = derive.SymPtr(s.Type)
 			} else {
 				sym.Type = s.Type
 			}
@@ -218,7 +220,7 @@ func (p *Parser) inferCallDefineTypes(rhs Tokens, lhs []Tokens, lhsPositions []i
 	}
 }
 
-func (p *Parser) callFuncType(in Tokens) *vm.Type {
+func (p *Parser) callFuncType(in Tokens) *mtype.Type {
 	l := len(in) - 1
 	if l < 0 || in[l].Tok != lang.Call {
 		return nil
@@ -259,7 +261,7 @@ func (p *Parser) callFuncType(in Tokens) *vm.Type {
 				if pkg := p.Packages[ps.PkgPath]; pkg != nil {
 					if v, ok := pkg.Values[member]; ok {
 						if rv := v.Reflect(); rv.IsValid() && rv.Kind() == reflect.Func {
-							return &vm.Type{Rtype: rv.Type()}
+							return &mtype.Type{Rtype: rv.Type()}
 						}
 					}
 				}

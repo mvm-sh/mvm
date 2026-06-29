@@ -20,7 +20,7 @@ type Imethod struct {
 // Methods sit inline in InterfaceType.Methods (no uncommon overlay, no stub
 // pool: an interface declares methods, it does not implement them).
 // Each Imethod.Sig must be the canonical no-receiver func type: reflect.FuncOf
-// and vm.FuncOf dedup via the runtime type table, so the rtype pointer the
+// and mtype.FuncOf dedup via the runtime type table, so the rtype pointer the
 // runtime compares against the concrete method's matches.
 // An empty method set yields any; name is stamped into Str; result is anonymous.
 func InterfaceOf(name, pkgPath string, methods []Imethod) reflect.Type {

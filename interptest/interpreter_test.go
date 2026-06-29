@@ -1355,7 +1355,7 @@ func TestStruct(t *testing.T) {
 		// Tier-1 value path: a type assertion on an interpreted value round-tripped
 		// through native reflect (reflect.Zero(t).Interface()) must recognize the
 		// interpreted type's methods. The TypeAssert opcode recovers the *Type via
-		// typeByRtype and consults vm.Type.Implements (the synthetic rtype itself
+		// typeByRtype and consults mtype.Type.Implements (the synthetic rtype itself
 		// carries no native methods). reflect.Type.NumMethod / reflect.Type.Implements
 		// remain Tier-2 gaps (still rtype-level).
 		{n: "reflect_interpreted_method_via_iface_assert", src: `
@@ -3328,11 +3328,11 @@ func TestMethod(t *testing.T) {
 			http.HandlerFunc(f) == nil`, res: "true"},
 
 		// Defined type whose underlying is a basic type, accessed through a
-		// struct field, then chain-called. Regression: vm.Type.FieldLookup
+		// struct field, then chain-called. Regression: mtype.Type.FieldLookup
 		// overwrote the field-type Name with reflect's f.Type.Name() (which
 		// returns "uintptr" for `type Frame uintptr`), losing the user-level
 		// name needed to find methods on Frame. The fix preserves ft.Base.Name
-		// (back-link to the original named vm.Type) when set.
+		// (back-link to the original named mtype.Type) when set.
 		// Surfaces in pkg/errors json_test.go: `tt.Frame.MarshalText()`.
 		{n: "named_type_method_via_field_chain", src: `type Frame uintptr
 			func (f Frame) Tag() string { return "ok" }

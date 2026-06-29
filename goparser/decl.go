@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -97,7 +98,7 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 		return out, err
 	}
 	var vars []string
-	var types []*vm.Type
+	var types []*mtype.Type
 	if len(assign) > 0 && isPureIdentList(decl) {
 		// `const a, b = ...`: the LHS are names, never types. Parsing them as
 		// types misreads a const whose name shadows a type (e.g. a local
@@ -152,7 +153,7 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 			// For other failures, register the const name so it is discoverable.
 			if i < len(vars) {
 				name := p.pkgKey(vars[i])
-				var typ *vm.Type
+				var typ *mtype.Type
 				if i < len(types) {
 					typ = types[i]
 				}
@@ -166,7 +167,7 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 			continue
 		}
 		name := p.pkgKey(vars[i])
-		var typ *vm.Type
+		var typ *mtype.Type
 		if i < len(types) {
 			typ = types[i]
 			if OverflowsType(cval, typ) {
@@ -188,7 +189,7 @@ func (p *Parser) parseConstLine(in Tokens) (out Tokens, err error) {
 	return out, err
 }
 
-func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, length int, err error) {
+func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *mtype.Type, length int, err error) {
 	l := len(in) - 1
 	if l < 0 {
 		return nil, nil, 0, errors.New("missing argument in constant expression")
@@ -330,7 +331,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		// len/cap of an array or *array variable (bare or field access) is constant per Go spec.
 		if narg == 1 {
 			var fname string
-			var at *vm.Type
+			var at *mtype.Type
 			var n int
 			switch {
 			case l >= 2 && in[l-1].Tok == lang.Ident && in[l-2].Tok == lang.Ident:
@@ -361,7 +362,7 @@ func (p *Parser) evalConstExpr(in Tokens) (cval constant.Value, ctyp *vm.Type, l
 		}
 
 		args := make([]constant.Value, narg)
-		var arg0Type *vm.Type // only set when i == 0, used by unsafe.Sizeof/Alignof below
+		var arg0Type *mtype.Type // only set when i == 0, used by unsafe.Sizeof/Alignof below
 		rest := in[:l]
 		totalLen := 1 // Call token
 		for i := narg - 1; i >= 0; i-- {
@@ -450,7 +451,7 @@ func isBasicKind(k reflect.Kind) bool {
 	return (k >= reflect.Bool && k <= reflect.Complex128) || k == reflect.String
 }
 
-func definedOverNativeComposite(t *vm.Type) bool {
+func definedOverNativeComposite(t *mtype.Type) bool {
 	if t.Base == nil || t.Base.Rtype == nil || t.ElemType != nil || t.KeyType != nil || len(t.Fields) != 0 {
 		return false
 	}
@@ -461,7 +462,7 @@ func definedOverNativeComposite(t *vm.Type) bool {
 	return false
 }
 
-func definedSymbolicComposite(t *vm.Type) bool {
+func definedSymbolicComposite(t *mtype.Type) bool {
 	switch t.Kind() {
 	case reflect.Slice, reflect.Array, reflect.Chan:
 		return t.ElemType != nil
@@ -490,12 +491,12 @@ func (e ErrConstOverflow) Error() string {
 // ErrPos exposes the source offset so the diagnostic chokepoint can render a snippet.
 func (e ErrConstOverflow) ErrPos() int { return e.Pos }
 
-func (p *Parser) overflowErr(cv constant.Value, typ *vm.Type, tok Token) ErrConstOverflow {
+func (p *Parser) overflowErr(cv constant.Value, typ *mtype.Type, tok Token) ErrConstOverflow {
 	return ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
 }
 
 // OverflowsType reports whether the integer constant cv cannot be represented in the integer type typ.
-func OverflowsType(cv constant.Value, typ *vm.Type) bool {
+func OverflowsType(cv constant.Value, typ *mtype.Type) bool {
 	if cv == nil || typ == nil {
 		return false
 	}
@@ -569,7 +570,7 @@ func (p *Parser) isUnsafePkgIdent(t Token) bool {
 // Returns the argument's reflect.Type, the op name ("Sizeof"/"Alignof"),
 // tokens-consumed-including-Call, and any lookup/resolution error. An empty
 // op means no form matched; the caller falls through to the generic path.
-func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) {
+func (p *Parser) unsafeSizeArg(in Tokens, l int) (*mtype.Type, string, int, error) {
 	// unsafe.Sizeof(&X) / Alignof(&X): the argument is a pointer (a trailing
 	// Addr token), whose size and alignment are the platform pointer width --
 	// uintptr's -- whatever X is. An address-of shifts the postfix shape past
@@ -598,7 +599,7 @@ func (p *Parser) unsafeSizeArg(in Tokens, l int) (*vm.Type, string, int, error) 
 	}
 	op := in[opIdx].Str[1:] // strip leading "."
 
-	symType := func(tok Token, name string) (*vm.Type, error) {
+	symType := func(tok Token, name string) (*mtype.Type, error) {
 		s, _, ok := p.symGet(name)
 		if !ok || s.Type == nil || s.Type.Kind() == reflect.Invalid {
 			return nil, p.undef(name, tok)
@@ -681,14 +682,14 @@ func constValue(c constant.Value) any {
 	return nil
 }
 
-func defaultConstType(c constant.Value, p *Parser) *vm.Type {
+func defaultConstType(c constant.Value, p *Parser) *mtype.Type {
 	return DefaultConstType(c, p.Symbols)
 }
 
 // DefaultConstType returns the default type of an untyped constant (Go spec
 // "Constants"): int, float64, string or bool, resolved through the given symbol
 // table. Shared by the const-decl evaluator and the compiler's expression folder.
-func DefaultConstType(c constant.Value, syms symbol.SymMap) *vm.Type {
+func DefaultConstType(c constant.Value, syms symbol.SymMap) *mtype.Type {
 	if c == nil {
 		return nil
 	}
@@ -713,7 +714,7 @@ func DefaultConstType(c constant.Value, syms symbol.SymMap) *vm.Type {
 	return nil
 }
 
-func typedConstValue(c constant.Value, typ *vm.Type) any {
+func typedConstValue(c constant.Value, typ *mtype.Type) any {
 	v := constValue(c)
 	if typ == nil || v == nil {
 		return v
@@ -807,7 +808,7 @@ func asComplex128(v any) complex128 {
 
 // constTypeConv folds a one-argument type conversion `Type(arg)` at compile
 // time; length/loc describe the conversion expression's token span and source.
-func (p *Parser) constTypeConv(arg constant.Value, typ *vm.Type, narg, length int, loc Token) (constant.Value, *vm.Type, int, error) {
+func (p *Parser) constTypeConv(arg constant.Value, typ *mtype.Type, narg, length int, loc Token) (constant.Value, *mtype.Type, int, error) {
 	if narg != 1 {
 		return nil, nil, 0, errors.New("type conversion requires exactly one argument")
 	}
@@ -817,7 +818,7 @@ func (p *Parser) constTypeConv(arg constant.Value, typ *vm.Type, narg, length in
 	return constConvert(arg, typ), typ, length, nil
 }
 
-func constConvert(cv constant.Value, typ *vm.Type) constant.Value {
+func constConvert(cv constant.Value, typ *mtype.Type) constant.Value {
 	k := typ.Kind()
 	switch {
 	case k >= reflect.Int && k <= reflect.Int64:
@@ -886,14 +887,14 @@ func vmValueToConst(v vm.Value) (constant.Value, error) {
 // a named type (e.g. time.Duration) so typed-constant arithmetic keeps the
 // right result type. Reached both via a package selector (pkg.X) and a
 // dot-imported bare name.
-func constFromPkgValue(v vm.Value) (constant.Value, *vm.Type, error) {
+func constFromPkgValue(v vm.Value) (constant.Value, *mtype.Type, error) {
 	cv, err := vmValueToConst(v)
 	if err != nil {
 		return nil, nil, err
 	}
-	var ctyp *vm.Type
+	var ctyp *mtype.Type
 	if rt := v.Type(); rt.PkgPath() != "" {
-		ctyp = &vm.Type{Name: rt.Name(), Rtype: rt}
+		ctyp = &mtype.Type{Name: rt.Name(), Rtype: rt}
 	}
 	return cv, ctyp, nil
 }
@@ -936,7 +937,7 @@ var gotok = map[lang.Token]token.Token{
 // (invalid shift count, or integer/float division or remainder by zero); the
 // caller then falls back to a runtime op (compiler) or reports an error
 // (const-decl evaluator). Shared so both paths fold identically.
-func FoldBinary(op lang.Token, x constant.Value, xtyp *vm.Type, y constant.Value, ytyp *vm.Type) (constant.Value, *vm.Type, bool) {
+func FoldBinary(op lang.Token, x constant.Value, xtyp *mtype.Type, y constant.Value, ytyp *mtype.Type) (constant.Value, *mtype.Type, bool) {
 	// && and || have no gotok entry (the compiler lowers them to jumps); decline
 	// so go/constant is never asked to compare with token.ILLEGAL.
 	if op.IsLogicalOp() {
@@ -986,7 +987,7 @@ func FoldBinary(op lang.Token, x constant.Value, xtyp *vm.Type, y constant.Value
 // FoldUnary folds a unary constant operation (+, -, !, ^) via go/constant.
 // xtyp drives the width-limited complement for typed unsigned constants. ok is
 // currently always true; it is returned for symmetry with FoldBinary.
-func FoldUnary(op lang.Token, x constant.Value, xtyp *vm.Type) (constant.Value, *vm.Type, bool) {
+func FoldUnary(op lang.Token, x constant.Value, xtyp *mtype.Type) (constant.Value, *mtype.Type, bool) {
 	cv := constant.UnaryOp(gotok[op], x, 0)
 	// go/constant has no unsigned integer kind: ^ on 0 gives -1 (arbitrary
 	// precision), not the width-limited complement Go requires for typed
@@ -1002,11 +1003,11 @@ func FoldUnary(op lang.Token, x constant.Value, xtyp *vm.Type) (constant.Value, 
 
 // ConstConvert converts a constant to the representation of typ (Go's typed
 // constant conversion rules). Exported for the compiler's expression folder.
-func ConstConvert(cv constant.Value, typ *vm.Type) constant.Value { return constConvert(cv, typ) }
+func ConstConvert(cv constant.Value, typ *mtype.Type) constant.Value { return constConvert(cv, typ) }
 
 // TypedConstValue materializes a constant into a Go value of typ (or its default
 // kind when typ is nil). Exported for the compiler's expression folder.
-func TypedConstValue(cv constant.Value, typ *vm.Type) any { return typedConstValue(cv, typ) }
+func TypedConstValue(cv constant.Value, typ *mtype.Type) any { return typedConstValue(cv, typ) }
 
 // ConstFromExact reconstructs a constant from the exact textual form produced by
 // go/constant.Value.ExactString(): a decimal integer, a float literal, or a
@@ -1120,13 +1121,13 @@ func (p *Parser) parseImportLine(in Tokens) (out Tokens, err error) {
 			}
 			if rtype, ok := v.UnwrapType(); ok {
 				nv := vm.NewValue(rtype)
-				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Type, PkgPath: pp, Value: nv, Type: &vm.Type{Name: rtype.Name(), Rtype: rtype}}) // mvm:symkey-ok: dot-import binds bare names
+				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Type, PkgPath: pp, Value: nv, Type: &mtype.Type{Name: rtype.Name(), Rtype: rtype}}) // mvm:symkey-ok: dot-import binds bare names
 			} else if v.IsValid() {
 				// Mirror the pkg-qualified value-load path (compiler.go's Period
 				// handler) which tags the Symbol with its rtype, so a method
 				// expression like `CommandLine.Parse(...)` finds the receiver type.
 				rt := v.Type()
-				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Value, PkgPath: pp, Value: v, Type: &vm.Type{Name: rt.Name(), Rtype: rt}}) // mvm:symkey-ok: dot-import binds bare names
+				p.SymSet(k, &symbol.Symbol{Index: symbol.UnsetAddr, Name: k, Kind: symbol.Value, PkgPath: pp, Value: v, Type: &mtype.Type{Name: rt.Name(), Rtype: rt}}) // mvm:symkey-ok: dot-import binds bare names
 			}
 		}
 	} else if n != "_" {
@@ -1258,8 +1259,8 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 	// For struct and interface types, use a forward-declared placeholder to
 	// enable self-references and mutual references between types.
 	name := p.pkgKey(in[0].Str)
-	var placeholder *vm.Type
-	var compositePh *vm.Type
+	var placeholder *mtype.Type
+	var compositePh *mtype.Type
 	if !isAlias && len(toks) > 0 {
 		switch toks[0].Tok {
 		case lang.Struct:
@@ -1383,7 +1384,7 @@ func (p *Parser) parseVar(in Tokens) (out Tokens, err error) {
 	return out, err
 }
 
-func (p *Parser) zeroInitLocals(vars []string, types []*vm.Type) (out Tokens) {
+func (p *Parser) zeroInitLocals(vars []string, types []*mtype.Type) (out Tokens) {
 	for i, v := range vars {
 		typ := types[i]
 		typName := typ.Name
@@ -1512,7 +1513,7 @@ func (p *Parser) parseVarLine(in Tokens) (out Tokens, err error) {
 		return out, err
 	}
 	var vars []string
-	var types []*vm.Type
+	var types []*mtype.Type
 	var undefinedType bool
 	if hasInit && isPureIdentList(decl) {
 		undefinedType = true

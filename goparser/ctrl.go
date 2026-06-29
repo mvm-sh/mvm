@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
-	"github.com/mvm-sh/mvm/vm"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 func (p *Parser) parseDefer(in Tokens) (out Tokens, err error) {
@@ -367,7 +367,7 @@ func (p *Parser) parseSwitch(in Tokens) (out Tokens, err error) {
 		out = init
 	}
 	condSwitch := false
-	var opTyp *vm.Type
+	var opTyp *mtype.Type
 	if len(cond) > 0 {
 		if cond, err = p.parseExpr(cond, ""); err != nil {
 			return nil, err
@@ -520,7 +520,7 @@ func (p *Parser) parseTypeSwitchClause(in Tokens, index, maximum int, tsName, va
 
 		out = append(out, newLabel(subLabel, pos))
 
-		var typ *vm.Type
+		var typ *mtype.Type
 		isNilCase := len(cond) == 1 && cond[0].Tok == lang.Ident && cond[0].Str == "nil"
 		if !isNilCase {
 			typ, _, err = p.parseTypeExpr(cond)
@@ -574,7 +574,7 @@ func srcOrder(index, maximum, defaultSrc int) int {
 	}
 }
 
-func (p *Parser) parseCaseClause(in Tokens, index, maximum, defaultSrc int, condSwitch, needDrop bool, opTyp *vm.Type) (out Tokens, err error) {
+func (p *Parser) parseCaseClause(in Tokens, index, maximum, defaultSrc int, condSwitch, needDrop bool, opTyp *mtype.Type) (out Tokens, err error) {
 	in = append(in, newSemicolon(in[len(in)-1].Pos)) // Force a ';' at the end of body clause.
 	var conds, body Tokens
 	// Split on the first colon only: later colons belong to the body (e.g. a label).

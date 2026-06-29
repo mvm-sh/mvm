@@ -3,6 +3,8 @@ package vm
 import (
 	"reflect"
 	"testing"
+
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 type unboxWrapper struct{ V int32 }
@@ -20,9 +22,9 @@ func TestUnboxIfaceForEmptyInterfaceMethodBearing(t *testing.T) {
 	concrete := (*unboxWrapper)(nil) // typed-nil pointer, as in TestEncodeOneofNilWrapper
 	ptrRtype := reflect.TypeOf(concrete)
 
-	typ := &Type{
-		Rtype:   ptrRtype,          // *vm.unboxWrapper: Kind Pointer (not Func), Name ""
-		Methods: make([]Method, 2), // non-empty: skips the methodless-unwrap path
+	typ := &mtype.Type{
+		Rtype:   ptrRtype,                // *vm.unboxWrapper: Kind Pointer (not Func), Name ""
+		Methods: make([]mtype.Method, 2), // non-empty: skips the methodless-unwrap path
 	}
 	val := Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: FromReflect(reflect.ValueOf(concrete))})}
 	if !val.IsIface() {

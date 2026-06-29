@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // parseExpr transforms an infix expression into a postfix notation.
@@ -506,7 +506,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 // pkg-qualified when typ belongs to the compiling/importing pkg, else
 // typ.String() ("net.Conn"). Never function-scoped, so it can't shadow a
 // same-named package type.
-func (p *Parser) canonicalTypeKey(typ *vm.Type) string {
+func (p *Parser) canonicalTypeKey(typ *mtype.Type) string {
 	// A derived pointer inherits its element's Name, so keying it by that Name
 	// would clobber the value type's symbol (*Level shadowing Level). Key it
 	// structurally; a defined `type P *T` keeps a distinct Name and is unaffected.
@@ -525,7 +525,7 @@ func (p *Parser) canonicalTypeKey(typ *vm.Type) string {
 	return key
 }
 
-func (p *Parser) registerType(typ *vm.Type, pos int, out *Tokens) string {
+func (p *Parser) registerType(typ *mtype.Type, pos int, out *Tokens) string {
 	key := p.canonicalTypeKey(typ)
 	if existing, ok := p.Symbols[key]; !ok || existing.Type != typ {
 		p.SymAdd(symbol.UnsetAddr, key, typeTokenValue(typ), symbol.Type, typ)
@@ -646,7 +646,7 @@ func (p *Parser) parseComposite(s, typ string, basePos int) (Tokens, int, error)
 	return result, sliceLen, nil
 }
 
-func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname string, pos int, out *Tokens, typeArgs []*vm.Type) error {
+func (p *Parser) emitGenericFunc(tmpl *genericTemplate, instToks Tokens, mname string, pos int, out *Tokens, typeArgs []*mtype.Type) error {
 	if instToks == nil {
 		*out = append(*out, newIdent(mname, pos))
 		return nil

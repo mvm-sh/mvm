@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/mvm-sh/mvm/lang/golang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // resolveIfaceMethodSym must take a method's static return type from the
@@ -25,23 +25,23 @@ func TestResolveIfaceMethodPrefersSymbolicReturn(t *testing.T) {
 	degradedSig := reflect.FuncOf(nil, []reflect.Type{ifaceRtype}, false) // func() interface{}
 
 	// B is the named interface the method actually returns.
-	wantB := &vm.Type{Name: "B", Rtype: ifaceRtype}
+	wantB := &mtype.Type{Name: "B", Rtype: ifaceRtype}
 
 	// A.GetB: symbolic Sig returns B, but its cached Rtype degraded to func() interface{}.
-	a := &vm.Type{
+	a := &mtype.Type{
 		Name:  "A",
 		Rtype: ifaceRtype,
-		IfaceMethods: []vm.IfaceMethod{{
+		IfaceMethods: []mtype.IfaceMethod{{
 			Name:  "GetB",
 			Rtype: degradedSig,
-			Sig:   &vm.Type{Returns: []*vm.Type{wantB}},
+			Sig:   &mtype.Type{Returns: []*mtype.Type{wantB}},
 		}},
 	}
 
 	c := NewCompiler(golang.GoSpec)
 	// A same-named concrete method whose func() interface{} signature matches the
 	// degraded ifaceSig -- the spurious match the old resolution order returned.
-	c.Symbols["pp.GetB"] = &symbol.Symbol{Kind: symbol.Func, Name: "pp.GetB", Type: &vm.Type{Rtype: degradedSig}}
+	c.Symbols["pp.GetB"] = &symbol.Symbol{Kind: symbol.Func, Name: "pp.GetB", Type: &mtype.Type{Rtype: degradedSig}}
 
 	sym := c.resolveIfaceMethodSym(a, "GetB")
 	if sym == nil {
@@ -65,17 +65,17 @@ func TestResolveIfaceMethodPrefersSymbolicReturn(t *testing.T) {
 // non-deterministically (map order). Disambiguating by package fixes it.
 func TestResolveIfaceMethodDisambiguatesByPackage(t *testing.T) {
 	ifaceRtype := reflect.TypeFor[any]()
-	nodesT := &vm.Type{Name: "Nodes", Rtype: ifaceRtype}
+	nodesT := &mtype.Type{Name: "Nodes", Rtype: ifaceRtype}
 
 	// The canonical graph.Graph: From() returns Nodes.
-	graphIface := &vm.Type{
+	graphIface := &mtype.Type{
 		Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph", PkgName: "graph", Rtype: ifaceRtype,
-		IfaceMethods: []vm.IfaceMethod{{Name: "From", Sig: &vm.Type{Returns: []*vm.Type{nodesT}}}},
+		IfaceMethods: []mtype.IfaceMethod{{Name: "From", Sig: &mtype.Type{Returns: []*mtype.Type{nodesT}}}},
 	}
 	// A foreign same-named interface in another package; must not hijack.
-	traverseIface := &vm.Type{
+	traverseIface := &mtype.Type{
 		Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph/traverse", PkgName: "traverse", Rtype: ifaceRtype,
-		IfaceMethods: []vm.IfaceMethod{{Name: "From", Sig: &vm.Type{Returns: nil}}},
+		IfaceMethods: []mtype.IfaceMethod{{Name: "From", Sig: &mtype.Type{Returns: nil}}},
 	}
 
 	c := NewCompiler(golang.GoSpec)
@@ -84,10 +84,10 @@ func TestResolveIfaceMethodDisambiguatesByPackage(t *testing.T) {
 	// A same-named concrete From with a NO-return signature: picked arbitrarily by
 	// map order when no interface signature is recovered, it drops the call result.
 	noRet := reflect.FuncOf(nil, nil, false) // func()
-	c.Symbols["band.From"] = &symbol.Symbol{Kind: symbol.Func, Name: "band.From", Type: &vm.Type{Rtype: noRet}}
+	c.Symbols["band.From"] = &symbol.Symbol{Kind: symbol.Func, Name: "band.From", Type: &mtype.Type{Rtype: noRet}}
 
 	// The receiver: a graph.Graph clone with package info but no method set.
-	clone := &vm.Type{Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph", PkgName: "graph", Rtype: ifaceRtype}
+	clone := &mtype.Type{Name: "Graph", ImportPath: "gonum.org/v1/gonum/graph", PkgName: "graph", Rtype: ifaceRtype}
 
 	sym := c.resolveIfaceMethodSym(clone, "From")
 	if sym == nil {

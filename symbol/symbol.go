@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -40,7 +42,7 @@ type Symbol struct {
 	Name       string         //
 	Index      int            // address of symbol in frame
 	PkgPath    string         //
-	Type       *vm.Type       //
+	Type       *mtype.Type    //
 	Value      vm.Value       //
 	Cval       constant.Value //
 	Used       bool           //
@@ -101,12 +103,12 @@ func (s *Symbol) IsInt() bool { return s.Type.Kind() == reflect.Int }
 func (s *Symbol) IsParam() bool { return s.Index < 0 && s.Index != UnsetAddr }
 
 // Vtype returns the VM type of a symbol.
-func Vtype(s *Symbol) *vm.Type {
+func Vtype(s *Symbol) *mtype.Type {
 	if s.Type != nil {
 		return s.Type
 	}
 	if s.Value.IsValid() {
-		return &vm.Type{Rtype: s.Value.Type()}
+		return &mtype.Type{Rtype: s.Value.Type()}
 	}
 	return nil
 }
@@ -172,7 +174,7 @@ func (sm SymMap) Get(name, scope string) (sym *Symbol, sc string, ok bool) {
 // the unqualified method probe for an imported receiver (cmp_test.Stringer
 // answering a testprotos.Stringer call). A missing or non-Type bare symbol
 // allows the probe: there is no conflicting type to resolve against.
-func (sm SymMap) bareKeyTypeMatches(key string, recv *vm.Type) bool {
+func (sm SymMap) bareKeyTypeMatches(key string, recv *mtype.Type) bool {
 	s, ok := sm[key]
 	if !ok || s.Kind != Type || s.Type == nil || recv == nil {
 		return true
@@ -185,7 +187,7 @@ func (sm SymMap) bareKeyTypeMatches(key string, recv *vm.Type) bool {
 	if recvRt != nil && recvRt.Kind() == reflect.Pointer {
 		recvRt = recvRt.Elem()
 	}
-	if sameNamedType(s.Type, rv, vm.CanonicalType(rv), recvRt) {
+	if sameNamedType(s.Type, rv, derive.CanonicalType(rv), recvRt) {
 		return true
 	}
 	// Linkage unprovable (a Base-less clone probed before materialization):
@@ -200,8 +202,8 @@ func (sm SymMap) bareKeyTypeMatches(key string, recv *vm.Type) bool {
 // sameNamedType matches cand against the receiver by *Type identity (recvCanon
 // is recv's Base-walked canonical, so a clone matches its source), falling back
 // to rtype equality only when both already carry one -- never materializing.
-func sameNamedType(cand, recv, recvCanon *vm.Type, recvRt reflect.Type) bool {
-	if cand == recv || vm.CanonicalType(cand) == recvCanon {
+func sameNamedType(cand, recv, recvCanon *mtype.Type, recvRt reflect.Type) bool {
+	if cand == recv || derive.CanonicalType(cand) == recvCanon {
 		return true
 	}
 	return recvRt != nil && cand.Rtype != nil && cand.Rtype == recvRt
@@ -278,7 +280,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, 
 			} else {
 				// Anonymous receiver (an mvm-created struct): no name to key on,
 				// so match a named Type symbol by *Type identity / rtype.
-				recvCanon := vm.CanonicalType(recv)
+				recvCanon := derive.CanonicalType(recv)
 				recvRt := recv.Rtype
 				if recvRt != nil && recvRt.Kind() == reflect.Pointer {
 					recvRt = recvRt.Elem()
@@ -347,7 +349,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, 
 			// only when the canonical underlying is native; interpreted types have
 			// none, so skip the probe (and the materialization it forced).
 			nativeVal, nativePtr := false, false
-			if canon := vm.CanonicalType(sym.Type); canon != nil && canon.Rtype != nil {
+			if canon := derive.CanonicalType(sym.Type); canon != nil && canon.Rtype != nil {
 				rt := canon.Rtype
 				ptype := rt
 				if ptype.Kind() == reflect.Pointer {
@@ -383,7 +385,7 @@ func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, 
 // int}` in x/text via `type Tag compact.Tag`), and rtype-only matching would pick
 // one at random -- the root cause of [[project_isroot_iface_dispatch_recursion]].
 // An rtype-equality match is kept only as a fallback for native types.
-func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, seg SegIndex) *Symbol {
+func (sm SymMap) qualifiedMethodLookup(recv *mtype.Type, typName, method string, seg SegIndex) *Symbol {
 	if recv == nil {
 		return nil
 	}
@@ -394,7 +396,7 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, se
 	if rv.IsPtr() && rv.ElemType != nil {
 		rv = rv.ElemType
 	}
-	rvCanon := vm.CanonicalType(rv)
+	rvCanon := derive.CanonicalType(rv)
 	rt := rv.Rtype // native value-type rtype, fallback only
 	if rt == nil && rvCanon != nil {
 		rt = rvCanon.Rtype
@@ -424,7 +426,7 @@ func (sm SymMap) qualifiedMethodLookup(recv *vm.Type, typName, method string, se
 		if cv.IsPtr() && cv.ElemType != nil {
 			cv = cv.ElemType
 		}
-		if cv == rv || vm.CanonicalType(cv) == rvCanon {
+		if cv == rv || derive.CanonicalType(cv) == rvCanon {
 			return m
 		}
 		srt := cv.Rtype
@@ -490,14 +492,14 @@ func methodLookup(sm SymMap, typName, method string) *Symbol {
 
 // promotedMethod searches for a method promoted through embedded fields recorded in typ.Embedded.
 // It returns the method symbol and the field index path to reach the embedded receiver.
-func (sm SymMap) promotedMethod(typ *vm.Type, name string, path []int, seg SegIndex) (*Symbol, []int) {
+func (sm SymMap) promotedMethod(typ *mtype.Type, name string, path []int, seg SegIndex) (*Symbol, []int) {
 	return sm.promotedMethodSeen(typ, name, path, nil, seg)
 }
 
 // promotedMethodSeen is promotedMethod with a visited set guarding against
 // self-referential embedding (legal in Go, e.g. `type A struct{ *A }`), which
 // would otherwise recurse until the stack overflows.
-func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen map[*vm.Type]bool, seg SegIndex) (*Symbol, []int) {
+func (sm SymMap) promotedMethodSeen(typ *mtype.Type, name string, path []int, seen map[*mtype.Type]bool, seg SegIndex) (*Symbol, []int) {
 	if typ == nil {
 		return nil, nil
 	}
@@ -508,7 +510,7 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 	}
 	// A field-access clone can lack Embedded; its canonical (Base) keeps it.
 	if len(typ.Embedded) == 0 {
-		if canon := vm.CanonicalType(typ); canon != typ && len(canon.Embedded) > 0 {
+		if canon := derive.CanonicalType(typ); canon != typ && len(canon.Embedded) > 0 {
 			typ = canon
 		}
 	}
@@ -516,7 +518,7 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 		return nil, nil
 	}
 	if seen == nil {
-		seen = map[*vm.Type]bool{}
+		seen = map[*mtype.Type]bool{}
 	}
 	seen[typ] = true
 	for _, emb := range typ.Embedded {
@@ -548,32 +550,32 @@ func (sm SymMap) promotedMethodSeen(typ *vm.Type, name string, path []int, seen 
 
 // Init fills the symbol map with default Go symbols.
 func (sm SymMap) Init() {
-	sm["any"] = &Symbol{Name: "any", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*any)(nil)).Elem()}
-	sm["bool"] = &Symbol{Name: "bool", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*bool)(nil)).Elem()}
-	sm["error"] = &Symbol{Name: "error", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*error)(nil)).Elem()}
-	sm["int"] = &Symbol{Name: "int", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*int)(nil)).Elem()}
-	sm["int8"] = &Symbol{Name: "int8", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*int8)(nil)).Elem()}
-	sm["int16"] = &Symbol{Name: "int16", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*int16)(nil)).Elem()}
-	sm["int32"] = &Symbol{Name: "int32", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*int32)(nil)).Elem()}
-	sm["int64"] = &Symbol{Name: "int64", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*int64)(nil)).Elem()}
-	sm["uint"] = &Symbol{Name: "uint", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uint)(nil)).Elem()}
-	sm["uint8"] = &Symbol{Name: "uint8", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uint8)(nil)).Elem()}
-	sm["uint16"] = &Symbol{Name: "uint16", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uint16)(nil)).Elem()}
-	sm["uint32"] = &Symbol{Name: "uint32", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uint32)(nil)).Elem()}
-	sm["uint64"] = &Symbol{Name: "uint64", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uint64)(nil)).Elem()}
-	sm["uintptr"] = &Symbol{Name: "uintptr", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*uintptr)(nil)).Elem()}
-	sm["float32"] = &Symbol{Name: "float32", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*float32)(nil)).Elem()}
-	sm["float64"] = &Symbol{Name: "float64", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*float64)(nil)).Elem()}
-	sm["complex64"] = &Symbol{Name: "complex64", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*complex64)(nil)).Elem()}
-	sm["complex128"] = &Symbol{Name: "complex128", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*complex128)(nil)).Elem()}
+	sm["any"] = &Symbol{Name: "any", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*any)(nil)).Elem()}
+	sm["bool"] = &Symbol{Name: "bool", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*bool)(nil)).Elem()}
+	sm["error"] = &Symbol{Name: "error", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*error)(nil)).Elem()}
+	sm["int"] = &Symbol{Name: "int", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*int)(nil)).Elem()}
+	sm["int8"] = &Symbol{Name: "int8", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*int8)(nil)).Elem()}
+	sm["int16"] = &Symbol{Name: "int16", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*int16)(nil)).Elem()}
+	sm["int32"] = &Symbol{Name: "int32", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*int32)(nil)).Elem()}
+	sm["int64"] = &Symbol{Name: "int64", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*int64)(nil)).Elem()}
+	sm["uint"] = &Symbol{Name: "uint", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uint)(nil)).Elem()}
+	sm["uint8"] = &Symbol{Name: "uint8", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uint8)(nil)).Elem()}
+	sm["uint16"] = &Symbol{Name: "uint16", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uint16)(nil)).Elem()}
+	sm["uint32"] = &Symbol{Name: "uint32", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uint32)(nil)).Elem()}
+	sm["uint64"] = &Symbol{Name: "uint64", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uint64)(nil)).Elem()}
+	sm["uintptr"] = &Symbol{Name: "uintptr", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*uintptr)(nil)).Elem()}
+	sm["float32"] = &Symbol{Name: "float32", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*float32)(nil)).Elem()}
+	sm["float64"] = &Symbol{Name: "float64", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*float64)(nil)).Elem()}
+	sm["complex64"] = &Symbol{Name: "complex64", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*complex64)(nil)).Elem()}
+	sm["complex128"] = &Symbol{Name: "complex128", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*complex128)(nil)).Elem()}
 	sm["byte"] = sm["uint8"]
 	sm["rune"] = sm["int32"]
-	sm["string"] = &Symbol{Name: "string", Kind: Type, Index: UnsetAddr, Type: vm.TypeOf((*string)(nil)).Elem()}
+	sm["string"] = &Symbol{Name: "string", Kind: Type, Index: UnsetAddr, Type: mtype.TypeOf((*string)(nil)).Elem()}
 
 	sm["nil"] = &Symbol{Name: "nil", Kind: Value, Index: UnsetAddr}
 	sm["iota"] = &Symbol{Name: "iota", Kind: Const, Index: UnsetAddr}
-	sm["true"] = &Symbol{Name: "true", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(true), Type: vm.TypeOf(true), Cval: constant.MakeBool(true)}
-	sm["false"] = &Symbol{Name: "false", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(false), Type: vm.TypeOf(false), Cval: constant.MakeBool(false)}
+	sm["true"] = &Symbol{Name: "true", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(true), Type: mtype.TypeOf(true), Cval: constant.MakeBool(true)}
+	sm["false"] = &Symbol{Name: "false", Kind: Const, Index: UnsetAddr, Value: vm.ValueOf(false), Type: mtype.TypeOf(false), Cval: constant.MakeBool(false)}
 
 	sm["complex"] = &Symbol{Name: "complex", Kind: Builtin, Index: UnsetAddr}
 	sm["real"] = &Symbol{Name: "real", Kind: Builtin, Index: UnsetAddr}

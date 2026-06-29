@@ -3,8 +3,8 @@ package interp
 import (
 	"fmt"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // attachErr locates a synth-attach failure at the type's declaration.
@@ -21,7 +21,7 @@ func (e *attachErr) ErrPos() int   { return e.pos }
 // attachSynthMethods walks every compiled type and asks the machine to
 // install a synthesized rtype carrying that type's methods.
 //
-// Idempotency: each *vm.Type is attached at most once per Interp lifetime.
+// Idempotency: each *mtype.Type is attached at most once per Interp lifetime.
 // The compiler aliases symbols under both bare and pkg-qualified keys, so
 // the same *Type is reached twice per walk; and re-entrant Eval
 // (test_cmd's package + _testmain) walks again.
@@ -33,7 +33,7 @@ func (e *attachErr) ErrPos() int   { return e.pos }
 // See [[project_synth_rtype_poc]] and [[project_symbolic_types_refactor]].
 func (i *Interp) attachSynthMethods() error {
 	if i.synthAttached == nil {
-		i.synthAttached = map[*vm.Type]bool{}
+		i.synthAttached = map[*mtype.Type]bool{}
 	}
 	for _, sym := range i.Symbols {
 		if sym.Kind != symbol.Type || sym.Type == nil {
@@ -47,7 +47,7 @@ func (i *Interp) attachSynthMethods() error {
 	return nil
 }
 
-// maxBaseDepth caps Base-chain walks against cyclic chains (mirrors vm.CanonicalType).
+// maxBaseDepth caps Base-chain walks against cyclic chains (mirrors derive.CanonicalType).
 const maxBaseDepth = 1024
 
 // attachWithEmbeds attaches t's embedded interpreted types before t itself:
@@ -55,7 +55,7 @@ const maxBaseDepth = 1024
 // only at THEIR attach, and the symbol walk above is map-ordered.
 // Pre-marking breaks self-embed cycles; on error the mark is removed so a
 // later Eval retries instead of silently skipping the type.
-func (i *Interp) attachWithEmbeds(t *vm.Type) (err error) {
+func (i *Interp) attachWithEmbeds(t *mtype.Type) (err error) {
 	if t == nil || i.synthAttached[t] {
 		return nil
 	}

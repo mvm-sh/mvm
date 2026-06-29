@@ -6,13 +6,15 @@ import (
 	"math"
 	"reflect"
 	"unsafe"
+
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 // Iface represents a boxed interface value at runtime.
 // It preserves the concrete mvm type identity for dynamic method dispatch.
 type Iface struct {
-	Typ *Type // concrete mvm type (carries Name for method lookup)
-	Val Value // the concrete value
+	Typ *mtype.Type // concrete mvm type (carries Name for method lookup)
+	Val Value       // the concrete value
 }
 
 // Format routes fmt verbs to the concrete value so an Iface boxed in an
@@ -176,7 +178,7 @@ func NewValue(typ reflect.Type, arg ...int) Value {
 	case reflect.Func, reflect.Interface:
 		// Func/interface variables hold heterogeneous values (int, Closure, Iface).
 		// Use interface{} so reflect.Set can accept any of them.
-		return Value{ref: reflect.New(AnyRtype).Elem()}
+		return Value{ref: reflect.New(mtype.AnyRtype).Elem()}
 	}
 	return Value{ref: reflect.New(typ).Elem()}
 }

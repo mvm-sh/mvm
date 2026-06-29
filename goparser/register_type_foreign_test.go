@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/mvm-sh/mvm/lang/golang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // registerType must key a composite-literal type of a FOREIGN package under that
@@ -22,13 +22,13 @@ func TestRegisterTypeForeignDoesNotClobberAlias(t *testing.T) {
 
 	// Package pp (the one being compiled) declares `type Message = <iface>`; its
 	// canonical symbol lives at "pp.Message".
-	alias := &vm.Type{Name: "Message", PkgName: "pp", Rtype: reflect.TypeOf((*any)(nil)).Elem()}
+	alias := &mtype.Type{Name: "Message", PkgName: "pp", Rtype: reflect.TypeOf((*any)(nil)).Elem()}
 	aliasSym := &symbol.Symbol{Kind: symbol.Type, Name: "pp.Message", Type: alias}
 	p.Symbols["pp.Message"] = aliasSym
 	p.CompilingPkg = "pp"
 
 	// A composite literal of a FOREIGN package's same-named type.
-	foreign := &vm.Type{Name: "Message", PkgName: "pb", Rtype: reflect.TypeOf(map[string]int(nil))}
+	foreign := &mtype.Type{Name: "Message", PkgName: "pb", Rtype: reflect.TypeOf(map[string]int(nil))}
 	var out Tokens
 	if key := p.registerType(foreign, 0, &out); key == "pp.Message" {
 		t.Fatalf("foreign type keyed under compiling pkg as %q, clobbering the alias", key)
@@ -39,7 +39,7 @@ func TestRegisterTypeForeignDoesNotClobberAlias(t *testing.T) {
 
 	// A LOCAL type of the compiling package must still qualify under its canonical
 	// pkg key so a sibling import's bare-key write cannot shadow it.
-	local := &vm.Type{Name: "Local", PkgName: "pp", Rtype: reflect.TypeOf(struct{}{})}
+	local := &mtype.Type{Name: "Local", PkgName: "pp", Rtype: reflect.TypeOf(struct{}{})}
 	var out2 Tokens
 	if key := p.registerType(local, 0, &out2); key != "pp.Local" {
 		t.Fatalf("local type keyed as %q, want pp.Local", key)
@@ -52,11 +52,11 @@ func TestRegisterTypeDerivedPtrDoesNotClobberValue(t *testing.T) {
 	p := NewParser(golang.GoSpec, false)
 	p.CompilingPkg = "pp"
 
-	value := &vm.Type{Name: "Level", PkgName: "pp", Rtype: reflect.TypeOf(int8(0))}
+	value := &mtype.Type{Name: "Level", PkgName: "pp", Rtype: reflect.TypeOf(int8(0))}
 	valueSym := &symbol.Symbol{Kind: symbol.Type, Name: "pp.Level", Type: value}
 	p.Symbols["pp.Level"] = valueSym
 
-	ptr := &vm.Type{Name: "Level", PkgName: "pp", ElemType: value, Rtype: reflect.PointerTo(reflect.TypeOf(int8(0)))}
+	ptr := &mtype.Type{Name: "Level", PkgName: "pp", ElemType: value, Rtype: reflect.PointerTo(reflect.TypeOf(int8(0)))}
 	var out Tokens
 	if key := p.registerType(ptr, 0, &out); key == "pp.Level" {
 		t.Fatalf("derived pointer keyed under the value type as %q, clobbering it", key)

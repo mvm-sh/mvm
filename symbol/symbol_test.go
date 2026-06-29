@@ -5,7 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mvm-sh/mvm/vm"
+	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 // segOf builds a SegIndex over sm, as the Parser keeps in sync in production.
@@ -40,14 +41,14 @@ func TestSegIndexAddDel(t *testing.T) {
 
 func TestMethodByNameIndexMatchesFullScan(t *testing.T) {
 	rt := reflect.TypeOf(struct{ X int }{})
-	innerType := &vm.Type{Name: "Tag", PkgName: "inner", Rtype: rt}
-	enum := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
+	innerType := &mtype.Type{Name: "Tag", PkgName: "inner", Rtype: rt}
+	enum := &mtype.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
 	sm := SymMap{
 		"inner.Tag":             &Symbol{Kind: Type, Type: innerType},
 		"inner.Tag.IsRoot":      &Symbol{Kind: Func, Name: "IsRoot", Index: 1},
 		"filedesc.Enum":         &Symbol{Kind: Type, Type: enum},
 		"*filedesc.Enum.Number": &Symbol{Kind: Func, Name: "Number", Index: 2},
-		"local":                 &Symbol{Kind: Type, Name: "local", Type: &vm.Type{Name: "local"}},
+		"local":                 &Symbol{Kind: Type, Name: "local", Type: &mtype.Type{Name: "local"}},
 		"local.Hi":              &Symbol{Kind: Func, Name: "Hi", Index: 3},
 	}
 	seg := segOf(sm)
@@ -56,7 +57,7 @@ func TestMethodByNameIndexMatchesFullScan(t *testing.T) {
 		method string
 	}{
 		{&Symbol{Kind: Value, Type: innerType}, "IsRoot"},
-		{&Symbol{Kind: Value, Type: vm.SymPtr(enum)}, "Number"},
+		{&Symbol{Kind: Value, Type: derive.SymPtr(enum)}, "Number"},
 		{&Symbol{Kind: Value, Type: enum}, "Number"},
 		{&Symbol{Kind: Type, Name: "local", Type: sm["local"].Type}, "Hi"},
 		{&Symbol{Kind: Value, Type: innerType}, "Missing"},
@@ -74,10 +75,10 @@ func TestQualifiedMethodLookupPrefersExactType(t *testing.T) {
 	rt := reflect.TypeOf(struct{ X int }{})
 
 	for round := 0; round < 1000; round++ {
-		// Two distinct *vm.Type values sharing the same Rtype, modeling
+		// Two distinct *mtype.Type values sharing the same Rtype, modeling
 		// compact.Tag (inner) and language.Tag (outer alias) in x/text.
-		innerType := &vm.Type{Name: "Tag", Rtype: rt}
-		outerType := &vm.Type{Name: "Tag", Rtype: rt}
+		innerType := &mtype.Type{Name: "Tag", Rtype: rt}
+		outerType := &mtype.Type{Name: "Tag", Rtype: rt}
 
 		innerMethod := &Symbol{Kind: Func, Name: "IsRoot", Index: 100}
 		outerMethod := &Symbol{Kind: Func, Name: "IsRoot", Index: 200}
@@ -118,8 +119,8 @@ func TestMethodLookupCrossUniverse(t *testing.T) {
 	for round := 0; round < 200; round++ {
 		// regType owns the methods; recvVal is a same-Go-type instance from
 		// another compile universe (distinct *Type and distinct rtype).
-		regType := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
-		recvVal := &vm.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ b int }{})}
+		regType := &mtype.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvVal := &mtype.Type{Name: "Enum", PkgName: "filedesc", Rtype: reflect.TypeOf(struct{ b int }{})}
 
 		valMethod := &Symbol{Kind: Func, Name: "unmarshalSeed", Index: 100}
 		ptrMethod := &Symbol{Kind: Func, Name: "Number", Index: 200}
@@ -140,7 +141,7 @@ func TestMethodLookupCrossUniverse(t *testing.T) {
 		}
 
 		// Pointer receiver: d := &p.List[i]; d.Number().
-		recvPtr := &Symbol{Kind: Value, Type: vm.SymPtr(recvVal)}
+		recvPtr := &Symbol{Kind: Value, Type: derive.SymPtr(recvVal)}
 		got2, _ := sm.MethodByName(recvPtr, "Number", seg)
 		if got2 == nil || got2.Index != 200 {
 			t.Fatalf("round %d: pointer receiver: got %v, want method Index=200", round, got2)
@@ -153,8 +154,8 @@ func TestMethodLookupDistinctPkgSameShortName(t *testing.T) {
 	const genPkg = "google.golang.org/genproto/googleapis/rpc/status"
 	for round := 0; round < 200; round++ {
 		// grpcStatus owns Details(); protoStatus is a different type, no Details.
-		grpcStatus := &vm.Type{Name: "Status", PkgName: "status", ImportPath: grpcPkg, Rtype: reflect.TypeOf(struct{ a int }{})}
-		protoStatus := &vm.Type{Name: "Status", PkgName: "status", ImportPath: genPkg, Rtype: reflect.TypeOf(struct{ b int }{})}
+		grpcStatus := &mtype.Type{Name: "Status", PkgName: "status", ImportPath: grpcPkg, Rtype: reflect.TypeOf(struct{ a int }{})}
+		protoStatus := &mtype.Type{Name: "Status", PkgName: "status", ImportPath: genPkg, Rtype: reflect.TypeOf(struct{ b int }{})}
 
 		sm := SymMap{
 			grpcPkg + ".Status":               &Symbol{Kind: Type, Type: grpcStatus},
@@ -164,12 +165,12 @@ func TestMethodLookupDistinctPkgSameShortName(t *testing.T) {
 		}
 		seg := segOf(sm)
 
-		recv := &Symbol{Kind: Value, Type: vm.SymPtr(protoStatus)}
+		recv := &Symbol{Kind: Value, Type: derive.SymPtr(protoStatus)}
 		if got, _ := sm.MethodByName(recv, "Details", seg); got != nil {
 			t.Fatalf("round %d: proto Status hijacked grpc Status.Details (got Index=%d)", round, got.Index)
 		}
 		// The grpc Status itself still resolves its own method.
-		recvG := &Symbol{Kind: Value, Type: vm.SymPtr(grpcStatus)}
+		recvG := &Symbol{Kind: Value, Type: derive.SymPtr(grpcStatus)}
 		if got, _ := sm.MethodByName(recvG, "Details", seg); got == nil || got.Index != 100 {
 			t.Fatalf("round %d: grpc Status.Details unresolved: got %v", round, got)
 		}
@@ -177,28 +178,28 @@ func TestMethodLookupDistinctPkgSameShortName(t *testing.T) {
 	// Cross-universe dup (same ImportPath, distinct *Type+rtype): must resolve.
 	for round := 0; round < 50; round++ {
 		const pkg = "example.com/dup"
-		reg := &vm.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ a int }{})}
-		recvT := &vm.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ b int }{})}
+		reg := &mtype.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvT := &mtype.Type{Name: "T", PkgName: "dup", ImportPath: pkg, Rtype: reflect.TypeOf(struct{ b int }{})}
 		sm := SymMap{
 			pkg + ".T":         &Symbol{Kind: Type, Type: reg},
 			"*" + pkg + ".T.M": &Symbol{Kind: Func, Name: "M", Index: 7},
 		}
 		seg := segOf(sm)
-		recv := &Symbol{Kind: Value, Type: vm.SymPtr(recvT)}
+		recv := &Symbol{Kind: Value, Type: derive.SymPtr(recvT)}
 		if got, _ := sm.MethodByName(recv, "M", seg); got == nil || got.Index != 7 {
 			t.Fatalf("round %d: cross-universe dup (same ImportPath) failed to resolve: got %v", round, got)
 		}
 	}
 	// Main/REPL dup (no ImportPath): the lenient short-PkgPath fallback resolves it.
 	for round := 0; round < 50; round++ {
-		reg := &vm.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ a int }{})}
-		recvM := &vm.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ b int }{})}
+		reg := &mtype.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ a int }{})}
+		recvM := &mtype.Type{Name: "M", PkgName: "main", Rtype: reflect.TypeOf(struct{ b int }{})}
 		sm := SymMap{
 			"main.M":      &Symbol{Kind: Type, Type: reg},
 			"*main.M.Inc": &Symbol{Kind: Func, Name: "Inc", Index: 9},
 		}
 		seg := segOf(sm)
-		recv := &Symbol{Kind: Value, Type: vm.SymPtr(recvM)}
+		recv := &Symbol{Kind: Value, Type: derive.SymPtr(recvM)}
 		if got, _ := sm.MethodByName(recv, "Inc", seg); got == nil || got.Index != 9 {
 			t.Fatalf("round %d: main-pkg dup (no ImportPath) failed to resolve: got %v", round, got)
 		}
@@ -210,15 +211,15 @@ func TestPromotedMethodViaCloneCanonical(t *testing.T) {
 
 	// FrameHeader owns the unexported promoted method `invalidate` (ptr recv),
 	// registered at a pkg-qualified key as for any imported package.
-	fhType := &vm.Type{Name: "FrameHeader", PkgName: "http2", Rtype: reflect.TypeOf(struct{ valid bool }{})}
+	fhType := &mtype.Type{Name: "FrameHeader", PkgName: "http2", Rtype: reflect.TypeOf(struct{ valid bool }{})}
 	// canonHF carries the embedded FrameHeader; cloneHF is the field-access clone
 	// with no Embedded and Rtype nil, linked to canonHF via Base.
-	canonHF := &vm.Type{
+	canonHF := &mtype.Type{
 		Name: "HeadersFrame", PkgName: "http2",
 		Rtype:    reflect.TypeOf(struct{ a int }{}),
-		Embedded: []vm.EmbeddedField{{FieldIdx: 0, Type: fhType}},
+		Embedded: []mtype.EmbeddedField{{FieldIdx: 0, Type: fhType}},
 	}
-	cloneHF := &vm.Type{Name: "HeadersFrame", PkgName: "http2", Base: canonHF}
+	cloneHF := &mtype.Type{Name: "HeadersFrame", PkgName: "http2", Base: canonHF}
 
 	invalidate := &Symbol{Kind: Func, Name: "invalidate", Index: 42}
 	sm := SymMap{
@@ -230,7 +231,7 @@ func TestPromotedMethodViaCloneCanonical(t *testing.T) {
 	seg := segOf(sm)
 
 	// mh.HeadersFrame.invalidate(): receiver is *HeadersFrame (the clone).
-	recv := &Symbol{Kind: Value, Type: vm.SymPtr(cloneHF)}
+	recv := &Symbol{Kind: Value, Type: derive.SymPtr(cloneHF)}
 	got, path := sm.MethodByName(recv, "invalidate", seg)
 	if got == nil || got.Index != 42 {
 		t.Fatalf("promoted unexported method via clone: got %v, want method Index=42", got)

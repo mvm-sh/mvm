@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
@@ -211,7 +212,7 @@ func sigWordLayouts(sig reflect.Type) (in, out []wordLayout) {
 // interpreter, and writes the result words back. A failed dispatch panics
 // (raiseMethodErr) unless swallowErr: then results stay zero. makeWordCore
 // selects it per arch.
-func (m *Machine) makeWordCoreRegabi(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+func (m *Machine) makeWordCoreRegabi(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
 	methodSig := method.Rtype
 	inLayouts, outLayouts := sigWordLayouts(methodSig)
 	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {

@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 // Unboxing through a pointer must keep the SAME pointer (in-place), or a
@@ -13,7 +15,7 @@ func TestDeepUnboxIfaceInPlace(t *testing.T) {
 	type holder struct {
 		V any
 	}
-	h := &holder{V: Iface{Typ: &Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(42)}}
+	h := &holder{V: Iface{Typ: &mtype.Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(42)}}
 
 	m := &Machine{}
 	w, changed := m.deepUnboxIface(reflect.ValueOf(h), 0, 0, nil)
@@ -31,7 +33,7 @@ func TestDeepUnboxIfaceInPlace(t *testing.T) {
 // Slice and map elements unbox in place too: the backing storage may be
 // aliased elsewhere and must stay shared.
 func TestDeepUnboxIfaceSliceMapInPlace(t *testing.T) {
-	box := Iface{Typ: &Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
+	box := Iface{Typ: &mtype.Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
 	s := []any{box}
 	mp := map[string]any{"k": box}
 
@@ -53,7 +55,7 @@ func TestDeepUnboxIfaceSliceMapInPlace(t *testing.T) {
 // A map past maxMapHops is left boxed: it belongs to a shared graph whose
 // concurrent writer an iteration would race.
 func TestDeepUnboxIfaceDeepMapSkipped(t *testing.T) {
-	box := Iface{Typ: &Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
+	box := Iface{Typ: &mtype.Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
 	type inner struct{ M map[string]any }
 	type outer struct{ I *inner }
 	// arg (*outer): hop 1 -> outer.I (*inner): hop 2 -> inner.M past maxMapHops.
@@ -71,7 +73,7 @@ func TestDeepUnboxIfaceDeepMapSkipped(t *testing.T) {
 // hops counts slice edges too: a map behind a pointer AND a slice is past
 // maxMapHops, else the concurrent-map fatal recurs through non-pointer nodes.
 func TestDeepUnboxIfaceSliceOfMapsSkipped(t *testing.T) {
-	box := Iface{Typ: &Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
+	box := Iface{Typ: &mtype.Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
 	type outer struct{ S []map[string]any }
 	// arg (*outer): hop 1 -> outer.S slice: hop 2 -> elem map past maxMapHops.
 	o := &outer{S: []map[string]any{{"k": box}}}
@@ -87,7 +89,7 @@ func TestDeepUnboxIfaceSliceOfMapsSkipped(t *testing.T) {
 
 // A slice of maps passed directly is within maxMapHops, so its boxes unbox.
 func TestDeepUnboxIfaceDirectSliceOfMapsUnboxed(t *testing.T) {
-	box := Iface{Typ: &Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
+	box := Iface{Typ: &mtype.Type{Rtype: reflect.TypeFor[int]()}, Val: ValueOf(7)}
 	s := []map[string]any{{"k": box}}
 
 	m := &Machine{}

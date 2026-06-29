@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
@@ -65,7 +66,7 @@ func classifyWordSig(sig reflect.Type) (key, reason string, ok bool) {
 
 // makeWordCore builds the per-method marshaler the generated dispatcher calls
 // back into, selecting the register-ABI or ABI0 implementation per arch.
-func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+func (m *Machine) makeWordCore(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
 	if wordABI0 {
 		return m.makeWordCoreABI0(t, method, name, form, swallowErr)
 	}

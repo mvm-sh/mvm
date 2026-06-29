@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
@@ -11,9 +12,9 @@ import (
 // re-enter the interpreter without reaching into vm internals.
 type SynthCall struct {
 	m      *Machine
-	t      *Type
+	t      *mtype.Type
 	name   string
-	method Method
+	method mtype.Method
 	form   recvForm
 }
 

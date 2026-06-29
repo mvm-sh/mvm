@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/lang/golang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // Reservations key only on value types, never pointer *Types. A derived,
@@ -40,8 +41,8 @@ func TestAttachPtrTypeRedirectsToElem(t *testing.T) {
 
 	// Proto's derived *T symbol: named after T, over T's reserved *T rtype, with
 	// the method table filled (as resolveIfaceMethods does for &T{}).
-	derivedPtr := vm.PointerTo(valueT)
-	ptrT := &vm.Type{
+	derivedPtr := derive.PointerTo(valueT)
+	ptrT := &mtype.Type{
 		Name:     valueT.Name,
 		ElemType: valueT,
 		Rtype:    derivedPtr.Rtype,
@@ -81,7 +82,7 @@ func TestAttachGenericInstanceNoReservationSkips(t *testing.T) {
 
 	// A generic instance "Box#int": a fresh value *Type (not in the reservation
 	// registry) carrying Box's filled ptr-method table over Box's struct rtype.
-	genInst := &vm.Type{Name: "Box#int", Rtype: box.Rtype, Methods: box.Methods}
+	genInst := &mtype.Type{Name: "Box#int", Rtype: box.Rtype, Methods: box.Methods}
 	if genInst.IsPtr() || !strings.Contains(genInst.Name, "#") {
 		t.Fatalf("setup: want a named-value generic instance, got isPtr=%v name=%q", genInst.IsPtr(), genInst.Name)
 	}
@@ -99,7 +100,7 @@ func TestAttachGenericInstanceNoReservationSkips(t *testing.T) {
 		t.Fatalf("Eval2: %v", err)
 	}
 	box2 := j.Symbols["Box"].Type
-	plain := &vm.Type{Name: "Boxish", Rtype: box2.Rtype, Methods: box2.Methods}
+	plain := &mtype.Type{Name: "Boxish", Rtype: box2.Rtype, Methods: box2.Methods}
 	j.Symbols["Boxish"] = &symbol.Symbol{Kind: symbol.Type, Type: plain}
 	j.synthAttached = nil
 	if err := j.attachSynthMethods(); err == nil {

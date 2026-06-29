@@ -19,6 +19,7 @@ import (
 	"weak"
 
 	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 )
 
@@ -888,7 +889,7 @@ func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int,
 		pv := m.panicVal
 		if pv.IsValid() && !pv.IsIface() {
 			rt := pv.Reflect().Type()
-			typ := &Type{Name: rt.Name(), Rtype: rt}
+			typ := &mtype.Type{Name: rt.Name(), Rtype: rt}
 			pv = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: pv})}
 		}
 		if sp+1 >= len(mem) {
@@ -1152,8 +1153,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// native MakeFunc wrapper: the ccgo __ccgo_fp idiom reads &f as
 				// [2]uintptr and calls word[1] as a *funcval, which must be a real
 				// trampoline (registered in funcFields), not a bare code address.
-				r := reflect.New(AnyRtype)
-				if cv := m.bridgeIface(v.IfaceVal(), AnyRtype); cv.IsValid() {
+				r := reflect.New(mtype.AnyRtype)
+				if cv := m.bridgeIface(v.IfaceVal(), mtype.AnyRtype); cv.IsValid() {
 					r.Elem().Set(cv)
 				}
 				mem[sp] = Value{ref: r}
@@ -1166,14 +1167,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// Non-addressable interface{} holding an Iface: no slot to alias.
 				// bridgeIface so a boxed func materializes as its native wrapper
 				// (see the ifaceRtype branch above).
-				r := reflect.New(AnyRtype)
-				if cv := m.bridgeIface(v.IfaceVal(), AnyRtype); cv.IsValid() {
+				r := reflect.New(mtype.AnyRtype)
+				if cv := m.bridgeIface(v.IfaceVal(), mtype.AnyRtype); cv.IsValid() {
 					r.Elem().Set(cv)
 				}
 				mem[sp] = Value{ref: r}
 			case !v.ref.IsValid():
 				// Nil interface parameter: allocate *interface{} with zero value.
-				mem[sp] = Value{ref: reflect.New(AnyRtype)}
+				mem[sp] = Value{ref: reflect.New(mtype.AnyRtype)}
 			default:
 				// Non-numeric, non-addressable composite (e.g. string parameter):
 				// allocate addressable storage and copy.
@@ -1749,7 +1750,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			m.execConvert(c, mem, sp)
 
 		case IfaceWrap:
-			typ := m.globals[int(c.A)].ref.Interface().(*Type)
+			typ := m.globals[int(c.A)].ref.Interface().(*mtype.Type)
 			idx := sp - int(c.B)
 			v := mem[idx]
 			// Assigning a value to an interface copies it (Go spec).
@@ -2010,14 +2011,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			}
 
 		case TypeAssert:
-			dstTyp := m.globals[int(c.A)].ref.Interface().(*Type)
+			dstTyp := m.globals[int(c.A)].ref.Interface().(*mtype.Type)
 			okForm := int(c.B) == 1
 			ifc := mem[sp]
 			if !ifc.IsIface() {
 				// Native interface value: use reflect for type assertion.
 				rv := ifc.Reflect()
 				isNil := !rv.IsValid()
-				ifaceTyp := AnyRtype
+				ifaceTyp := mtype.AnyRtype
 				if !isNil && rv.Kind() == reflect.Interface {
 					ifaceTyp = rv.Type()
 					isNil = rv.IsNil()
@@ -2030,12 +2031,12 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// reflect placeholder for user-defined interfaces) since every type
 				// is assignable to `interface{}`.
 				matched := false
-				var wrapTyp *Type // non-nil => wrap result as Iface for interpreted-method dispatch
+				var wrapTyp *mtype.Type // non-nil => wrap result as Iface for interpreted-method dispatch
 				if !isNil {
 					if dstTyp.IsInterface() {
 						matched = dstTyp.NativeImplements(rv.Type())
 					} else {
-						dstRT := MaterializeRtype(dstTyp)
+						dstRT := derive.MaterializeRtype(dstTyp)
 						matched = (dstRT != nil && rv.Type().AssignableTo(dstRT)) || dstTyp.NativeImplements(rv.Type())
 					}
 					// Interpreted concrete type round-tripped through native reflect (e.g.
@@ -2132,7 +2133,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						missing := dstTyp.MissingMethod(concrete.Typ.Rtype)
 						msg = fmt.Sprintf("interface conversion: %s is not %s: missing method %s", concrete.Typ, dstTyp, missing)
 					} else {
-						msg = fmt.Sprintf("interface conversion: %s is %s, not %s", AnyRtype, concrete.Typ, dstTyp)
+						msg = fmt.Sprintf("interface conversion: %s is %s, not %s", mtype.AnyRtype, concrete.Typ, dstTyp)
 					}
 					m.panicking = true
 					m.panicVal = Value{ref: reflect.ValueOf(m.posPrefix(c.Pos) + msg)}
@@ -2151,9 +2152,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case TypeBranch: // Arg[0]=offset, Arg[1]=typeIdx (-1 for nil case)
 			ifc := mem[sp]
 			sp--
-			var dtyp *Type
+			var dtyp *mtype.Type
 			if int(c.B) != -1 {
-				dtyp = m.globals[int(c.B)].ref.Interface().(*Type)
+				dtyp = m.globals[int(c.B)].ref.Interface().(*mtype.Type)
 			}
 			var matched bool
 			if ifc.IsIface() {
@@ -2191,7 +2192,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						if ct := m.typeByRtype(concrete.Type()); ct != nil {
 							matched = ct.SameAs(dtyp)
 						} else {
-							dtypRT := MaterializeRtype(dtyp)
+							dtypRT := derive.MaterializeRtype(dtyp)
 							matched = dtypRT != nil && concrete.Type() == dtypRT
 						}
 					}
@@ -2690,7 +2691,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// The trampoline dispatches each invocation on a pooled runner with pointer-shared
 			// parent state, so concurrent native callers (e.g. parallel sort.Slice with an mvm
 			// less func) execute safely; user-visible package vars follow Go's memory model.
-			typ := m.globals[int(c.A)].ref.Interface().(*Type)
+			typ := m.globals[int(c.A)].ref.Interface().(*mtype.Type)
 			fval := mem[sp-int(c.B)]
 			gf := m.wrapForFunc(fval, typ.Rtype)
 			if gf.Kind() == reflect.Func && gf.IsNil() {
@@ -2705,13 +2706,13 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 
 		case MkMethodExpr:
 			codeAddr := int(m.globals[int(c.A)].num)
-			exprType := m.globals[int(c.B)].ref.Interface().(*Type)
+			exprType := m.globals[int(c.B)].ref.Interface().(*mtype.Type)
 			if sp+1 >= len(mem) {
 				mem = growStack(mem, sp, 1)
 			}
 			sp++
 			// Materialize lazily: *T may only resolve after generate (post-attach).
-			mem[sp] = Value{ref: m.makeMethodExprFunc(codeAddr, MaterializeRtype(exprType))}
+			mem[sp] = Value{ref: m.makeMethodExprFunc(codeAddr, derive.MaterializeRtype(exprType))}
 
 		case Trap:
 			ip, fp, sp, mem = m.handleTrap(ip, fp, sp, mem)
@@ -4043,9 +4044,9 @@ func (m *Machine) escapeErr() error {
 	return fmt.Errorf("panic: %v", m.panicRaw())
 }
 
-var typePtrRtype = reflect.TypeFor[*Type]()
+var typePtrRtype = reflect.TypeFor[*mtype.Type]()
 
-func (m *Machine) typeByRtype(rt reflect.Type) *Type {
+func (m *Machine) typeByRtype(rt reflect.Type) *mtype.Type {
 	if m.typesByRtype == nil {
 		m.typesByRtype = &typesIndex{}
 	}
@@ -4062,12 +4063,7 @@ func (m *Machine) typeByRtype(rt reflect.Type) *Type {
 }
 
 func (m *Machine) ifaceMethodFuncType(name string) reflect.Type {
-	for id, n := range m.MethodNames {
-		if n == name && id < len(m.MethodFuncTypes) {
-			return m.MethodFuncTypes[id]
-		}
-	}
-	return nil
+	return mtype.MethodFuncType(m.MethodNames, m.MethodFuncTypes, name)
 }
 
 // PushCode adds instructions to the machine code (with zero source positions).
@@ -4186,7 +4182,7 @@ func (m *Machine) reflectForSend(val Value, elemType reflect.Type) reflect.Value
 		return m.wrapForFunc(val, elemType)
 	}
 	if elemType.Kind() == reflect.Interface && val.IsIface() {
-		if elemType == AnyRtype {
+		if elemType == mtype.AnyRtype {
 			return val.Reflect()
 		}
 		return m.bridgeIface(val.IfaceVal(), elemType)
@@ -4207,7 +4203,7 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 		return reflect.Zero(ifc.Typ.Rtype)
 	}
 	if ifc.Typ != nil && ifc.Typ.Rtype == nil {
-		MaterializeRtype(ifc.Typ)
+		derive.MaterializeRtype(ifc.Typ)
 	}
 	if ifc.Typ != nil && ifc.Typ.Rtype.Kind() == reflect.Func {
 		if gf := m.wrapForFunc(ifc.Val, ifc.Typ.Rtype); gf.IsValid() {
@@ -4266,7 +4262,7 @@ func (m *Machine) wrapForFunc(val Value, funcType reflect.Type) reflect.Value {
 		// image.Image): bridge an mvm Iface to the concrete it wraps, or unwrap
 		// an interface{}-boxed value through its element -- both to satisfy
 		// reflect assignability. Mirrors reflectForSend.
-		if funcType.Kind() == reflect.Interface && funcType != AnyRtype {
+		if funcType.Kind() == reflect.Interface && funcType != mtype.AnyRtype {
 			if val.IsIface() {
 				return m.bridgeIface(val.IfaceVal(), funcType)
 			}
@@ -4506,12 +4502,12 @@ func staticFuncCode(val Value) (int, bool) {
 // steady-state lookup is a plain Go map read.
 type typesIndex struct {
 	once sync.Once
-	m    map[reflect.Type]*Type
+	m    map[reflect.Type]*mtype.Type
 }
 
-func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
+func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *mtype.Type {
 	t.once.Do(func() {
-		t.m = map[reflect.Type]*Type{}
+		t.m = map[reflect.Type]*mtype.Type{}
 		// Rtypes mapping to two genuinely different *Types are ambiguous: reflect
 		// cannot mint a distinct named rtype for a defined type, so it reuses the
 		// base's rtype -- `type A int`/`type B int` both resolve to int's rtype, and
@@ -4522,7 +4518,7 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 		// nil) for such rtypes rather than guess. SameAs clones (same type, e.g.
 		// struct-field shallow copies) are not ambiguous.
 		ambiguous := map[reflect.Type]bool{}
-		visited := map[*Type]bool{}
+		visited := map[*mtype.Type]bool{}
 		// register indexes v by its rtype (with the ambiguity rule) and recurses
 		// into its component types. The recursion makes types reachable only
 		// through a func signature resolvable -- e.g. a struct used solely as a
@@ -4531,8 +4527,8 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 		// into Params/Returns/ElemType/KeyType, NOT Fields/Base, whose clones can
 		// carry a field/base name distinct from the type name and falsely trip the
 		// SameAs ambiguity check.
-		var register func(v *Type)
-		index := func(rt reflect.Type, v *Type) {
+		var register func(v *mtype.Type)
+		index := func(rt reflect.Type, v *mtype.Type) {
 			if rt == nil || ambiguous[rt] {
 				return
 			}
@@ -4545,7 +4541,7 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 				t.m[rt] = v
 			}
 		}
-		register = func(v *Type) {
+		register = func(v *mtype.Type) {
 			if v == nil || visited[v] {
 				return
 			}
@@ -4564,7 +4560,7 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *Type {
 			if !g.ref.IsValid() || g.ref.Type() != typePtrRtype {
 				continue
 			}
-			if v, _ := g.ref.Interface().(*Type); v != nil {
+			if v, _ := g.ref.Interface().(*mtype.Type); v != nil {
 				register(v)
 			}
 		}
@@ -5764,7 +5760,7 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 		}
 		targetType := paramTypeFor(funcType, i)
 		if targetType == nil {
-			targetType = AnyRtype
+			targetType = mtype.AnyRtype
 		}
 		in[i] = m.bridgeIface(ifc, targetType)
 	}
@@ -5839,7 +5835,7 @@ func (m *Machine) wrapFuncArgs(in []reflect.Value, args []Value, funcType reflec
 	}
 }
 
-func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {
+func (m *Machine) makeMethodCell(ifc Iface, method mtype.Method) (*Value, Value) {
 	codeAddr := int(m.globals[method.Index].num)
 	cell := new(Value)
 	*cell = ifc.Val
@@ -5860,26 +5856,14 @@ func (m *Machine) makeMethodCell(ifc Iface, method Method) (*Value, Value) {
 }
 
 // MakeMethodCallable returns a mvm func Value suitable for Machine.CallFunc.
-func (m *Machine) MakeMethodCallable(ifc Iface, method Method) Value {
+func (m *Machine) MakeMethodCallable(ifc Iface, method mtype.Method) Value {
 	_, fval := m.makeMethodCell(ifc, method)
 	return fval
 }
 
-// MethodByName returns the first resolved method named `name` reachable from t.
-// For pointer types, methods declared on the element type are
-// also searched. Returns (Method, true) on hit.
-func (m *Machine) MethodByName(t *Type, name string) (Method, bool) {
-	// ifaceMethodTypes already walks the Base chain.
-	types, n := ifaceMethodTypes(t)
-	for _, mt := range types[:n] {
-		for id, method := range mt.Methods {
-			if method.Index < 0 || id >= len(m.MethodNames) {
-				continue
-			}
-			if m.MethodNames[id] == name {
-				return method, true
-			}
-		}
-	}
-	return Method{}, false
+// MethodByName returns the first resolved method named `name` reachable from t,
+// binding ids through the Machine's program-global method-name table. The lookup
+// itself is structural (mtype); the Machine supplies only the name table.
+func (m *Machine) MethodByName(t *mtype.Type, name string) (mtype.Method, bool) {
+	return mtype.MethodByName(t, m.MethodNames, name)
 }

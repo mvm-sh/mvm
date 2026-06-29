@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
@@ -233,7 +234,7 @@ func typeList(n int, at func(int) reflect.Type) []reflect.Type {
 // interpreter, and writes the result words back. A failed dispatch panics
 // (raiseMethodErr) unless swallowErr: then results stay zero. makeWordCore
 // selects it per arch.
-func (m *Machine) makeWordCoreABI0(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+func (m *Machine) makeWordCoreABI0(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
 	methodSig := method.Rtype
 	inRegion, _ := classifyABI0Region(typeList(methodSig.NumIn(), methodSig.In))
 	outRegion, _ := classifyABI0Region(typeList(methodSig.NumOut(), methodSig.Out))

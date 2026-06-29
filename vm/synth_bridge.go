@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/derive"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
@@ -18,7 +19,7 @@ import (
 //
 // Up to synth's per-attach method cap (runtype.MaxMethods).
 // Excess methods of the same receiver kind are silently dropped.
-func (m *Machine) AttachSynthMethods(t *Type) error {
+func (m *Machine) AttachSynthMethods(t *mtype.Type) error {
 	if t == nil || t.Rtype == nil {
 		return nil
 	}
@@ -59,12 +60,12 @@ func (m *Machine) bridgePtrToIface(ifc Iface, val, fn reflect.Value) reflect.Val
 	// interpreted/anonymous interface erased to interface{} needs a synth carrier
 	// built here to expose its method set to the native callee.
 	st := et.Rtype
-	if st == AnyRtype || st.NumMethod() == 0 {
+	if st == mtype.AnyRtype || st.NumMethod() == 0 {
 		// Fill unmaterialized method sigs before building the synth rtype.
 		// Unconditional: an unlocked Rtype==nil pre-check would race a concurrent materialize.
 		// Safe only because this boundary, unlike materializeFuncIO, does not hold materializeMu.
 		for i := range et.IfaceMethods {
-			MaterializeIfaceMethod(&et.IfaceMethods[i])
+			derive.MaterializeIfaceMethod(&et.IfaceMethods[i])
 		}
 		st = derive.SynthIfaceRtype(et)
 	}
@@ -128,7 +129,7 @@ func (m *Machine) normalizeIfaceWritebacks(wb []ifaceWriteback) {
 			continue // wrote a nil interface; nothing to wrap (errors.As never does)
 		}
 		concrete := Exportable(synthVal.Elem())
-		loc := reflect.NewAt(AnyRtype, w.ptr).Elem()
+		loc := reflect.NewAt(mtype.AnyRtype, w.ptr).Elem()
 		if t := m.typeByRtype(concrete.Type()); t != nil {
 			loc.Set(reflect.ValueOf(any(Iface{Typ: t, Val: FromReflect(concrete)})))
 		} else {
@@ -145,17 +146,17 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	if !dst.CanAddr() {
 		return
 	}
-	loc := reflect.NewAt(AnyRtype, dst.Addr().UnsafePointer()).Elem()
+	loc := reflect.NewAt(mtype.AnyRtype, dst.Addr().UnsafePointer()).Elem()
 	el := src
 	for el.IsValid() && el.Kind() == reflect.Interface {
 		if el.IsNil() {
-			loc.Set(reflect.Zero(AnyRtype))
+			loc.Set(reflect.Zero(mtype.AnyRtype))
 			return
 		}
 		el = el.Elem()
 	}
 	if !el.IsValid() {
-		loc.Set(reflect.Zero(AnyRtype))
+		loc.Set(reflect.Zero(mtype.AnyRtype))
 		return
 	}
 	el = Exportable(el)
@@ -170,7 +171,7 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	loc.Set(el)
 }
 
-func (m *Machine) attachValueRecv(t *Type) error {
+func (m *Machine) attachValueRecv(t *mtype.Type) error {
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
 		return nil
@@ -210,7 +211,7 @@ func (m *Machine) ReleaseSynthMethods() {
 	}
 }
 
-func (m *Machine) attachPtrRecv(t *Type) error {
+func (m *Machine) attachPtrRecv(t *mtype.Type) error {
 	specs := m.allSynthMethods(t, true)
 	if len(specs) == 0 {
 		return nil
@@ -250,7 +251,7 @@ func recvFormFor(rtype reflect.Type, ptrRecv, ptrIdent bool) recvForm {
 // synthMethodSpec describes a single method picked for synth attachment.
 type synthMethodSpec struct {
 	name       string
-	method     Method
+	method     mtype.Method
 	shape      stubs.Shape // matched signature shape
 	wordKey    string      // non-empty => word-class path (shape ignored)
 	swallowErr bool        // word path: swallow dispatch errors to zero results
@@ -258,7 +259,7 @@ type synthMethodSpec struct {
 	pkgName    string      // declaring package for an unexported method ("" if exported)
 }
 
-func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) string {
+func (m *Machine) unexportedMethodPkg(t *mtype.Type, method mtype.Method, name string) string {
 	if derive.IsExportedName(name) {
 		return ""
 	}
@@ -276,7 +277,7 @@ func (m *Machine) unexportedMethodPkg(t *Type, method Method, name string) strin
 	return derive.RtypePkgPath(cur)
 }
 
-func embeddedTypeAt(t *Type, idx int) *Type {
+func embeddedTypeAt(t *mtype.Type, idx int) *mtype.Type {
 	for _, e := range t.Embedded {
 		if e.FieldIdx == idx {
 			return e.Type
@@ -327,7 +328,7 @@ func shapeSwallowsDispatchErr(shape stubs.Shape) bool {
 }
 
 func toSynthMethods(
-	m *Machine, t *Type, specs []synthMethodSpec,
+	m *Machine, t *mtype.Type, specs []synthMethodSpec,
 ) []stubs.Method {
 	out := make([]stubs.Method, len(specs))
 	for i, s := range specs {
@@ -385,7 +386,7 @@ func toSynthMethods(
 // Name filtering is intentionally absent: which method names matter is a
 // stdlib-layer concern, not a vm concern.
 func (m *Machine) allSynthMethods(
-	t *Type, includePtr bool,
+	t *mtype.Type, includePtr bool,
 ) []synthMethodSpec {
 	const synthMaxMethods = runtype.MaxMethods
 	var specs []synthMethodSpec
@@ -423,7 +424,7 @@ func (m *Machine) allSynthMethods(
 	return specs
 }
 
-func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string]bool) []synthMethodSpec {
+func (m *Machine) promotedSynthMethods(t *mtype.Type, includePtr bool, seen map[string]bool) []synthMethodSpec {
 	var specs []synthMethodSpec
 	for _, emb := range t.Embedded {
 		if emb.FieldIdx < 0 || emb.FieldIdx >= t.Rtype.NumField() {
@@ -448,7 +449,7 @@ func (m *Machine) promotedSynthMethods(t *Type, includePtr bool, seen map[string
 			sig := derive.StripRecvType(meth.Type)
 			spec := synthMethodSpec{
 				name:   meth.Name,
-				method: Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
+				method: mtype.Method{Index: -1, Path: []int{emb.FieldIdx}, Rtype: sig, PtrRecv: includePtr},
 				form:   recvFormFor(t.Rtype, includePtr, includePtr),
 			}
 			if !spec.resolveDispatch(sig, sig) {
@@ -518,8 +519,8 @@ func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, form recvForm) refle
 }
 
 func callMethod(
-	m *Machine, ifcType *Type, name string, rv reflect.Value,
-	method Method, methodSig reflect.Type, args []reflect.Value,
+	m *Machine, ifcType *mtype.Type, name string, rv reflect.Value,
+	method mtype.Method, methodSig reflect.Type, args []reflect.Value,
 ) ([]reflect.Value, error) {
 	ifc := Iface{Typ: ifcType, Val: FromReflect(rv)}
 	if method.EmbedIface {
@@ -593,7 +594,7 @@ func (m *Machine) bindPromotedNative(recv reflect.Value, name string) (reflect.V
 	if !cv.IsValid() || !isSynthOrSynthPtr(cv.Type()) {
 		return reflect.Value{}, false
 	}
-	var st *Type
+	var st *mtype.Type
 	if t := m.typeByRtype(cv.Type()); t != nil {
 		if st = t; st.IsPtr() {
 			st = st.ElemType
@@ -603,7 +604,7 @@ func (m *Machine) bindPromotedNative(recv reflect.Value, name string) (reflect.V
 }
 
 // promotedNativeMethod binds a method promoted from a NATIVE embedded field of a synth struct receiver.
-func (m *Machine) promotedNativeMethod(rv reflect.Value, st *Type, name string) (reflect.Value, bool) {
+func (m *Machine) promotedNativeMethod(rv reflect.Value, st *mtype.Type, name string) (reflect.Value, bool) {
 	base := reflect.Indirect(rv)
 	if !base.IsValid() || base.Kind() != reflect.Struct {
 		return reflect.Value{}, false
@@ -655,23 +656,12 @@ func callBound(mv reflect.Value, args []reflect.Value) []reflect.Value {
 }
 
 func (m *Machine) methodID(name string) int {
-	for id, n := range m.MethodNames {
-		if n == name {
-			return id
-		}
-	}
-	return -1
+	return mtype.MethodID(m.MethodNames, name)
 }
 
-func (m *Machine) callEmbedIface(ifc Iface, method Method, name string, methodSig reflect.Type, args []reflect.Value,
+func (m *Machine) callEmbedIface(ifc Iface, method mtype.Method, name string, methodSig reflect.Type, args []reflect.Value,
 ) ([]reflect.Value, error) {
-	methodID := -1
-	for id, n := range m.MethodNames {
-		if n == name {
-			methodID = id
-			break
-		}
-	}
+	methodID := m.methodID(name)
 	for method.EmbedIface {
 		rv := ifc.Val.Reflect()
 		if rv.Kind() == reflect.Pointer {

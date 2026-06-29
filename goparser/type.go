@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -60,7 +62,7 @@ func (p *Parser) undef(name string, tok Token) ErrUndefined {
 	return ErrUndefined{Name: name, Loc: p.Sources.FormatPos(tok.Pos), Pos: tok.Pos}
 }
 
-func (p *Parser) resolveEllipsisArray(elemTyp *vm.Type, toks Tokens, braceIdx int) (*vm.Type, error) {
+func (p *Parser) resolveEllipsisArray(elemTyp *mtype.Type, toks Tokens, braceIdx int) (*mtype.Type, error) {
 	if braceIdx >= len(toks) || toks[braceIdx].Tok != lang.BraceBlock {
 		return nil, errors.New("[...] requires a composite literal")
 	}
@@ -83,7 +85,7 @@ func (p *Parser) resolveEllipsisArray(elemTyp *vm.Type, toks Tokens, braceIdx in
 			maxLen = idx
 		}
 	}
-	return vm.SymArray(maxLen, elemTyp), nil
+	return derive.SymArray(maxLen, elemTyp), nil
 }
 
 // constIntKey evaluates `keyToks` as a constant integer expression
@@ -105,7 +107,7 @@ func (p *Parser) constIntKey(keyToks Tokens) (int, bool) {
 	return int(k), true
 }
 
-func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.Type, error) {
+func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*mtype.Type, error) {
 	// Prefer the qualified-alias symbol registered by importSrc, which carries
 	// full mvm-level type info (Methods, ElemType, Fields, ...). Falling back
 	// to pkg.Values would synthesize a stripped Type{Name, Rtype} that loses
@@ -129,7 +131,7 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.T
 	v, ok := pkg.Values[name]
 	if !ok || !v.IsValid() {
 		if pkg.Bin {
-			return &vm.Type{Name: name, Rtype: vm.OpaqueRtype}, nil
+			return &mtype.Type{Name: name, Rtype: vm.OpaqueRtype}, nil
 		}
 		return nil, p.undef(s.Name+"."+name, tok)
 	}
@@ -137,10 +139,10 @@ func (p *Parser) resolvePkgType(s *symbol.Symbol, name string, tok Token) (*vm.T
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
-	return &vm.Type{Name: rt.Name(), PkgName: rt.PkgPath(), Rtype: rt}, nil
+	return &mtype.Type{Name: rt.Name(), PkgName: rt.PkgPath(), Rtype: rt}, nil
 }
 
-func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
+func (p *Parser) parseTypeExpr(in Tokens) (typ *mtype.Type, n int, err error) {
 	if len(in) == 0 {
 		return nil, 0, ErrMissingType
 	}
@@ -170,16 +172,16 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			if !ok {
 				return nil, 0, ErrSize
 			}
-			return vm.SymArray(size, typ), 1 + i, nil
+			return derive.SymArray(size, typ), 1 + i, nil
 		}
-		return vm.SymSlice(typ), 1 + i, nil
+		return derive.SymSlice(typ), 1 + i, nil
 
 	case lang.Mul:
 		typ, i, err := p.parseTypeExpr(in[1:])
 		if err != nil {
 			return nil, 0, err
 		}
-		return vm.SymPtr(typ), 1 + i, nil
+		return derive.SymPtr(typ), 1 + i, nil
 
 	case lang.Func:
 		// Get argument and return token positions depending on function pattern:
@@ -311,7 +313,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 		if err != nil {
 			return nil, 0, err
 		}
-		return vm.SymChan(reflect.RecvDir, elemTyp), 2 + i, nil
+		return derive.SymChan(reflect.RecvDir, elemTyp), 2 + i, nil
 
 	case lang.Chan:
 		if len(in) < 2 {
@@ -326,7 +328,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 		if err != nil {
 			return nil, 0, err
 		}
-		return vm.SymChan(dir, elemTyp), skip + i, nil
+		return derive.SymChan(dir, elemTyp), skip + i, nil
 
 	case lang.Map:
 		if len(in) < 3 || in[1].Tok != lang.BracketBlock {
@@ -344,7 +346,7 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 		if err != nil {
 			return nil, 0, err
 		}
-		return vm.SymMap(ktyp, etyp), 2 + i, nil
+		return derive.SymMap(ktyp, etyp), 2 + i, nil
 
 	case lang.Interface:
 		if len(in) < 2 || in[1].Tok != lang.BraceBlock {
@@ -352,14 +354,14 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 		}
 		if strings.TrimSpace(in[1].Block()) == "" {
 			// Empty interface (equivalent to any).
-			return &vm.Type{Rtype: vm.AnyRtype}, 2, nil
+			return &mtype.Type{Rtype: mtype.AnyRtype}, 2, nil
 		}
 		toks, err := p.scanBlock(in[1].Token, false)
 		if err != nil {
 			return nil, 0, err
 		}
-		var methods []vm.IfaceMethod
-		var elems []vm.TypeElem
+		var methods []mtype.IfaceMethod
+		var elems []mtype.TypeElem
 		hasComparable := false
 		for _, lt := range toks.Split(lang.Semicolon) {
 			if len(lt) == 0 {
@@ -420,11 +422,11 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 			// here would eagerly stamp a referenced named type (e.g. a struct in the
 			// signature) methodless before its method table is populated, so the
 			// reserve gate would miss it and give it a methodless identity.
-			methods = append(methods, vm.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType})
+			methods = append(methods, mtype.IfaceMethod{Name: lt[0].Str, ID: -1, Sig: methodType})
 		}
 		// Use any as underlying reflect type; method set is tracked in IfaceMethods.
-		return &vm.Type{
-			Rtype:        vm.AnyRtype,
+		return &mtype.Type{
+			Rtype:        mtype.AnyRtype,
 			IfaceMethods: methods,
 			TypeElems:    elems,
 			Comparable:   hasComparable,
@@ -438,8 +440,8 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *vm.Type, n int, err error) {
 
 // parseTypeElems parses a line from an interface body consisting of a type-element
 // union (e.g. "~int | ~int8 | ~string").
-func (p *Parser) parseTypeElems(lt Tokens) ([]vm.TypeElem, error) {
-	var out []vm.TypeElem
+func (p *Parser) parseTypeElems(lt Tokens) ([]mtype.TypeElem, error) {
+	var out []mtype.TypeElem
 	for _, seg := range lt.Split(lang.Or) {
 		if len(seg) == 0 {
 			continue
@@ -456,14 +458,14 @@ func (p *Parser) parseTypeElems(lt Tokens) ([]vm.TypeElem, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, vm.TypeElem{Approx: approx, Type: typ})
+		out = append(out, mtype.TypeElem{Approx: approx, Type: typ})
 	}
 	return out, nil
 }
 
 // parseParamTypes parses a list of comma separated typed parameters and returns a list of
 // runtime types. Implicit parameter names and types are supported.
-func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, vars []string, variadic bool, err error) {
+func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*mtype.Type, vars []string, variadic bool, err error) {
 	// Parse from right to left, to allow multiple comma separated parameters of the same type.
 	list := in.Split(lang.Comma)
 	// sawTypeOnly tracks whether a previously-parsed (rightward) param had no
@@ -527,7 +529,7 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 					param = ""
 				} else {
 					// Type was omitted, apply the previous one from the right.
-					types = append([]*vm.Type{types[0]}, types...)
+					types = append([]*mtype.Type{types[0]}, types...)
 					p.addSymVar(i, len(list), param, types[0], flag)
 					vars = append([]string{param}, vars...)
 					sawNamed = true
@@ -553,12 +555,12 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 		}
 		// Index can't be used here: a trailing comma adds an empty last element.
 		if ellipsis {
-			typ = vm.SymSlice(typ)
+			typ = derive.SymSlice(typ)
 		}
 		if param != "" {
 			p.addSymVar(i, len(list), param, typ, flag)
 		}
-		types = append([]*vm.Type{typ}, types...)
+		types = append([]*mtype.Type{typ}, types...)
 		vars = append([]string{param}, vars...)
 		if param == "" {
 			sawTypeOnly = true
@@ -573,14 +575,14 @@ func (p *Parser) parseParamTypes(in Tokens, flag typeFlag) (types []*vm.Type, va
 // or an invalid Value when the type carries no rtype yet. The rtype is
 // materialized later at comp, which re-derives the descriptor from the
 // symbol's *Type; the parse-time Value is a convenience, not load-bearing.
-func typeTokenValue(typ *vm.Type) vm.Value {
+func typeTokenValue(typ *mtype.Type) vm.Value {
 	if typ == nil || typ.Rtype == nil {
 		return vm.Value{}
 	}
 	return vm.NewValue(typ.Rtype)
 }
 
-func (p *Parser) addSymVar(index, nparams int, name string, typ *vm.Type, flag typeFlag) {
+func (p *Parser) addSymVar(index, nparams int, name string, typ *mtype.Type, flag typeFlag) {
 	if p.typeOnly {
 		return
 	}
@@ -618,7 +620,7 @@ func (p *Parser) addSymVar(index, nparams int, name string, typ *vm.Type, flag t
 	}
 }
 
-func (p *Parser) parseFuncParams(argBlock Token, out Tokens) (typ *vm.Type, inNames, outNames []string, err error) {
+func (p *Parser) parseFuncParams(argBlock Token, out Tokens) (typ *mtype.Type, inNames, outNames []string, err error) {
 	iargs, err := p.scanBlock(argBlock.Token, false)
 	if err != nil {
 		return nil, nil, nil, err
@@ -639,10 +641,10 @@ func (p *Parser) parseFuncParams(argBlock Token, out Tokens) (typ *vm.Type, inNa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return vm.SymFunc(arg, ret, isVariadic), baseNames(argNames), baseNames(retNames), nil
+	return mtype.SymFunc(arg, ret, isVariadic), baseNames(argNames), baseNames(retNames), nil
 }
 
-func (p *Parser) parseFuncSig(in Tokens) (typ *vm.Type, inNames, outNames []string, err error) {
+func (p *Parser) parseFuncSig(in Tokens) (typ *mtype.Type, inNames, outNames []string, err error) {
 	if len(in) == 0 || in[0].Tok != lang.Func {
 		return nil, nil, nil, ErrFuncType
 	}
@@ -680,7 +682,7 @@ func baseNames(scoped []string) []string {
 	return raw
 }
 
-func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
+func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *mtype.Type) {
 	isPtr := false
 	toks := lt
 	if len(toks) >= 2 && toks[0].Tok == lang.Mul {
@@ -727,7 +729,7 @@ func (p *Parser) parseEmbeddedField(lt Tokens) (fieldType, origType *vm.Type) {
 	if isPtr {
 		// The ptr wrapper carries the field name: materialize reads it from
 		// the field type (SymPtr itself leaves Name empty).
-		pt := vm.SymPtr(&ft)
+		pt := derive.SymPtr(&ft)
 		pt.Name = name
 		pt.PkgName = ft.PkgName
 		return pt, typ
@@ -779,7 +781,7 @@ func (p *Parser) hasFirstParam(in Tokens) bool {
 
 // placeholderStructElem returns the forward placeholder struct t is, or is an
 // array (possibly nested) of, else nil.
-func placeholderStructElem(t *vm.Type) *vm.Type {
+func placeholderStructElem(t *mtype.Type) *mtype.Type {
 	for t != nil {
 		if t.Kind() == reflect.Struct && t.Placeholder {
 			return t
@@ -792,7 +794,7 @@ func placeholderStructElem(t *vm.Type) *vm.Type {
 	return nil
 }
 
-func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
+func (p *Parser) parseStructType(in Tokens) (*mtype.Type, error) {
 	if len(in) < 2 || in[1].Tok != lang.BraceBlock {
 		return nil, fmt.Errorf("%w: %v", ErrSyntax, in)
 	}
@@ -800,9 +802,9 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 	if err != nil {
 		return nil, err
 	}
-	var fields []*vm.Type
+	var fields []*mtype.Type
 	var tags []string
-	var embedded []vm.EmbeddedField
+	var embedded []mtype.EmbeddedField
 	for _, lt := range fieldToks.Split(lang.Semicolon) {
 		if len(lt) == 0 {
 			continue
@@ -815,7 +817,7 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 		}
 		if f, origType := p.parseEmbeddedField(lt); f != nil {
 			// Keep a by-value embedded forward placeholder symbolically; don't defer.
-			embedded = append(embedded, vm.EmbeddedField{FieldIdx: len(fields), Type: origType})
+			embedded = append(embedded, mtype.EmbeddedField{FieldIdx: len(fields), Type: origType})
 			fields = append(fields, f)
 			tags = append(tags, tag)
 			continue
@@ -865,5 +867,5 @@ func (p *Parser) parseStructType(in Tokens) (*vm.Type, error) {
 			tags = append(tags, tag)
 		}
 	}
-	return vm.SymStruct(fields, embedded, tags), nil
+	return mtype.SymStruct(fields, embedded, tags), nil
 }

@@ -17,8 +17,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/derive"
 	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -50,16 +52,16 @@ type Compiler struct {
 
 	FuncRanges []vm.FuncRange // bytecode [Start, End) range for every compiled function, in source order
 
-	strings      map[string]int              // locations of strings in Data
-	methodIDs    map[string]int              // global method ID by method name
-	methodRtype  map[int]reflect.Type        // func type (no receiver) by global method ID
-	typeIdxs     map[*vm.Type]int            // dedup cache for typeIndex
-	typeSyms     map[*vm.Type]*symbol.Symbol // dedup cache for typeSym
-	typeByRtype  map[reflect.Type]*vm.Type   // memo for findTypeSym (rtype -> Type)
-	zeroTypeIdxs map[*vm.Type]int            // dedup cache: Data slot holding a zero VALUE of a type
-	zeroSlotType map[int]*vm.Type            // reverse of zeroTypeIdxs: *Type by slot index
-	labelAtPos   map[int]bool                // code positions occupied by Labels; consulted by fuseCmpJump
-	canonIface   map[string]*vm.Type         // memo: unique method-bearing interface by name (canonicalIfaceType)
+	strings      map[string]int                 // locations of strings in Data
+	methodIDs    map[string]int                 // global method ID by method name
+	methodRtype  map[int]reflect.Type           // func type (no receiver) by global method ID
+	typeIdxs     map[*mtype.Type]int            // dedup cache for typeIndex
+	typeSyms     map[*mtype.Type]*symbol.Symbol // dedup cache for typeSym
+	typeByRtype  map[reflect.Type]*mtype.Type   // memo for findTypeSym (rtype -> Type)
+	zeroTypeIdxs map[*mtype.Type]int            // dedup cache: Data slot holding a zero VALUE of a type
+	zeroSlotType map[int]*mtype.Type            // reverse of zeroTypeIdxs: *Type by slot index
+	labelAtPos   map[int]bool                   // code positions occupied by Labels; consulted by fuseCmpJump
+	canonIface   map[string]*mtype.Type         // memo: unique method-bearing interface by name (canonicalIfaceType)
 
 	pendingTypeSlots []pendingSlot // Data slots whose value is deferred until FillTypeSlots
 
@@ -98,7 +100,7 @@ type DeferGroup struct {
 // pendingSlot is a Data slot deferred by typeSlotValue, filled by FillTypeSlots.
 type pendingSlot struct {
 	idx        int
-	typ        *vm.Type
+	typ        *mtype.Type
 	descriptor bool // true: TypeValue (type descriptor); false: NewValue (zero value)
 }
 
@@ -110,17 +112,17 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 		strings:      map[string]int{},
 		methodIDs:    map[string]int{},
 		methodRtype:  map[int]reflect.Type{},
-		typeIdxs:     map[*vm.Type]int{},
-		typeSyms:     map[*vm.Type]*symbol.Symbol{},
-		typeByRtype:  map[reflect.Type]*vm.Type{},
-		zeroTypeIdxs: map[*vm.Type]int{},
-		zeroSlotType: map[int]*vm.Type{},
+		typeIdxs:     map[*mtype.Type]int{},
+		typeSyms:     map[*mtype.Type]*symbol.Symbol{},
+		typeByRtype:  map[reflect.Type]*mtype.Type{},
+		zeroTypeIdxs: map[*mtype.Type]int{},
+		zeroSlotType: map[int]*mtype.Type{},
 		labelAtPos:   map[int]bool{},
 	}
 }
 
-func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
-	if rt := vm.MaterializeRtype(ifaceTyp); rt != nil {
+func ifaceMethodSig(ifaceTyp *mtype.Type, methodName string) reflect.Type {
+	if rt := derive.MaterializeRtype(ifaceTyp); rt != nil {
 		if rm, ok := rt.MethodByName(methodName); ok {
 			return rm.Type
 		}
@@ -146,13 +148,13 @@ func ifaceMethodSig(ifaceTyp *vm.Type, methodName string) reflect.Type {
 		// is parsed after materializeIfaceMethods, so its Rtype is still the nil
 		// goparser left; materialize it from the symbolic Sig on demand.
 		if im.Sig != nil {
-			return vm.MaterializeRtype(im.Sig)
+			return derive.MaterializeRtype(im.Sig)
 		}
 	}
 	return nil
 }
 
-func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *symbol.Symbol {
+func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *mtype.Type, methodName string) *symbol.Symbol {
 	ifaceTyp = c.canonicalIfaceType(ifaceTyp, methodName)
 	// Prefer the interface's own symbolic method signature.
 	if interpSig := ifaceMethodInterpSig(ifaceTyp, methodName); interpSig != nil && len(interpSig.Returns) > 0 {
@@ -167,17 +169,17 @@ func (c *Compiler) resolveIfaceMethodSym(ifaceTyp *vm.Type, methodName string) *
 		return methodSym
 	}
 	if ifaceSig != nil {
-		return &symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: ifaceSig}}
+		return &symbol.Symbol{Kind: symbol.Value, Type: &mtype.Type{Rtype: ifaceSig}}
 	}
 	return nil
 }
 
-func (c *Compiler) canonicalIfaceType(t *vm.Type, methodName string) *vm.Type {
+func (c *Compiler) canonicalIfaceType(t *mtype.Type, methodName string) *mtype.Type {
 	if t == nil || t.Name == "" || len(t.IfaceMethods) > 0 {
 		return t
 	}
 	if c.canonIface == nil {
-		c.canonIface = map[string]*vm.Type{}
+		c.canonIface = map[string]*mtype.Type{}
 	}
 	// Key by package + name: two packages can each declare an interface named
 	// "Graph" (gonum's graph.Graph and traverse.Graph), so the name alone is
@@ -199,12 +201,12 @@ func (c *Compiler) canonicalIfaceType(t *vm.Type, methodName string) *vm.Type {
 	return t
 }
 
-func (c *Compiler) findCanonicalIface(t *vm.Type) *vm.Type {
+func (c *Compiler) findCanonicalIface(t *mtype.Type) *mtype.Type {
 	// When the receiver carries package info, restrict candidates to the same
 	// package so a foreign same-named interface (traverse.Graph vs graph.Graph)
 	// can't hijack it; without package info fall back to name-only matching.
 	hasPkg := t.ImportPath != "" || t.PkgName != ""
-	var found *vm.Type
+	var found *mtype.Type
 	for _, sym := range c.Symbols {
 		st := sym.Type
 		if sym.Kind != symbol.Type || st == nil || !st.IsInterface() ||
@@ -222,7 +224,7 @@ func (c *Compiler) findCanonicalIface(t *vm.Type) *vm.Type {
 	return found
 }
 
-func ifaceDeclares(t *vm.Type, methodName string) bool {
+func ifaceDeclares(t *mtype.Type, methodName string) bool {
 	for _, im := range t.IfaceMethods {
 		if im.Name == methodName {
 			return true
@@ -231,7 +233,7 @@ func ifaceDeclares(t *vm.Type, methodName string) bool {
 	return false
 }
 
-func ifaceMethodInterpSig(ifaceTyp *vm.Type, methodName string) *vm.Type {
+func ifaceMethodInterpSig(ifaceTyp *mtype.Type, methodName string) *mtype.Type {
 	ifaceTyp.EnsureIfaceMethods()
 	for _, im := range ifaceTyp.IfaceMethods {
 		if im.Name == methodName {
@@ -241,11 +243,11 @@ func ifaceMethodInterpSig(ifaceTyp *vm.Type, methodName string) *vm.Type {
 	return nil
 }
 
-func concreteMatchesIface(concrete *vm.Type, ifaceSig reflect.Type) bool {
-	if ifaceSig == nil || concrete == nil || concrete.Kind() != reflect.Func || vm.MaterializeRtype(concrete) == nil {
+func concreteMatchesIface(concrete *mtype.Type, ifaceSig reflect.Type) bool {
+	if ifaceSig == nil || concrete == nil || concrete.Kind() != reflect.Func || derive.MaterializeRtype(concrete) == nil {
 		return false
 	}
-	rt := vm.MaterializeRtype(concrete)
+	rt := derive.MaterializeRtype(concrete)
 	if rt.NumIn() != ifaceSig.NumIn() || rt.NumOut() != ifaceSig.NumOut() {
 		return false
 	}
@@ -353,10 +355,10 @@ type codegenSnap struct {
 	strings                                     map[string]int
 	methodIDs                                   map[string]int
 	methodRtype                                 map[int]reflect.Type
-	typeIdxs                                    map[*vm.Type]int
-	typeSyms                                    map[*vm.Type]*symbol.Symbol
-	zeroTypeIdxs                                map[*vm.Type]int
-	zeroSlotType                                map[int]*vm.Type
+	typeIdxs                                    map[*mtype.Type]int
+	typeSyms                                    map[*mtype.Type]*symbol.Symbol
+	zeroTypeIdxs                                map[*mtype.Type]int
+	zeroSlotType                                map[int]*mtype.Type
 	labelAtPos                                  map[int]bool
 }
 
@@ -521,18 +523,18 @@ func (c *Compiler) preregisterMethods() {
 		}
 		id := c.methodID(body[dot+1:])
 		for len(ts.Type.Methods) <= id {
-			ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
+			ts.Type.Methods = append(ts.Type.Methods, mtype.Method{Index: -1})
 		}
 		if m := &ts.Type.Methods[id]; !m.IsResolved() && m.Sig == nil {
-			*m = vm.Method{Index: -1, PtrRecv: strings.HasPrefix(key, "*"), Sig: s.Type}
+			*m = mtype.Method{Index: -1, PtrRecv: strings.HasPrefix(key, "*"), Sig: s.Type}
 		}
 	}
 }
 
 func (c *Compiler) materializeIfaceMethods() {
-	seen := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
+	seen := map[*mtype.Type]bool{}
+	var visit func(t *mtype.Type)
+	visit = func(t *mtype.Type) {
 		if t == nil || seen[t] {
 			return
 		}
@@ -553,7 +555,7 @@ func (c *Compiler) materializeIfaceMethods() {
 			visit(e.Type)
 		}
 		for i := range t.IfaceMethods {
-			vm.MaterializeIfaceMethod(&t.IfaceMethods[i])
+			derive.MaterializeIfaceMethod(&t.IfaceMethods[i])
 		}
 	}
 	for _, sym := range c.Symbols {
@@ -568,9 +570,9 @@ func (c *Compiler) compileDeferred(dd goparser.DeferredDecl) error {
 }
 
 func (c *Compiler) propagateEmbeddedMethods() {
-	seen := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
+	seen := map[*mtype.Type]bool{}
+	var visit func(t *mtype.Type)
+	visit = func(t *mtype.Type) {
 		if t == nil || seen[t] {
 			return
 		}
@@ -592,9 +594,9 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				}
 				newPath := append([]int{emb.FieldIdx}, m.Path...)
 				for len(t.Methods) <= id {
-					t.Methods = append(t.Methods, vm.Method{Index: -1})
+					t.Methods = append(t.Methods, mtype.Method{Index: -1})
 				}
-				t.Methods[id] = vm.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype, Sig: m.Sig}
+				t.Methods[id] = mtype.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype, Sig: m.Sig}
 			}
 			// An embedded interface promotes its methods as EmbedIface dispatch.
 			if embType.IsInterface() {
@@ -605,9 +607,9 @@ func (c *Compiler) propagateEmbeddedMethods() {
 						continue
 					}
 					for len(t.Methods) <= id {
-						t.Methods = append(t.Methods, vm.Method{Index: -1})
+						t.Methods = append(t.Methods, mtype.Method{Index: -1})
 					}
-					t.Methods[id] = vm.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: im.Rtype, Sig: im.Sig}
+					t.Methods[id] = mtype.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: im.Rtype, Sig: im.Sig}
 				}
 			}
 		}
@@ -660,7 +662,7 @@ func (c *Compiler) methodID(name string) int {
 	return id
 }
 
-func (c *Compiler) populateIfaceMethodIDs(typ *vm.Type) {
+func (c *Compiler) populateIfaceMethodIDs(typ *mtype.Type) {
 	if typ.IsInterface() && len(typ.IfaceMethods) > 0 && typ.IfaceMethods[0].ID < 0 {
 		for i, im := range typ.IfaceMethods {
 			typ.IfaceMethods[i].ID = c.methodID(im.Name)
@@ -689,16 +691,16 @@ func (c *Compiler) MethodFuncTypes() []reflect.Type {
 	return ft
 }
 
-func (c *Compiler) methodExprType(recv, inner *vm.Type) *vm.Type {
+func (c *Compiler) methodExprType(recv, inner *mtype.Type) *mtype.Type {
 	if recv == nil || inner == nil || inner.Kind() != reflect.Func {
 		return nil
 	}
-	params := make([]*vm.Type, 0, inner.NumIn()+1)
+	params := make([]*mtype.Type, 0, inner.NumIn()+1)
 	params = append(params, recv)
 	for i := 0; i < inner.NumIn(); i++ {
 		params = append(params, inner.ParamType(i))
 	}
-	rets := make([]*vm.Type, inner.NumOut())
+	rets := make([]*mtype.Type, inner.NumOut())
 	for i := range rets {
 		rets[i] = inner.ReturnType(i)
 	}
@@ -706,10 +708,10 @@ func (c *Compiler) methodExprType(recv, inner *vm.Type) *vm.Type {
 	if inner.Rtype != nil {
 		variadic = inner.Rtype.IsVariadic()
 	}
-	return vm.SymFunc(params, rets, variadic)
+	return mtype.SymFunc(params, rets, variadic)
 }
 
-func (c *Compiler) typeIndex(typ *vm.Type) int {
+func (c *Compiler) typeIndex(typ *mtype.Type) int {
 	if i, ok := c.typeIdxs[typ]; ok {
 		return i
 	}
@@ -719,11 +721,11 @@ func (c *Compiler) typeIndex(typ *vm.Type) int {
 	return i
 }
 
-func (c *Compiler) rtype(typ *vm.Type) reflect.Type {
-	return vm.MaterializeRtype(typ)
+func (c *Compiler) rtype(typ *mtype.Type) reflect.Type {
+	return derive.MaterializeRtype(typ)
 }
 
-func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Value {
+func (c *Compiler) typeSlotValue(idx int, typ *mtype.Type, descriptor bool) vm.Value {
 	if typ != nil && typ.Rtype == nil {
 		c.pendingTypeSlots = append(c.pendingTypeSlots, pendingSlot{idx: idx, typ: typ, descriptor: descriptor})
 		return vm.Value{}
@@ -736,7 +738,7 @@ func (c *Compiler) typeSlotValue(idx int, typ *vm.Type, descriptor bool) vm.Valu
 
 // embeddableKind reports whether typ can hold //go:embed bytes: string or []byte,
 // including named variants (e.g. uint40String). embed.FS and other kinds are rejected.
-func (c *Compiler) embeddableKind(typ *vm.Type) bool {
+func (c *Compiler) embeddableKind(typ *mtype.Type) bool {
 	rt := c.rtype(typ)
 	if rt == nil {
 		return false
@@ -745,7 +747,7 @@ func (c *Compiler) embeddableKind(typ *vm.Type) bool {
 }
 
 // embedValue returns an addressable slot value of typ holding data (string or []byte).
-func (c *Compiler) embedValue(typ *vm.Type, data []byte) vm.Value {
+func (c *Compiler) embedValue(typ *mtype.Type, data []byte) vm.Value {
 	rt := c.rtype(typ)
 	v := vm.NewValue(rt)
 	if rt.Kind() == reflect.String {
@@ -764,7 +766,7 @@ func (c *Compiler) FillTypeSlots() {
 			// an uninitialized `var x struct{...}`) is never visited by the
 			// Type-symbol materialization walk; force it here so its slot is a
 			// valid zero value rather than an invalid reflect.Value.
-			vm.MaterializeRtype(p.typ)
+			derive.MaterializeRtype(p.typ)
 		}
 		if p.typ.Rtype == nil {
 			continue
@@ -796,14 +798,14 @@ func (c *Compiler) FillTypeSlots() {
 // the two dominant compile costs on modernc.org/sqlite. The map records both
 // hits and misses; finishCompile clears it per unit, so within one compile the
 // symbol table only grows and a cached entry never goes stale.
-func (c *Compiler) findTypeSym(rtype reflect.Type) *vm.Type {
+func (c *Compiler) findTypeSym(rtype reflect.Type) *mtype.Type {
 	if rtype == nil {
 		return nil
 	}
 	if t, ok := c.typeByRtype[rtype]; ok {
 		return t
 	}
-	var found *vm.Type
+	var found *mtype.Type
 	for _, sym := range c.Symbols {
 		if sym.Kind == symbol.Type && sym.Type != nil && sym.Type.Rtype == rtype {
 			found = sym.Type
@@ -824,7 +826,7 @@ func (c *Compiler) findConcreteFuncSym(name string) *symbol.Symbol {
 	return nil
 }
 
-func findEmbeddedIfaceMethod(typ *vm.Type, name string) ([]int, reflect.Type, *vm.Type) {
+func findEmbeddedIfaceMethod(typ *mtype.Type, name string) ([]int, reflect.Type, *mtype.Type) {
 	for _, emb := range typ.Embedded {
 		if emb.Type == nil {
 			continue
@@ -844,7 +846,7 @@ func findEmbeddedIfaceMethod(typ *vm.Type, name string) ([]int, reflect.Type, *v
 	return nil, nil, nil
 }
 
-func findEmbeddedMethod(typ *vm.Type, rtype reflect.Type, name string, path []int) (reflect.Method, []int, bool) {
+func findEmbeddedMethod(typ *mtype.Type, rtype reflect.Type, name string, path []int) (reflect.Method, []int, bool) {
 	for _, emb := range typ.Embedded {
 		embRtype := rtype.Field(emb.FieldIdx).Type
 		fieldPath := append(path[:len(path):len(path)], emb.FieldIdx) //nolint:gocritic // intentionally creates a new slice
@@ -867,7 +869,7 @@ func findEmbeddedMethod(typ *vm.Type, rtype reflect.Type, name string, path []in
 	return reflect.Method{}, nil, false
 }
 
-func (c *Compiler) registerMethods(iface, typ *vm.Type) {
+func (c *Compiler) registerMethods(iface, typ *mtype.Type) {
 	isPtr := typ.Kind() == reflect.Pointer
 	lookupTyp := typ
 	if isPtr {
@@ -905,9 +907,9 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 						continue
 					}
 					for len(typ.Methods) <= id {
-						typ.Methods = append(typ.Methods, vm.Method{Index: -1})
+						typ.Methods = append(typ.Methods, mtype.Method{Index: -1})
 					}
-					typ.Methods[id] = vm.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: embIM.Rtype, Sig: embIM.Sig}
+					typ.Methods[id] = mtype.Method{Index: -1, Path: []int{emb.FieldIdx}, EmbedIface: true, Rtype: embIM.Rtype, Sig: embIM.Sig}
 					break
 				}
 			}
@@ -924,13 +926,13 @@ func (c *Compiler) registerMethods(iface, typ *vm.Type) {
 			mpath = []int{} // non-nil empty = deref only
 		}
 		for len(typ.Methods) <= id {
-			typ.Methods = append(typ.Methods, vm.Method{Index: -1})
+			typ.Methods = append(typ.Methods, mtype.Method{Index: -1})
 		}
-		var msig *vm.Type
+		var msig *mtype.Type
 		if m.Type != nil && m.Type.Kind() == reflect.Func {
 			msig = m.Type // materialize-time source of Rtype; filled by MaterializeAll
 		}
-		typ.Methods[id] = vm.Method{Index: m.Index, Path: mpath, PtrRecv: strings.HasPrefix(m.Name, "*"), Sig: msig}
+		typ.Methods[id] = mtype.Method{Index: m.Index, Path: mpath, PtrRecv: strings.HasPrefix(m.Name, "*"), Sig: msig}
 	}
 }
 
@@ -956,7 +958,7 @@ func (c *Compiler) errUndef(t goparser.Token, name string) error {
 	return goparser.ErrUndefined{Name: name, Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
-func fieldShadowsPromotedMethod(typ *vm.Type, name string, methDepth int) bool {
+func fieldShadowsPromotedMethod(typ *mtype.Type, name string, methDepth int) bool {
 	if methDepth == 0 || typ == nil {
 		return false
 	}
@@ -966,11 +968,11 @@ func fieldShadowsPromotedMethod(typ *vm.Type, name string, methDepth int) bool {
 	if typ == nil || typ.Kind() != reflect.Struct {
 		return false
 	}
-	fp, _ := vm.CanonicalType(typ).FieldLookup(name)
+	fp, _ := derive.CanonicalType(typ).FieldLookup(name)
 	return fp != nil && len(fp)-1 < methDepth
 }
 
-func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *vm.Type) error {
+func (c *Compiler) errOverflow(t goparser.Token, cv constant.Value, typ *mtype.Type) error {
 	return goparser.ErrConstOverflow{Value: cv.String(), Type: typ.String(), Loc: c.Sources.FormatPos(t.Pos), Pos: t.Pos}
 }
 
@@ -1037,7 +1039,7 @@ func fieldPathOffset(rt reflect.Type, path []int) uintptr {
 	return off
 }
 
-func paramNeedsDetach(fnType *vm.Type) bool {
+func paramNeedsDetach(fnType *mtype.Type) bool {
 	if fnType == nil || fnType.Kind() != reflect.Func {
 		return true
 	}
@@ -1050,11 +1052,11 @@ func paramNeedsDetach(fnType *vm.Type) bool {
 	return false
 }
 
-func (c *Compiler) emitIfaceWrap(t goparser.Token, ifaceTyp, concreteTyp *vm.Type) {
+func (c *Compiler) emitIfaceWrap(t goparser.Token, ifaceTyp, concreteTyp *mtype.Type) {
 	c.emitIfaceWrapAt(t, ifaceTyp, concreteTyp, 0)
 }
 
-func (c *Compiler) emitIfaceWrapAt(t goparser.Token, ifaceTyp, concreteTyp *vm.Type, depth int) {
+func (c *Compiler) emitIfaceWrapAt(t goparser.Token, ifaceTyp, concreteTyp *mtype.Type, depth int) {
 	if ifaceTyp == nil || !ifaceTyp.IsInterface() || concreteTyp == nil || concreteTyp.IsInterface() {
 		return
 	}
@@ -1062,7 +1064,7 @@ func (c *Compiler) emitIfaceWrapAt(t goparser.Token, ifaceTyp, concreteTyp *vm.T
 	c.emit(t, vm.IfaceWrap, c.typeIndex(concreteTyp), depth)
 }
 
-func (c *Compiler) emitMapValueWrap(t goparser.Token, elemTyp *vm.Type, vs *symbol.Symbol) {
+func (c *Compiler) emitMapValueWrap(t goparser.Token, elemTyp *mtype.Type, vs *symbol.Symbol) {
 	if vs.Type != nil && vs.Type.Kind() == reflect.Func {
 		c.emit(t, vm.WrapFunc, c.typeIndex(vs.Type))
 	} else {
@@ -1426,7 +1428,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if srcType == nil {
 				return c.errAt(t, "cannot take address of value with unknown type")
 			}
-			push(&symbol.Symbol{Kind: symbol.Value, Type: vm.PointerTo(srcType)})
+			push(&symbol.Symbol{Kind: symbol.Value, Type: derive.PointerTo(srcType)})
 			// AddrLocal aliases the frame slot directly, which is only safe
 			// when the slot's reflect type matches the language type. Interface-
 			// typed locals are stored as vm.Iface internally; &r must still
@@ -1479,20 +1481,20 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return err
 			}
 			okForm := t.Arg[0].(int)
-			typ := t.Arg[1].(*vm.Type)
+			typ := t.Arg[1].(*mtype.Type)
 			typ.EnsureIfaceMethods()
 			c.populateIfaceMethodIDs(typ)
 			pop() // interface value
 			push(&symbol.Symbol{Kind: symbol.Value, Type: typ})
 			if okForm == 1 {
-				push(&symbol.Symbol{Kind: symbol.Value, Type: vm.TypeOf(false)})
+				push(&symbol.Symbol{Kind: symbol.Value, Type: mtype.TypeOf(false)})
 			}
 			c.emit(t, vm.TypeAssert, c.typeIndex(typ), okForm)
 
 		case lang.TypeSwitchJump:
-			var typ *vm.Type
+			var typ *mtype.Type
 			if t.Arg[0] != nil {
-				typ = t.Arg[0].(*vm.Type)
+				typ = t.Arg[0].(*mtype.Type)
 			}
 			pop() // consume iface_sym from compiler stack
 			typeIdx := -1
@@ -1517,7 +1519,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if vt.IsPtr() {
 				vt = vt.Elem()
 			}
-			var elemType *vm.Type
+			var elemType *mtype.Type
 			switch vt.Kind() {
 			case reflect.Map:
 				elemType = vt.Elem()
@@ -1944,7 +1946,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					argSym := stack[len(stack)-narg+k]
 					if argSym.Type == nil {
 						if k < nFixed || (spread && k == nFixed) {
-							paramTyp := &vm.Type{Rtype: rtyp.In(k)}
+							paramTyp := &mtype.Type{Rtype: rtyp.In(k)}
 							c.emitNilCoerce(t, argSym, paramTyp, narg-1-k)
 							if !paramTyp.IsInterface() {
 								c.emitConstConvert(t, argSym, paramTyp, narg-1-k)
@@ -1955,7 +1957,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if argSym.Type.IsInterface() {
 						continue
 					}
-					ifaceTyp := &vm.Type{Rtype: rtyp.In(k)}
+					ifaceTyp := &mtype.Type{Rtype: rtyp.In(k)}
 					depth := narg - 1 - k
 					c.emitIfaceWrapAt(t, ifaceTyp, argSym.Type, depth)
 					if !ifaceTyp.IsInterface() {
@@ -1966,7 +1968,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					nFixed := nIn - 1
 					elemType := rtyp.In(nFixed).Elem()
 					if elemType.Kind() == reflect.Interface {
-						elemTyp := &vm.Type{Rtype: elemType}
+						elemTyp := &mtype.Type{Rtype: elemType}
 						for k := nFixed; k < narg; k++ {
 							argSym := stack[len(stack)-narg+k]
 							if argSym.Type == nil || argSym.Type.IsInterface() {
@@ -1985,11 +1987,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if rtyp != nil && rtyp.Kind() == reflect.Func {
 				nret = rtyp.NumOut()
 				for i := 0; i < nret; i++ {
-					var retType *vm.Type
+					var retType *mtype.Type
 					if s.Type != nil {
 						retType = s.Type.ReturnType(i)
 					} else {
-						retType = &vm.Type{Rtype: rtyp.Out(i)}
+						retType = &mtype.Type{Rtype: rtyp.Out(i)}
 					}
 					push(&symbol.Symbol{Kind: symbol.Value, Type: retType})
 				}
@@ -2001,11 +2003,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					// Pack trailing args into the variadic slice, matching the
 					// caller-packs convention used for declared variadic funcs.
 					nFixed := rtyp.NumIn() - 1
-					var elemTyp *vm.Type
+					var elemTyp *mtype.Type
 					if s.Type != nil {
 						elemTyp = s.Type.ParamType(nFixed).Elem()
 					} else {
-						elemTyp = &vm.Type{Rtype: rtyp.In(nFixed).Elem()}
+						elemTyp = &mtype.Type{Rtype: rtyp.In(nFixed).Elem()}
 					}
 					c.emit(t, vm.MkSlice, narg-nFixed, c.typeSym(elemTyp).Index)
 					callNarg = nFixed + 1
@@ -2143,7 +2145,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			sliceLen := t.Arg[0].(int)
 			// Patch this literal's nil slice/map Fnew (B=-1) to its length.
 			idx := int32(-1)
-			var typ *vm.Type
+			var typ *mtype.Type
 			if sym := c.Symbols[t.Str]; sym != nil {
 				typ, idx = sym.Type, int32(sym.Index)
 			}
@@ -2220,7 +2222,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						case !r.Value.Reflect().IsValid():
 							return c.errUndef(t, lhs[i].Name)
 						default:
-							typ = vm.TypeOf(r.Value.Interface())
+							typ = mtype.TypeOf(r.Value.Interface())
 						}
 					}
 					lhs[i].Type = typ
@@ -2262,7 +2264,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if !r.Value.Reflect().IsValid() {
 						return c.errUndef(t, lhs[i].Name)
 					}
-					typ = vm.TypeOf(r.Value.Interface())
+					typ = mtype.TypeOf(r.Value.Interface())
 				}
 				// If lhs has an interface type, keep it and wrap the concrete value.
 				if lhs[i].Type != nil && lhs[i].Type.IsInterface() && !typ.IsInterface() {
@@ -2520,7 +2522,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// typed mismatched case value is a compile error, and a case
 			// constant must be representable (no silent runtime truncation).
 			if len(t.Arg) > 0 {
-				if opTyp, ok := t.Arg[0].(*vm.Type); ok && opTyp != nil {
+				if opTyp, ok := t.Arg[0].(*mtype.Type); ok && opTyp != nil {
 					if err := c.errIfMismatch(t, &symbol.Symbol{Kind: symbol.Var, Type: opTyp}, s2); err != nil {
 						return err
 					}
@@ -2539,7 +2541,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// Type reference carrying its resolved type by identity: push a
 				// symbol bound to the type's shared zero-value slot, bypassing the
 				// name lookup against the (mutable, shared) symbol table. The symbol
-				// carries the precise *vm.Type so method resolution stays exact even
+				// carries the precise *mtype.Type so method resolution stays exact even
 				// when distinct types share the slot's rtype.
 				s = &symbol.Symbol{Kind: symbol.Type, Name: t.Str, Type: typ, Index: c.zeroTypeSlot(typ)}
 			} else {
@@ -2710,13 +2712,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						if ts, ok := c.symAt(typeName); ok && ts.Kind == symbol.Type {
 							id := c.methodID(parts[1])
 							for len(ts.Type.Methods) <= id {
-								ts.Type.Methods = append(ts.Type.Methods, vm.Method{Index: -1})
+								ts.Type.Methods = append(ts.Type.Methods, mtype.Method{Index: -1})
 							}
-							var msig *vm.Type
+							var msig *mtype.Type
 							if s.Type != nil && s.Type.Kind() == reflect.Func {
 								msig = s.Type // materialize-time source of Rtype; filled by MaterializeAll
 							}
-							ts.Type.Methods[id] = vm.Method{Index: s.Index, PtrRecv: strings.HasPrefix(parts[0], "*"), Sig: msig}
+							ts.Type.Methods[id] = mtype.Method{Index: s.Index, PtrRecv: strings.HasPrefix(parts[0], "*"), Sig: msig}
 						}
 					}
 				} else {
@@ -2882,12 +2884,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					if rtype, ok := v.UnwrapType(); ok {
 						nv := vm.NewValue(rtype)
 						c.Data = append(c.Data, nv)
-						c.SymAdd(l, name, nv, symbol.Type, &vm.Type{Name: rtype.Name(), Rtype: rtype})
+						c.SymAdd(l, name, nv, symbol.Type, &mtype.Type{Name: rtype.Name(), Rtype: rtype})
 					} else {
 						c.Data = append(c.Data, v)
 						// Use the reflect.Value's static type (v.Type()), not the dynamic type via v.Interface().
 						rt := v.Type()
-						c.SymAdd(l, name, v, symbol.Value, &vm.Type{Name: rt.Name(), Rtype: rt})
+						c.SymAdd(l, name, v, symbol.Value, &mtype.Type{Name: rt.Name(), Rtype: rt})
 					}
 					sym = c.Symbols[name]
 				}
@@ -2941,7 +2943,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						// T.M (value recv) and (*T).M (ptr recv) pass args[0] through
 						// unchanged; the mixed (*T).M-on-value-recv form would need a
 						// deref in the wrapper, so it stays symbolic-only.
-						var exprType *vm.Type
+						var exprType *mtype.Type
 						if strings.HasPrefix(m.Name, "*") == s.Type.IsPtr() {
 							exprType = c.methodExprType(s.Type, m.Type)
 						}
@@ -3039,7 +3041,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						// a DATA slot, so it must be invoked via the value-call path (load +
 						// dynamic Call). Kind:Func would trigger CallImm(Index), which treats
 						// Index as a code address -> wrong for a data-slot func value.
-						push(&symbol.Symbol{Kind: symbol.Value, Name: mname, Index: idx, Type: &vm.Type{Name: mname, Rtype: mfunc.Func.Type()}, Value: vm.FromReflect(mfunc.Func)})
+						push(&symbol.Symbol{Kind: symbol.Value, Name: mname, Index: idx, Type: &mtype.Type{Name: mname, Rtype: mfunc.Func.Type()}, Value: vm.FromReflect(mfunc.Func)})
 						c.emit(t, vm.GetGlobal, idx)
 						break
 					}
@@ -3051,7 +3053,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					styp = styp.Elem()
 				}
 				if styp.Kind() == reflect.Struct {
-					structType := vm.CanonicalType(styp)
+					structType := derive.CanonicalType(styp)
 					fieldName := t.Str[1:]
 					fieldPath, ft := structType.FieldLookup(fieldName)
 					var foff uintptr
@@ -3128,12 +3130,12 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							// named types (e.g. an interface-returning method) that the
 							// materialized mt may have erased, so chaining a call on the
 							// result resolves. Fall back to mt, then bare interface{}.
-							symType := &vm.Type{Rtype: vm.AnyRtype}
+							symType := &mtype.Type{Rtype: mtype.AnyRtype}
 							switch {
 							case sig != nil && sig.Kind() == reflect.Func:
 								symType = sig
 							case mt != nil && mt.Kind() == reflect.Func:
-								symType = &vm.Type{Rtype: mt}
+								symType = &mtype.Type{Rtype: mt}
 							}
 							methodSym = &symbol.Symbol{Kind: symbol.Value, Type: symType}
 						}
@@ -3161,7 +3163,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						out[i] = mt.Out(i)
 					}
 					boundType := reflect.FuncOf(in, out, mt.IsVariadic())
-					push(&symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: boundType}})
+					push(&symbol.Symbol{Kind: symbol.Value, Type: &mtype.Type{Rtype: boundType}})
 					if needAddr {
 						c.emit(t, vm.Addr)
 					}
@@ -3247,7 +3249,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Pull/Pull2 A operand: bit 0 = copy-array flag, bits 1+ = n; the VM
 			// uses n to drop the n+1 dead slots (loop-var values + subject).
 			pullA := copyArray | (n << 1)
-			initRangeVar := func(s *symbol.Symbol, typ *vm.Type) {
+			initRangeVar := func(s *symbol.Symbol, typ *mtype.Type) {
 				s.Type = typ
 				if s.Kind == symbol.LocalVar {
 					c.emit(t, vm.New, s.Index, c.typeSym(s.Type).Index)
@@ -3266,7 +3268,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				}
 				c.emit(t, vm.Pull, pullA)
 			case reflect.Array, reflect.Slice, reflect.String:
-				var vType *vm.Type
+				var vType *mtype.Type
 				if rangeKind == reflect.String {
 					vType = c.Symbols["rune"].Type
 				} else {
@@ -3445,7 +3447,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 			// Wrap concrete return values in Iface when the function return type is an interface.
 			// Skip if the stack doesn't have enough values (unreachable return after panic, etc.).
-			if funcType, ok := t.Arg[1].(*vm.Type); ok && len(stack) >= numOut {
+			if funcType, ok := t.Arg[1].(*mtype.Type); ok && len(stack) >= numOut {
 				for i := range numOut {
 					stackSym := stack[len(stack)-numOut+i]
 					// An untyped const adopts the declared return type
@@ -3516,7 +3518,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					at = at.Elem()
 				}
 				if at.Kind() == reflect.Array {
-					resType = vm.SymSlice(at.Elem())
+					resType = derive.SymSlice(at.Elem())
 				}
 			}
 			push(&symbol.Symbol{Kind: symbol.Value, Type: resType})
@@ -3526,7 +3528,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			meta := &vm.SelectMeta{Cases: make([]vm.SelectCaseInfo, len(descs))}
 
 			// initSlot initializes a variable slot and returns its index.
-			initSlot := func(name string, typ *vm.Type) int {
+			initSlot := func(name string, typ *mtype.Type) int {
 				s := c.Symbols[name]
 				s.Type = typ
 				switch {
@@ -3542,7 +3544,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 
 			// recvSlot resolves a recv target. Plain targets keep the initSlot path.
-			recvSlot := func(name string, typ *vm.Type) (local bool, slot int, cell bool) {
+			recvSlot := func(name string, typ *mtype.Type) (local bool, slot int, cell bool) {
 				s := c.Symbols[name]
 				local = s.Kind == symbol.LocalVar
 				if local && s.CellSlot {
@@ -3553,7 +3555,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			}
 
 			// Pop stack entries in reverse (LIFO) to collect channel element types.
-			chanTypes := make([]*vm.Type, len(descs))
+			chanTypes := make([]*mtype.Type, len(descs))
 			for i, v := range slices.Backward(descs) {
 				switch v.Dir {
 				case reflect.SelectSend:
@@ -3634,7 +3636,7 @@ func (c *Compiler) errIfMismatch(t goparser.Token, left, right *symbol.Symbol) e
 }
 
 // isNilableType reports a type whose values can be nil (assignable from bare nil).
-func isNilableType(t *vm.Type) bool {
+func isNilableType(t *mtype.Type) bool {
 	switch t.Kind() {
 	case reflect.Interface, reflect.Slice, reflect.Map, reflect.Pointer,
 		reflect.Chan, reflect.Func, reflect.UnsafePointer:
@@ -3646,7 +3648,7 @@ func isNilableType(t *vm.Type) bool {
 // errIfUnrepresentable rejects an untyped constant that cannot be represented
 // in typ, as gc does: integer-range overflow, or a non-integer constant for an
 // integer type ("constant 2.5 truncated to integer").
-func (c *Compiler) errIfUnrepresentable(t goparser.Token, s *symbol.Symbol, typ *vm.Type) error {
+func (c *Compiler) errIfUnrepresentable(t goparser.Token, s *symbol.Symbol, typ *mtype.Type) error {
 	if s.Kind != symbol.Const || s.Cval == nil || typ == nil {
 		return nil
 	}
@@ -3671,7 +3673,7 @@ func isVarKind(s *symbol.Symbol) bool {
 	return false
 }
 
-func arithmeticOpType(right, left *symbol.Symbol) *vm.Type {
+func arithmeticOpType(right, left *symbol.Symbol) *mtype.Type {
 	// Untyped constants take their type from the other operand (Go spec Operators).
 	if right.Kind == symbol.Const && left.Kind != symbol.Const {
 		return symbol.Vtype(left)
@@ -3689,7 +3691,7 @@ func arithmeticOpType(right, left *symbol.Symbol) *vm.Type {
 	return rt
 }
 
-func numericRank(typ *vm.Type) int {
+func numericRank(typ *mtype.Type) int {
 	// Per Go spec, complex > float > int.
 	switch typ.Kind() {
 	case reflect.Complex64, reflect.Complex128:
@@ -3707,7 +3709,7 @@ func constKind(right, left *symbol.Symbol) symbol.Kind {
 	return symbol.Value
 }
 
-func (c *Compiler) emitConstConvert(t goparser.Token, s *symbol.Symbol, typ *vm.Type, depth int) {
+func (c *Compiler) emitConstConvert(t goparser.Token, s *symbol.Symbol, typ *mtype.Type, depth int) {
 	if s.Kind != symbol.Const {
 		return
 	}
@@ -3720,7 +3722,7 @@ func (c *Compiler) emitConstConvert(t goparser.Token, s *symbol.Symbol, typ *vm.
 // than an invalid reflect.Value. Interface params keep the untyped nil (a nil
 // interface), which already compares and dispatches correctly. The Convert
 // opcode turns an invalid source into reflect.Zero(dstType) at runtime.
-func (c *Compiler) emitNilCoerce(t goparser.Token, argSym *symbol.Symbol, paramTyp *vm.Type, depth int) {
+func (c *Compiler) emitNilCoerce(t goparser.Token, argSym *symbol.Symbol, paramTyp *mtype.Type, depth int) {
 	if argSym.Type != nil || paramTyp == nil {
 		return
 	}
@@ -3730,7 +3732,7 @@ func (c *Compiler) emitNilCoerce(t goparser.Token, argSym *symbol.Symbol, paramT
 	}
 }
 
-func (c *Compiler) emitNumConvert(t goparser.Token, lhsType, rhsType *vm.Type, depth int) {
+func (c *Compiler) emitNumConvert(t goparser.Token, lhsType, rhsType *mtype.Type, depth int) {
 	if lhsType == nil || rhsType == nil || lhsType.Identical(rhsType) {
 		return
 	}
@@ -3741,7 +3743,7 @@ func (c *Compiler) emitNumConvert(t goparser.Token, lhsType, rhsType *vm.Type, d
 
 // convertOperand coerces a binary-op operand to typ: an untyped constant folds
 // at compile time (foldConstLoad), anything else converts at runtime via Convert.
-func (c *Compiler) convertOperand(t goparser.Token, s *symbol.Symbol, off int, typ *vm.Type, depth int) {
+func (c *Compiler) convertOperand(t goparser.Token, s *symbol.Symbol, off int, typ *mtype.Type, depth int) {
 	st := symbol.Vtype(s)
 	if typ == nil || st == nil || typ.Identical(st) || !isNumericConvType(typ) || !isNumericConvType(st) {
 		return
@@ -3755,7 +3757,7 @@ func (c *Compiler) convertOperand(t goparser.Token, s *symbol.Symbol, off int, t
 // foldConstLoad converts a constant operand to typ at compile time, rewriting
 // its single load instruction at off. Declines (false) for a non-constant, an
 // unrecognized load, or a value overflowing a sized integer typ.
-func (c *Compiler) foldConstLoad(s *symbol.Symbol, off int, typ *vm.Type) bool {
+func (c *Compiler) foldConstLoad(s *symbol.Symbol, off int, typ *mtype.Type) bool {
 	if s.Kind != symbol.Const || s.Cval == nil || off < 0 || off >= len(c.Code) {
 		return false
 	}
@@ -3772,9 +3774,9 @@ func (c *Compiler) foldConstLoad(s *symbol.Symbol, off int, typ *vm.Type) bool {
 	return true
 }
 
-func booleanOpType(_, _ *symbol.Symbol) *vm.Type { return vm.TypeOf(true) }
+func booleanOpType(_, _ *symbol.Symbol) *mtype.Type { return mtype.TypeOf(true) }
 
-func shiftLeftType(left *symbol.Symbol, intTyp *vm.Type) *vm.Type {
+func shiftLeftType(left *symbol.Symbol, intTyp *mtype.Type) *mtype.Type {
 	vt := symbol.Vtype(left)
 	if left.Kind == symbol.Const && vt != nil {
 		if k := vt.Kind(); k == reflect.Float32 || k == reflect.Float64 {
@@ -3937,7 +3939,7 @@ func litCval(s string, tok token.Token) constant.Value {
 	return cv
 }
 
-func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (constant.Value, *vm.Type, bool) {
+func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (constant.Value, *mtype.Type, bool) {
 	if left.Kind != symbol.Const || right.Kind != symbol.Const || left.Cval == nil || right.Cval == nil {
 		return nil, nil, false
 	}
@@ -3945,7 +3947,7 @@ func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (c
 	if !ok {
 		return nil, nil, false
 	}
-	var typ *vm.Type
+	var typ *mtype.Type
 	switch {
 	case op.IsBoolOp():
 		typ = booleanOpType(left, right)
@@ -3963,7 +3965,7 @@ func (c *Compiler) foldConstBinary(op lang.Token, left, right *symbol.Symbol) (c
 	return cv, typ, true
 }
 
-func (c *Compiler) typedConstResult(left, right *symbol.Symbol) *vm.Type {
+func (c *Compiler) typedConstResult(left, right *symbol.Symbol) *mtype.Type {
 	lu, ru := c.isUntypedConst(left), c.isUntypedConst(right)
 	if lu == ru {
 		return nil
@@ -3988,7 +3990,7 @@ func (c *Compiler) isUntypedConst(s *symbol.Symbol) bool {
 	return def != nil && def.Rtype == s.Type.Rtype
 }
 
-func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.Type) (*symbol.Symbol, error) {
+func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *mtype.Type) (*symbol.Symbol, error) {
 	if typ == nil {
 		typ = goparser.DefaultConstType(cv, c.Symbols)
 	}
@@ -4015,7 +4017,7 @@ func (c *Compiler) emitFoldedConst(t goparser.Token, cv constant.Value, typ *vm.
 	return &symbol.Symbol{Kind: symbol.Const, Value: val, Cval: cv, Type: typ}, nil
 }
 
-func isOverflowCheckedType(typ *vm.Type) bool {
+func isOverflowCheckedType(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4027,11 +4029,11 @@ func isOverflowCheckedType(typ *vm.Type) bool {
 	return false
 }
 
-func (c *Compiler) emitConstLoad(t goparser.Token, val vm.Value, typ *vm.Type) {
+func (c *Compiler) emitConstLoad(t goparser.Token, val vm.Value, typ *mtype.Type) {
 	c.Code = append(c.Code, c.constLoadInstr(val, typ, vm.Pos(t.Pos)))
 }
 
-func (c *Compiler) constLoadInstr(val vm.Value, typ *vm.Type, pos vm.Pos) vm.Instruction {
+func (c *Compiler) constLoadInstr(val vm.Value, typ *mtype.Type, pos vm.Pos) vm.Instruction {
 	if typ != nil {
 		if k := typ.Kind(); k >= reflect.Int && k <= reflect.Int64 {
 			if v := val.Int(); v >= -1<<31 && v < 1<<31 {
@@ -4063,7 +4065,7 @@ func (c *Compiler) emitConstImm(t goparser.Token, s *symbol.Symbol) bool {
 	return false
 }
 
-func isInt64Kind(typ *vm.Type) bool {
+func isInt64Kind(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4071,7 +4073,7 @@ func isInt64Kind(typ *vm.Type) bool {
 	return k == reflect.Int || k == reflect.Int64
 }
 
-func isUint64Kind(typ *vm.Type) bool {
+func isUint64Kind(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4079,7 +4081,7 @@ func isUint64Kind(typ *vm.Type) bool {
 	return k == reflect.Uint || k == reflect.Uint64
 }
 
-func isFloatKind(typ *vm.Type) bool {
+func isFloatKind(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4090,7 +4092,7 @@ func isFloatKind(typ *vm.Type) bool {
 // isNumericConvType reports whether typ is a numeric type (including complex and
 // named types like time.Duration), so a constant conversion to it can be folded
 // or a runtime Convert emitted.
-func isNumericConvType(typ *vm.Type) bool {
+func isNumericConvType(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4099,7 +4101,7 @@ func isNumericConvType(typ *vm.Type) bool {
 }
 
 // isIntegerKind reports whether typ is a signed or unsigned integer type.
-func isIntegerKind(typ *vm.Type) bool {
+func isIntegerKind(typ *mtype.Type) bool {
 	if typ == nil {
 		return false
 	}
@@ -4107,7 +4109,7 @@ func isIntegerKind(typ *vm.Type) bool {
 	return k >= reflect.Int && k <= reflect.Uintptr
 }
 
-func numericOp(base vm.Op, typ *vm.Type) vm.Op {
+func numericOp(base vm.Op, typ *mtype.Type) vm.Op {
 	if typ == nil {
 		panic("numericOp: nil type")
 	}
@@ -4118,7 +4120,7 @@ func numericOp(base vm.Op, typ *vm.Type) vm.Op {
 	return base + vm.Op(vm.NumKindOffset[k])
 }
 
-func (c *Compiler) emitArithmeticOp(t goparser.Token, right *symbol.Symbol, typ *vm.Type, baseOp, immOp, fuseOp, strOp vm.Op) {
+func (c *Compiler) emitArithmeticOp(t goparser.Token, right *symbol.Symbol, typ *mtype.Type, baseOp, immOp, fuseOp, strOp vm.Op) {
 	if strOp != 0 && typ != nil && typ.Kind() == reflect.String {
 		c.emit(t, strOp)
 		return
@@ -4134,7 +4136,7 @@ func (c *Compiler) emitArithmeticOp(t goparser.Token, right *symbol.Symbol, typ 
 	c.emit(t, numericOp(baseOp, typ))
 }
 
-func (c *Compiler) emitComparisonOp(t goparser.Token, s2 *symbol.Symbol, typ *vm.Type, baseOp, intImm, uintImm, fuseInt, fuseUint, strOp vm.Op, negate bool) {
+func (c *Compiler) emitComparisonOp(t goparser.Token, s2 *symbol.Symbol, typ *mtype.Type, baseOp, intImm, uintImm, fuseInt, fuseUint, strOp vm.Op, negate bool) {
 	if strOp != 0 && typ != nil && typ.Kind() == reflect.String {
 		c.emit(t, strOp)
 		if negate {
@@ -4349,7 +4351,7 @@ func enclosingFunc(scopedName string, syms symbol.SymMap) string {
 	}
 }
 
-func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
+func (c *Compiler) fixPtrFnewE(typ *mtype.Type, index int) {
 	if typ == nil || typ.Kind() != reflect.Pointer {
 		return
 	}
@@ -4369,7 +4371,7 @@ func (c *Compiler) fixPtrFnewE(typ *vm.Type, index int) {
 // slotMatchesType reports whether Data slot di holds a zero value of typ,
 // comparing *Type identity (via zeroSlotType) so it never reads a deferred
 // slot's nil rtype; rtype equality is the fallback for eager/native slots.
-func (c *Compiler) slotMatchesType(di int, typ *vm.Type) bool {
+func (c *Compiler) slotMatchesType(di int, typ *mtype.Type) bool {
 	if st := c.zeroSlotType[di]; st != nil {
 		return st == typ || st.Identical(typ)
 	}
@@ -4379,7 +4381,7 @@ func (c *Compiler) slotMatchesType(di int, typ *vm.Type) bool {
 // patchNilFnewLen fills a composite literal's nil slice/map Fnew (B=-1) with its length.
 // It matches the literal's own type-symbol slot, else any same-type slot; an already-filled Fnew is skipped so nested literals patch their own.
 // Bounded at genStart like the remove* helpers below.
-func (c *Compiler) patchNilFnewLen(idx int32, typ *vm.Type, length int) {
+func (c *Compiler) patchNilFnewLen(idx int32, typ *mtype.Type, length int) {
 	for i := len(c.Code) - 1; i >= c.genStart; i-- {
 		in := c.Code[i]
 		if in.Op != vm.Fnew || in.B != -1 {
@@ -4574,7 +4576,7 @@ func (c *Compiler) compileBuiltin(
 		c.removeFnew(typeSym.Index)
 		pop() // type arg
 		pop() // new symbol
-		push(&symbol.Symbol{Kind: symbol.Value, Type: vm.PointerTo(typeSym.Type)})
+		push(&symbol.Symbol{Kind: symbol.Value, Type: derive.PointerTo(typeSym.Type)})
 		// The zero-value slot collapses interface/func types to AnyRtype (see
 		// NewValue), which would make new(io.Reader) a *interface{}; use the
 		// precise type descriptor so the pointer keeps the declared element type.
@@ -4832,7 +4834,7 @@ func (c *Compiler) compileBuiltin(
 		// on the pointer/slice arg and can't be expressed in a Go signature),
 		// so after the call the value is an interface wrapper. Unwrap it with
 		// a TypeAssert to the statically-known result type.
-		var resultType *vm.Type
+		var resultType *mtype.Type
 		if s.Name == "unsafe.Slice" {
 			if narg != 2 {
 				return true, fmt.Errorf("invalid argument count for %s", s.Name)
@@ -4841,7 +4843,7 @@ func (c *Compiler) compileBuiltin(
 			if ptrSym.Type == nil || ptrSym.Type.Kind() != reflect.Pointer {
 				return true, errors.New("unsafe.Slice: first argument must be a pointer")
 			}
-			resultType = vm.SymSlice(ptrSym.Type.Elem())
+			resultType = derive.SymSlice(ptrSym.Type.Elem())
 		} else {
 			if narg != 1 {
 				return true, fmt.Errorf("invalid argument count for %s", s.Name)
@@ -4850,7 +4852,7 @@ func (c *Compiler) compileBuiltin(
 			if argSym.Type == nil || argSym.Type.Kind() != reflect.Slice {
 				return true, errors.New("unsafe.SliceData: argument must be a slice")
 			}
-			resultType = vm.SymPtr(argSym.Type.Elem())
+			resultType = derive.SymPtr(argSym.Type.Elem())
 		}
 		for range narg + 1 {
 			pop()
@@ -4868,13 +4870,13 @@ func (c *Compiler) compileBuiltin(
 // copies to instantiate).
 // Shared across emit sites so a name-keyed type ident, a carried-type ident,
 // and a composite all patch the same Fnew.
-// Keyed on *vm.Type pointer identity; convergence between the type-ident
+// Keyed on *mtype.Type pointer identity; convergence between the type-ident
 // emitter (compiler.go:1926) and the composite-literal length patcher
-// (compiler.go:1515) relies on canonical derived *vm.Type from vm.SymSlice
-// / vm.SymPtr / vm.SymMap / etc. returning the same instance per shape.
+// (compiler.go:1515) relies on canonical derived *mtype.Type from derive.SymSlice
+// / derive.SymPtr / derive.SymMap / etc. returning the same instance per shape.
 // Distinct from typeSym, which allocates a type-DESCRIPTOR slot (make-elem/key,
 // TypeAssert, etc.).
-func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
+func (c *Compiler) zeroTypeSlot(typ *mtype.Type) int {
 	if i, ok := c.zeroTypeIdxs[typ]; ok {
 		return i
 	}
@@ -4888,11 +4890,11 @@ func (c *Compiler) zeroTypeSlot(typ *vm.Type) int {
 // makeElemType returns the canonical mvm-level element type of a container
 // type, falling back to a fresh wrapper around the reflect element when the
 // container was built natively without an mvm-level ElemType link.
-func makeElemType(container *vm.Type) *vm.Type {
+func makeElemType(container *mtype.Type) *mtype.Type {
 	if container.ElemType != nil {
 		return container.ElemType
 	}
-	return &vm.Type{Rtype: vm.MaterializeRtype(container).Elem()}
+	return &mtype.Type{Rtype: derive.MaterializeRtype(container).Elem()}
 }
 
 // emitVariadicPack MkSlice-packs a deferred or go-spawned variadic call's
@@ -4927,7 +4929,7 @@ func (c *Compiler) emitVariadicPack(t goparser.Token, s *symbol.Symbol, narg int
 	return nFixed + 1, true
 }
 
-func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
+func (c *Compiler) typeSym(t *mtype.Type) *symbol.Symbol {
 	tsym, ok := c.typeSyms[t]
 	if !ok {
 		tsym = &symbol.Symbol{Index: symbol.UnsetAddr, Kind: symbol.Type, Type: t}
@@ -4947,9 +4949,9 @@ func (c *Compiler) typeSym(t *vm.Type) *symbol.Symbol {
 // identity for named method types) before run, so the VM never dereferences a nil
 // Rtype and the synth attach can fill methods into each identity in place.
 func (c *Compiler) MaterializeAll() {
-	seen := map[*vm.Type]bool{}
-	var visit func(t *vm.Type)
-	visit = func(t *vm.Type) {
+	seen := map[*mtype.Type]bool{}
+	var visit func(t *mtype.Type)
+	visit = func(t *mtype.Type) {
 		if t == nil || seen[t] {
 			return
 		}
@@ -4972,12 +4974,12 @@ func (c *Compiler) MaterializeAll() {
 		for i := range t.Methods {
 			visit(t.Methods[i].Sig)
 		}
-		vm.MaterializeRtype(t)
+		derive.MaterializeRtype(t)
 		// Method.Rtype is the materialize-time projection of the symbolic Sig set
 		// at registration (comp builds method signatures symbolically; see the
 		// method-registration sites). Fill it once here, before synth attach reads it.
 		for i := range t.Methods {
-			vm.MaterializeMethod(&t.Methods[i])
+			derive.MaterializeMethod(&t.Methods[i])
 		}
 	}
 	for t := range c.zeroTypeIdxs {
@@ -4994,7 +4996,7 @@ func (c *Compiler) MaterializeAll() {
 	}
 	// Patch structs whose layout was deferred because a by-value field was an
 	// in-flight placeholder mid-cycle (mutual struct cycle broken by a pointer).
-	vm.FinalizeDeferred()
+	derive.FinalizeDeferred()
 }
 
 // intrinsicInfo describes a VM intrinsic that replaces a native function call.
@@ -5064,7 +5066,7 @@ func (c *Compiler) compileIntrinsic(
 			if srcTyp == nil || (srcTyp.Rtype != nil && srcTyp.Rtype == paramType) {
 				continue
 			}
-			c.emitNumConvert(t, &vm.Type{Rtype: paramType}, srcTyp, narg-1-k)
+			c.emitNumConvert(t, &mtype.Type{Rtype: paramType}, srcTyp, narg-1-k)
 		}
 	}
 	// Pop function symbol and argument symbols, push return type.
@@ -5074,7 +5076,7 @@ func (c *Compiler) compileIntrinsic(
 	pop() // function symbol
 	// Determine the return type from the native function's reflect type.
 	if rv.IsValid() && rv.Type().Kind() == reflect.Func && rv.Type().NumOut() > 0 {
-		push(&symbol.Symbol{Kind: symbol.Value, Type: &vm.Type{Rtype: rv.Type().Out(0)}})
+		push(&symbol.Symbol{Kind: symbol.Value, Type: &mtype.Type{Rtype: rv.Type().Out(0)}})
 	}
 	c.emit(t, info.op)
 	return true, nil

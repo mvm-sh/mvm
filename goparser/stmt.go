@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // moveDefaultLast swaps the default clause to the end so the match-dispatch
@@ -378,7 +378,7 @@ func (p *Parser) parseVarDecl(toks Tokens) (handled bool, err error) {
 				decl = decl[:i]
 			}
 			// Resolve type once for all names sharing this declaration.
-			var rhsTyp *vm.Type
+			var rhsTyp *mtype.Type
 			if len(rhs) > 0 && rhs[0].Tok == lang.BracketBlock {
 				elemTyp, n, err := p.parseTypeExpr(rhs)
 				if errors.Is(err, ErrEllipsisArray) {
@@ -389,7 +389,7 @@ func (p *Parser) parseVarDecl(toks Tokens) (handled bool, err error) {
 			}
 			// Right-to-left so a trailing type applies to all names (Go grammar: "a, b int").
 			parts := decl.Split(lang.Comma)
-			var lastTyp *vm.Type
+			var lastTyp *mtype.Type
 			for _, ct := range slices.Backward(parts) {
 				if len(ct) == 0 {
 					continue

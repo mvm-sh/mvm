@@ -39,7 +39,7 @@ func TestTypedConstValueSymbolic(t *testing.T) {
 // Regression: a const of unresolved-external type (OpaqueRtype, e.g. `^big.Word(0)`)
 // must fold its basic value, not Convert to struct{} -- the `make generate` panic.
 func TestTypedConstValueOpaque(t *testing.T) {
-	typ := &vm.Type{Name: "Word", Rtype: vm.OpaqueRtype}
+	typ := &mtype.Type{Name: "Word", Rtype: vm.OpaqueRtype}
 	if got := typedConstValue(constant.MakeInt64(-1), typ); got != -1 {
 		t.Errorf("typedConstValue(-1, Opaque Word) = %#v, want -1", got)
 	}

@@ -222,7 +222,7 @@ func (m *Machine) synthMethodExpr(rt reflect.Type, name string) (reflect.Method,
 	}
 	boundFt := method.Rtype
 	if (boundFt == nil || boundFt.Kind() != reflect.Func) && method.Sig != nil {
-		boundFt = MaterializeRtype(method.Sig)
+		boundFt = derive.MaterializeRtype(method.Sig)
 	}
 	if boundFt == nil || boundFt.Kind() != reflect.Func {
 		boundFt = m.ifaceMethodFuncType(name)
