@@ -50,6 +50,9 @@ var Incompat = map[string]map[string]string{
 	// Interpreted execution boxes operands and reallocates working storage,
 	// so the observed count is always well above the native expectation of
 	// 0 or 1. Not a mvm bug -- the test is measuring the host runtime.
+	"bufio": {
+		"TestReadStringAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 1",
+	},
 	"bytes": {
 		"TestNewBufferShallow": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 		"TestWriteAppend":      "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",

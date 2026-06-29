@@ -4232,6 +4232,11 @@ func (m *Machine) bridgeIface(ifc Iface, targetType reflect.Type) reflect.Value 
 			return sv
 		}
 	}
+	if synthSharedPC && targetType != nil && targetType.Kind() == reflect.Interface && val.IsValid() {
+		if w, ok := m.wrapSynthIfaceForNative(val.Type(), targetType, val); ok {
+			return w
+		}
+	}
 	return val
 }
 
@@ -4707,8 +4712,10 @@ func (rs *runnerState) releaseRunner(m *Machine) {
 }
 
 // unwrapVariadicIface unwraps Iface elements in a packed variadic slice so
-// reflect.CallSlice passes the native callee concrete values.
-func unwrapVariadicIface(last reflect.Value) reflect.Value {
+// reflect.CallSlice passes the native callee concrete values. On the shared-PC
+// (wasm) build a synth error/Stringer element is wrapped in a native shim, since
+// the native callee (e.g. testing's fmt) cannot dispatch its -1 method PC.
+func (m *Machine) unwrapVariadicIface(last reflect.Value) reflect.Value {
 	if last.Kind() == reflect.Interface && !last.IsNil() {
 		last = last.Elem()
 	}
@@ -4717,10 +4724,21 @@ func unwrapVariadicIface(last reflect.Value) reflect.Value {
 	}
 	for i := range last.Len() {
 		elem := last.Index(i)
-		if elem.Kind() == reflect.Interface && !elem.IsNil() {
-			if ifc, ok := elem.Interface().(Iface); ok {
-				elem.Set(ifc.Val.Reflect())
+		if elem.Kind() != reflect.Interface || elem.IsNil() {
+			continue
+		}
+		inner, boxed := elem.Elem(), false
+		if ifc, ok := elem.Interface().(Iface); ok {
+			inner, boxed = ifc.Val.Reflect(), true
+		}
+		if synthSharedPC && inner.IsValid() {
+			if w, ok := m.wrapSynthIfaceForNative(inner.Type(), elem.Type(), inner); ok {
+				elem.Set(w)
+				continue
 			}
+		}
+		if boxed {
+			elem.Set(inner)
 		}
 	}
 	return last
@@ -4772,7 +4790,7 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 			panic(err)
 		}
 		// For spread calls (f(s...)), unwrap Iface values inside the variadic slice and use CallSlice.
-		in[len(in)-1] = unwrapVariadicIface(in[len(in)-1])
+		in[len(in)-1] = m.unwrapVariadicIface(in[len(in)-1])
 		return rv.CallSlice(in), false
 	default:
 		if out, ok := interceptReflectCtor(rv, in); ok {
@@ -5093,7 +5111,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		coerceInterfaceArgs(in, rv.Type())
 		m.wrapFuncArgs(in, args, rv.Type())
 		if spread {
-			in[len(in)-1] = unwrapVariadicIface(in[len(in)-1])
+			in[len(in)-1] = m.unwrapVariadicIface(in[len(in)-1])
 			go func() { rv.CallSlice(in) }()
 		} else {
 			go func() { rv.Call(in) }()
