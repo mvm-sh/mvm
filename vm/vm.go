@@ -469,6 +469,8 @@ type Machine struct {
 	// instead of substituting *runtime.PanicNilError. Set when the target
 	// module's go directive predates 1.21, mirroring GODEBUG panicnil.
 	PanicNilCompat bool
+
+	sentinels *sentinelTable // see sentinel.go; nil unless io is interpreted
 }
 
 // iterEntry is one active range-loop iterator.
@@ -4586,6 +4588,7 @@ type runnerState struct {
 	fault           *goroutineFault // shared goroutine-panic sink
 	faultContinue   bool
 	panicNilCompat  bool
+	sentinels       *sentinelTable
 }
 
 // ensureSharedTables lazy-allocates the parent-owned funcFields and
@@ -4662,6 +4665,7 @@ func (m *Machine) captureRunnerState() *runnerState {
 		fault:           m.fault,
 		faultContinue:   m.faultContinue,
 		panicNilCompat:  m.PanicNilCompat,
+		sentinels:       m.sentinels,
 	}
 }
 
@@ -4692,6 +4696,7 @@ func (rs *runnerState) acquireRunner() *Machine {
 	m.fault = rs.fault
 	m.faultContinue = rs.faultContinue
 	m.PanicNilCompat = rs.panicNilCompat
+	m.sentinels = rs.sentinels
 	return m
 }
 
@@ -4751,6 +4756,9 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 	defer func() {
 		r := recover()
 		if r == nil {
+			if m.sentinels != nil {
+				m.canonNativeReturns(out)
+			}
 			return
 		}
 		// An mvm panic that escaped a nested re-entrant Run via a native callback:
@@ -5056,6 +5064,11 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 	}
 	out := make([]reflect.Value, nret)
 	for i := range out {
+		// A native sink (io.Copy, io.ReadAll) compares the return against host io.EOF.
+		if m.sentinels != nil && m.isInterpEOFReturn(m.mem[i]) {
+			out[i] = reflect.ValueOf(io.EOF)
+			continue
+		}
 		rv := m.mem[i].Reflect()
 		if !rv.IsValid() {
 			// A nil/zero value (e.g. nil error) must be typed for MakeFunc callers.
@@ -5188,6 +5201,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		fault:           m.fault,
 		debugInfoFn:     m.debugInfoFn,
 		PanicNilCompat:  m.PanicNilCompat,
+		sentinels:       m.sentinels,
 	}
 	go func() {
 		// An unrecovered panic in an interpreted goroutine returns from Run as an

@@ -42,7 +42,8 @@ func ifaceBearing(t reflect.Type) bool {
 }
 
 func ifaceBearingWalk(t reflect.Type, seen map[reflect.Type]bool) bool {
-	if t == synthErrShimType || t == synthStrShimType {
+	if t == synthErrShimType || t == synthStrShimType ||
+		t == synthReaderShimType || t == synthWriterShimType {
 		return false // opaque native shim; never walk its *Machine field
 	}
 	if seen[t] {

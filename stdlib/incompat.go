@@ -45,6 +45,9 @@ var Incompat = map[string]map[string]string{
 		"TestLargeCopyViaNetwork": "stress test: streams a 10MB random file through a localhost TCP pair; ~15s under the interpreter (no testing.Short path)",
 		"TestCopyFileToFile":      "stress test: copies a 1MB random file across a srcStart x dstStart x limit subtest grid; ~17s under the interpreter (no testing.Short path)",
 	},
+	"compress/gzip": {
+		"TestCVE202230631": "stress test: gunzips ~80MB (4e6 x 20-byte members) to probe stack exhaustion; no testing.Short path, impractical under the interpreter",
+	},
 
 	// testing.AllocsPerRun counts heap allocations of the closure body.
 	// Interpreted execution boxes operands and reallocates working storage,

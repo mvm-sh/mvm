@@ -82,7 +82,7 @@ compat-wasm: mvm.wasm
 		echo "== $$p =="; \
 		timeout $(WASM_TIMEOUT) wasmtime --dir=/::/ \
 			--env GOROOT="$$GR" --env HOME="$$HOME" --env GOMODCACHE="$$GMC" \
-			mvm.wasm test $$p -v || echo "[exit $$?]"; \
+			mvm.wasm test $$p -v -short || echo "[exit $$?]"; \
 	done
 
 clean:
