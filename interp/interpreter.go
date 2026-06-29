@@ -141,6 +141,7 @@ func (i *Interp) evalCompiled(name string, compile func() error) (res reflect.Va
 	if err != nil {
 		return res, i.withSourceContext(err)
 	}
+	i.configureSentinels()
 
 	i.Machine.MethodNames = i.Compiler.MethodNames()
 	i.Machine.MethodFuncTypes = i.Compiler.MethodFuncTypes()
@@ -284,6 +285,21 @@ func FormatStats(i *Interp) string {
 	fmt.Fprintf(&b, "  compile:  %v\n", i.Stats.CompileTime)
 	fmt.Fprintf(&b, "  execute:  %v\n", i.Stats.RunTime)
 	return b.String()
+}
+
+// Needed only when io is interpreted (wasm, or MVM_INTERP=io); bridged io shares
+// the host io.EOF, so there is nothing to reconcile. See vm/sentinel.go.
+func (i *Interp) configureSentinels() {
+	if i.SentinelsConfigured() {
+		return
+	}
+	pkg, ok := i.Packages["io"]
+	if !ok || pkg.Bin {
+		return
+	}
+	if sym, ok := i.Symbols[goparser.QualifyName("io", "EOF")]; ok && sym.Index >= 0 {
+		i.SetInterpEOFSlot(sym.Index)
+	}
 }
 
 func (i *Interp) patchStdlibOverrides() {
