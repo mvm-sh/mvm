@@ -32,13 +32,28 @@ func (m *Machine) interpEOF() reflect.Value {
 
 // collectReturns delivers a returned error unwrapped, so match against concrete.
 func (m *Machine) interpEOFConcrete() error {
+<<<<<<< HEAD
 	e, _ := m.globals[m.sentinels.eofSlot].Interface().(error)
+=======
+	g := m.globals[m.sentinels.eofSlot]
+	if g.IsIface() {
+		g = g.IfaceVal().Val
+	}
+	e, _ := g.Reflect().Interface().(error)
+>>>>>>> 694836c16db5967330372b301fdf32e788dc2f91
 	return e
 }
 
 // Counterpart of isInterpEOFReturn, for the native->interp direction.
+<<<<<<< HEAD
 // Caller gates on m.sentinels != nil.
 func (m *Machine) canonNativeReturns(out []reflect.Value) {
+=======
+func (m *Machine) canonNativeReturns(out []reflect.Value) {
+	if m.sentinels == nil {
+		return
+	}
+>>>>>>> 694836c16db5967330372b301fdf32e788dc2f91
 	for i, v := range out {
 		if v.Kind() == reflect.Interface && !v.IsNil() && v.Interface() == nativeIoEOF {
 			out[i] = m.interpEOF()
@@ -48,9 +63,14 @@ func (m *Machine) canonNativeReturns(out []reflect.Value) {
 
 // Must run before bridgeIface: on wasm errors is interpreted, so the synth EOF
 // gets wrapped in a synthErrShim that hides its identity.
+<<<<<<< HEAD
 // Caller gates on m.sentinels != nil.
 func (m *Machine) isInterpEOFReturn(v Value) bool {
 	if !v.IsValid() {
+=======
+func (m *Machine) isInterpEOFReturn(v Value) bool {
+	if m.sentinels == nil || !v.IsValid() {
+>>>>>>> 694836c16db5967330372b301fdf32e788dc2f91
 		return false
 	}
 	if v.IsIface() {
