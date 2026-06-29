@@ -403,6 +403,17 @@ func MethodFuncType(names []string, funcTypes []reflect.Type, name string) refle
 	return nil
 }
 
+// EmbeddedTypeAt returns the embedded field's type at struct field index idx, or
+// nil if no embedded field occupies that index.
+func (t *Type) EmbeddedTypeAt(idx int) *Type {
+	for _, e := range t.Embedded {
+		if e.FieldIdx == idx {
+			return e.Type
+		}
+	}
+	return nil
+}
+
 func hasUnexportedIfaceMethod(ms []IfaceMethod) bool {
 	for _, m := range ms {
 		if len(m.Name) > 0 && !unicode.IsUpper(rune(m.Name[0])) {

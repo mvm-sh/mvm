@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/mvm-sh/mvm/mtype"
+	"github.com/mvm-sh/mvm/runtype"
 )
 
 // Iface represents a boxed interface value at runtime.
@@ -26,7 +27,7 @@ func (i Iface) Format(s fmt.State, verb rune) {
 	}
 	// Reflect() rebuilds a non-addressable numeric from i.Val.num; the raw ref is
 	// zero metadata that would render as 0.
-	_, _ = fmt.Fprintf(s, fmt.FormatString(s, verb), Exportable(i.Val.Reflect()).Interface())
+	_, _ = fmt.Fprintf(s, fmt.FormatString(s, verb), runtype.Exportable(i.Val.Reflect()).Interface())
 }
 
 // Opaque stands in for an external type which could not be resolved at parse time.
@@ -50,7 +51,7 @@ var mvmFuncRtype = reflect.TypeFor[MvmFunc]()
 
 func asMvmFunc(rv reflect.Value) (MvmFunc, bool) {
 	if rv.Kind() == reflect.Struct && rv.Type() == mvmFuncRtype {
-		return Exportable(rv).Interface().(MvmFunc), true
+		return runtype.Exportable(rv).Interface().(MvmFunc), true
 	}
 	return MvmFunc{}, false
 }
@@ -351,36 +352,9 @@ func (v Value) IsIface() bool {
 	return false
 }
 
-// Exportable returns rv with its read-only flag cleared so that .Interface()
-// and .Call() do not panic on values obtained from unexported struct fields.
-func Exportable(rv reflect.Value) reflect.Value {
-	if !rv.IsValid() || rv.CanInterface() {
-		return rv
-	}
-	if rv.CanAddr() {
-		return reflect.NewAt(rv.Type(), unsafe.Pointer(rv.UnsafeAddr())).Elem()
-	}
-	// Non-addressable read-only value (typical: a method value taken off
-	// an unexported field, or the result of an unexported func-typed field
-	// access). Clear flagStickyRO and flagEmbedRO directly. The reflect.Value
-	// layout has been stable across recent Go releases; if the bit positions
-	// ever change, this will fail loudly via panic on the next .Interface()
-	// rather than silently misbehave.
-	// rvHeader mirrors reflect.Value's internal layout (typ, ptr, flag).
-	type rvHeader struct {
-		typ  unsafe.Pointer
-		ptr  unsafe.Pointer
-		flag uintptr
-	}
-	const flagRO = (1 << 5) | (1 << 6) // flagStickyRO | flagEmbedRO
-	out := rv
-	(*rvHeader)(unsafe.Pointer(&out)).flag &^= flagRO
-	return out
-}
-
 // IfaceVal extracts the Iface from a boxed interface value.
 func (v Value) IfaceVal() Iface {
-	rv := Exportable(v.ref)
+	rv := runtype.Exportable(v.ref)
 	if rv.Kind() == reflect.Interface {
 		return rv.Elem().Interface().(Iface)
 	}
@@ -481,7 +455,7 @@ func (v Value) Equal(u Value) bool {
 		switch v.ref.Kind() {
 		case reflect.Struct, reflect.Array:
 			if u.ref.Type().AssignableTo(v.ref.Type()) {
-				u.ref = Exportable(u.ref).Convert(v.ref.Type())
+				u.ref = runtype.Exportable(u.ref).Convert(v.ref.Type())
 			}
 		}
 	}
@@ -494,8 +468,8 @@ func (v Value) Equal(u Value) bool {
 	if v.ref.Kind() == reflect.Struct && u.ref.Kind() == reflect.Struct && v.ref.Type() == u.ref.Type() {
 		nf := v.ref.NumField()
 		for i := range nf {
-			fv := FromReflect(Exportable(v.ref.Field(i)))
-			fu := FromReflect(Exportable(u.ref.Field(i)))
+			fv := FromReflect(runtype.Exportable(v.ref.Field(i)))
+			fu := FromReflect(runtype.Exportable(u.ref.Field(i)))
 			if !fv.Equal(fu) {
 				return false
 			}

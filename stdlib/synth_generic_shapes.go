@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -122,7 +123,7 @@ func raiseMethodErr(err error) {
 }
 
 func reflectToErrorSlice(v reflect.Value) []error {
-	v = vm.Exportable(v)
+	v = runtype.Exportable(v)
 	if !v.IsValid() || v.Kind() != reflect.Slice || v.IsNil() {
 		return nil
 	}
@@ -240,7 +241,7 @@ func makeGenericHandler(call vm.SynthCall, shape stubs.Shape) any {
 			if err != nil || len(out) != 1 || !out[0].IsValid() {
 				return nil
 			}
-			return vm.Exportable(out[0]).Interface()
+			return runtype.Exportable(out[0]).Interface()
 		}
 	case stubs.ShapeS13:
 		return func(recv unsafe.Pointer, p []byte) (int, error) {

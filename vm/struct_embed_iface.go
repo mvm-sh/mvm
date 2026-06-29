@@ -82,7 +82,7 @@ func (m *Machine) embedFieldSatisfying(rv reflect.Value, target reflect.Type) in
 		if rv.Type().Field(i).Type.Kind() != reflect.Interface {
 			continue
 		}
-		concrete := dynamicConcrete(Exportable(rv.Field(i)))
+		concrete := dynamicConcrete(runtype.Exportable(rv.Field(i)))
 		if concrete.IsValid() && concrete.Type().Implements(target) {
 			return i
 		}
@@ -101,13 +101,13 @@ func dynamicConcrete(fv reflect.Value) reflect.Value {
 		fv = unwrapIface(fv)
 	}
 	if fv.IsValid() && fv.Type() == ifaceRtype {
-		return Exportable(fv).Interface().(Iface).Val.Reflect()
+		return runtype.Exportable(fv).Interface().(Iface).Val.Reflect()
 	}
 	return fv
 }
 
 func retypeStruct(rv reflect.Value, synthRT reflect.Type) reflect.Value {
-	rv = Exportable(rv)
+	rv = runtype.Exportable(rv)
 	if rv.CanAddr() {
 		return reflect.NewAt(synthRT, unsafe.Pointer(rv.UnsafeAddr())).Elem()
 	}

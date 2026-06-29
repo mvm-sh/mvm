@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/runtype"
 	"github.com/mvm-sh/mvm/stdlib/stubs"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -132,7 +133,7 @@ func ifaceResult(v reflect.Value) any {
 	if !v.IsValid() {
 		return nil
 	}
-	return vm.Exportable(v).Interface()
+	return runtype.Exportable(v).Interface()
 }
 
 // ctxArg boxes ctx as an interface-typed reflect value, keeping the interface

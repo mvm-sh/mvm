@@ -1,4 +1,4 @@
-package vm
+package wordabi
 
 import (
 	"reflect"
@@ -94,7 +94,7 @@ func abi0Image(t *testing.T, v reflect.Value) []byte {
 		t.Fatalf("classify %v failed", v.Type())
 	}
 	pw, sw, fw := abi0AllocWords(r.classes)
-	abi0MarshalResults(r, []reflect.Value{v}, pw, sw, fw)
+	ABI0MarshalResults(r, []reflect.Value{v}, pw, sw, fw)
 	var img []byte
 	var pi, si, fi int
 	for _, c := range r.classes {
@@ -182,8 +182,8 @@ func TestABI0RoundTrip(t *testing.T) {
 			t.Fatalf("case %d: classify failed", ci)
 		}
 		pw, sw, fw := abi0AllocWords(r.classes)
-		abi0MarshalResults(r, vals, pw, sw, fw)
-		got := abi0MarshalArgs(r, pw, sw, fw)
+		ABI0MarshalResults(r, vals, pw, sw, fw)
+		got := ABI0MarshalArgs(r, pw, sw, fw)
 		if len(got) != len(vals) {
 			t.Fatalf("case %d: got %d values, want %d", ci, len(got), len(vals))
 		}

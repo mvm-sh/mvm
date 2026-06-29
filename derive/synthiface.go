@@ -142,6 +142,25 @@ func RtypePkgPath(t *mtype.Type) string {
 	return t.PkgName
 }
 
+// UnexportedMethodPkg returns the declaring package's import path for an
+// unexported method reached via method.Path from t, or "" if the method is
+// exported. The path lets reflect.Implements match the embedded pkgPath against an
+// interface's PkgPath (RtypePkgPath resolves both to the import path).
+func UnexportedMethodPkg(t *mtype.Type, method mtype.Method, name string) string {
+	if IsExportedName(name) {
+		return ""
+	}
+	cur := t
+	for _, idx := range method.Path {
+		next := cur.EmbeddedTypeAt(idx)
+		if next == nil {
+			break
+		}
+		cur = next
+	}
+	return RtypePkgPath(cur)
+}
+
 // QualifiedTypeName is t's "pkg.Name" identity, or just Name when t has no package.
 func QualifiedTypeName(t *mtype.Type) string {
 	if t.PkgName == "" || t.Name == "" {

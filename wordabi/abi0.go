@@ -1,14 +1,11 @@
-package vm
+package wordabi
 
 import (
 	"reflect"
 	"unsafe"
-
-	"github.com/mvm-sh/mvm/mtype"
-	"github.com/mvm-sh/mvm/stdlib/stubs"
 )
 
-// ABI0 word-class layout (used by the wasm target; see synth_word_wasm.go).
+// ABI0 word-class layout (used by the wasm target).
 //
 // Go's wasm target passes every parameter and result in contiguous Go-stack
 // memory laid out exactly like a struct of those types (ABI0), not in registers.
@@ -22,14 +19,14 @@ import (
 // pools are shared with the register ABI; on a stack ABI 'f' and 'i' occupy the
 // same 8-byte slot, so the distinction is harmless but lets keys match.
 //
-// This file is build-tag-neutral so the marshaling logic is unit-testable on any
+// This path is build-tag-neutral so the marshaling logic is unit-testable on any
 // 64-bit little-endian host (the host's own 8-byte layout exercises it); it is
-// wired into classifyWordSig/makeWordCore only on wasm.
+// reached from ClassifyWordSig only on wasm.
 
-// abi0Region is one side (params or results, receiver excluded) decomposed into
+// ABI0Region is one side (params or results, receiver excluded) decomposed into
 // 8-byte slots, with a per-item plan to move bytes between the slot words and each
 // value.
-type abi0Region struct {
+type ABI0Region struct {
 	classes string     // per-slot class 'p'/'i'/'f', in slot order
 	items   []abi0Item // one per param/result, in signature order
 }
@@ -127,7 +124,7 @@ func abi0Leaves(t reflect.Type, base uintptr, out *[]abi0Leaf) bool {
 // result, a trailing int32) sits in a full slot whose high bytes are frame
 // padding -- the leaf ops touch only the real bytes, so reading/writing the whole
 // slot stays within the caller's frame.
-func classifyABI0Region(types []reflect.Type) (abi0Region, bool) {
+func classifyABI0Region(types []reflect.Type) (ABI0Region, bool) {
 	var leaves []abi0Leaf
 	starts := make([]uintptr, len(types))
 	off := uintptr(0)
@@ -138,7 +135,7 @@ func classifyABI0Region(types []reflect.Type) (abi0Region, bool) {
 			continue
 		}
 		if !abi0Leaves(t, off, &leaves) {
-			return abi0Region{}, false
+			return ABI0Region{}, false
 		}
 		off += t.Size()
 	}
@@ -200,13 +197,13 @@ func classifyABI0Region(types []reflect.Type) (abi0Region, bool) {
 			}
 		}
 	}
-	return abi0Region{classes: string(classes), items: items}, true
+	return ABI0Region{classes: string(classes), items: items}, true
 }
 
 // abi0ClassifyWordSig classifies sig into its ABI0 word-shape key
-// ("params_results"), mirroring classifyWordSig's contract for the wasm build.
+// ("params_results"), mirroring ClassifyWordSig's contract for the wasm build.
 func abi0ClassifyWordSig(sig reflect.Type) (key, reason string, ok bool) {
-	if !wordShapesSupported || sig == nil || sig.Kind() != reflect.Func {
+	if !WordShapesSupported || sig == nil || sig.Kind() != reflect.Func {
 		return "", "", false
 	}
 	pr, ok := classifyABI0Region(typeList(sig.NumIn(), sig.In))
@@ -229,34 +226,20 @@ func typeList(n int, at func(int) reflect.Type) []reflect.Type {
 	return ts
 }
 
-// makeWordCoreABI0 builds the stubs.CoreFunc for one word-shaped method on a
-// stack ABI: it reconstructs the args from the slot words, re-enters the
-// interpreter, and writes the result words back. A failed dispatch panics
-// (raiseMethodErr) unless swallowErr: then results stay zero. makeWordCore
-// selects it per arch.
-func (m *Machine) makeWordCoreABI0(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
-	methodSig := method.Rtype
-	inRegion, _ := classifyABI0Region(typeList(methodSig.NumIn(), methodSig.In))
-	outRegion, _ := classifyABI0Region(typeList(methodSig.NumOut(), methodSig.Out))
-	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
-		rv := makeRecvValue(t.Rtype, recv, form)
-		argv := abi0MarshalArgs(inRegion, pw, sw, fw)
-		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
-		if err != nil {
-			if !swallowErr {
-				raiseMethodErr(err)
-			}
-			out = nil // zero result words
-		}
-		abi0MarshalResults(outRegion, out, rpw, rsw, rfw)
-	}
+// ABI0Regions decomposes sig's params and results into their ABI0 slot regions,
+// precomputed once at attach. Both sides are assumed classifiable (the caller
+// gates on ClassifyWordSig first).
+func ABI0Regions(sig reflect.Type) (in, out ABI0Region) {
+	in, _ = classifyABI0Region(typeList(sig.NumIn(), sig.In))
+	out, _ = classifyABI0Region(typeList(sig.NumOut(), sig.Out))
+	return in, out
 }
 
-// abi0MarshalArgs reconstructs each native arg Value from the slot words. A 'p'
+// ABI0MarshalArgs reconstructs each native arg Value from the slot words. A 'p'
 // slot is written through a pointer-typed slot so it stays GC-visible; an 'i' slot
 // copies its meaningful bytes (packed fields share a word). Each arg is a fresh
 // reflect.New allocation, so pointer words land in GC-scanned memory.
-func abi0MarshalArgs(r abi0Region, pw []unsafe.Pointer, sw []uint64, fw []float64) []reflect.Value {
+func ABI0MarshalArgs(r ABI0Region, pw []unsafe.Pointer, sw []uint64, fw []float64) []reflect.Value {
 	if len(r.items) == 0 {
 		return nil
 	}
@@ -280,10 +263,10 @@ func abi0MarshalArgs(r abi0Region, pw []unsafe.Pointer, sw []uint64, fw []float6
 	return argv
 }
 
-// abi0MarshalResults writes each result Value's bytes back into rpw/rsw/rfw,
-// symmetric to abi0MarshalArgs. Packed results sharing an 'i' slot accumulate into
+// ABI0MarshalResults writes each result Value's bytes back into rpw/rsw/rfw,
+// symmetric to ABI0MarshalArgs. Packed results sharing an 'i' slot accumulate into
 // the same word (readIntWordBytes preserves the word's other bytes).
-func abi0MarshalResults(r abi0Region, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
+func ABI0MarshalResults(r ABI0Region, out []reflect.Value, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
 	for j := range r.items {
 		it := &r.items[j]
 		tmp := reflect.New(it.typ)

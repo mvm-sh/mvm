@@ -1230,7 +1230,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					}
 				}
 			}
-			fval.ref = Exportable(fval.ref)
+			fval.ref = runtype.Exportable(fval.ref)
 			prevHeap := m.heap
 			var nip int
 			// fval.ref may be non-addressable AND read-only (method value
@@ -1294,7 +1294,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				if rv.Kind() == reflect.Interface && !rv.IsNil() {
 					rv = rv.Elem()
 				}
-				rv = Exportable(rv)
+				rv = runtype.Exportable(rv)
 				if codeAddr, ok := m.methodExprBypass(rv, narg >= 1 && c.B&CallSpreadFlag == 0); ok {
 					// Dispatch a method expression T.M through the interpreter:
 					// bind the first arg as the receiver heap cell, drop it from
@@ -1302,7 +1302,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					recv := mem[sp-narg+1]
 					if k := recv.ref.Kind(); k == reflect.Struct || k == reflect.Array {
 						nv := reflect.New(recv.ref.Type()).Elem() // value receiver gets a copy
-						nv.Set(Exportable(recv.ref))
+						nv.Set(runtype.Exportable(recv.ref))
 						recv.ref = nv
 					}
 					cell := new(Value)
@@ -1766,7 +1766,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			if v.ref.IsValid() {
 				if k := v.ref.Kind(); k == reflect.Struct || k == reflect.Array || (!isNum(k) && v.ref.CanSet()) {
 					nv := reflect.New(v.ref.Type()).Elem()
-					nv.Set(Exportable(v.ref))
+					nv.Set(runtype.Exportable(v.ref))
 					v.ref = nv
 				}
 			}
@@ -1818,7 +1818,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				// defer/go: capture the receiver by value, not its slot.
 				if c.B&IfaceCallDetachBit != 0 && recvRV.CanAddr() {
 					cp := reflect.New(recvRV.Type()).Elem()
-					cp.Set(Exportable(recvRV))
+					cp.Set(runtype.Exportable(recvRV))
 					recvRV = cp
 				}
 				// Native method table (ADR-023): reuse a cached unbound func.
@@ -1829,7 +1829,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						if d.needAddr {
 							recv = recvRV.Addr()
 						}
-						mem[sp] = Value{ref: reflect.ValueOf(cachedNativeCall{Unbound: d.fn, Recv: Exportable(recv)})}
+						mem[sp] = Value{ref: reflect.ValueOf(cachedNativeCall{Unbound: d.fn, Recv: runtype.Exportable(recv)})}
 						break
 					}
 				}
@@ -1999,7 +1999,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			if !method.PtrRecv && cell.ref.IsValid() {
 				if k := cell.ref.Kind(); k == reflect.Struct || k == reflect.Array {
 					nv := reflect.New(cell.ref.Type()).Elem()
-					nv.Set(Exportable(cell.ref))
+					nv.Set(runtype.Exportable(cell.ref))
 					cell.ref = nv
 				}
 			}
@@ -2233,7 +2233,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			// Strip the read-only flag from an unexported field read off a
 			// non-addressable struct (e.g. a map index) so a later .Interface() won't panic.
 			if !fv.CanInterface() {
-				fv = Exportable(fv)
+				fv = runtype.Exportable(fv)
 			}
 			if isNum(fv.Kind()) {
 				// Preserve addressable ref for write-through on struct field mutations.
@@ -2772,7 +2772,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				}
 				if isX == 1 {
 					// Native function: call via reflect, discard results.
-					rv := Exportable(unwrapIface(funcVal.ref))
+					rv := runtype.Exportable(unwrapIface(funcVal.ref))
 					if rv.Kind() != reflect.Func || rv.IsNil() {
 						// Nil deferred call panics; flag started so panicUnwind pops it.
 						mem[dh-2].num |= deferStartedFlag
@@ -3070,7 +3070,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer,
 					reflect.Struct, reflect.Array:
 					rv := reflect.New(cell.ref.Type()).Elem()
-					rv.Set(Exportable(cell.ref))
+					rv.Set(runtype.Exportable(cell.ref))
 					cell.ref = rv
 				}
 			}
@@ -3256,8 +3256,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			}
 			mt := mapVal.Type()
 			// adoptNamedType: an untyped constant value keeps its base type. Adopt it.
-			mapVal.SetMapIndex(Exportable(m.mapKey(mt.Key(), mem[sp-1])),
-				Exportable(adoptNamedType(m.wrapForFunc(mem[sp], mt.Elem()), mt.Elem())))
+			mapVal.SetMapIndex(runtype.Exportable(m.mapKey(mt.Key(), mem[sp-1])),
+				runtype.Exportable(adoptNamedType(m.wrapForFunc(mem[sp], mt.Elem()), mt.Elem())))
 			sp -= 2
 		case SetS:
 			n := int(c.A)
@@ -3779,7 +3779,7 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		}
 		if isX == 1 {
 			// Native defer: call via reflect, discard results.
-			rv := Exportable(unwrapIface(funcVal.ref))
+			rv := runtype.Exportable(unwrapIface(funcVal.ref))
 			if rv.Kind() != reflect.Func || rv.IsNil() {
 				// Nil deferred call supersedes the in-flight panic (see VM case below).
 				m.raiseNilDeref()
@@ -4877,7 +4877,7 @@ func (m *Machine) buildCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 	// wrapper's lifetime, and a live slot may be overwritten after the wrap.
 	if fval.ref.IsValid() && fval.ref.CanAddr() {
 		cp := reflect.New(fval.ref.Type()).Elem()
-		cp.Set(Exportable(fval.ref))
+		cp.Set(runtype.Exportable(fval.ref))
 		fval.ref = cp
 	}
 	ref := &funcRef{val: fval}
@@ -5120,7 +5120,7 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	}
 	if rv.Kind() == reflect.Func {
 		// Native Go function: call via reflection in a plain goroutine.
-		rv = Exportable(rv)
+		rv = runtype.Exportable(rv)
 		in := make([]reflect.Value, len(args))
 		for i, a := range args {
 			in[i] = a.Reflect()
@@ -5267,7 +5267,7 @@ func snapshotArg(v Value) Value {
 func snapshotFuncVal(v Value) Value {
 	if k := v.ref.Kind(); (k == reflect.Func || k == reflect.Interface) && v.ref.CanAddr() {
 		nv := reflect.New(v.ref.Type()).Elem()
-		nv.Set(Exportable(v.ref))
+		nv.Set(runtype.Exportable(v.ref))
 		v.ref = nv
 	}
 	return v
@@ -5297,7 +5297,7 @@ func detachByValueArgs(args []Value) {
 			continue
 		}
 		nv := reflect.New(r.Type()).Elem()
-		nv.Set(Exportable(r))
+		nv.Set(runtype.Exportable(r))
 		args[i].ref = nv
 	}
 }
@@ -5417,7 +5417,7 @@ func (m *Machine) recoverWrappedFunc(rv reflect.Value) (Value, bool) {
 		return Value{}, false
 	}
 	// funcDataPtr copies rv into a fresh slot, which panics on a read-only value.
-	return m.wrappedFuncFor(funcDataPtr(Exportable(rv)))
+	return m.wrappedFuncFor(funcDataPtr(runtype.Exportable(rv)))
 }
 
 func (m *Machine) setGoFuncField(fv, gf reflect.Value, val Value) {
@@ -5439,7 +5439,7 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 		fv.Set(reflect.Zero(fv.Type()))
 		return
 	}
-	val.ref = Exportable(val.ref)
+	val.ref = runtype.Exportable(val.ref)
 	if pf, ok := val.ref.Interface().(MvmFunc); ok && fv.CanAddr() {
 		m.setGoFuncField(fv, pf.GF, pf.Val)
 		return
@@ -5570,7 +5570,7 @@ func setCell(cell *Value, src Value) {
 		if isNum(src.ref.Kind()) {
 			setNumReflect(rv, src.num)
 		} else {
-			rv.Set(Exportable(src.ref))
+			rv.Set(runtype.Exportable(src.ref))
 		}
 		src.ref = rv
 	}
@@ -5641,7 +5641,7 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 		s = reflect.Zero(dst.ref.Type())
 	}
 	// A value read from an unexported field carries reflect's read-only flag, strip it.
-	s = Exportable(s)
+	s = runtype.Exportable(s)
 	dst.ref.Set(adoptNamedType(s, dst.ref.Type()))
 }
 
@@ -5793,7 +5793,7 @@ func paramTypeFor(funcType reflect.Type, i int) reflect.Type {
 func coerceInterfaceArgs(in []reflect.Value, funcType reflect.Type) {
 	for i, rv := range in {
 		if rv.IsValid() && !rv.CanInterface() {
-			rv = Exportable(rv)
+			rv = runtype.Exportable(rv)
 			in[i] = rv
 		}
 		paramType := paramTypeFor(funcType, i)
@@ -5848,7 +5848,7 @@ func (m *Machine) makeMethodCell(ifc Iface, method mtype.Method) (*Value, Value)
 			rv = rv.Field(idx)
 		}
 		if method.PtrRecv && rv.CanAddr() {
-			rv = Exportable(rv).Addr()
+			rv = runtype.Exportable(rv).Addr()
 		}
 		*cell = FromReflect(rv)
 	}

@@ -128,7 +128,7 @@ func (m *Machine) normalizeIfaceWritebacks(wb []ifaceWriteback) {
 		if synthVal.IsNil() {
 			continue // wrote a nil interface; nothing to wrap (errors.As never does)
 		}
-		concrete := Exportable(synthVal.Elem())
+		concrete := runtype.Exportable(synthVal.Elem())
 		loc := reflect.NewAt(mtype.AnyRtype, w.ptr).Elem()
 		if t := m.typeByRtype(concrete.Type()); t != nil {
 			loc.Set(reflect.ValueOf(any(Iface{Typ: t, Val: FromReflect(concrete)})))
@@ -159,7 +159,7 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 		loc.Set(reflect.Zero(mtype.AnyRtype))
 		return
 	}
-	el = Exportable(el)
+	el = runtype.Exportable(el)
 	if el.Type() == ifaceRtype { // already an mvm Iface
 		loc.Set(reflect.ValueOf(el.Interface()))
 		return
@@ -257,33 +257,6 @@ type synthMethodSpec struct {
 	swallowErr bool        // word path: swallow dispatch errors to zero results
 	form       recvForm    //
 	pkgName    string      // declaring package for an unexported method ("" if exported)
-}
-
-func (m *Machine) unexportedMethodPkg(t *mtype.Type, method mtype.Method, name string) string {
-	if derive.IsExportedName(name) {
-		return ""
-	}
-	cur := t
-	for _, idx := range method.Path {
-		next := embeddedTypeAt(cur, idx)
-		if next == nil {
-			break
-		}
-		cur = next
-	}
-	// Use the declaring package's full import path so an unexported method matches
-	// reflect.Implements: it compares this embedded pkgPath against the interface
-	// type's PkgPath, which derive.RtypePkgPath also resolves to the import path.
-	return derive.RtypePkgPath(cur)
-}
-
-func embeddedTypeAt(t *mtype.Type, idx int) *mtype.Type {
-	for _, e := range t.Embedded {
-		if e.FieldIdx == idx {
-			return e.Type
-		}
-	}
-	return nil
 }
 
 func (s *synthMethodSpec) resolveDispatch(erased, precise reflect.Type) bool {
@@ -402,7 +375,7 @@ func (m *Machine) allSynthMethods(
 			name:    m.MethodNames[i],
 			method:  method,
 			form:    recvFormFor(t.Rtype, method.PtrRecv, includePtr),
-			pkgName: m.unexportedMethodPkg(t, method, m.MethodNames[i]),
+			pkgName: derive.UnexportedMethodPkg(t, method, m.MethodNames[i]),
 		}
 		// Typed-shape tables erase synth-iface params to any.
 		if !spec.resolveDispatch(derive.EraseSynthIfaceParams(method.Rtype), method.Rtype) {
@@ -497,7 +470,7 @@ func ReflectToError(v reflect.Value) error {
 			return nil
 		}
 	}
-	rerr, _ := Exportable(v).Interface().(error)
+	rerr, _ := runtype.Exportable(v).Interface().(error)
 	return rerr
 }
 
@@ -513,7 +486,7 @@ func makeRecvValue(rtype reflect.Type, recv unsafe.Pointer, form recvForm) refle
 		// interface storage (matches the IfaceCall opcode detach).
 		v := reflect.NewAt(rtype, recv).Elem()
 		cp := reflect.New(rtype).Elem()
-		cp.Set(Exportable(v))
+		cp.Set(runtype.Exportable(v))
 		return cp
 	}
 }
@@ -551,7 +524,7 @@ func (m *Machine) callPromotedConcrete(
 		}
 		rv = rv.Field(fi)
 	}
-	rv = Exportable(rv)
+	rv = runtype.Exportable(rv)
 	embedded := FromReflect(rv)
 	if embedded.IsIface() {
 		ic := embedded.IfaceVal()
@@ -620,7 +593,7 @@ func (m *Machine) promotedNativeMethod(rv reflect.Value, st *mtype.Type, name st
 		if ft.Kind() == reflect.Interface || isSynthOrSynthPtr(ft) {
 			return reflect.Value{}, false
 		}
-		fv := Exportable(base.Field(idx))
+		fv := runtype.Exportable(base.Field(idx))
 		if mv := nativeMethodLookup(m, fv, name); mv.IsValid() {
 			return mv, true
 		}
@@ -671,7 +644,7 @@ func (m *Machine) callEmbedIface(ifc Iface, method mtype.Method, name string, me
 			rv = rv.Field(fi)
 		}
 		// Embedded fields are often unexported, value carries RO flag. Clear it before dispatch.
-		rv = Exportable(rv)
+		rv = runtype.Exportable(rv)
 		embedded := FromReflect(rv)
 		if !embedded.IsIface() {
 			if isNilReceiver(rv) {
