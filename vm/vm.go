@@ -1269,10 +1269,11 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				m.heap = nil
 			} else {
 				rv := fval.ref
+				if rv.Kind() == reflect.Interface && !rv.IsNil() {
+					rv = rv.Elem()
+				}
 				// Method-call sentinel: IfaceCall placed a boundHookCall on
-				// the stack because the target method has a registered
-				// NativeMethodHook. Unwrap it and thread (RecvType, Method,
-				// Recv) to the hook lookup further down.
+				// the stack because the target method has a registered NativeMethodHook.
 				var hookRecvType reflect.Type
 				var hookMethod string
 				var hookRecv reflect.Value
@@ -1284,7 +1285,6 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					hookRecv = bhc.Recv
 				}
 				// Native method-table marker: call Unbound with Recv prepended
-				// (see native_methods.go).
 				var cncRecv reflect.Value
 				if rv.IsValid() && rv.Type() == cachedNativeCallRtype {
 					cnc := rv.Interface().(cachedNativeCall)
