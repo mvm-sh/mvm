@@ -2046,6 +2046,9 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					nv.Set(runtype.Exportable(cell.ref))
 					cell.ref = nv
 				}
+			} else if cell.ref.IsValid() && !cell.ref.CanInterface() {
+				// forceSettable rescues writes through a flagRO ptr receiver but not reads of it.
+				cell.ref = runtype.Exportable(cell.ref)
 			}
 			if mf != nil {
 				mf.slot[0] = cell

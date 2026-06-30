@@ -59,6 +59,10 @@ var Incompat = map[string]map[string]string{
 	"context": {
 		"TestAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 (escape-analysis assertion)",
 	},
+	"database/sql": {
+		"TestGrabConnAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestRawBytesAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+	},
 	"bytes": {
 		"TestNewBufferShallow": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 		"TestWriteAppend":      "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",

@@ -1,6 +1,15 @@
 package interptest
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+
+	"github.com/mvm-sh/mvm/interp"
+	"github.com/mvm-sh/mvm/lang/golang"
+	"github.com/mvm-sh/mvm/stdlib"
+	_ "github.com/mvm-sh/mvm/stdlib/all"
+)
 
 // A method promoted from a NATIVE embedded field (sync.Mutex) of an interpreted
 // struct, dispatched on the synth receiver, must reach the genuine native method.
@@ -118,5 +127,55 @@ func main() {
 	want := "exec 3\ncols [id name]\nrow 2 bob\nrow 3 carol\nfirst alice\n"
 	if got := evalOut(t, "dbsql.go", src); got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Smoke-test interpreted (SkipBridges) database/sql dispatching an interpreted
+// driver whose conn method reads its own receiver (sub-call + composite literal).
+// NOT a fail-without guard: the flagRO-receiver bug this covers only reproduces
+// with database/sql's own same-package *fakeConn, so the authoritative repro is
+// `mvm test database/sql -run TestNamedValueChecker`.
+func TestSynthDatabaseSQLInterpretedDriver(t *testing.T) {
+	const src = `package main
+import ("context"; "database/sql"; "database/sql/driver"; "fmt")
+type toucher interface{ touch() }
+type conn struct{ line int64 }
+func (c *conn) touch() { c.line++ }
+func (c *conn) PrepareContext(ctx context.Context, q string) (driver.Stmt, error) {
+	c.line++
+	c.touch()
+	s := &stmt{tou: c}
+	return s, nil
+}
+func (c *conn) Prepare(q string) (driver.Stmt, error) { panic("use PrepareContext") }
+func (c *conn) Close() error              { return nil }
+func (c *conn) Begin() (driver.Tx, error) { return nil, fmt.Errorf("no tx") }
+type stmt struct{ tou toucher }
+func (s *stmt) Close() error  { return nil }
+func (s *stmt) NumInput() int { return -1 }
+func (s *stmt) Exec(a []driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
+func (s *stmt) Query(a []driver.Value) (driver.Rows, error) { return nil, fmt.Errorf("no query") }
+type drv struct{}
+func (drv) Open(string) (driver.Conn, error) { return &conn{}, nil }
+func main() {
+	sql.Register("mem2", drv{})
+	db, _ := sql.Open("mem2", "")
+	defer db.Close()
+	res, err := db.Exec("INSERT")
+	if err != nil { fmt.Println("err", err); return }
+	n, _ := res.RowsAffected()
+	fmt.Println("exec", n)
+}`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("database/sql", "database/sql/driver")
+	i.SetIO(os.Stdin, &stdout, &stderr)
+	if _, err := i.Eval("dbsqlinterp.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got := stdout.String(); got != "exec 1\n" {
+		t.Errorf("got %q, want %q\nstderr: %s", got, "exec 1\n", stderr.String())
 	}
 }
