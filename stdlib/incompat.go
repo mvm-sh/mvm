@@ -48,6 +48,9 @@ var Incompat = map[string]map[string]string{
 	"compress/gzip": {
 		"TestCVE202230631": "stress test: gunzips ~80MB (4e6 x 20-byte members) to probe stack exhaustion; no testing.Short path, impractical under the interpreter",
 	},
+	"encoding/asn1": {
+		"TestParsingMemoryConsumption": "measures runtime.MemStats.TotalAlloc around an interpreted Unmarshal of a 10MB DER bomb; parseSequenceOf's count loop boxes ~200K iterations so TotalAlloc exceeds the native <20MB bound, though Unmarshal still returns the expected SyntaxError",
+	},
 
 	// testing.AllocsPerRun counts heap allocations of the closure body.
 	// Interpreted execution boxes operands and reallocates working storage,
@@ -85,6 +88,10 @@ var Incompat = map[string]map[string]string{
 	},
 	"strconv": {
 		"TestAllocationsFromBytes": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+	},
+	"encoding/binary": {
+		"TestAppendAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestSizeAllocs":   "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	},
 	"fmt": {
 		"TestCountMallocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0-4",

@@ -835,12 +835,11 @@ func (p *Parser) parseStructType(in Tokens) (*mtype.Type, error) {
 			if j := strings.LastIndex(name, "/"); j >= 0 {
 				name = name[j+1:]
 			}
-			// A blank field's synthesized name carries '~' to stay clear of the
-			// user identifier namespace (goparser blankName), but reflect.StructOf
-			// rejects '~'. Strip it so the *Type field name (and Type.String) is a
-			// valid unexported identifier; mtype.buildStructRtype is the rtype-side
-			// backstop.
-			name = strings.ReplaceAll(name, "~", "")
+			// Undo blankName: reflect must see "_" (encoding/binary keys blanks on it),
+			// and equal types must share one rtype.
+			if strings.IndexByte(name, '~') >= 0 {
+				name = "_"
+			}
 			pkgPath := ""
 			if !IsExported(name) {
 				pkgPath = p.pkgName

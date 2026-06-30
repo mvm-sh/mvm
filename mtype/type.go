@@ -852,17 +852,17 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		}
 	}
 	for i, f := range fields {
-		// Backstop for the blank-field marker: a synthesized blank field name
-		// carries '~' (goparser blankName), which reflect.StructOf rejects.
-		// goparser strips it when it builds the *Type, so the name is usually
-		// already clean; sanitize here too since this is the single point every
-		// struct rtype passes through, whatever path produced the *Type.
+		// Backstop for any *Type that kept blankName's '~'; StructOf needs "_".
 		name := f.Name
 		if strings.IndexByte(name, '~') >= 0 {
-			name = strings.ReplaceAll(name, "~", "")
+			name = "_"
 		}
 		rf[i].Name = name
 		rf[i].PkgPath = f.PkgName
+		// StructOf rejects an unexported "_" with no PkgPath.
+		if name == "_" && rf[i].PkgPath == "" {
+			rf[i].PkgPath = pkgPath
+		}
 		if i < len(tags) {
 			rf[i].Tag = reflect.StructTag(tags[i])
 		}

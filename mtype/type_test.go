@@ -326,3 +326,32 @@ func TestEmbeddedMethodBearingPtrKeepsIdentity(t *testing.T) {
 		t.Error("embedded field should stay Anonymous so json/fmt flatten it")
 	}
 }
+
+// Blank fields must surface as "_" and stay non-settable (encoding/binary
+// keys blank detection on the name).
+func TestBuildStructRtypeBlankField(t *testing.T) {
+	field := func(name, pkg string, rt reflect.Type) *Type {
+		return &Type{Name: name, PkgName: pkg, kind: rt.Kind(), Rtype: rt}
+	}
+	rt := BuildStructRtype([]*Type{
+		field("A", "", reflect.TypeFor[uint32]()),
+		field("_~0", "pkg", reflect.TypeFor[int32]()),
+		field("_~1", "pkg", reflect.TypeFor[int16]()),
+	}, nil, nil)
+	v := reflect.New(rt).Elem()
+	for i := 1; i <= 2; i++ {
+		f := rt.Field(i)
+		if f.Name != "_" {
+			t.Errorf("field[%d].Name = %q, want %q", i, f.Name, "_")
+		}
+		if f.PkgPath == "" {
+			t.Errorf("field[%d] blank must keep a PkgPath (unexported)", i)
+		}
+		if v.Field(i).CanSet() {
+			t.Errorf("field[%d] blank must not be settable", i)
+		}
+	}
+	if !v.Field(0).CanSet() {
+		t.Error("exported field A should be settable")
+	}
+}
