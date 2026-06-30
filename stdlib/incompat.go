@@ -63,6 +63,11 @@ var Incompat = map[string]map[string]string{
 		"TestNewBufferShallow": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 		"TestWriteAppend":      "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 		"TestGrow":             "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestEqual":            "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestIndex":            "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestLastIndex":        "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestIndexRune":        "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestReplace":          "testing.AllocsPerRun observes mvm interpreter allocations; native expects <=1",
 	},
 	"strings": {
 		"TestBuilderGrow":            "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0/1",

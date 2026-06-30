@@ -1063,12 +1063,53 @@ func (m *Machine) Run() (err error) {
 	}
 }
 
+// runtime.errorString/plainError are unexported; trigger the real panics to reuse them.
+// MkSlice/MkChan go through reflect, whose panics differ, so recover() needs the swap.
+var (
+	makeSliceLenPanic = capturedPanic(func() { n := -1; _ = make([]byte, n) })
+	makeSliceCapPanic = capturedPanic(func() { n, c := 2, 1; _ = make([]byte, n, c) })
+	makeChanSizePanic = capturedPanic(func() { n := -1; _ = make(chan int, n) })
+)
+
+func capturedPanic(f func()) (out any) {
+	defer func() { out = recover() }()
+	f()
+	return nil
+}
+
+// "allocation size out of range" can't tell huge len from huge cap; report len.
+func makeAllocPanicValue(r any) (any, bool) {
+	var s string
+	switch v := r.(type) {
+	case string:
+		s = v
+	case runtime.Error:
+		s = v.Error()
+	default:
+		return nil, false
+	}
+	switch {
+	case strings.Contains(s, "reflect.MakeSlice: negative len"),
+		strings.Contains(s, "allocation size out of range"):
+		return makeSliceLenPanic, true
+	case strings.Contains(s, "reflect.MakeSlice: len > cap"):
+		return makeSliceCapPanic, true
+	case strings.Contains(s, "reflect.MakeChan: negative buffer size"),
+		strings.Contains(s, "makechan: size out of range"):
+		return makeChanSizePanic, true
+	}
+	return nil, false
+}
+
 // opPanicCatchable reports whether a Go panic raised by an interpreted opcode
 // (not a native call) is a user-level runtime panic that Go programs can
-// recover: index/slice bounds, divide by zero, and reflect's equivalents for
-// container ops. VM-internal faults (reflect.ValueError, nil derefs inside VM
-// code) stay uncatchable so they surface as crashes, not as program panics.
+// recover: index/slice bounds, divide by zero, make-size overflow, and reflect's
+// equivalents for container ops. VM-internal faults (reflect.ValueError, nil
+// derefs inside VM code) stay uncatchable so they surface as crashes.
 func opPanicCatchable(r any) bool {
+	if _, ok := makeAllocPanicValue(r); ok {
+		return true
+	}
 	switch v := r.(type) {
 	case string:
 		// Index ops panic "reflect: ... out of range"; Slice/Slice3 panic
@@ -1096,6 +1137,9 @@ func (e opRuntimeError) RuntimeError() {}
 // gc's runtime.Error shape; genuine runtime.Error values (e.g. divide by zero)
 // pass through unchanged.
 func normalizeOpPanic(r any) any {
+	if v, ok := makeAllocPanicValue(r); ok {
+		return v
+	}
 	s, ok := r.(string)
 	if !ok {
 		return r

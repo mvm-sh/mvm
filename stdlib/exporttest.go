@@ -51,6 +51,17 @@ var TestValues = map[string]map[string]reflect.Value{
 		"IsSpace":  reflect.ValueOf(fmtIsSpace),
 		"Parsenum": reflect.ValueOf(fmtParsenum),
 	},
+	"bytes": {
+		// Verbatim indexBytePortable (bytes.go); the bridge has only optimized IndexByte.
+		"IndexBytePortable": reflect.ValueOf(func(s []byte, c byte) int {
+			for i, b := range s {
+				if b == c {
+					return i
+				}
+			}
+			return -1
+		}),
+	},
 	"strings": {
 		"StringFind": reflect.ValueOf(func(pattern, text string) int {
 			return strings.Index(text, pattern)

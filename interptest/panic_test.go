@@ -33,6 +33,13 @@ func TestOpPanicRecoverable(t *testing.T) {
 		{"slice_oob", `s := []int{1}; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = s[0:9]; return }; f()`, "true"},
 		{"slice_oob_msg", `s := []int{1}; f := func() (m string) { defer func() { m = fmt.Sprint(recover()) }(); _ = s[0:9]; return }; f()`, "runtime error: slice bounds out of range"},
 		{"slice3_oob", `s := []int{1, 2, 3}; f := func() (ok bool) { defer func() { ok = recover() != nil }(); _ = s[0:1:9]; return }; f()`, "true"},
+		// reflect's MakeSlice/MakeChan size panics, remapped to gc's recoverable shape.
+		// bytes.Repeat (TestRepeatCatchesOverflow) recovers makeslice overflow.
+		{"make_huge_len_msg", `const m = int(^uint(0) >> 1); f := func() (s string) { defer func() { s = fmt.Sprint(recover()) }(); n := m; _ = make([]byte, n); return }; f()`, "runtime error: makeslice: len out of range"},
+		{"make_neg_len_msg", `f := func() (s string) { defer func() { s = fmt.Sprint(recover()) }(); n := -1; _ = make([]byte, n); return }; f()`, "runtime error: makeslice: len out of range"},
+		{"make_len_gt_cap_msg", `f := func() (s string) { defer func() { s = fmt.Sprint(recover()) }(); n, c := 2, 1; _ = make([]byte, n, c); return }; f()`, "runtime error: makeslice: cap out of range"},
+		{"make_chan_neg_msg", `f := func() (s string) { defer func() { s = fmt.Sprint(recover()) }(); n := -1; _ = make(chan int, n); return }; f()`, "makechan: size out of range"},
+		{"make_alive_after", `f := func() (ok bool) { defer func() { ok = recover() != nil }(); n := -1; _ = make([]byte, n); return }; f(); "ok"`, "ok"},
 		{"index_oob_is_error", `s := []int{1}; f := func() (ok bool) { defer func() { _, ok = recover().(error) }(); _ = s[3]; return }; f()`, "true"},
 		// *nilptr read and write must raise a recoverable nil deref, not a raw
 		// reflect panic ("Set/Type on zero Value") that escapes recover().

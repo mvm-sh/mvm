@@ -53,4 +53,9 @@ func TestExportTestOverlay(t *testing.T) {
 	if got != 2 {
 		t.Errorf("StringFind(nan, banana) = %d, want 2", got)
 	}
+	ibp := TestValues["bytes"]["IndexBytePortable"]
+	pos := ibp.Call([]reflect.Value{reflect.ValueOf([]byte("banana")), reflect.ValueOf(byte('n'))})[0].Int()
+	if pos != 2 {
+		t.Errorf("IndexBytePortable(banana, n) = %d, want 2", pos)
+	}
 }
