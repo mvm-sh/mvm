@@ -5,15 +5,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/lang"
-	"github.com/mvm-sh/mvm/vm"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
-func checkConstraintElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type) bool {
+func checkConstraintElem(e constraintElem, arg *mtype.Type, typeArgs []*mtype.Type) bool {
 	return checkCElem(e, arg, typeArgs, nil)
 }
 
-func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*vm.Type]bool) bool {
+func checkCElem(e constraintElem, arg *mtype.Type, typeArgs []*mtype.Type, seen map[*mtype.Type]bool) bool {
 	switch e.kind {
 	case elemAny:
 		return true
@@ -29,7 +30,7 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 		// whose elements were filled in after the template was parsed.
 		if e.typ.IsInterface() && len(e.typ.TypeElems) > 0 && !seen[e.typ] {
 			if seen == nil {
-				seen = map[*vm.Type]bool{}
+				seen = map[*mtype.Type]bool{}
 			}
 			seen[e.typ] = true
 			for _, te := range e.typ.TypeElems {
@@ -55,7 +56,7 @@ func checkCElem(e constraintElem, arg *vm.Type, typeArgs []*vm.Type, seen map[*v
 	return false
 }
 
-func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
+func isTypeParamLeaf(shape *mtype.Type, tpArgs map[string]*mtype.Type) bool {
 	if shape.Name == "" || shape.PkgName != "" {
 		return false
 	}
@@ -63,7 +64,7 @@ func isTypeParamLeaf(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
 	return ok
 }
 
-func argElem(t *vm.Type) *vm.Type {
+func argElem(t *mtype.Type) *mtype.Type {
 	if t.ElemType != nil {
 		return t.ElemType
 	}
@@ -73,7 +74,7 @@ func argElem(t *vm.Type) *vm.Type {
 	return nil
 }
 
-func argKey(t *vm.Type) *vm.Type {
+func argKey(t *mtype.Type) *mtype.Type {
 	if t.KeyType != nil {
 		return t.KeyType
 	}
@@ -83,11 +84,11 @@ func argKey(t *vm.Type) *vm.Type {
 	return nil
 }
 
-func shapeContainsTypeParam(shape *vm.Type, tpArgs map[string]*vm.Type) bool {
+func shapeContainsTypeParam(shape *mtype.Type, tpArgs map[string]*mtype.Type) bool {
 	return shapeContainsTP(shape, tpArgs, nil)
 }
 
-func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Type]bool) bool {
+func shapeContainsTP(shape *mtype.Type, tpArgs map[string]*mtype.Type, seen map[*mtype.Type]bool) bool {
 	if shape == nil || len(tpArgs) == 0 {
 		return false
 	}
@@ -98,7 +99,7 @@ func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Ty
 		return false
 	}
 	if seen == nil {
-		seen = map[*vm.Type]bool{}
+		seen = map[*mtype.Type]bool{}
 	}
 	seen[shape] = true
 	if shapeContainsTP(shape.ElemType, tpArgs, seen) || shapeContainsTP(shape.KeyType, tpArgs, seen) {
@@ -117,11 +118,11 @@ func shapeContainsTP(shape *vm.Type, tpArgs map[string]*vm.Type, seen map[*vm.Ty
 	return false
 }
 
-func coreTypeArgMatches(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool) bool {
+func coreTypeArgMatches(shape, arg *mtype.Type, tpArgs map[string]*mtype.Type, approx bool) bool {
 	return coreTypeArgMatchesSeen(shape, arg, tpArgs, approx, nil)
 }
 
-func coreTypeArgMatchesSeen(shape, arg *vm.Type, tpArgs map[string]*vm.Type, approx bool, seen map[*vm.Type]bool) bool {
+func coreTypeArgMatchesSeen(shape, arg *mtype.Type, tpArgs map[string]*mtype.Type, approx bool, seen map[*mtype.Type]bool) bool {
 	if shape == nil || arg == nil {
 		return true
 	}
@@ -142,7 +143,7 @@ func coreTypeArgMatchesSeen(shape, arg *vm.Type, tpArgs map[string]*vm.Type, app
 		return true
 	}
 	if seen == nil {
-		seen = map[*vm.Type]bool{}
+		seen = map[*mtype.Type]bool{}
 	}
 	seen[shape] = true
 	switch shape.Kind() {
@@ -170,7 +171,7 @@ func coreTypeArgMatchesSeen(shape, arg *vm.Type, tpArgs map[string]*vm.Type, app
 	}
 }
 
-func typeArgName(t *vm.Type) string {
+func typeArgName(t *mtype.Type) string {
 	if t.Name != "" {
 		if t.IsPtr() {
 			return "*" + t.Name
@@ -198,16 +199,16 @@ func typeArgName(t *vm.Type) string {
 	return t.String()
 }
 
-func typeArgComposite(t *vm.Type, renderLeaf func(*vm.Type) string) string {
+func typeArgComposite(t *mtype.Type, renderLeaf func(*mtype.Type) string) string {
 	return typeArgCompositeSeen(t, renderLeaf, nil)
 }
 
-func typeArgCompositeSeen(t *vm.Type, renderLeaf func(*vm.Type) string, seen map[*vm.Type]bool) string {
+func typeArgCompositeSeen(t *mtype.Type, renderLeaf func(*mtype.Type) string, seen map[*mtype.Type]bool) string {
 	if seen[t] {
 		return renderLeaf(t)
 	}
 	if seen == nil {
-		seen = map[*vm.Type]bool{}
+		seen = map[*mtype.Type]bool{}
 	}
 	seen[t] = true
 	defer delete(seen, t)
@@ -256,8 +257,8 @@ func sanitizeMangled(s string) string {
 	return string(b)
 }
 
-func mangledTypeArgName(t *vm.Type) string {
-	return typeArgComposite(t, func(leaf *vm.Type) string {
+func mangledTypeArgName(t *mtype.Type) string {
+	return typeArgComposite(t, func(leaf *mtype.Type) string {
 		if leaf.Name == "" {
 			return leaf.String()
 		}
@@ -268,7 +269,7 @@ func mangledTypeArgName(t *vm.Type) string {
 	})
 }
 
-func mangledName(base string, typeArgs []*vm.Type) string {
+func mangledName(base string, typeArgs []*mtype.Type) string {
 	var sb strings.Builder
 	sb.WriteString(base)
 	for _, t := range typeArgs {
@@ -287,7 +288,7 @@ func recvGenericBaseName(recvr Tokens) (string, bool) {
 	return "", false
 }
 
-func isGenericInstance(t *vm.Type) bool {
+func isGenericInstance(t *mtype.Type) bool {
 	return t != nil && strings.IndexByte(t.Name, '#') >= 0
 }
 
@@ -296,11 +297,11 @@ func mangledBase(name string) string {
 	return base
 }
 
-func hasUnboundTypeParam(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type) bool {
+func hasUnboundTypeParam(t *mtype.Type, tpNames map[string]bool, inferred map[string]*mtype.Type) bool {
 	return hasUnboundTP(t, tpNames, inferred, nil)
 }
 
-func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type, seen map[*vm.Type]bool) bool {
+func hasUnboundTP(t *mtype.Type, tpNames map[string]bool, inferred map[string]*mtype.Type, seen map[*mtype.Type]bool) bool {
 	if t == nil {
 		return false
 	}
@@ -331,7 +332,7 @@ func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.T
 			return false
 		}
 		if seen == nil {
-			seen = map[*vm.Type]bool{}
+			seen = map[*mtype.Type]bool{}
 		}
 		seen[t] = true
 		for _, f := range t.Fields {
@@ -348,14 +349,14 @@ func hasUnboundTP(t *vm.Type, tpNames map[string]bool, inferred map[string]*vm.T
 	return !ok
 }
 
-func unifyTypeParam(pType, argType *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type) bool {
+func unifyTypeParam(pType, argType *mtype.Type, tpNames map[string]bool, inferred map[string]*mtype.Type) bool {
 	return unifyTP(pType, argType, tpNames, inferred, nil)
 }
 
 // elemOf and keyOf return the element/key type, deriving it from Rtype when the
 // symbolic field is unset (a generic-instance param can carry a concrete Rtype
 // like []string with a nil ElemType, which would block element-type inference).
-func elemOf(t *vm.Type) *vm.Type {
+func elemOf(t *mtype.Type) *mtype.Type {
 	if t == nil {
 		return nil
 	}
@@ -365,7 +366,7 @@ func elemOf(t *vm.Type) *vm.Type {
 	return t.ElemType
 }
 
-func keyOf(t *vm.Type) *vm.Type {
+func keyOf(t *mtype.Type) *mtype.Type {
 	if t == nil {
 		return nil
 	}
@@ -386,7 +387,7 @@ func isUntypedConstArg(argExpr Tokens) bool {
 	return false
 }
 
-func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[string]*vm.Type, seen map[*vm.Type]bool) bool {
+func unifyTP(pType, argType *mtype.Type, tpNames map[string]bool, inferred map[string]*mtype.Type, seen map[*mtype.Type]bool) bool {
 	if pType == nil || argType == nil {
 		return false
 	}
@@ -446,7 +447,7 @@ func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[stri
 			return true
 		}
 		if seen == nil {
-			seen = map[*vm.Type]bool{}
+			seen = map[*mtype.Type]bool{}
 		}
 		seen[pType] = true
 		ok := true
@@ -468,7 +469,7 @@ func unifyTP(pType, argType *vm.Type, tpNames map[string]bool, inferred map[stri
 	return true
 }
 
-func unpackConstraint(c tpConstraint, paramName string, concrete *vm.Type) *vm.Type {
+func unpackConstraint(c tpConstraint, paramName string, concrete *mtype.Type) *mtype.Type {
 	for _, e := range c.elems {
 		if (e.kind != elemApprox && e.kind != elemExact) || e.typ == nil {
 			continue
@@ -480,7 +481,7 @@ func unpackConstraint(c tpConstraint, paramName string, concrete *vm.Type) *vm.T
 	return nil
 }
 
-func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
+func extractFromShape(shape, concrete *mtype.Type, paramName string) *mtype.Type {
 	if shape.Kind() == concrete.Kind() {
 		switch shape.Kind() {
 		case reflect.Map:
@@ -525,8 +526,8 @@ func extractFromShape(shape, concrete *vm.Type, paramName string) *vm.Type {
 	return nil
 }
 
-func coreConstraintShape(c tpConstraint) *vm.Type {
-	var shape *vm.Type
+func coreConstraintShape(c tpConstraint) *mtype.Type {
+	var shape *mtype.Type
 	for _, e := range c.elems {
 		if e.kind != elemExact && e.kind != elemApprox {
 			continue
@@ -539,7 +540,7 @@ func coreConstraintShape(c tpConstraint) *vm.Type {
 	return shape
 }
 
-func constructFromShape(shape *vm.Type, tpSet, inferred map[string]*vm.Type) *vm.Type {
+func constructFromShape(shape *mtype.Type, tpSet, inferred map[string]*mtype.Type) *mtype.Type {
 	if shape == nil {
 		return nil
 	}
@@ -548,7 +549,7 @@ func constructFromShape(shape *vm.Type, tpSet, inferred map[string]*vm.Type) *vm
 	}
 	if shape.Kind() == reflect.Pointer {
 		if elem := constructFromShape(shape.ElemType, tpSet, inferred); elem != nil {
-			return vm.PointerTo(elem)
+			return derive.PointerTo(elem)
 		}
 		return nil
 	}
@@ -559,13 +560,13 @@ func constructFromShape(shape *vm.Type, tpSet, inferred map[string]*vm.Type) *vm
 	return nil
 }
 
-func funcReturnType(typ *vm.Type) *vm.Type {
+func funcReturnType(typ *mtype.Type) *mtype.Type {
 	if len(typ.Returns) > 0 {
 		return typ.Returns[0]
 	}
 	if typ.Kind() == reflect.Func && typ.Rtype != nil && typ.Rtype.NumOut() > 0 {
 		out := typ.Rtype.Out(0)
-		return &vm.Type{Name: out.Name(), Rtype: out}
+		return &mtype.Type{Name: out.Name(), Rtype: out}
 	}
 	return nil
 }

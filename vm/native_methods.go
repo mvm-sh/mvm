@@ -62,7 +62,7 @@ func (m *Machine) nativeMethodDesc(rt reflect.Type, methodID int, name string) n
 // resolveSimpleNative returns the unbound func for a directly-dispatchable
 // native method, or ok=false to take the slow (shim/hook/promotion) path.
 func resolveSimpleNative(rt reflect.Type, name string) (fn reflect.Value, needAddr, ok bool) {
-	if rt == reflectValueRtype || rt == runtimeFuncPtrType || rt.Implements(reflectTypeIface) ||
+	if rt == reflectValueRtype || isShimmedNativeType(rt) || rt.Implements(reflectTypeIface) ||
 		isSynthOrSynthPtr(rt) || hasNativeMethodHook(rt, name) {
 		return reflect.Value{}, false, false
 	}

@@ -197,7 +197,7 @@ the method.
 
 Mvm solves this by synthesizing a *real* Go rtype that carries the interpreted
 methods, so native `itab`/reflect dispatch finds them directly with no per-call
-wrapper. The machinery is split across two packages:
+wrapper. The machinery is split across several packages:
 
 - **`runtype`** mirrors `internal/abi` byte-for-byte and overlays an
   `UncommonType` + method array onto a cloned layout rtype, wiring each method's
@@ -205,6 +205,13 @@ wrapper. The machinery is split across two packages:
 - **`stdlib/stubs`** holds the 16 method-signature *shapes* (S1 `func() string`
   ... S16 `UnmarshalXML`), the generated stub-function pools, and the
   per-shape dispatchers that re-enter the interpreter. See [stubs](modules/stubs.md).
+- **`derive`** turns the symbolic `mtype.Type` graph into `reflect.Type`s:
+  memoized derived-type construction (`SymPtr`/`SymSlice`/...), the
+  materialization pass, the reserve gate, and the synth-interface rtype cache.
+  It depends on `mtype` and `runtype`; its one dependency on `stubs` (the
+  "does this method shape exist?" reserve gate) is the injected
+  `derive.ShapeAvailable` predicate the vm registers, keeping `derive` below
+  the vm.
 
 `interp` attaches a synthesized rtype to every compiled type (`Machine.AttachSynthMethods`);
 the vm-side glue in `vm/synth_bridge.go` matches each method signature to a

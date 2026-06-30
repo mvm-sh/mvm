@@ -5,7 +5,9 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
 // bridgeStructEmbedIface builds, on demand, a reserved synth rtype over the
@@ -55,16 +57,16 @@ func (m *Machine) buildStructEmbedSynth(layout, target reflect.Type, fieldIdx in
 	if err != nil {
 		return nil
 	}
-	synthT := &Type{Rtype: res.Type()} // Kind() derives Struct from Rtype
+	synthT := &mtype.Type{Rtype: res.Type()} // Kind() derives Struct from Rtype
 	specs := make([]synthMethodSpec, 0, target.NumMethod())
 	for meth := range target.Methods() {
 		sig := meth.Type // interface method type: no receiver
 		spec := synthMethodSpec{
 			name:   meth.Name,
-			method: Method{Index: -1, Path: []int{fieldIdx}, Rtype: sig},
+			method: mtype.Method{Index: -1, Path: []int{fieldIdx}, Rtype: sig},
 			form:   recvFormFor(res.Type(), false, false),
 		}
-		if !spec.resolveDispatch(eraseSynthIfaceParams(sig), sig) {
+		if !spec.resolveDispatch(derive.EraseSynthIfaceParams(sig), sig) {
 			return nil
 		}
 		specs = append(specs, spec)
@@ -80,7 +82,7 @@ func (m *Machine) embedFieldSatisfying(rv reflect.Value, target reflect.Type) in
 		if rv.Type().Field(i).Type.Kind() != reflect.Interface {
 			continue
 		}
-		concrete := dynamicConcrete(Exportable(rv.Field(i)))
+		concrete := dynamicConcrete(runtype.Exportable(rv.Field(i)))
 		if concrete.IsValid() && concrete.Type().Implements(target) {
 			return i
 		}
@@ -99,13 +101,13 @@ func dynamicConcrete(fv reflect.Value) reflect.Value {
 		fv = unwrapIface(fv)
 	}
 	if fv.IsValid() && fv.Type() == ifaceRtype {
-		return Exportable(fv).Interface().(Iface).Val.Reflect()
+		return runtype.Exportable(fv).Interface().(Iface).Val.Reflect()
 	}
 	return fv
 }
 
 func retypeStruct(rv reflect.Value, synthRT reflect.Type) reflect.Value {
-	rv = Exportable(rv)
+	rv = runtype.Exportable(rv)
 	if rv.CanAddr() {
 		return reflect.NewAt(synthRT, unsafe.Pointer(rv.UnsafeAddr())).Elem()
 	}

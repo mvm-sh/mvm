@@ -164,8 +164,10 @@ required.
 
 - `reflect` -- wrapping Go values.
 - `vm/` -- `Machine`, `Value`, `Type`, `RegisterPackagePatcher` consumers, and
-  the runtime-bridge surface (`RegisterNativeMethodHook`, `NewRuntimeFuncSentinel`,
-  `WalkCallStack`, `RegisterSynthIfaceTargetFunc`).
+  the bridge seams (`RegisterNativeMethodHook`, `RegisterMethodValueShim`,
+  `RegisterExtendedShapes`, `RegisterSentinelHooks`, `WalkCallStack`,
+  `RegisterSynthIfaceTargetFunc`). The `*runtime.Func` sentinel registry and the
+  io.EOF / synth-shape stub behavior that used to sit in vm now live here.
 - `symbol/` -- `BinPkg` creates package descriptors (called by the parser
   via `ImportPackageValues`).
 

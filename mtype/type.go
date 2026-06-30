@@ -11,7 +11,7 @@ import (
 	"unicode"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/runtype"
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 // Method records a method's code location and receiver path for interface dispatch.
@@ -355,6 +355,60 @@ func (t *Type) ResolveMethodType(id int) *Type {
 	for _, mt := range types[:n] {
 		if id < len(mt.Methods) && mt.Methods[id].IsResolved() {
 			return mt
+		}
+	}
+	return nil
+}
+
+// MethodID returns the global method id for name, or -1 if absent, using names as
+// the program's id -> name table. A Method carries no name; the binding lives in
+// this table, owned by the compiled program.
+func MethodID(names []string, name string) int {
+	for id, n := range names {
+		if n == name {
+			return id
+		}
+	}
+	return -1
+}
+
+// MethodByName returns the first resolved method named name reachable from t,
+// resolving names through the program's id -> name table. For pointer types,
+// methods on the element type are also searched (IfaceMethodTypes walks the Base
+// chain).
+func MethodByName(t *Type, names []string, name string) (Method, bool) {
+	types, n := IfaceMethodTypes(t)
+	for _, mt := range types[:n] {
+		for id, method := range mt.Methods {
+			if method.Index < 0 || id >= len(names) {
+				continue
+			}
+			if names[id] == name {
+				return method, true
+			}
+		}
+	}
+	return Method{}, false
+}
+
+// MethodFuncType returns the bound-method func type (no receiver) for the method
+// named name, resolving through the program's parallel id -> name and id -> func
+// type tables. Returns nil if absent.
+func MethodFuncType(names []string, funcTypes []reflect.Type, name string) reflect.Type {
+	for id, n := range names {
+		if n == name && id < len(funcTypes) {
+			return funcTypes[id]
+		}
+	}
+	return nil
+}
+
+// EmbeddedTypeAt returns the embedded field's type at struct field index idx, or
+// nil if no embedded field occupies that index.
+func (t *Type) EmbeddedTypeAt(idx int) *Type {
+	for _, e := range t.Embedded {
+		if e.FieldIdx == idx {
+			return e.Type
 		}
 	}
 	return nil

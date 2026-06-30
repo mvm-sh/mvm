@@ -30,7 +30,7 @@ func condPromote(s string) func() string {
 func main() {
 	var b Box
 	println(capPtr(b.P)().x)
-	println(condPromote("")())    // branch taken -> promoted in body
+	println(condPromote("")())     // branch taken -> promoted in body
 	println(condPromote("kept")()) // branch skipped -> must still be a cell
 }
 

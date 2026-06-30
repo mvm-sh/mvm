@@ -16,7 +16,7 @@ import (
 // Lifetime caveat: sentinelByFrame is a process-global sync.Map with no
 // deletion path. Including *Machine makes the key set grow as
 // O(distinct Machines x distinct call sites) rather than O(call sites),
-// and each entry also pins one runtimeFuncMeta entry in vm.
+// and each entry also pins one runtimeFuncMeta entry.
 // For long-lived hosts that spawn many short-lived interpreters this is a
 // slow leak (the agent-pool runners share a Machine across invocations,
 // so they don't contribute new keys per call).
@@ -70,7 +70,7 @@ func mvmCaller(m *vm.Machine, skip int) (pc uintptr, file string, line int, ok b
 		return 0, "", 0, false
 	}
 	pc = pcs[i]
-	if _, info := vm.LookupRuntimeFuncByPC(pc); info != nil {
+	if _, info := LookupRuntimeFuncByPC(pc); info != nil {
 		file = info.File
 		line = info.Line
 	}
@@ -98,7 +98,7 @@ func (f *mvmFrames) Next() (runtime.Frame, bool) {
 		// reflect (vm.nativeMethodLookup). Calling them directly from Go
 		// would hit the host runtime, which doesn't know our sentinel
 		// addresses. Read the registered metadata directly instead.
-		if info := vm.LookupRuntimeFunc(fn); info != nil {
+		if info := LookupRuntimeFunc(fn); info != nil {
 			frame.Function = info.Name
 			frame.File = info.File
 			frame.Line = info.Line
@@ -162,8 +162,8 @@ func hostFrameSentinel(f runtime.Frame) *runtime.Func {
 	if v, ok := hostSentinelByPC.Load(f.PC); ok {
 		return v.(*runtime.Func)
 	}
-	rf := vm.NewRuntimeFuncSentinel()
-	vm.RegisterRuntimeFunc(rf, f.Function, f.File, f.Line)
+	rf := NewRuntimeFuncSentinel()
+	RegisterRuntimeFunc(rf, f.Function, f.File, f.Line)
 	actual, _ := hostSentinelByPC.LoadOrStore(f.PC, rf)
 	return actual.(*runtime.Func)
 }
@@ -238,8 +238,8 @@ func internSentinel(m *vm.Machine, di *vm.DebugInfo, f vm.StackFrame) *runtime.F
 	} else {
 		file = "modfs/" + file
 	}
-	rf := vm.NewRuntimeFuncSentinel()
-	vm.RegisterRuntimeFunc(rf, name, file, line)
+	rf := NewRuntimeFuncSentinel()
+	RegisterRuntimeFunc(rf, name, file, line)
 	actual, loaded := sentinelByFrame.LoadOrStore(key, rf)
 	if loaded {
 		// Lost the race: another goroutine interned a sentinel for the
@@ -256,7 +256,7 @@ func internSentinel(m *vm.Machine, di *vm.DebugInfo, f vm.StackFrame) *runtime.F
 // real host pc. For sentinels it returns the registered *runtime.Func;
 // otherwise it delegates to runtime.FuncForPC so non-mvm uses still work.
 func mvmFuncForPC(pc uintptr) *runtime.Func {
-	if rf, _ := vm.LookupRuntimeFuncByPC(pc); rf != nil {
+	if rf, _ := LookupRuntimeFuncByPC(pc); rf != nil {
 		return rf
 	}
 	return runtime.FuncForPC(pc)

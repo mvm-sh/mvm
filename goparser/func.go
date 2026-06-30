@@ -7,9 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 func (p *Parser) registerFunc(toks Tokens) (bool, error) {
@@ -374,7 +375,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		if recvTypSym, _, ok := p.symGet(strings.TrimPrefix(recvTypName, "*")); ok && recvTypSym.IsType() {
 			recvTyp := recvTypSym.Type
 			if strings.HasPrefix(recvTypName, "*") {
-				recvTyp = vm.SymPtr(recvTyp)
+				recvTyp = derive.SymPtr(recvTyp)
 			}
 			p.addSymVar(0, 1, recvScoped, recvTyp, parseTypeRecv)
 		}
@@ -480,7 +481,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	out = append(out, newGrow(l, in[0].Pos, cellRet, cellParams))
 	if n := len(p.namedOut); n > 0 {
 		initVars := make([]string, n)
-		initTypes := make([]*vm.Type, n)
+		initTypes := make([]*mtype.Type, n)
 		for j, name := range p.namedOut {
 			initVars[j] = name
 			initTypes[j] = s.Type.Returns[n-1-j]

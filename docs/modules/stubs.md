@@ -187,9 +187,13 @@ marshals by 8-byte stack slots instead of register words, packing sub-word struc
 fields; the generated pools are arch-agnostic source and shared (see ADR-022).
 
 The vm-side glue is *not* here -- `vm/synth_bridge.go` owns `detectShape`
-(signature -> `Shape`) and `makeHandlerS*`, plus `detectWordShape` (signature ->
-word-shape key) and `makeWordCore` for the word path, because those need
-`Machine`/`Iface`/`Type`.
+(signature -> `Shape`) and the generic `makeHandlerS*`, plus `detectWordShape`
+(signature -> word-shape key) and `makeWordCore` for the word path, because those
+need `Machine`/`Iface`/`Type`.
+The shapes whose signatures name a specific stdlib package (`io/fs`, `log/slog`,
+`encoding/xml`) live in `stdlib/synth_method_shapes.go`, registered into vm via
+`vm.RegisterExtendedShapes`, so vm core need not import those packages; their
+handlers re-enter the interpreter through the exported `vm.SynthCall`.
 A method is matched to a typed shape first and only falls back to the word path,
 so the faster, error-aware typed handlers win where they apply.
 
@@ -210,7 +214,8 @@ after editing the shape catalog in `gen_pools.go`.
   its pool holds errors out (`stubs: shape SN stub pool exhausted`). Sizes are a
   static guess tuned to the test suite (wasm carries no pools; see above).
 - A new *typed* shape is append-only edits to `gen_pools.go` + a hand-written
-  `registry_sN.go` + a `makeHandlerSN`/`detectShape` case in `vm/synth_bridge.go`;
+  `registry_sN.go` + a `detectShape`/handler case (in `vm/synth_bridge.go` for a
+  generic shape, or `stdlib/synth_method_shapes.go` for a stdlib-specific one);
   an ABI-compatible signature needs none of that and rides an existing word-shape.
 - Under the register ABI the word path carries `float64` (`f`), `complex128`
   (`ff`), `float32` (`g`, a single-precision FP-register word, distinct stub from

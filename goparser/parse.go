@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/scan"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
@@ -48,33 +49,33 @@ type Parser struct {
 	labelCount     map[string]int
 	breakLabel     string
 	continueLabel  string
-	pendingLabel   string                // user label preceding the current for/switch statement
-	labeledJump    map[string][2]string  // maps user label to [continueLabel, breakLabel]
-	ctrlStack      []ctrlFrame           // active for/switch/select frames (for labeled break/continue range unwind)
-	clonum         int                   // closure instance number, package-global counter
-	funcN          int                   // anonymous-function counter within the current outer function
-	initNum        int                   // init function instance counter
-	InitFuncs      []string              // ordered list of init function internal names
-	blankSeq       int                   // counter for unique blank identifier names
-	namedOut       []string              // scoped names of named return vars for current function
-	symTracker     []string              // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
-	genCounter     int                   // monotonic source of resolveDecls generations
-	curGen         int                   // generation of the current resolveDecls (nestable; saved/restored)
-	typeGen        map[*vm.Type]int      // generation each declared placeholder *Type was minted in; gates reuse (see reuseDeclaredType)
-	batchFuncDecls map[string]bool       // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
-	forwardDecls   map[string]bool       // batch keys registered bodyless; a later body fills them instead of redeclaring
-	instanceDecls  []DeferredDecl        // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
-	funcInstArgs   map[string][]*vm.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
-	instantiating  map[string]bool       // generic-type instances whose body is parsing now; self-refs reuse the mid-build placeholder, a failed-instantiation leftover is rebuilt on retry
-	typeOnly       bool                  // when true, addSymVar is a no-op (Phase 1 signature-only parse)
-	regFuncSig     bool                  // set by parseFunc so the outermost func-type parse registers its params as locals; a func TYPE (composite-elem, var/field type, interface method) leaves it false so param names don't leak into the enclosing scope
-	inForInit      bool                  // true while parsing for-init or range clause (marks LoopVar)
-	rangeAssign    Tokens                // assign-form range per-iteration assigns, stashed for parseFor
-	funcDepth      int                   // nesting depth of function bodies (>0 means inside a function)
-	loopDepth      int                   // nesting depth of for loops (>0 means inside a loop)
-	instDepth      int                   // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
-	buildCtx       *buildContext         // build constraint context for file filtering
-	embeds         map[string][]byte     // //go:embed file bytes by canonical var key (single-file []byte/string only); see embed.go
+	pendingLabel   string                   // user label preceding the current for/switch statement
+	labeledJump    map[string][2]string     // maps user label to [continueLabel, breakLabel]
+	ctrlStack      []ctrlFrame              // active for/switch/select frames (for labeled break/continue range unwind)
+	clonum         int                      // closure instance number, package-global counter
+	funcN          int                      // anonymous-function counter within the current outer function
+	initNum        int                      // init function instance counter
+	InitFuncs      []string                 // ordered list of init function internal names
+	blankSeq       int                      // counter for unique blank identifier names
+	namedOut       []string                 // scoped names of named return vars for current function
+	symTracker     []string                 // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
+	genCounter     int                      // monotonic source of resolveDecls generations
+	curGen         int                      // generation of the current resolveDecls (nestable; saved/restored)
+	typeGen        map[*mtype.Type]int      // generation each declared placeholder *Type was minted in; gates reuse (see reuseDeclaredType)
+	batchFuncDecls map[string]bool          // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
+	forwardDecls   map[string]bool          // batch keys registered bodyless; a later body fills them instead of redeclaring
+	instanceDecls  []DeferredDecl           // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
+	funcInstArgs   map[string][]*mtype.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
+	instantiating  map[string]bool          // generic-type instances whose body is parsing now; self-refs reuse the mid-build placeholder, a failed-instantiation leftover is rebuilt on retry
+	typeOnly       bool                     // when true, addSymVar is a no-op (Phase 1 signature-only parse)
+	regFuncSig     bool                     // set by parseFunc so the outermost func-type parse registers its params as locals; a func TYPE (composite-elem, var/field type, interface method) leaves it false so param names don't leak into the enclosing scope
+	inForInit      bool                     // true while parsing for-init or range clause (marks LoopVar)
+	rangeAssign    Tokens                   // assign-form range per-iteration assigns, stashed for parseFor
+	funcDepth      int                      // nesting depth of function bodies (>0 means inside a function)
+	loopDepth      int                      // nesting depth of for loops (>0 means inside a loop)
+	instDepth      int                      // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
+	buildCtx       *buildContext            // build constraint context for file filtering
+	embeds         map[string][]byte        // //go:embed file bytes by canonical var key (single-file []byte/string only); see embed.go
 }
 
 // RecordBareAlias marks key as a bare alias of an import-path target's
@@ -100,7 +101,7 @@ func (p *Parser) SymSet(key string, sym *symbol.Symbol) {
 }
 
 // SymAdd adds a new named symbol, recording the key for potential rollback.
-func (p *Parser) SymAdd(i int, name string, v vm.Value, k symbol.Kind, t *vm.Type) {
+func (p *Parser) SymAdd(i int, name string, v vm.Value, k symbol.Kind, t *mtype.Type) {
 	name = strings.TrimPrefix(name, "/")
 	if p.symTracker != nil {
 		p.symTracker = append(p.symTracker, name)

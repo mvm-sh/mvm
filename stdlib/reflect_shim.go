@@ -10,7 +10,7 @@ import "github.com/mvm-sh/mvm/goparser"
 //   - TypeFor[T any]() Type (Go 1.22): exactly the upstream fallback branch.
 //   - TypeAssert[T any](v Value) (T, bool) (Go 1.26): delegates to the mvm
 //     `.(T)` opcode via v.Interface().(T). That opcode recovers interpreted
-//     types (typeByRtype + vm.Type.Implements), so an interpreted concrete
+//     types (typeByRtype + mtype.Type.Implements), so an interpreted concrete
 //     type asserts to an interpreted/native interface here -- unlike upstream's
 //     unsafe path, which checks only the (methodless) synthetic rtype. This is
 //     a correct, simpler equivalent of upstream across all concrete/interface

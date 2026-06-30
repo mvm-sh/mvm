@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/mtype"
 )
 
@@ -30,7 +31,7 @@ func TestMaterializeRtype(t *testing.T) {
 		if c.typ.Rtype != nil {
 			t.Fatalf("%s: precondition failed, Rtype should be nil before materialize", c.name)
 		}
-		got := MaterializeRtype(c.typ)
+		got := derive.MaterializeRtype(c.typ)
 		if got != c.want {
 			t.Errorf("%s: materialized %v, want %v", c.name, got, c.want)
 		}

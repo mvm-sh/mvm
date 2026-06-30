@@ -3,6 +3,8 @@ package vm
 import (
 	"reflect"
 	"testing"
+
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 type coerceErr struct{}
@@ -40,7 +42,7 @@ func TestExportableReadOnlyFunc(t *testing.T) {
 		t.Fatal("setup: func field should be read-only")
 	}
 
-	fn := Exportable(ro)
+	fn := runtype.Exportable(ro)
 	if !fn.CanInterface() {
 		t.Fatal("read-only func value not made exportable")
 	}

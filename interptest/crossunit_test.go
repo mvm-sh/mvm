@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mvm-sh/mvm/goparser"
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/interp"
 	"github.com/mvm-sh/mvm/lang/golang"
 	"github.com/mvm-sh/mvm/modfs"
@@ -1254,7 +1255,7 @@ func TestMethodBearingRtypeSharedWithinMachine(t *testing.T) {
 
 	prev := vm.SetActiveMachine(i.Machine)
 	defer vm.SetActiveMachine(prev)
-	rt2 := vm.MaterializeRtype(t2)
+	rt2 := derive.MaterializeRtype(t2)
 	if rt2 == nil {
 		t.Fatal("second-pass materialize returned nil")
 	}

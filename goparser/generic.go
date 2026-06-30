@@ -8,10 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/scan"
 	"github.com/mvm-sh/mvm/symbol"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // elemKind classifies a single constraint element.
@@ -29,8 +30,8 @@ const (
 // constraintElem is one leaf of a constraint's disjunction.
 type constraintElem struct {
 	kind     elemKind
-	typ      *vm.Type // Exact, Interface, Approx
-	paramRef int      // TypeParamRef
+	typ      *mtype.Type // Exact, Interface, Approx
+	paramRef int         // TypeParamRef
 }
 
 // tpConstraint is a resolved generic type-parameter constraint. An argument
@@ -61,11 +62,11 @@ type genericTemplate struct {
 }
 
 type genericInstance struct {
-	typeArgs []*vm.Type
+	typeArgs []*mtype.Type
 	mname    string // mangled symbol name used for instance type registration
 }
 
-func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Tokens, genType *vm.Type) *symbol.Symbol {
+func (p *Parser) genericFuncSymbol(name string, params []typeParam, rawToks Tokens, genType *mtype.Type) *symbol.Symbol {
 	return &symbol.Symbol{
 		Kind: symbol.Generic,
 		Name: name,
@@ -164,10 +165,10 @@ func (p *Parser) parseTypeParamList(bt scan.Token, arrayAmbiguous bool) ([]typeP
 	return params, nil
 }
 
-func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, callPos int) error {
+func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*mtype.Type, callPos int) error {
 	// name -> concrete arg, for substituting type params in a core-type
 	// constraint element (e.g. `interface{ *P }`).
-	tpArgs := make(map[string]*vm.Type, len(tmpl.typeParams))
+	tpArgs := make(map[string]*mtype.Type, len(tmpl.typeParams))
 	for i, tp := range tmpl.typeParams {
 		if i < len(typeArgs) {
 			tpArgs[tp.name] = typeArgs[i]
@@ -181,7 +182,7 @@ func (p *Parser) checkConstraints(tmpl *genericTemplate, typeArgs []*vm.Type, ca
 	return nil
 }
 
-func (p *Parser) constraintError(c tpConstraint, arg *vm.Type, callPos int) error {
+func (p *Parser) constraintError(c tpConstraint, arg *mtype.Type, callPos int) error {
 	pos := callPos
 	if pos == 0 {
 		pos = c.pos
@@ -207,7 +208,7 @@ func (e *constraintErr) Error() string {
 
 func (e *constraintErr) ErrPos() int { return e.pos }
 
-func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Type, tpArgs map[string]*vm.Type, callPos int) error {
+func (p *Parser) checkConstraint(c tpConstraint, arg *mtype.Type, typeArgs []*mtype.Type, tpArgs map[string]*mtype.Type, callPos int) error {
 	for _, e := range c.elems {
 		// Interface elements need a method-set check that sees interpreted methods,
 		// which live in vm-level Methods rather than on the reflect Rtype.
@@ -234,7 +235,7 @@ func (p *Parser) checkConstraint(c tpConstraint, arg *vm.Type, typeArgs []*vm.Ty
 	return p.constraintError(c, arg, callPos)
 }
 
-func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
+func (p *Parser) argImplementsIface(arg, iface *mtype.Type) bool {
 	if arg == nil {
 		return true
 	}
@@ -244,7 +245,7 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 	// bindTypeParams materializes the same arg later, so this only moves it up.
 	argRt := arg.Rtype
 	if argRt == nil {
-		argRt = vm.MaterializeRtype(arg)
+		argRt = derive.MaterializeRtype(arg)
 	}
 	// Native concrete type vs native interface: reflect can decide.
 	if iface.Rtype != nil && iface.Rtype.NumMethod() > 0 && argRt != nil && argRt.Implements(iface.Rtype) {
@@ -278,7 +279,7 @@ func (p *Parser) argImplementsIface(arg, iface *vm.Type) bool {
 	return true
 }
 
-func ifaceContainsMethod(t *vm.Type, name string) bool {
+func ifaceContainsMethod(t *mtype.Type, name string) bool {
 	if t == nil {
 		return false
 	}
@@ -298,7 +299,7 @@ func hasNativeMethod(rt reflect.Type, name string) bool {
 	return ok
 }
 
-func argRecvTypeNames(arg *vm.Type) []string {
+func argRecvTypeNames(arg *mtype.Type) []string {
 	name := typeArgName(arg)
 	if name == "" {
 		return nil
@@ -409,12 +410,12 @@ func (p *Parser) resolveConstraintElems(toks Tokens, tpIdx map[string]int) ([]co
 	return []constraintElem{{kind: elemExact, typ: typ}}, nil
 }
 
-func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*vm.Type, error) {
+func (p *Parser) resolveTypeArgs(bt scan.Token) ([]*mtype.Type, error) {
 	toks, err := p.scanBlock(bt, false)
 	if err != nil {
 		return nil, err
 	}
-	var types []*vm.Type
+	var types []*mtype.Type
 	for _, seg := range toks.Split(lang.Comma) {
 		if len(seg) == 0 {
 			continue
@@ -466,7 +467,7 @@ func (p *Parser) bindTypeParamSyms(params []typeParam, mk func(i int, tp typePar
 	}
 }
 
-func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() {
+func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*mtype.Type) func() {
 	return p.bindTypeParamSyms(params, func(i int, tp typeParam) *symbol.Symbol {
 		if i >= len(typeArgs) || typeArgs[i] == nil {
 			return nil // missing/unresolved type arg: leave the name to resolve (or error) normally
@@ -485,14 +486,14 @@ func (p *Parser) bindTypeParams(params []typeParam, typeArgs []*vm.Type) func() 
 
 func (p *Parser) bindTypeParamPlaceholders(params []typeParam) func() {
 	return p.bindTypeParamSyms(params, func(_ int, tp typeParam) *symbol.Symbol {
-		return &symbol.Symbol{Kind: symbol.Type, Name: tp.name, Type: &vm.Type{Name: tp.name, Rtype: vm.AnyRtype}}
+		return &symbol.Symbol{Kind: symbol.Type, Name: tp.name, Type: &mtype.Type{Name: tp.name, Rtype: mtype.AnyRtype}}
 	})
 }
 
 // maxInstDepth bounds the nesting depth of in-progress instantiations.
 const maxInstDepth = 100
 
-func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Token) (Tokens, string, error) {
+func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*mtype.Type, pos Token) (Tokens, string, error) {
 	// A partial list (fewer args than params) reaches here only when the
 	// caller couldn't infer the rest; a too-long list is always an error.
 	if len(typeArgs) != len(tmpl.typeParams) {
@@ -535,7 +536,7 @@ func (p *Parser) instantiate(tmpl *genericTemplate, typeArgs []*vm.Type, pos Tok
 	return out, mname, nil
 }
 
-func (p *Parser) instanceName(tmpl *genericTemplate, typeArgs []*vm.Type) (name string, reuse bool) {
+func (p *Parser) instanceName(tmpl *genericTemplate, typeArgs []*mtype.Type) (name string, reuse bool) {
 	base := mangledName(tmpl.name, typeArgs)
 	if !tmpl.isFunc {
 		// Generic types keep the plain name; instantiateMethod recomputes it
@@ -567,13 +568,13 @@ func (p *Parser) instanceName(tmpl *genericTemplate, typeArgs []*vm.Type) (name 
 		return name, true
 	}
 	if p.funcInstArgs == nil {
-		p.funcInstArgs = map[string][]*vm.Type{}
+		p.funcInstArgs = map[string][]*mtype.Type{}
 	}
 	p.funcInstArgs[name] = typeArgs
 	return name, false
 }
 
-func identicalTypeArgs(a, b []*vm.Type) bool {
+func identicalTypeArgs(a, b []*mtype.Type) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -585,7 +586,7 @@ func identicalTypeArgs(a, b []*vm.Type) bool {
 	return true
 }
 
-func sameInstanceType(a, b *vm.Type) bool {
+func sameInstanceType(a, b *mtype.Type) bool {
 	if a == b {
 		return true
 	}
@@ -612,7 +613,7 @@ func sameInstanceType(a, b *vm.Type) bool {
 	return true // structurally identical unnamed basic kinds
 }
 
-func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArgs []*vm.Type, mTypeName string) (bool, error) {
+func (p *Parser) emitInstantiatedMethod(tmpl, methTmpl *genericTemplate, typeArgs []*mtype.Type, mTypeName string) (bool, error) {
 	methToks, err := p.instantiateMethod(tmpl, methTmpl, mTypeName)
 	if err != nil || methToks == nil {
 		return false, err
@@ -777,7 +778,7 @@ func (p *Parser) stripRecvTypeParams(blockStr, origName, mangledName string) str
 	return blockStr[:paren.Beg] + sb.String() + blockStr[len(blockStr)-paren.End:]
 }
 
-func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, callArgs scan.Token, prefix []*vm.Type) ([]*vm.Type, error) {
+func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, callArgs scan.Token, prefix []*mtype.Type) ([]*mtype.Type, error) {
 	argToks, err := p.scanBlock(callArgs, false)
 	if err != nil {
 		return nil, err
@@ -803,7 +804,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	params := genSym.Type.Params
 	isVariadic := genSym.Type.IsVariadic() && len(params) > 0
 	spread := len(argToks) > 0 && argToks[len(argToks)-1].Tok == lang.Ellipsis
-	inferred := make(map[string]*vm.Type, len(tmpl.typeParams))
+	inferred := make(map[string]*mtype.Type, len(tmpl.typeParams))
 	for i, t := range prefix {
 		if i < len(tmpl.typeParams) {
 			inferred[tmpl.typeParams[i].name] = t
@@ -814,7 +815,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	// default type only as a fallback. Binding E from '&' (default rune) up front
 	// would shadow E=byte from the S ~[]E constraint and fail the check.
 	type deferredArg struct {
-		pType *vm.Type
+		pType *mtype.Type
 		expr  Tokens
 	}
 	var deferred []deferredArg
@@ -822,7 +823,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 		if len(argExpr) == 0 {
 			continue
 		}
-		var pType *vm.Type
+		var pType *mtype.Type
 		switch {
 		case i < len(params)-1, !isVariadic && i < len(params):
 			pType = params[i]
@@ -841,7 +842,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 			deferred = append(deferred, deferredArg{pType, argExpr})
 			continue
 		}
-		var argTyp *vm.Type
+		var argTyp *mtype.Type
 		if argExpr[0].Tok == lang.Func && argExpr[len(argExpr)-1].Tok == lang.BraceBlock {
 			argTyp, _, _, _ = p.parseFuncSig(argExpr[:len(argExpr)-1])
 		} else {
@@ -888,7 +889,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	// constraint's core type (e.g. P in [T any, P *T], or P ObjectMarshalerPtr[T]
 	// = interface{ *T; ... }) is constructed by substituting the inferred params
 	// into that core type. Iterated to a fixed point for chained constraints.
-	tpSet := make(map[string]*vm.Type, len(tmpl.typeParams))
+	tpSet := make(map[string]*mtype.Type, len(tmpl.typeParams))
 	for _, tp := range tmpl.typeParams {
 		tpSet[tp.name] = nil
 	}
@@ -922,7 +923,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	}
 
 	// Build ordered type args matching tmpl.typeParams.
-	typeArgs := make([]*vm.Type, len(tmpl.typeParams))
+	typeArgs := make([]*mtype.Type, len(tmpl.typeParams))
 	for i, tp := range tmpl.typeParams {
 		t, ok := inferred[tp.name]
 		if !ok {
@@ -933,7 +934,7 @@ func (p *Parser) inferTypeArgs(tmpl *genericTemplate, genSym *symbol.Symbol, cal
 	return typeArgs, nil
 }
 
-func (p *Parser) inferExprType(toks Tokens) *vm.Type {
+func (p *Parser) inferExprType(toks Tokens) *mtype.Type {
 	postfix, err := p.parseExpr(toks, "")
 	if err != nil || len(postfix) == 0 {
 		return nil
@@ -942,7 +943,7 @@ func (p *Parser) inferExprType(toks Tokens) *vm.Type {
 	return typ
 }
 
-func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
+func (p *Parser) postfixType(in Tokens) (*mtype.Type, int) {
 	l := len(in) - 1
 	if l < 0 {
 		return nil, 0
@@ -1000,7 +1001,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 					return im.Sig, 1 + ln
 				}
 				if im.Rtype != nil {
-					return &vm.Type{Rtype: im.Rtype}, 1 + ln
+					return &mtype.Type{Rtype: im.Rtype}, 1 + ln
 				}
 				break
 			}
@@ -1010,7 +1011,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		if leftTyp.Rtype != nil {
 			if m, ok := leftTyp.Rtype.MethodByName(fieldName); ok {
 				if bound := boundMethodType(m.Type); bound != nil {
-					return &vm.Type{Rtype: bound}, 1 + ln
+					return &mtype.Type{Rtype: bound}, 1 + ln
 				}
 			}
 		}
@@ -1044,7 +1045,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		case lang.Not:
 			return p.Symbols["bool"].Type, 1 + ln
 		case lang.Addr:
-			return vm.SymPtr(inner), 1 + ln
+			return derive.SymPtr(inner), 1 + ln
 		case lang.Deref:
 			if inner.Kind() == reflect.Pointer {
 				return inner.Elem(), 1 + ln
@@ -1082,7 +1083,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				j--
 			}
 			if j >= 0 {
-				var ct *vm.Type
+				var ct *mtype.Type
 				if s, _, ok := p.Symbols.Get(t.Str, p.scope); ok {
 					ct = symbol.Vtype(s)
 				} else if s, ok := p.Symbols[p.anonFuncKey(t.Str)]; ok {
@@ -1102,7 +1103,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		narg := t.Arg[0].(int)
 		rest := in[:l]
 		totalLen := 1
-		var firstArgType *vm.Type // leftmost arg: the type for make/new
+		var firstArgType *mtype.Type // leftmost arg: the type for make/new
 		for range narg {
 			at, al := p.postfixType(rest)
 			if al == 0 {
@@ -1129,7 +1130,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				if firstArgType == nil {
 					return nil, 0
 				}
-				return vm.SymPtr(firstArgType), totalLen
+				return derive.SymPtr(firstArgType), totalLen
 			case "len", "cap", "copy":
 				return p.Symbols["int"].Type, totalLen
 			case "min", "max":
@@ -1228,7 +1229,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 							}
 						}
 						if im.Rtype != nil && im.Rtype.NumOut() >= 1 {
-							return &vm.Type{Rtype: im.Rtype.Out(0)}, totalLen
+							return &mtype.Type{Rtype: im.Rtype.Out(0)}, totalLen
 						}
 						break
 					}
@@ -1238,7 +1239,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 				// generic call (slices.Collect) can infer from it.
 				if recvTyp.Rtype != nil {
 					if m, ok := recvTyp.Rtype.MethodByName(member); ok && m.Type.NumOut() >= 1 {
-						return &vm.Type{Rtype: m.Type.Out(0)}, totalLen
+						return &mtype.Type{Rtype: m.Type.Out(0)}, totalLen
 					}
 				}
 			}
@@ -1286,14 +1287,14 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 		case reflect.Slice, reflect.String:
 			return containerTyp, total
 		case reflect.Array:
-			return vm.SymSlice(containerTyp.Elem()), total
+			return derive.SymSlice(containerTyp.Elem()), total
 		}
 		return nil, 0
 
 	case id == lang.TypeAssert:
 		// Type assertion: x.(T). The asserted type is stored in Arg[1].
 		_, el := p.postfixType(in[:l]) // consume the expression being asserted
-		if typ, ok := t.Arg[1].(*vm.Type); ok {
+		if typ, ok := t.Arg[1].(*mtype.Type); ok {
 			return typ, 1 + el
 		}
 		return nil, 0
@@ -1309,7 +1310,7 @@ func (p *Parser) postfixType(in Tokens) (*vm.Type, int) {
 	return nil, 0
 }
 
-func (p *Parser) pkgMemberType(pkgPath, member string) *vm.Type {
+func (p *Parser) pkgMemberType(pkgPath, member string) *mtype.Type {
 	// Qualified symbol first: a package published by PublishCompiledPackage
 	// stores an interpreted func's Value as its code address (an int), so the
 	// Values branch below would mistype it.
@@ -1321,7 +1322,7 @@ func (p *Parser) pkgMemberType(pkgPath, member string) *vm.Type {
 	if pkg := p.Packages[pkgPath]; pkg != nil {
 		if v, ok := pkg.Values[member]; ok {
 			if rv := v.Reflect(); rv.IsValid() {
-				return &vm.Type{Rtype: rv.Type()}
+				return &mtype.Type{Rtype: rv.Type()}
 			}
 		}
 	}

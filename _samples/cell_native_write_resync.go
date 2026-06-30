@@ -17,10 +17,10 @@ func main() {
 	add(2)
 
 	x := uint64(100)
-	println(count)         // 42  (direct read, via ref)
-	println(count + x)     // 142 (arithmetic operand, was 100)
-	println(x + count)     // 142
-	println(count == 42)   // true
+	println(count)       // 42  (direct read, via ref)
+	println(count + x)   // 142 (arithmetic operand, was 100)
+	println(x + count)   // 142
+	println(count == 42) // true
 }
 
 // Output:

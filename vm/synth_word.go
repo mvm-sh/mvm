@@ -4,28 +4,20 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/mvm-sh/mvm/stdlib/stubs"
+	"github.com/mvm-sh/mvm/internal/stubs"
+	"github.com/mvm-sh/mvm/internal/wordabi"
+	"github.com/mvm-sh/mvm/mtype"
 )
 
-// Word-class synth dispatch (arch-independent core).
+// Word-class synth dispatch (vm seam).
 //
-// A synth method-table stub must have a real text-segment PC whose ABI exactly
-// matches the method signature. The ABI is set by the register-word (or, on a
-// stack ABI, the stack-slot) classification of the params and results, not their
-// exact Go types, so many distinct signatures share one stub family. The
-// generated pools (stdlib/stubs/pool_w*.go) carry one stub family + one generic
-// dispatcher per word-shape; makeWordCore supplies the per-method marshaling the
-// dispatcher calls back into.
-//
-// The classification and marshaling are arch-specific: register targets flatten
-// each aggregate to one word per leaf field (synth_word_regabi.go), while the
-// wasm target packs sub-word fields into 8-byte stack slots (synth_word_abi0.go,
-// wired in by synth_word_wasm.go). Both classifyWordSig and makeWordCore are
-// provided per-arch; everything in this file is shared.
-//
-// The path requires a 64-bit little-endian target (see wordShapesSupported); on
-// any other arch detectWordShape drops everything and only the typed shapes
-// (arch-independent) attach, so dispatch is always correct, just less capable.
+// A synth method-table stub must have a real text-segment PC whose ABI matches
+// the method signature; many signatures share one stub family by word-shape. The
+// classification and per-call marshaling live in wordabi (arch-specific, pure);
+// this file holds the Machine-coupled glue: the per-method core the generated
+// dispatcher calls back into (makeWordCore re-enters the interpreter), and the
+// detect/probe seams that gate a key against the generated stub pools and record
+// MVM_WORDDROPS telemetry.
 
 // forceWordShape, set only by benchmarks, makes attach prefer the word-class path
 // over a matching typed shape, so the two dispatch mechanisms can be compared.
@@ -34,42 +26,54 @@ var forceWordShape bool
 // SetForceWordShape toggles the benchmark-only word-path preference.
 func SetForceWordShape(v bool) { forceWordShape = v }
 
-const wordSize = unsafe.Sizeof(uintptr(0))
-
-// wordShapesSupported gates the whole word-class path to a 64-bit little-endian
-// target: the classifier treats each scalar/pointer as one 8-byte word (wrong for
-// multi-register int64/uint64 on 32-bit) and the byte ops pack low-first (wrong on
-// big-endian). The 8-byte check is a compile-time constant, the endian check a
-// one-time init probe, so this is true on amd64, arm64, riscv64, ppc64le, wasm,
-// etc. and false elsewhere. When false, detectWordShape drops every method to the
-// word path -- identical to the pre-word-class behavior (the typed shapes stay
-// arch-independent and keep working).
-var wordShapesSupported = unsafe.Sizeof(uintptr(0)) == 8 && nativeIsLittleEndian()
-
-func nativeIsLittleEndian() bool {
-	x := uint16(1)
-	return *(*byte)(unsafe.Pointer(&x)) == 1
-}
-
-// classifyWordSig classifies sig into its word-shape key ("params_results"), or
-// the drop reason and ok=false. The decomposition is arch-specific: register
-// targets flatten each leaf to its own word (regabiClassifyWordSig), the wasm
-// stack ABI packs sub-word fields into 8-byte slots (abi0ClassifyWordSig). The
-// wordABI0 const picks one; the other branch is eliminated at compile time.
-func classifyWordSig(sig reflect.Type) (key, reason string, ok bool) {
-	if wordABI0 {
-		return abi0ClassifyWordSig(sig)
-	}
-	return regabiClassifyWordSig(sig)
-}
-
 // makeWordCore builds the per-method marshaler the generated dispatcher calls
 // back into, selecting the register-ABI or ABI0 implementation per arch.
-func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
-	if wordABI0 {
+func (m *Machine) makeWordCore(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+	if wordabi.WordABI0 {
 		return m.makeWordCoreABI0(t, method, name, form, swallowErr)
 	}
 	return m.makeWordCoreRegabi(t, method, name, form, swallowErr)
+}
+
+// makeWordCoreRegabi builds the stubs.CoreFunc for one word-shaped method: it
+// reconstructs the args from the scattered register words, re-enters the
+// interpreter, and writes the result words back. A failed dispatch panics
+// (raiseMethodErr) unless swallowErr: then results stay zero.
+func (m *Machine) makeWordCoreRegabi(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+	methodSig := method.Rtype
+	inLayouts, outLayouts := wordabi.SigWordLayouts(methodSig)
+	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := wordabi.MarshalArgs(methodSig, inLayouts, pw, sw, fw)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			if !swallowErr {
+				raiseMethodErr(err)
+			}
+			out = nil // zero result words
+		}
+		wordabi.MarshalResults(methodSig, outLayouts, out, rpw, rsw, rfw)
+	}
+}
+
+// makeWordCoreABI0 builds the stubs.CoreFunc for one word-shaped method on a stack
+// ABI: it reconstructs the args from the slot words, re-enters the interpreter,
+// and writes the result words back. Symmetric to makeWordCoreRegabi.
+func (m *Machine) makeWordCoreABI0(t *mtype.Type, method mtype.Method, name string, form recvForm, swallowErr bool) stubs.CoreFunc {
+	methodSig := method.Rtype
+	inRegion, outRegion := wordabi.ABI0Regions(methodSig)
+	return func(recv unsafe.Pointer, pw []unsafe.Pointer, sw []uint64, fw []float64, rpw []unsafe.Pointer, rsw []uint64, rfw []float64) {
+		rv := makeRecvValue(t.Rtype, recv, form)
+		argv := wordabi.ABI0MarshalArgs(inRegion, pw, sw, fw)
+		out, err := callMethod(m, t, name, rv, method, methodSig, argv)
+		if err != nil {
+			if !swallowErr {
+				raiseMethodErr(err)
+			}
+			out = nil // zero result words
+		}
+		wordabi.ABI0MarshalResults(outRegion, out, rpw, rsw, rfw)
+	}
 }
 
 // detectWordShape classifies sig into its word-shape key, or ok=false if the
@@ -77,25 +81,29 @@ func (m *Machine) makeWordCore(t *Type, method Method, name string, form recvFor
 // words exceed the arch's budget, or no generated pool exists for the key (so an
 // attach never errors on it). Drops are recorded for the MVM_WORDDROPS report.
 func detectWordShape(sig reflect.Type) (key string, ok bool) {
-	key, reason, ok := classifyWordSig(sig)
+	key, reason, ok := wordabi.ClassifyWordSig(sig)
 	switch {
 	case !ok && reason != "":
-		recordWordDrop(&wordDropUnsup, reason, sig)
+		wordabi.RecordUnsupDrop(reason, sig)
 		return "", false
 	case !ok:
 		return "", false
 	case !stubs.HasWordShape(key):
-		recordWordDrop(&wordDropPools, key, sig)
+		wordabi.RecordPoolDrop(key, sig)
 		return "", false
 	}
 	return key, true
 }
 
+// WordShapeDropReport summarizes the word-shapes detectWordShape dropped this
+// process (MVM_WORDDROPS; see ADR-022), or "" when unset or nothing dropped.
+func WordShapeDropReport() string { return wordabi.DropReport() }
+
 // wordShapeKey returns sig's word-shape key when a generated pool exists,
 // silently: reserve gates and typed-fallback probes must not pollute the
 // MVM_WORDDROPS counts.
 func wordShapeKey(sig reflect.Type) (string, bool) {
-	key, _, ok := classifyWordSig(sig)
+	key, _, ok := wordabi.ClassifyWordSig(sig)
 	if !ok || !stubs.HasWordShape(key) {
 		return "", false
 	}
@@ -106,38 +114,4 @@ func wordShapeKey(sig reflect.Type) (string, bool) {
 func wordShapeAvailable(sig reflect.Type) bool {
 	_, ok := wordShapeKey(sig)
 	return ok
-}
-
-// setResultValue copies a method return into dst (a typed result slot), clearing
-// the read-only flag and mirroring reflectToError's nil handling for interface
-// targets: a nil concrete reference kind becomes a nil interface, not a boxed
-// typed-nil.
-func setResultValue(dst, v reflect.Value) {
-	if !v.IsValid() {
-		return
-	}
-	v = Exportable(v)
-	dt := dst.Type()
-	if dt.Kind() == reflect.Interface {
-		switch v.Kind() {
-		case reflect.Interface:
-			if v.IsNil() {
-				return
-			}
-		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
-			if v.IsNil() {
-				return
-			}
-		}
-		if v.Type().AssignableTo(dt) {
-			dst.Set(v)
-		}
-		return
-	}
-	switch {
-	case v.Type() == dt, v.Type().AssignableTo(dt):
-		dst.Set(v)
-	case v.Type().ConvertibleTo(dt):
-		dst.Set(v.Convert(dt))
-	}
 }

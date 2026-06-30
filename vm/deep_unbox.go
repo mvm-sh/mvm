@@ -3,6 +3,8 @@ package vm
 import (
 	"reflect"
 	"sync"
+
+	"github.com/mvm-sh/mvm/internal/runtype"
 )
 
 // maxUnboxDepth bounds the deep-unbox walk on pathological data.
@@ -94,7 +96,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 		if v.IsNil() {
 			return v, false
 		}
-		el := Exportable(v.Elem())
+		el := runtype.Exportable(v.Elem())
 		if !el.IsValid() {
 			// A non-nil interface whose Elem is unreadable: a native unexported
 			// field (e.g. log.Logger.out) can reflect with IsNil false yet a zero
@@ -131,7 +133,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 		for i := range v.Len() {
 			el := v.Index(i)
 			if w, ch := m.deepUnboxIface(el, depth+1, hops+1, seen); ch {
-				Exportable(el).Set(Exportable(w))
+				runtype.Exportable(el).Set(runtype.Exportable(w))
 			}
 		}
 		return v, false
@@ -148,10 +150,10 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 			}
 			if !changed {
 				out = reflect.New(t).Elem()
-				out.Set(Exportable(v))
+				out.Set(runtype.Exportable(v))
 				changed = true
 			}
-			out.Index(i).Set(Exportable(w))
+			out.Index(i).Set(runtype.Exportable(w))
 		}
 		if !changed {
 			return v, false
@@ -170,10 +172,10 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 			}
 			if !changed {
 				out = reflect.New(t).Elem()
-				out.Set(Exportable(v))
+				out.Set(runtype.Exportable(v))
 				changed = true
 			}
-			Exportable(out.Field(i)).Set(Exportable(w))
+			runtype.Exportable(out.Field(i)).Set(runtype.Exportable(w))
 		}
 		if !changed {
 			return v, false
@@ -190,7 +192,7 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 		// through it land in a detached copy.
 		el := v.Elem()
 		if w, ch := m.deepUnboxIface(el, depth+1, hops+1, seen); ch {
-			Exportable(el).Set(Exportable(w))
+			runtype.Exportable(el).Set(runtype.Exportable(w))
 		}
 		return v, false
 	case reflect.Map:
@@ -216,12 +218,12 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 			}
 			changes = append(changes, entry{it.Key(), k, w, kc})
 		}
-		mv := Exportable(v)
+		mv := runtype.Exportable(v)
 		for _, c := range changes {
 			if c.keyChanged {
-				mv.SetMapIndex(Exportable(c.oldKey), reflect.Value{})
+				mv.SetMapIndex(runtype.Exportable(c.oldKey), reflect.Value{})
 			}
-			mv.SetMapIndex(Exportable(c.newKey), Exportable(c.val))
+			mv.SetMapIndex(runtype.Exportable(c.newKey), runtype.Exportable(c.val))
 		}
 		return v, false
 	}

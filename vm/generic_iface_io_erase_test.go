@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mvm-sh/mvm/internal/derive"
 	"github.com/mvm-sh/mvm/mtype"
 )
 
@@ -26,7 +27,7 @@ func TestGenericInstanceIfaceParamErases(t *testing.T) {
 	}
 
 	// Non-generic interface stays precise: func(Plain) carries Plain's method set.
-	plainFn := MaterializeRtype(mtype.SymFunc([]*mtype.Type{mkIface("Plain")}, nil, false))
+	plainFn := derive.MaterializeRtype(mtype.SymFunc([]*mtype.Type{mkIface("Plain")}, nil, false))
 	if plainFn == nil {
 		t.Fatal("plain func did not materialize")
 	}
@@ -35,7 +36,7 @@ func TestGenericInstanceIfaceParamErases(t *testing.T) {
 	}
 
 	// Generic-instance interface erases: func(Box#int) param is interface{}.
-	giFn := MaterializeRtype(mtype.SymFunc([]*mtype.Type{mkIface("Box#int")}, nil, false))
+	giFn := derive.MaterializeRtype(mtype.SymFunc([]*mtype.Type{mkIface("Box#int")}, nil, false))
 	if giFn == nil {
 		t.Fatal("generic-instance func did not materialize")
 	}

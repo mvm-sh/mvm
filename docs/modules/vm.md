@@ -534,17 +534,19 @@ rtype that native `itab`/reflect dispatch reads directly -- no per-call wrapper.
 `Machine.AttachSynthMethods(t)` (`vm/synth_bridge.go`) runs for every compiled
 type. For each method it:
 
-1. matches the signature to a *shape* (`detectShape` -> `stubs.ShapeS1..S38`),
-   falling back to a word-class shape (`detectWordShape`,
-   [ADR-022](../decisions/ADR-022-word-class-dispatch.md)) when no typed shape
-   fits;
-2. builds a handler closure (`makeHandlerS*`, or `makeWordCore` for the word
-   path) that re-enters the interpreter via `CallFunc` when the stub fires;
+1. matches the signature to a *shape* (`detectShape` -> `stubs.ShapeS1..S38`,
+   including the stdlib-specific shapes registered via
+   `vm.RegisterExtendedShapes`), falling back to a word-class shape
+   (`detectWordShape`, [ADR-022](../decisions/ADR-022-word-class-dispatch.md))
+   when no typed shape fits;
+2. builds a handler closure (the generic `makeHandlerS*`, an extended handler
+   from `stdlib/synth_method_shapes.go`, or `makeWordCore` for the word path)
+   that re-enters the interpreter via `CallFunc` when the stub fires;
 3. delegates to `stdlib/stubs`, which resolves each method to a stub-pool slot
    PC and fills them into the type's reserved synth rtype in place.
 
 The type's synth identity was reserved at materialize (`maybeReserve` /
-`maybeReserveStruct` in `vm/derive.go`), so the fill is in place and no rtype swap
+`maybeReserveStruct` in `derive/derive.go`), so the fill is in place and no rtype swap
 or cascade is needed -- a composite that captured the reserved rtype sees the
 methods afterward. See [runtype](runtype.md), [stubs](stubs.md), and
 [ADR-021](../decisions/ADR-021-synthesized-rtypes.md). This replaced the former
@@ -585,9 +587,11 @@ calls `(*runtime.Func).Name()` / `FileLine()` to format them. A
 plain reflect passthrough makes those calls return host frames inside
 `vm.(*Machine).Run` rather than the interpreted call stack.
 
-The VM provides three primitives in `vm/runtime_intercept.go`; the
-bridge itself lives in `stdlib/runtime_virt.go` and registers via
-`stdlib.RegisterPackagePatcher("runtime", ...)`.
+The bridge lives in `stdlib/runtime_virt.go` (registered via
+`stdlib.RegisterPackagePatcher("runtime", ...)`) plus `stdlib/runtime_func.go`
+(the `*runtime.Func` sentinel registry + method shim). The vm side is the
+active-machine slot (`vm/active_machine.go`, core) and the
+`RegisterMethodValueShim` seam (`vm/bridge.go`) the shim plugs into.
 
 **1. Active-machine slot.** Bridges run as Go functions called via
 `reflect.Call`; they need to find the live `Machine`. `Run` threads the
@@ -616,12 +620,13 @@ freshly allocated `*runtime.Func`. Two non-obvious bits:
   returns nil for non-mvm pointers so a host PC can fall through.
 
 **3. Method intercept.** `nativeMethodLookup` (top of the
-`MethodByName` path) calls `runtimeFuncShim(rv, name)` first. On a hit
-(receiver type is `*runtime.Func`, pointer is in the side table, name
-is `"Name"` or `"FileLine"`) the shim returns a `reflect.MakeFunc`
-closure with the matching signature; the host method never runs. On a
-miss, the shim returns the zero `reflect.Value` and the regular lookup
-proceeds. Cost on the miss path is one type-pointer compare.
+`MethodByName` path) calls `tryMethodValueShim(rv, name)` first, which
+dispatches by receiver rtype to a shim registered via
+`RegisterMethodValueShim` -- stdlib registers one for `*runtime.Func`.
+On a hit (pointer is in the side table, name is `"Name"` or `"FileLine"`)
+the shim returns a `reflect.MakeFunc` closure with the matching signature;
+the host method never runs. On a miss it returns the zero `reflect.Value`
+and the regular lookup proceeds. Cost on the miss path is one map lookup.
 
 The VM also synchronizes its execution locals into the `Machine`
 struct just before the native `rv.Call(in)`:
@@ -673,7 +678,7 @@ See [ADR-016](../decisions/ADR-016-runtime-introspection-bridge.md).
 ## Dependencies
 
 - `scan` -- for `scan.Sources` (source position registry used by `DebugInfo`).
-- `runtype` -- rtype synthesis + derive helpers used by `vm/type.go` and
+- `runtype` -- rtype synthesis + derive helpers used by `derive/` and
   `vm/synth_bridge.go` (see [runtype](runtype.md)).
 - `stdlib/stubs` -- the method-shape catalog and `Attach*` wrappers used by
   `vm/synth_bridge.go` (see [stubs](stubs.md)). `stubs` is a leaf package

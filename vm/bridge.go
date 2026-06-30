@@ -45,3 +45,45 @@ func lookupNativeMethodHook(rt reflect.Type, name string) NativeMethodHook {
 	defer nativeMethodHooksMu.RUnlock()
 	return nativeMethodHooks[hookKey{rt, name}]
 }
+
+// MethodValueShim intercepts native method-value resolution on a sentinel type
+// (e.g. *runtime.Func): it returns a replacement bound method, or an invalid
+// Value to decline. Unlike NativeMethodHook it yields the method value (for
+// reflect / method-expression use), not the call result.
+type MethodValueShim = func(rv reflect.Value, name string) reflect.Value
+
+var (
+	methodValueShimsMu sync.RWMutex
+	methodValueShims   = map[reflect.Type]MethodValueShim{}
+)
+
+// RegisterMethodValueShim installs shim for the exact receiver rtype rt.
+func RegisterMethodValueShim(rt reflect.Type, shim MethodValueShim) {
+	if rt == nil {
+		return
+	}
+	methodValueShimsMu.Lock()
+	methodValueShims[rt] = shim
+	methodValueShimsMu.Unlock()
+}
+
+// isShimmedNativeType forces rt's methods onto the slow path so tryMethodValueShim runs.
+func isShimmedNativeType(rt reflect.Type) bool {
+	methodValueShimsMu.RLock()
+	defer methodValueShimsMu.RUnlock()
+	_, ok := methodValueShims[rt]
+	return ok
+}
+
+func tryMethodValueShim(rv reflect.Value, name string) reflect.Value {
+	if !rv.IsValid() {
+		return reflect.Value{}
+	}
+	methodValueShimsMu.RLock()
+	shim := methodValueShims[rv.Type()]
+	methodValueShimsMu.RUnlock()
+	if shim == nil {
+		return reflect.Value{}
+	}
+	return shim(rv, name)
+}

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
 	"github.com/mvm-sh/mvm/vm"
 )
@@ -90,12 +91,12 @@ func (p *Parser) installOneShim(pkgPath string, nativePkg *symbol.Package, sh ge
 		if rtype, ok := v.UnwrapType(); ok {
 			sym.Kind = symbol.Type
 			sym.Value = vm.NewValue(rtype)
-			sym.Type = &vm.Type{Name: rtype.Name(), Rtype: rtype}
+			sym.Type = &mtype.Type{Name: rtype.Name(), Rtype: rtype}
 		} else {
 			rt := v.Type()
 			sym.Kind = symbol.Value
 			sym.Value = v
-			sym.Type = &vm.Type{Name: rt.Name(), Rtype: rt}
+			sym.Type = &mtype.Type{Name: rt.Name(), Rtype: rt}
 		}
 		p.SymSet(key, sym)
 	}

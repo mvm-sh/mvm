@@ -36,8 +36,11 @@ host-typed APIs without breaking their contracts.
 
 Virtualize `runtime.Callers` and `runtime.FuncForPC` at the
 `stdlib.RegisterPackagePatcher("runtime", ...)` boundary. Three
-primitives in `vm/runtime_intercept.go` make it possible without
-touching the interpreter's hot path.
+primitives make it possible without touching the interpreter's hot path:
+the active-machine slot stays in vm (`vm/active_machine.go`, core
+infrastructure), while the `*runtime.Func` sentinel registry and method
+intercept are stdlib stub behavior and live in `stdlib/runtime_func.go`,
+plugged into vm through the `RegisterMethodValueShim` seam.
 
 ### 1. Active-machine slot
 
@@ -86,10 +89,10 @@ the top of that function:
 if shim := runtimeFuncShim(rv, name); shim.IsValid() { return shim }
 ```
 
-is enough. The shim checks the receiver's type pointer against a
-cached `*runtime.Func` `reflect.Type`, looks the receiver up in the
-side table, and returns a `reflect.MakeFunc` closure with the
-matching signature. Miss path is one type-pointer compare.
+is enough, where the shim is the one stdlib registered for the
+`*runtime.Func` rtype via `RegisterMethodValueShim`. It looks the
+receiver up in the side table and returns a `reflect.MakeFunc` closure
+with the matching signature. Miss path is one map lookup keyed by rtype.
 
 ### Live-state sync before native calls
 

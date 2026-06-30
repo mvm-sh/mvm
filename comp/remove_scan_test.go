@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/vm"
 )
 
@@ -80,7 +81,7 @@ func TestPatchNilFnewLenRespectsGenStart(t *testing.T) {
 // fixPtrFnewE turns an FnewE (new-elem for a nil pointer) back into Fnew, bounded at genStart so it cannot rewrite a prior function's FnewE.
 func TestFixPtrFnewERespectsGenStart(t *testing.T) {
 	const slot = 7
-	ptrType := &vm.Type{Rtype: reflect.PointerTo(reflect.TypeOf(0))}
+	ptrType := &mtype.Type{Rtype: reflect.PointerTo(reflect.TypeOf(0))}
 
 	c := &Compiler{}
 	c.Code = vm.Code{

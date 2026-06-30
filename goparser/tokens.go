@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/scan"
-	"github.com/mvm-sh/mvm/vm"
 )
 
 // Token represents a parser token.
@@ -139,7 +139,7 @@ func newDrop(pos int) Token      { return newToken(lang.Drop, "", pos) }
 
 // newEqualSet carries the switch operand's type (nil if unknown) so the
 // compiler can fold an untyped-const case value to it.
-func newEqualSet(pos int, opTyp *vm.Type) Token {
+func newEqualSet(pos int, opTyp *mtype.Type) Token {
 	if opTyp == nil {
 		return newToken(lang.EqualSet, "", pos)
 	}
@@ -159,17 +159,17 @@ func newFieldColon(name string, pos int) Token { return newToken(lang.Colon, "",
 func newLen(i, pos int) Token            { return newToken(lang.Len, "", pos, i) }
 func newSlice(pos int, three bool) Token { return newToken(lang.Slice, "", pos, three) }
 
-func newTypeAssert(typ *vm.Type, pos, okForm int) Token {
+func newTypeAssert(typ *mtype.Type, pos, okForm int) Token {
 	return newToken(lang.TypeAssert, typ.String(), pos, okForm, typ)
 }
 
-// ResolvedType returns the resolved *vm.Type that a Type-kind Ident carries, or
+// ResolvedType returns the resolved *mtype.Type that a Type-kind Ident carries, or
 // nil. The parser attaches it so the compiler resolves the type by its global
 // slot (typeSym/typeIndex) instead of re-looking up the name in the mutable,
 // shared symbol table -- the type's identity travels in the IR, not its name.
-func (t Token) ResolvedType() *vm.Type {
+func (t Token) ResolvedType() *mtype.Type {
 	for _, a := range t.Arg {
-		if typ, ok := a.(*vm.Type); ok {
+		if typ, ok := a.(*mtype.Type); ok {
 			return typ
 		}
 	}

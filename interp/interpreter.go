@@ -16,6 +16,7 @@ import (
 	"github.com/mvm-sh/mvm/comp"
 	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/lang"
+	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/stdlib"
 	"github.com/mvm-sh/mvm/stdlib/stdmod"
 	"github.com/mvm-sh/mvm/symbol"
@@ -64,8 +65,8 @@ type Interp struct {
 	*comp.Compiler
 	*vm.Machine
 	stdlibPatched bool
-	hostStdio     bool              // keep interpreted os.Std* bound to host *os.File
-	synthAttached map[*vm.Type]bool // types already passed through AttachSynthMethods
+	hostStdio     bool                 // keep interpreted os.Std* bound to host *os.File
+	synthAttached map[*mtype.Type]bool // types already passed through AttachSynthMethods
 	Stats         Stats
 }
 

@@ -1,17 +1,13 @@
 package vm
 
-import (
-	"io"
-	"reflect"
-)
-
-var nativeIoEOF any = io.EOF
+import "reflect"
 
 // Interpreted io (wasm, or MVM_INTERP=io) builds its own io.EOF via errors.New,
 // a distinct pointer from the host io.EOF the native floor returns, so
-// `err == io.EOF` fails across the boundary.
-// eofSlot is that interpreted io.EOF's global slot; nil means io is bridged and
-// there is nothing to reconcile.
+// `err == io.EOF` fails across the boundary. sentinelTable records the global
+// slot of that interpreted io.EOF; nil means io is bridged and there is nothing
+// to reconcile. The reconciliation itself lives in stdlib (it owns the io.EOF
+// identity); vm only stores the slot and invokes the hooks at the boundary.
 type sentinelTable struct {
 	eofSlot int
 }
@@ -25,41 +21,29 @@ func (m *Machine) SetInterpEOFSlot(slot int) {
 // SentinelsConfigured guards configureSentinels against re-running per Eval.
 func (m *Machine) SentinelsConfigured() bool { return m.sentinels != nil }
 
-// io's init writes the slot before any reader runs, so a lazy read is safe.
-func (m *Machine) interpEOF() reflect.Value {
-	return m.globals[m.sentinels.eofSlot].Reflect()
+// InterpEOFValue returns the interpreted io.EOF, or an invalid Value when io is
+// bridged. io's init writes the slot before any reader runs, so a lazy read is safe.
+func (m *Machine) InterpEOFValue() Value {
+	if m.sentinels == nil {
+		return Value{}
+	}
+	return m.globals[m.sentinels.eofSlot]
 }
 
-// collectReturns delivers a returned error unwrapped, so match against concrete.
-func (m *Machine) interpEOFConcrete() error {
-	e, _ := m.globals[m.sentinels.eofSlot].Interface().(error)
-	return e
-}
+// Native-boundary sentinel reconciliation, set by stdlib (which owns io.EOF).
+// canonReturns rewrites a returned native io.EOF to the interpreted copy;
+// mapInterpReturn maps an interpreted io.EOF back to the host io.EOF for a
+// native sink. Both fire only when m.sentinels != nil.
+var (
+	sentinelCanonReturns    func(m *Machine, out []reflect.Value)
+	sentinelMapInterpReturn func(m *Machine, v Value) (reflect.Value, bool)
+)
 
-// Counterpart of isInterpEOFReturn, for the native->interp direction.
-// Caller gates on m.sentinels != nil.
-func (m *Machine) canonNativeReturns(out []reflect.Value) {
-	for i, v := range out {
-		if v.Kind() == reflect.Interface && !v.IsNil() && v.Interface() == nativeIoEOF {
-			out[i] = m.interpEOF()
-		}
-	}
-}
-
-// Must run before bridgeIface: on wasm errors is interpreted, so the synth EOF
-// gets wrapped in a synthErrShim that hides its identity.
-// Caller gates on m.sentinels != nil.
-func (m *Machine) isInterpEOFReturn(v Value) bool {
-	if !v.IsValid() {
-		return false
-	}
-	if v.IsIface() {
-		v = v.IfaceVal().Val
-	}
-	rv := v.Reflect()
-	if !rv.IsValid() || !rv.Type().Implements(errorIface) || !rv.CanInterface() {
-		return false
-	}
-	e, _ := rv.Interface().(error)
-	return e != nil && e == m.interpEOFConcrete() //nolint:errorlint // sentinel identity, not a wrap
+// RegisterSentinelHooks installs the boundary reconciliation.
+func RegisterSentinelHooks(
+	canonReturns func(*Machine, []reflect.Value),
+	mapInterpReturn func(*Machine, Value) (reflect.Value, bool),
+) {
+	sentinelCanonReturns = canonReturns
+	sentinelMapInterpReturn = mapInterpReturn
 }
