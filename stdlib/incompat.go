@@ -56,6 +56,9 @@ var Incompat = map[string]map[string]string{
 	"bufio": {
 		"TestReadStringAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 1",
 	},
+	"context": {
+		"TestAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 (escape-analysis assertion)",
+	},
 	"bytes": {
 		"TestNewBufferShallow": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 		"TestWriteAppend":      "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",

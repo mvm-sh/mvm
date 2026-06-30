@@ -38,6 +38,9 @@ var OpaqueRtype = reflect.TypeFor[Opaque]()
 
 var ifaceRtype = reflect.TypeFor[Iface]()
 
+// Compared by Type(): Interface() panics on a read-only ref.
+var cellPtrRtype = reflect.TypeFor[*Value]()
+
 // MvmFunc bundles a mvm func value with its native Go reflect.MakeFunc wrapper.
 // Stored when a mvm func is assigned to a struct field of func type:
 // GF is callable from native Go (HTTP handlers, callbacks, etc.);
@@ -386,6 +389,14 @@ func isNativeIface(v Value) bool {
 	return !v.IsIface()
 }
 
+// No materialized rtype: stay lenient rather than report spurious inequality.
+func dynTypeMatch(typ *mtype.Type, concrete reflect.Value) bool {
+	if typ == nil || typ.Rtype == nil || !concrete.IsValid() {
+		return true
+	}
+	return typ.Rtype == concrete.Type()
+}
+
 // Equal reports whether v is equal to u.
 func (v Value) Equal(u Value) bool {
 	// Native interface{} holding a concrete (e.g. flag.Getter.Get() returns
@@ -393,6 +404,10 @@ func (v Value) Equal(u Value) bool {
 	// `value == literal` test matches Go's interface-to-concrete comparison
 	// rather than reflect.Value.Equal's stricter Kind-must-match rule. mvm's
 	// own Iface wrapper is handled below; this only unwraps plain native ifaces.
+	// Gate dynTypeMatch below: a bare named-basic concrete may be stored under
+	// its underlying rtype, so only an interface-sourced operand has a reliable one.
+	vWasIface := isNativeIface(v) || v.IsIface()
+	uWasIface := isNativeIface(u) || u.IsIface()
 	if isNativeIface(v) {
 		// Against untyped nil, the non-nil interface itself is the operand:
 		// an eface holding a typed nil (e.g. any([]string(nil))) is != nil.
@@ -416,7 +431,14 @@ func (v Value) Equal(u Value) bool {
 			return false // non-nil interface != nil
 		}
 		if u.IsIface() {
-			return iv.Val.Equal(u.IfaceVal().Val)
+			iu := u.IfaceVal()
+			if iu.Typ == nil || !iv.Typ.SameAs(iu.Typ) {
+				return false
+			}
+			return iv.Val.Equal(iu.Val)
+		}
+		if uWasIface && !dynTypeMatch(iv.Typ, u.ref) {
+			return false
 		}
 		return iv.Val.Equal(u)
 	}
@@ -424,6 +446,9 @@ func (v Value) Equal(u Value) bool {
 		iu := u.IfaceVal()
 		if iu.Typ == nil {
 			return nilEqual(v)
+		}
+		if vWasIface && !dynTypeMatch(iu.Typ, v.ref) {
+			return false
 		}
 		// v is a concrete value, u is still boxed as Iface; compare
 		// against the boxed value.
@@ -479,6 +504,11 @@ func (v Value) Equal(u Value) bool {
 	// Same-pointee pointers compare by address (P vs *P with `type P *P`
 	// carry distinct rtypes); unrelated pointees stay inequal, as in Go.
 	if v.ref.Kind() == reflect.Pointer && u.ref.Kind() == reflect.Pointer &&
+		v.ref.Type().Elem() == u.ref.Type().Elem() {
+		return v.ref.Pointer() == u.ref.Pointer()
+	}
+	// chan T and <-chan T have distinct rtypes that reflect.Value.Equal rejects.
+	if v.ref.Kind() == reflect.Chan && u.ref.Kind() == reflect.Chan &&
 		v.ref.Type().Elem() == u.ref.Type().Elem() {
 		return v.ref.Pointer() == u.ref.Pointer()
 	}

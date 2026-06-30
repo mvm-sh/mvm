@@ -5584,11 +5584,9 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 	}
 	// Promoting a captured local to a heap cell stores the cell pointer into its slot.
 	// That is a raw overwrite, never a reflect.Set into the slot's old typed value.
-	if src.ref.Kind() == reflect.Pointer {
-		if _, ok := src.ref.Interface().(*Value); ok {
-			*dst = src
-			return
-		}
+	if src.ref.Kind() == reflect.Pointer && src.ref.Type() == cellPtrRtype {
+		*dst = src
+		return
 	}
 	if dst.ref.Kind() == reflect.Func && dst.ref.CanAddr() {
 		dst.num = src.num
