@@ -1429,17 +1429,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				return c.errAt(t, "cannot take address of value with unknown type")
 			}
 			push(&symbol.Symbol{Kind: symbol.Value, Type: derive.PointerTo(srcType)})
-			// AddrLocal aliases the frame slot directly, which is only safe
-			// when the slot's reflect type matches the language type. Interface-
-			// typed locals are stored as vm.Iface internally; &r must still
-			// yield a *interface{} (handled by the Addr opcode's Iface branch).
-			concrete := srcType != nil && !srcType.IsInterface()
 			n := len(c.Code)
-			// Func slots are interface{} boxes; pass the func type (+1; 0=none)
-			// so AddrLocal retypes the slot, making &f a *func(...).
-			funcRetypeOp := 0
-			if srcType != nil && srcType.Kind() == reflect.Func {
-				funcRetypeOp = c.typeSym(srcType).Index + 1
+			// Func and interface slots are interface{} boxes; pass the declared
+			// type (+1; 0=none) so AddrLocal retypes/promotes the slot, making &f
+			// a *func(...) and &iface a *T pointing at heap storage of the static
+			// type rather than a *interface{} aliasing the volatile frame slot.
+			retypeOp := 0
+			if k := srcType.Kind(); k == reflect.Func || k == reflect.Interface {
+				retypeOp = c.typeSym(srcType).Index + 1
 			}
 			switch {
 			case n > 0 && c.Code[n-1].Op == vm.Index:
@@ -1448,15 +1445,15 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// &slot must still become AddrLocal so the pointer aliases the slot
 			// (else it boxes a detached copy and writes through it are lost). This
 			// fires when an earlier &slot in a sibling branch marked it addressed.
-			case concrete && n > 0 && (c.Code[n-1].Op == vm.GetLocal || c.Code[n-1].Op == vm.GetLocalSync):
+			case n > 0 && (c.Code[n-1].Op == vm.GetLocal || c.Code[n-1].Op == vm.GetLocalSync):
 				c.Code[n-1].Op = vm.AddrLocal
-				c.Code[n-1].B = int32(funcRetypeOp)
+				c.Code[n-1].B = int32(retypeOp)
 				markAddressed(int(c.Code[n-1].A))
-			case concrete && n > 0 && c.Code[n-1].Op == vm.GetLocal2:
+			case n > 0 && c.Code[n-1].Op == vm.GetLocal2:
 				idx := int(c.Code[n-1].B)
 				c.Code[n-1].Op = vm.GetLocal
 				c.Code[n-1].B = 0
-				c.emit(t, vm.AddrLocal, idx, funcRetypeOp)
+				c.emit(t, vm.AddrLocal, idx, retypeOp)
 				markAddressed(idx)
 			default:
 				c.emit(t, vm.Addr)

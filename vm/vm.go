@@ -55,7 +55,7 @@ const (
 	// Instruction effect on stack: values consumed -- values produced.
 	Nop          Op = iota // --
 	Addr                   // a -- &a ;
-	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]; promotes slot to addressable storage so writes via the pointer propagate back; $2!=0 retypes a func slot to func type globals[$2-1]
+	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]; promotes slot to addressable storage so writes via the pointer propagate back; $2!=0 retypes the slot to func/interface type globals[$2-1]
 	Append                 // slice [v0..vn-1] -- slice' ; append $0 values to slice
 	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice; elem type at mem[$1]; $0=0 means spread mode: append(a, b...)
 	Call                   // f [a1 .. ai] -- [r1 .. rj] ; r1, ... = prog[f](a1, ...); B bit 15 = spread flag
@@ -1578,9 +1578,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			slot := &mem[int(c.A)+fp-1]
 			switch {
 			case c.B != 0:
-				// Func slot is an interface{} box; retype to the declared func
-				// type ($2-1) so &f is *func(...), not *interface{}.
-				m.retypeFuncSlot(slot, m.globals[int(c.B)-1].ref.Type())
+				// Func/interface slots are interface{} boxes; retype to the declared
+				// type ($2-1) so &f is *func(...) and &iface a *T into heap storage,
+				// not a *interface{} aliasing the volatile frame slot.
+				m.promoteSlot(slot, m.globals[int(c.B)-1].ref.Type())
 			case !slot.ref.CanAddr():
 				// Promote to addressable storage so the pushed pointer aliases
 				// the slot. DerefSet keeps slot.num in sync on writes.
@@ -5587,16 +5588,29 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 	return reflect.Value{}, false
 }
 
-func (m *Machine) retypeFuncSlot(slot *Value, funcType reflect.Type) {
-	if slot.ref.IsValid() && slot.ref.Type() == funcType && slot.ref.CanAddr() {
+// promoteSlot retypes a func/interface{} box slot to its declared type and moves
+// it to heap storage, so &slot is a stable *T (not a *interface{} aliasing the
+// frame slot). A narrow interface (error) is bridged by assignSlot.
+func (m *Machine) promoteSlot(slot *Value, dt reflect.Type) {
+	if slot.ref.IsValid() && slot.ref.Type() == dt && slot.ref.CanAddr() {
 		return
 	}
 	orig := *slot
-	slot.ref = reflect.New(funcType).Elem()
+	slot.ref = reflect.New(dt).Elem()
 	slot.num = 0
-	if !nilEqual(orig) {
-		m.assignSlot(slot, orig)
+	if nilEqual(orig) {
+		return
 	}
+	// A boxed mvm Iface is not a Go eface; bridge it so &iface is a real
+	// *T (unsafe access via protobuf pointerOfIface, correct dynamic type),
+	// not a pointer to the Iface box assignSlot would store into interface{}.
+	if dt.Kind() == reflect.Interface && orig.IsIface() {
+		if cv := m.bridgeIface(orig.IfaceVal(), dt); cv.IsValid() {
+			slot.ref.Set(cv)
+		}
+		return
+	}
+	m.assignSlot(slot, orig)
 }
 
 // setCell writes into a closure heap cell, coercing an untyped nil to the cell's
@@ -5687,6 +5701,18 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 	}
 	// A value read from an unexported field carries reflect's read-only flag, strip it.
 	s = runtype.Exportable(s)
+	// A promoted &iface local has a narrow native interface slot; an interpreted
+	// value (vm.Iface, or interface{} box) is not assignable, so bridge it.
+	if dt := dst.ref.Type(); dt.Kind() == reflect.Interface && s.IsValid() && !s.Type().AssignableTo(dt) {
+		if src.IsIface() {
+			s = m.bridgeIface(src.IfaceVal(), dt)
+		} else if s.Kind() == reflect.Interface {
+			s = runtype.Exportable(s.Elem())
+		}
+		if !s.IsValid() {
+			s = reflect.Zero(dt)
+		}
+	}
 	dst.ref.Set(adoptNamedType(s, dst.ref.Type()))
 }
 
