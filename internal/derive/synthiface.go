@@ -122,6 +122,15 @@ func IsGenericInstanceName(name string) bool {
 	return strings.IndexByte(name, '#') >= 0
 }
 
+// reflect must read a generic instance as Go's Base[a,b], not mvm's Base#a#b: xml derives element names from Name() and truncates at '['.
+func goName(name string) string {
+	base, args, ok := strings.Cut(name, "#")
+	if !ok {
+		return name
+	}
+	return base + "[" + strings.ReplaceAll(args, "#", ",") + "]"
+}
+
 // IsExportedName reports whether name is exported (leading upper-case rune).
 func IsExportedName(name string) bool {
 	if name == "" {
@@ -164,13 +173,13 @@ func UnexportedMethodPkg(t *mtype.Type, method mtype.Method, name string) string
 // QualifiedTypeName is t's "pkg.Name" identity, or just Name when t has no package.
 func QualifiedTypeName(t *mtype.Type) string {
 	if t.PkgName == "" || t.Name == "" {
-		return t.Name
+		return goName(t.Name)
 	}
 	base := t.PkgName
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
-	return base + "." + t.Name
+	return base + "." + goName(t.Name)
 }
 
 // EraseSynthIfaceParams replaces synth non-empty interface params/results with any.

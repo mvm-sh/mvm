@@ -288,18 +288,25 @@ func FormatStats(i *Interp) string {
 	return b.String()
 }
 
-// Needed only when io is interpreted (wasm, or MVM_INTERP=io); bridged io shares
-// the host io.EOF, so there is nothing to reconcile. See vm/sentinel.go.
+// Needed only when io/io-fs are interpreted (wasm, or MVM_INTERP); bridged, they
+// share the host sentinels, so there is nothing to reconcile. See vm/sentinel.go.
+// Idempotent per name so a package compiled in a later Eval still registers.
 func (i *Interp) configureSentinels() {
-	if i.SentinelsConfigured() {
+	i.registerSentinel("io", "io.EOF", "EOF")
+	for _, n := range []string{"ErrNotExist", "ErrExist", "ErrPermission", "ErrClosed", "ErrInvalid"} {
+		i.registerSentinel("io/fs", "fs."+n, n)
+	}
+}
+
+func (i *Interp) registerSentinel(pkgPath, name, sym string) {
+	if i.SentinelConfigured(name) {
 		return
 	}
-	pkg, ok := i.Packages["io"]
-	if !ok || pkg.Bin {
+	if pkg, ok := i.Packages[pkgPath]; !ok || pkg.Bin {
 		return
 	}
-	if sym, ok := i.Symbols[goparser.QualifyName("io", "EOF")]; ok && sym.Index >= 0 {
-		i.SetInterpEOFSlot(sym.Index)
+	if s, ok := i.Symbols[goparser.QualifyName(pkgPath, sym)]; ok && s.Index >= 0 {
+		i.SetInterpSentinelSlot(name, s.Index)
 	}
 }
 

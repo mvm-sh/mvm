@@ -5115,8 +5115,8 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 	out := make([]reflect.Value, nret)
 	for i := range out {
 		// A native sink (io.Copy, io.ReadAll) compares the return against host io.EOF.
-		if m.sentinels != nil && sentinelMapInterpReturn != nil {
-			if nv, ok := sentinelMapInterpReturn(m, m.mem[i]); ok {
+		if m.sentinels != nil && sentinelMapInterp != nil {
+			if nv, ok := sentinelMapInterp(m, m.mem[i]); ok {
 				out[i] = nv
 				continue
 			}
@@ -5828,6 +5828,14 @@ func (m *Machine) bridgeArgs(in []reflect.Value, funcType reflect.Type, fn refle
 				wb = append(wb, ifaceWriteback{ptr: ptr, st: st.Type().Elem(), before: *(*[2]uintptr)(ptr)})
 			}
 			continue
+		}
+		// A bare interpreted sentinel (io.EOF, fs.ErrNotExist) reaching a native
+		// callee (syscall.Errno.Is) must arrive as the host value it compares by ==.
+		if m.sentinels != nil && sentinelMapInterp != nil {
+			if nv, ok := sentinelMapInterp(m, FromReflect(rv)); ok {
+				in[i] = nv
+				continue
+			}
 		}
 		targetType := paramTypeFor(funcType, i)
 		if targetType == nil {

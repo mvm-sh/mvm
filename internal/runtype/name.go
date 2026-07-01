@@ -26,6 +26,38 @@ func encodeName(name string, exported bool) abiName {
 	return abiName{Bytes: &buf[0]}
 }
 
+// Sets the embedded bit reflect.StructOf refuses on an unexported embed (anon+PkgPath).
+// A field's PkgPath lives on the struct type, so none is encoded here.
+func encodeFieldName(name, tag string, exported, embedded bool) abiName {
+	var flags byte
+	if exported {
+		flags |= 0b0001
+	}
+	if tag != "" {
+		flags |= 0b0010
+	}
+	if embedded {
+		flags |= 0b1000
+	}
+	var nLen, tLen [binary.MaxVarintLen64]byte
+	nSize := binary.PutUvarint(nLen[:], uint64(len(name)))
+	total := 1 + nSize + len(name)
+	tSize := 0
+	if tag != "" {
+		tSize = binary.PutUvarint(tLen[:], uint64(len(tag)))
+		total += tSize + len(tag)
+	}
+	buf := make([]byte, total)
+	buf[0] = flags
+	p := 1 + copy(buf[1:], nLen[:nSize])
+	p += copy(buf[p:], name)
+	if tag != "" {
+		p += copy(buf[p:], tLen[:tSize])
+		copy(buf[p:], tag)
+	}
+	return abiName{Bytes: &buf[0]}
+}
+
 // encodeNamePkg is encodeName with an embedded import path (abi.Name bit2), so
 // native reflect.Implements can match an unexported method against an unexported
 // interface method. Layout: flags(bit2) | uvarint(len) | name | 4-byte nameOff

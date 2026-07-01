@@ -277,6 +277,16 @@ func CloneStructLayoutWithFields(src reflect.Type, fieldTypes map[int]reflect.Ty
 	return asReflectType(&b.abiType)
 }
 
+// SetFieldEmbedded sets field idx's embedded bit, which StructOf refuses on an unexported embed (anon+PkgPath).
+// rt MUST be a heap clone mvm owns: StructOf interns shapes, so editing a cached result corrupts every value of that shape.
+func SetFieldEmbedded(rt reflect.Type, idx int, name, tag string) {
+	s := (*abiStructType)(unsafe.Pointer(rtypePtr(rt)))
+	if idx < 0 || idx >= len(s.Fields) {
+		return
+	}
+	s.Fields[idx].Name = encodeFieldName(name, tag, false, true)
+}
+
 const abiStructTypeSize = unsafe.Sizeof(abiStructType{})
 
 // fillKeepAlive pins realLayouts whose Fields slices FillStructLayout aliases.

@@ -1,49 +1,71 @@
 package vm
 
-import "reflect"
+import (
+	"maps"
+	"reflect"
+)
 
-// Interpreted io (wasm, or MVM_INTERP=io) builds its own io.EOF via errors.New,
-// a distinct pointer from the host io.EOF the native floor returns, so
-// `err == io.EOF` fails across the boundary. sentinelTable records the global
-// slot of that interpreted io.EOF; nil means io is bridged and there is nothing
-// to reconcile. The reconciliation itself lives in stdlib (it owns the io.EOF
-// identity); vm only stores the slot and invokes the hooks at the boundary.
+// Interpreted io/io-fs (wasm, or MVM_INTERP) mint their own io.EOF and oserror
+// sentinels via errors.New, distinct pointers from the host ones the native floor
+// (os/syscall) returns and compares, so `err == io.EOF` and syscall.Errno.Is
+// fail across the boundary. sentinelTable records each interpreted sentinel's
+// global slot by name; nil means those packages are bridged, nothing to
+// reconcile. The reconciliation lives in stdlib (which owns the native
+// identities); vm stores the slots and invokes the hooks at the boundary.
 type sentinelTable struct {
-	eofSlot int
+	slots map[string]int
 }
 
-// SetInterpEOFSlot enables canonicalization; slot is the interpreted io.EOF's
-// global, supplied by the interpreter once io is compiled.
-func (m *Machine) SetInterpEOFSlot(slot int) {
-	m.sentinels = &sentinelTable{eofSlot: slot}
+// SetInterpSentinelSlot enables canonicalization; slot is the named interpreted
+// sentinel's global, supplied by the interpreter once its package is compiled.
+// Copy-on-write: pooled runners share the *sentinelTable pointer, so a later
+// registration must publish a fresh table rather than mutate the shared map.
+func (m *Machine) SetInterpSentinelSlot(name string, slot int) {
+	next := &sentinelTable{slots: make(map[string]int, 8)}
+	if m.sentinels != nil {
+		maps.Copy(next.slots, m.sentinels.slots)
+	}
+	next.slots[name] = slot
+	m.sentinels = next
 }
 
-// SentinelsConfigured guards configureSentinels against re-running per Eval.
-func (m *Machine) SentinelsConfigured() bool { return m.sentinels != nil }
+// SentinelConfigured reports whether name's slot is already registered.
+func (m *Machine) SentinelConfigured(name string) bool {
+	if m.sentinels == nil {
+		return false
+	}
+	_, ok := m.sentinels.slots[name]
+	return ok
+}
 
-// InterpEOFValue returns the interpreted io.EOF, or an invalid Value when io is
-// bridged. io's init writes the slot before any reader runs, so a lazy read is safe.
-func (m *Machine) InterpEOFValue() Value {
+// InterpSentinelValue returns the interpreted sentinel, or an invalid Value when
+// its package is bridged. init writes the slot before any use, so a lazy read is safe.
+func (m *Machine) InterpSentinelValue(name string) Value {
 	if m.sentinels == nil {
 		return Value{}
 	}
-	return m.globals[m.sentinels.eofSlot]
+	slot, ok := m.sentinels.slots[name]
+	if !ok {
+		return Value{}
+	}
+	return m.globals[slot]
 }
 
-// Native-boundary sentinel reconciliation, set by stdlib (which owns io.EOF).
-// canonReturns rewrites a returned native io.EOF to the interpreted copy;
-// mapInterpReturn maps an interpreted io.EOF back to the host io.EOF for a
-// native sink. Both fire only when m.sentinels != nil.
+// Native-boundary sentinel reconciliation, set by stdlib (which owns the native
+// sentinels). canonReturns rewrites a returned native io.EOF to the interpreted
+// copy; mapInterp maps an interpreted sentinel (io.EOF, an oserror sentinel) to
+// its host value for a native sink or a native-call arg. Both fire only when
+// m.sentinels != nil.
 var (
-	sentinelCanonReturns    func(m *Machine, out []reflect.Value)
-	sentinelMapInterpReturn func(m *Machine, v Value) (reflect.Value, bool)
+	sentinelCanonReturns func(m *Machine, out []reflect.Value)
+	sentinelMapInterp    func(m *Machine, v Value) (reflect.Value, bool)
 )
 
 // RegisterSentinelHooks installs the boundary reconciliation.
 func RegisterSentinelHooks(
 	canonReturns func(*Machine, []reflect.Value),
-	mapInterpReturn func(*Machine, Value) (reflect.Value, bool),
+	mapInterp func(*Machine, Value) (reflect.Value, bool),
 ) {
 	sentinelCanonReturns = canonReturns
-	sentinelMapInterpReturn = mapInterpReturn
+	sentinelMapInterp = mapInterp
 }

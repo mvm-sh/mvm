@@ -437,3 +437,61 @@ func TestIndexAssignConstConvert(t *testing.T) {
 		})
 	}
 }
+
+// Generic instance rtype must report Go's Foo[int], not mvm's Foo#int: xml truncates the element name at '['.
+// Regression for encoding/xml TestMarshal/47 on wasm.
+func TestReflectGenericInstanceName(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Box[T any] struct{ X T }
+type Pair[A, B any] struct{ X A; Y B }
+
+func main() {
+	fmt.Println(reflect.TypeOf(Box[int]{}).Name())
+	fmt.Println(reflect.TypeOf(Pair[int, string]{}).Name())
+}
+`
+	if got, want := evalOut(t, "generic_name.go", src), "Box[int]\nPair[int,string]\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
+// A field promoted through an unexported embed stays reflect-reachable only if the embed reports Anonymous=true.
+// StructOf refuses anon+PkgPath, so mvm sets the bit post-build.
+// Regression for encoding/xml TestMarshal/64.
+func TestReflectUnexportedEmbedAnonymous(t *testing.T) {
+	src := `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"reflect"
+)
+
+type embedD struct {
+	fieldD string
+	FieldE string
+}
+
+type Outer struct {
+	FieldA string
+	embedD
+}
+
+func main() {
+	f := reflect.TypeOf(Outer{}).Field(1)
+	fmt.Println(f.Name, f.Anonymous, f.IsExported())
+	b, _ := json.Marshal(Outer{FieldA: "a", embedD: embedD{FieldE: "e"}})
+	fmt.Println(string(b))
+}
+`
+	want := "embedD true false\n" + `{"FieldA":"a","FieldE":"e"}` + "\n"
+	if got := evalOut(t, "unexported_embed.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

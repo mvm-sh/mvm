@@ -842,6 +842,8 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 	// Embeds demoted to a methodless layout below (to satisfy reflect.StructOf);
 	// after building we restore the canonical named type so reflect identity holds.
 	var restore map[int]reflect.Type
+	// StructOf can't mark an unexported embed anonymous; bit flipped post-build.
+	var embedFix []int
 	// Find a consistent PkgPath for all unexported fields.
 	// reflect.StructOf requires all unexported fields to share the same PkgPath.
 	pkgPath := "builtin"
@@ -887,12 +889,11 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 
 		switch {
 		case embSet[i] && len(f.Name) > 0 && !unicode.IsUpper(rune(f.Name[0])):
-			// An unexported embed needs a PkgPath, but reflect.StructOf rejects an
-			// anonymous field with PkgPath set, so it cannot stay Anonymous: its
-			// promoted fields are unreachable via reflect (a StructOf limitation).
+			// StructOf rejects anon+PkgPath; build plain, set the embedded bit post-build so reflect still walks promoted fields.
 			if rf[i].PkgPath == "" {
 				rf[i].PkgPath = pkgPath
 			}
+			embedFix = append(embedFix, i)
 		case embSet[i] && rf[i].Type != nil && rf[i].Type.Kind() != reflect.Interface &&
 			(i > 0 || rf[i].Type.Kind() == reflect.Pointer) &&
 			(embedFieldHasMethods(f, rf[i].Type) || runtype.EmbedTripsStructOf(rf[i].Type)):
@@ -918,10 +919,7 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		}
 	}
 	if rt, ok := tryStructOf(rf); ok {
-		if len(restore) > 0 {
-			rt = runtype.CloneStructLayoutWithFields(rt, restore)
-		}
-		return rt
+		return applyEmbedFix(rt, rf, restore, embedFix)
 	}
 	// mvm promotes embedded methods itself, so retry with the embeds demoted to named fields.
 	// A non-anonymous field never trips StructOf's promotion check, so the demoted embeds
@@ -932,7 +930,21 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			rf[i].Type = rt
 		}
 	}
-	return reflect.StructOf(rf)
+	// restore already baked into rf above, so the clone only re-flags the embeds.
+	return applyEmbedFix(reflect.StructOf(rf), rf, nil, embedFix)
+}
+
+// applyEmbedFix repoints restore fields and flips the embedded bit on unexported
+// embeds. Clones first: SetFieldEmbedded must not touch the interned StructOf result.
+func applyEmbedFix(rt reflect.Type, rf []reflect.StructField, restore map[int]reflect.Type, embedFix []int) reflect.Type {
+	if len(restore) == 0 && len(embedFix) == 0 {
+		return rt
+	}
+	rt = runtype.CloneStructLayoutWithFields(rt, restore)
+	for _, i := range embedFix {
+		runtype.SetFieldEmbedded(rt, i, rf[i].Name, string(rf[i].Tag))
+	}
+	return rt
 }
 
 func tryStructOf(rf []reflect.StructField) (rt reflect.Type, ok bool) {

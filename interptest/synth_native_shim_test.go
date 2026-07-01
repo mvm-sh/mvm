@@ -110,6 +110,47 @@ func main() {
 	}
 }
 
+// An interpreted oserror sentinel (io/fs.ErrNotExist == oserror.ErrNotExist)
+// must reconcile with the host value in both directions: bridgeArgs maps a bare
+// sentinel arg to native (a nested one is left alone), and canonNativeReturns
+// maps a host sentinel returned by a native call back to the interpreted copy.
+// TestSynth* runs on the wasm CI.
+func TestSynthOserrorSentinelArg(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"io/fs"
+	"nat"
+)
+
+func main() {
+	fmt.Println(nat.EqNotExist(fs.ErrNotExist), nat.EqExist(fs.ErrExist), nat.EqNotExist(fs.ErrExist))
+	fmt.Println(nat.RetNotExist() == fs.ErrNotExist)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io", "io/fs", "errors") // force-interpret so the sentinel split exists on native
+	i.ImportPackageValues(map[string]map[string]reflect.Value{
+		"nat": {
+			"EqNotExist":  reflect.ValueOf(func(err error) bool { return err == os.ErrNotExist }),
+			"EqExist":     reflect.ValueOf(func(err error) bool { return err == os.ErrExist }),
+			"RetNotExist": reflect.ValueOf(func() error { return os.ErrNotExist }),
+		},
+	})
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("oserr_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true true false\ntrue\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 // An interpreted io.Reader read by a native sink: on wasm its Read PC is the -1
 // sentinel, so without the reader shim native io.ReadAll would trap.
 // Asserts the buffer round-trips and the interpreted io.EOF terminates the copy.
