@@ -172,8 +172,8 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	loc.Set(el)
 }
 
-// A reflect.Value.Set into a synth-interface slot must store eface form: the native
-// itab form a synth-iface Set writes is undecodable by the interpreter's iface slots.
+// InstallReflectSetSynthIfaceHook stores eface form for a reflect.Value.Set into a
+// synth-interface slot; the native itab form is undecodable by the interpreter's slots.
 // Reached once errors.As's anon-iface target is retyped to a synth iface.
 func InstallReflectSetSynthIfaceHook() {
 	RegisterNativeMethodHook(reflect.Value{}, "Set", func(m *Machine, recv reflect.Value, args []reflect.Value) []reflect.Value {

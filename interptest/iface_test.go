@@ -693,3 +693,34 @@ func main() {
 		t.Errorf("output: got %q, want %q (stderr: %s)", got, want, stderr.String())
 	}
 }
+
+// *p = v through a *error (narrow interface) went through DerefSet's numSet, which
+// reflect.Set-rejected the interface{}-boxed source; the field/slot paths bridge but
+// DerefSet did not. Covers a direct error param and an interface-typed struct field.
+func TestDerefSetNarrowIface(t *testing.T) {
+	const src = `package main
+
+type myErr struct{}
+
+func (myErr) Error() string { return "boom" }
+
+type Box struct{ err error }
+
+func storeParam(dst *error, src error) { *dst = src }
+func storeField(dst *error, b *Box)    { *dst = b.err }
+
+func main() {
+	var e error
+	b := &Box{err: myErr{}}
+	storeParam(&e, b.err)
+	println("param:", e.Error())
+	e = nil
+	storeField(&e, b)
+	println("field:", e.Error())
+}
+`
+	out := evalOut(t, "derefset", src)
+	if want := "param: boom\nfield: boom\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}

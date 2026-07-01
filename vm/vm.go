@@ -1558,6 +1558,13 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				m.setFuncField(elem, val)
 				break
 			}
+			if elem.Kind() == reflect.Interface {
+				// *p = iface into a narrow interface (*error): an interface{} box is
+				// not assignable, so reuse assignSlot's bridge/unwrap (elem is settable).
+				cell := Value{ref: elem}
+				m.assignSlot(&cell, val)
+				break
+			}
 			numSet(elem, val)
 			// Update the .num cache of any stack slot whose ref shares the
 			// same underlying address, so fused GetLocal*Imm instructions and
