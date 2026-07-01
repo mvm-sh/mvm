@@ -1489,7 +1489,11 @@ func (p *Parser) registerVarNames(decl Tokens) []string {
 		name := p.pkgKey(rawName)
 		vars = append(vars, name)
 		if p.funcScope == "" {
-			if s, _, ok := p.symGet(lt[0].Str); !ok || s.Index == symbol.UnsetAddr {
+			s, _, ok := p.symGet(lt[0].Str)
+			// A fresh top-level var must not reuse an imported pkg's same-named var
+			// leaked to the bare key (mvm test go/format: format_test's []struct
+			// tests vs interpreted go/format's []string tests).
+			if !ok || s.Index == symbol.UnsetAddr || p.foreignBareDecl(s, lt[0].Str) {
 				p.SymAdd(symbol.UnsetAddr, name, nilValue, symbol.Var, nil)
 			}
 			continue

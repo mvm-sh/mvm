@@ -162,6 +162,16 @@ func (p *Parser) foreignBareAlias(s *symbol.Symbol, name string) bool {
 	return s.Name != QualifyName(p.importingPkg, name)
 }
 
+// foreignBareDecl reports whether a bare-key top-level decl of name (no package
+// context) found an imported pkg's symbol aliased there; its canonical Name is
+// "<pkg>.<name>", whereas a same-unit bare var keeps Name == name.
+func (p *Parser) foreignBareDecl(s *symbol.Symbol, name string) bool {
+	if p.importingPkg != "" || p.CompilingPkg != "" || s == nil {
+		return false
+	}
+	return s.Name != name && strings.HasSuffix(s.Name, "."+name)
+}
+
 // QualifyName composes the canonical pkg-qualified symbol-table key for a
 // top-level name. For pointer-receiver method names ("*Tag.M"), the '*' moves
 // to the very front of the key ("*<pkg>.Tag.M") so the standard pointer-

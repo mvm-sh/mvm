@@ -134,6 +134,44 @@ func Pub() int { return newBuffer() }
 	}
 }
 
+// An external X_test unit declaring a top-level var whose name matches an
+// unexported var of the imported target must get its own slot, not reuse the
+// target's leaked bare alias. Repro of `mvm test go/format` on wasm: interpreted
+// go/format's `var tests = []string` collided with format_test's differently
+// typed `var tests = []struct{...}`, panicking reflect.Set at init.
+func TestExternalUnitVarShadowsTargetAlias(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/tv",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/tv\n",
+			"tv.go": `package tv
+
+var tests = []string{"a", "b", "c"}
+
+func Count() int { return len(tests) }
+`,
+		},
+	})
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	i.AutoImportPackages()
+
+	if _, err := i.Eval("example.com/x/tv", ""); err != nil {
+		t.Fatalf("load target: %v", err)
+	}
+	i.PublishCompiledPackage("example.com/x/tv")
+
+	r, err := i.Eval("tv_test", `var tests = []struct{ name string; n int }{{"x", 7}}; tests[0].n`)
+	if err != nil {
+		t.Fatalf("external unit: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "7" {
+		t.Errorf("tests[0].n = %q, want 7", got)
+	}
+}
+
 func TestImportedForwardRefVarOrder(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/fwd",
