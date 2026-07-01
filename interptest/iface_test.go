@@ -724,3 +724,53 @@ func main() {
 		t.Errorf("output: got %q, want %q", out, want)
 	}
 }
+
+// TestNamedIfaceContainerElem: a named method-bearing interface as slice elem or
+// map key reflects with its name; a concrete built in a goroutine still stores into
+// it (the go/ast-on-wasm case). Empty interface stays erased.
+func TestNamedIfaceContainerElem(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+	"sync"
+)
+
+type MyPos int
+type Node interface {
+	Pos() MyPos
+}
+type Spec interface {
+	Node
+	specNode() // unexported marker, like ast.Decl.declNode
+}
+type ImportSpec struct{ name string }
+
+func (*ImportSpec) Pos() MyPos { return 1 }
+func (*ImportSpec) specNode()  {}
+
+func build() []Spec { return append([]Spec(nil), &ImportSpec{"x"}) }
+
+func main() {
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = build() }()
+	}
+	wg.Wait()
+	l := build()
+	fmt.Println("slice:", reflect.TypeOf(l))
+	m := map[Spec]int{}
+	fmt.Println("mapkey:", reflect.TypeOf(m).Key())
+	var e []interface{}
+	fmt.Println("empty:", reflect.TypeOf(&e).Elem()) // empty interface stays erased
+	fmt.Println("len:", len(l))
+}
+`
+	out := evalOut(t, "ifaceelem", src)
+	want := "slice: []main.Spec\nmapkey: main.Spec\nempty: []interface {}\nlen: 1\n"
+	if out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}

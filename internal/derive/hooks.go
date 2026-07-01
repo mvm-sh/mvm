@@ -10,3 +10,8 @@ var ShapeAvailable = func(_ reflect.Type) bool { return false }
 // The pointer (not the map) lets the reserve gate lazy-create it under derivedMu.
 // The vm sets it; default-nil disables cross-Eval sharing.
 var ActiveRtypeCache = func() *map[MethodStructKey]*SynthReservation { return nil }
+
+// ShareMethodCarriers extends the struct rtype dedup (ActiveRtypeCache) to
+// method-bearing named non-struct types (token.Pos). The vm sets it true on wasm,
+// where the cache is global and a synth fill captures no *Machine.
+var ShareMethodCarriers = false

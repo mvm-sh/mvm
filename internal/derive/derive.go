@@ -587,6 +587,27 @@ func reserveNamedCarrier(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	name := QualifiedTypeName(t)
 	pkgPath := RtypePkgPath(t)
+	// wasm: dedup a method-bearing named non-struct (token.Pos) to one rtype, so a
+	// method sig carrying it matches across interface and concrete in reflect.Implements.
+	var cacheKey MethodStructKey
+	var cachep *map[MethodStructKey]*SynthReservation
+	if ShareMethodCarriers {
+		if cachep = ActiveRtypeCache(); cachep != nil {
+			cacheKey = MethodStructKey{name: name, layoutSig: layoutRT.String(), methodSig: methodFingerprint(t)}
+			derivedMu.Lock()
+			shared := (*cachep)[cacheKey]
+			if shared != nil {
+				reservations[t] = shared
+				derivedMu.Unlock()
+				t.Rtype = shared.value.Type()
+				if shared.ptr != nil {
+					AttachPtrDerived(t, shared.ptr.Type())
+				}
+				return shared.value.Type()
+			}
+			derivedMu.Unlock()
+		}
+	}
 	vr, err := runtype.ReserveMethods(layoutRT, name, pkgPath)
 	if err != nil {
 		return layoutRT
@@ -599,6 +620,12 @@ func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	}
 	derivedMu.Lock()
 	reservations[t] = res
+	if cachep != nil {
+		if *cachep == nil {
+			*cachep = map[MethodStructKey]*SynthReservation{}
+		}
+		(*cachep)[cacheKey] = res
+	}
 	derivedMu.Unlock()
 	return valueRT
 }
@@ -958,13 +985,13 @@ func materialize(t *mtype.Type) reflect.Type {
 		}
 		rt = runtype.DerivePointerTo(elem)
 	case reflect.Slice:
-		elem := materialize(t.ElemType)
+		elem := materializeContainerElem(t.ElemType)
 		if elem == nil {
 			return nil
 		}
 		rt = runtype.DeriveSliceOf(elem)
 	case reflect.Array:
-		elem := materialize(t.ElemType)
+		elem := materializeContainerElem(t.ElemType)
 		if elem == nil {
 			return nil
 		}
@@ -973,13 +1000,13 @@ func materialize(t *mtype.Type) reflect.Type {
 			markPendingGeom(rt)
 		}
 	case reflect.Chan:
-		elem := materialize(t.ElemType)
+		elem := materializeContainerElem(t.ElemType)
 		if elem == nil {
 			return nil
 		}
 		rt = runtype.DeriveChanOf(t.ChanDir, elem)
 	case reflect.Map:
-		key, elem := materialize(t.KeyType), materialize(t.ElemType)
+		key, elem := materializeContainerElem(t.KeyType), materializeContainerElem(t.ElemType)
 		if key == nil || elem == nil {
 			return nil
 		}
@@ -1275,16 +1302,33 @@ func selfRefStandIn(et *mtype.Type) reflect.Type {
 	return nil
 }
 
+// NamedSynthIface reports whether p is a named, non-generic, method-bearing
+// interpreted interface still erased to any -- one materializeContainerElem synths
+// (keeping its name). materializeFuncIO also requires all methods exported.
+func NamedSynthIface(p *mtype.Type) bool {
+	return p != nil && p.Name != "" && p.Kind() == reflect.Interface && len(p.IfaceMethods) > 0 &&
+		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && !IsGenericInstanceName(p.Name)
+}
+
+// materializeContainerElem synths a named method-bearing interface elem (incl.
+// unexported markers like ast.Decl.declNode) so a container reflects as []ast.Decl,
+// not []interface{}. Sound only given one rtype identity per named type (see
+// ShareMethodCarriers): else a stored concrete fails reflect.Implements on the elem.
+func materializeContainerElem(p *mtype.Type) reflect.Type {
+	if NamedSynthIface(p) {
+		if rt := SynthIfaceRtype(p); rt != nil {
+			return rt
+		}
+	}
+	return materialize(p)
+}
+
 // materializeFuncIO materializes a func param/return type.
 // A named interpreted interface yields its synth rtype, so the func signature exposes the method set to reflect (go-cmp probes In(0).NumMethod()); the interface itself still materializes to any for value storage.
 func materializeFuncIO(p *mtype.Type) reflect.Type {
-	// Native-bridged interfaces (error, io.Writer) keep their rtype.
-	// Unexported methods never enter synth tables, so such an interface could never build an itab; keep it as any.
-	// A generic-instance iface's method table fills late, so a precise rtype here is
-	// materialization-order-dependent; erase it to any on both sides so reflect.Implements still matches.
-	if p != nil && p.Name != "" && p.Kind() == reflect.Interface && len(p.IfaceMethods) > 0 &&
-		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && allIfaceMethodsExported(p) &&
-		!IsGenericInstanceName(p.Name) {
+	// Unexported methods never build an itab, so keep them any here: a func arg is
+	// dispatched, not just displayed like a container elem.
+	if NamedSynthIface(p) && allIfaceMethodsExported(p) {
 		if rt := SynthIfaceRtype(p); rt != nil {
 			return rt
 		}

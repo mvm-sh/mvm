@@ -4612,8 +4612,9 @@ func (c *Compiler) compileBuiltin(
 		push(&symbol.Symbol{Kind: symbol.Value, Type: typeSym.Type})
 		switch typeSym.Type.Kind() {
 		case reflect.Slice:
-			// make([]T, len) or make([]T, len, cap).
-			if typeSym.Type.Name != "" {
+			// Named slice or named-interface elem: pass the whole type; rebuilding via
+			// DeriveSliceOf(erased elem) would desync from materialize's []ast.Decl.
+			if typeSym.Type.Name != "" || derive.NamedSynthIface(typeSym.Type.ElemType) {
 				sliceIdx := c.typeSym(typeSym.Type).Index
 				c.emit(t, vm.MkSlice, -(narg - 1), -(sliceIdx + 1))
 				break
