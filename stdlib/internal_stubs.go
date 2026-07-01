@@ -43,7 +43,7 @@ func init() {
 	// no-op shim. reflectlite.Ptr is the deprecated alias; reflect.Ptr exists.
 	Values["internal/reflectlite"] = map[string]reflect.Value{
 		"TypeOf":    reflect.ValueOf(reflect.TypeOf),
-		"ValueOf":   reflect.ValueOf(reflect.ValueOf),
+		"ValueOf":   reflect.ValueOf(reflectliteValueOf),
 		"Type":      reflect.ValueOf((*reflect.Type)(nil)),
 		"Value":     reflect.ValueOf((*reflect.Value)(nil)),
 		"Kind":      reflect.ValueOf((*reflect.Kind)(nil)),
@@ -84,3 +84,7 @@ func init() {
 	// internal/bytealg is interpreted from the mirror (pure-Go overlay), not
 	// bridged: bytes/strings need its generic helpers that can't be reflect-bound.
 }
+
+// Distinct func identity from reflect.ValueOf so reflectlite.ValueOf alone can be
+// allowlisted for synth-iface target retyping (synth_iface_targets.go).
+func reflectliteValueOf(v any) reflect.Value { return reflect.ValueOf(v) }

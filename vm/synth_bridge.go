@@ -172,7 +172,29 @@ func (m *Machine) storeIfaceFromReflect(dst, src reflect.Value) {
 	loc.Set(el)
 }
 
+// A reflect.Value.Set into a synth-interface slot must store eface form: the native
+// itab form a synth-iface Set writes is undecodable by the interpreter's iface slots.
+// Reached once errors.As's anon-iface target is retyped to a synth iface.
+func InstallReflectSetSynthIfaceHook() {
+	RegisterNativeMethodHook(reflect.Value{}, "Set", func(m *Machine, recv reflect.Value, args []reflect.Value) []reflect.Value {
+		dst, _ := recv.Interface().(reflect.Value)
+		var src reflect.Value
+		if len(args) > 0 {
+			src, _ = args[0].Interface().(reflect.Value)
+		}
+		if dst.IsValid() && dst.CanAddr() && dst.Kind() == reflect.Interface && runtype.IsSynth(dst.Type()) {
+			m.storeIfaceFromReflect(dst, src)
+			return nil
+		}
+		dst.Set(src)
+		return nil
+	})
+}
+
 func (m *Machine) attachValueRecv(t *mtype.Type) error {
+	if derive.HasNativeIdentity(t) {
+		return nil // methods dispatch natively
+	}
 	specs := m.allSynthMethods(t, false)
 	if len(specs) == 0 {
 		return nil
@@ -213,6 +235,9 @@ func (m *Machine) ReleaseSynthMethods() {
 }
 
 func (m *Machine) attachPtrRecv(t *mtype.Type) error {
+	if derive.HasNativeIdentity(t) {
+		return nil // methods dispatch natively
+	}
 	specs := m.allSynthMethods(t, true)
 	if len(specs) == 0 {
 		return nil

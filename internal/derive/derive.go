@@ -932,6 +932,10 @@ func materialize(t *mtype.Type) reflect.Type {
 	if t.Placeholder {
 		return nil // forward-declared struct/interface not yet finalized
 	}
+	if rt := nativeIdentityFor(t); rt != nil {
+		t.Rtype = rt
+		return rt
+	}
 	// No own structure: materialize from the underlying. A method-bearing
 	// defined-over-basic type (e.g. `type Confidence int` with methods) reserves
 	// its identity over the base layout so attach fills methods in place.

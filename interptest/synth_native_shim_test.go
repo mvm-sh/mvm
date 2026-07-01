@@ -151,6 +151,103 @@ func main() {
 	}
 }
 
+// RegisterNativeIdentity: native *fs.PathError (os.Open) and the interpreted io/fs
+// mirror's PathError share one rtype, so errors.As / TypeOf reconcile.
+// Fails "false/false" without it.
+// TestSynth* runs on the wasm CI.
+func TestSynthNativeIdentityPathError(t *testing.T) {
+	const src = `package main
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"nat"
+	"reflect"
+)
+
+func main() {
+	err := nat.OpenMissing()
+	var pe *fs.PathError
+	ok := errors.As(err, &pe)
+	fmt.Println(ok, ok && pe != nil)
+	fmt.Println(reflect.TypeOf(err) == reflect.TypeOf(&fs.PathError{}))
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io", "io/fs", "errors") // force-interpret so the split exists on native
+	i.ImportPackageValues(map[string]map[string]reflect.Value{
+		"nat": {
+			"OpenMissing": reflect.ValueOf(func() error {
+				_, err := os.Open("/no/such/file/mvm-test")
+				return err
+			}),
+		},
+	})
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("pe_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true true\ntrue\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// Interpreted errors.As into an anon-iface target interface{Timeout()bool}.
+// reflectliteValueOf retyping gives a precise targetType (no over-match of a plain
+// error, line 1); the Set hook keeps the matched native *fs.PathError eface-form so
+// it writes/reads back (line 2).
+// TestSynth* runs on the wasm CI.
+func TestSynthAnonIfaceAsTarget(t *testing.T) {
+	const src = `package main
+
+import (
+	"errors"
+	"fmt"
+	"nat"
+)
+
+type wrap struct{ err error }
+
+func (w wrap) Error() string { return "wrap: " + w.err.Error() }
+func (w wrap) Unwrap() error { return w.err }
+
+func main() {
+	var timeout interface{ Timeout() bool }
+	fmt.Println(errors.As(errors.New("plain"), &timeout)) // no Timeout: must be false
+
+	timeout = nil
+	ok := errors.As(wrap{nat.OpenMissing()}, &timeout) // *fs.PathError has Timeout
+	fmt.Println(ok, ok && timeout != nil)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io", "io/fs", "errors") // force-interpret so the split exists on native
+	i.ImportPackageValues(map[string]map[string]reflect.Value{
+		"nat": {
+			"OpenMissing": reflect.ValueOf(func() error {
+				_, err := os.Open("/no/such/file/mvm-test")
+				return err
+			}),
+		},
+	})
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("anon_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "false\ntrue true\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 // An interpreted io.Reader read by a native sink: on wasm its Read PC is the -1
 // sentinel, so without the reader shim native io.ReadAll would trap.
 // Asserts the buffer round-trips and the interpreted io.EOF terminates the copy.
