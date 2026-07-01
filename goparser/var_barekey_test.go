@@ -33,3 +33,54 @@ func TestVarDeclBareKeyCollision(t *testing.T) {
 		t.Fatal("p.Discard registered without its declared type")
 	}
 }
+
+// Phase 2 clears importingPkg, so funcDeclKey must qualify by CompilingPkg.
+func TestFuncDeclKeyPrefersCompilingPkg(t *testing.T) {
+	p := NewParser(golang.GoSpec, false)
+	p.CompilingPkg = "bytes"
+	if got := p.funcDeclKey("growSlice"); got != "bytes.growSlice" {
+		t.Errorf("CompilingPkg: got %q, want bytes.growSlice", got)
+	}
+	p.CompilingPkg = ""
+	p.importingPkg = "encoding/gob"
+	if got := p.funcDeclKey("growSlice"); got != "encoding/gob.growSlice" {
+		t.Errorf("importingPkg: got %q, want encoding/gob.growSlice", got)
+	}
+}
+
+// The dispatch sites use symGet, so a foreign same-named generic at the bare key
+// can't hijack a call here (the growSlice[E] collision at a use site).
+func TestGenericDispatchNotHijackedByForeignAlias(t *testing.T) {
+	p := NewParser(golang.GoSpec, false)
+	p.importingPkg = "p"
+	p.Symbols["Name"] = &symbol.Symbol{ // foreign bare alias
+		Name: "otherpkg.Name", Kind: symbol.Generic, Index: symbol.UnsetAddr,
+		Data: &genericTemplate{name: "Name", isFunc: true, typeParams: []typeParam{{name: "T"}}},
+	}
+	toks, err := p.scan("Name(1)", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.parseExpr(toks, ""); err != nil {
+		t.Fatalf("foreign bare-alias generic hijacked the call: %v", err)
+	}
+}
+
+// A non-generic func must not be dropped when another package's same-named
+// generic leaked to the bare key (bytes.growSlice vs gob's growSlice[E]).
+func TestParseFuncNotSkippedByForeignGeneric(t *testing.T) {
+	p := NewParser(golang.GoSpec, false)
+	p.SymSet("growSlice", &symbol.Symbol{Name: "growSlice", Kind: symbol.Generic, Index: symbol.UnsetAddr})
+	p.CompilingPkg = "bytes"
+	toks, err := p.scan("func growSlice() {}", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.parseFunc(toks)
+	if err != nil {
+		t.Fatalf("parseFunc: %v", err)
+	}
+	if out == nil {
+		t.Fatal("bytes.growSlice body skipped as a generic template")
+	}
+}

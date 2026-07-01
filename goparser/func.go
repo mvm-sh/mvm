@@ -275,6 +275,14 @@ func (p *Parser) anonFuncKey(fname string) string {
 	return QualifyName(p.CompilingPkg, fname)
 }
 
+// funcDeclKey is this func's own key; Phase 2 clears importingPkg but sets CompilingPkg.
+func (p *Parser) funcDeclKey(fname string) string {
+	if p.CompilingPkg != "" && p.scope == "" {
+		return QualifyName(p.CompilingPkg, fname)
+	}
+	return p.pkgKey(fname)
+}
+
 func (p *Parser) anonFuncName() string {
 	clo := p.clonum
 	p.clonum++
@@ -294,8 +302,9 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 
 	switch in[1].Tok {
 	case lang.Ident:
-		// Skip generic function templates - they are instantiated on use.
-		if s, _, ok := p.Symbols.Get(in[1].Str, p.scope); ok && s.Kind == symbol.Generic {
+		// Skip generic templates (instantiated on use), keyed by own pkg: a bare
+		// lookup would match a foreign same-named generic and drop the body.
+		if s, ok := p.Symbols[p.funcDeclKey(in[1].Str)]; ok && s.Kind == symbol.Generic {
 			return nil, nil
 		}
 		fname = in[1].Str
