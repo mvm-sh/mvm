@@ -212,6 +212,80 @@ func main() {
 	}
 }
 
+// String is a reference header: &param + write-through must not reach the caller.
+// It was missing from goparser addrParams, so fmt.Sscan's (*stringReader)(&str)
+// reslice emptied the caller's source string (fmt TestMultiLine).
+func TestParamAddrDetachString(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type sr string
+
+func (r *sr) chop() { *r = (*r)[1:] }
+
+func consume(str string) int {
+	p := (*sr)(&str)
+	cnt := 0
+	for len(*p) > 0 {
+		p.chop()
+		cnt++
+	}
+	return cnt
+}
+
+func main() {
+	input := "hello"
+	n := consume(input)
+	fmt.Println(n, len(input), input)
+}
+`
+	if got, want := evalOut(t, "test", src), "5 5 hello\n"; got != want {
+		t.Errorf("&param aliased caller string: got %q, want %q", got, want)
+	}
+}
+
+// A recover returns the current named-return values even when no closure
+// captured them.
+// panicUnwind used to zero them unless captured, losing n (set before the panic)
+// and err (written via &err by a separate deferred func, the fmt scan pattern).
+// fmt TestEOF*, TestScanf, TestScanMultiple.
+func TestNamedReturnRecoverPreserved(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func errorHandler(errp *error) {
+	if e := recover(); e != nil {
+		*errp = fmt.Errorf("recovered: %v", e)
+	}
+}
+
+// separate deferred func writes err through &err; n set before the panic.
+func f() (n int, err error) {
+	defer errorHandler(&err)
+	n = 5
+	panic("boom")
+}
+
+// recover in a closure that does NOT reference the named returns.
+func g() (n int, err error) {
+	defer func() { recover() }()
+	n = 9
+	panic("x")
+}
+
+func main() {
+	n, err := f()
+	fmt.Println(n, err)
+	fmt.Println(g())
+}
+`
+	if got, want := evalOut(t, "named_return_recover.go", src), "5 recovered: boom\n9 <nil>\n"; got != want {
+		t.Errorf("named returns lost after recover: got %q, want %q", got, want)
+	}
+}
+
 // A nil reference-kind param that is cell-boxed for &param still needs its own
 // addressable cell storage, or a write through the pointer is lost vs a plain
 // read (HeapAlloc only re-homed addressable values; a nil header is not

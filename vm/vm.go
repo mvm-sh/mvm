@@ -347,7 +347,7 @@ const (
 	SubLocalIntImm // -- ; local[$1] -= $2 (signed, fits int32)
 	IndexSetBool   // a i -- ; a[i] = bool($1)  (fuses Push/GetGlobal bool + IndexSet + Pop)
 
-	MarkNamedRet // -- ; flag this frame as having captured named returns (set bit in retIPInfo)
+	MarkNamedRet // -- ; set hasNamedRetFlag; $1!=0 also sets namedRetFlag (captured)
 
 	// Complex arithmetic. Operands live in ref (complex does not fit the num
 	// word); $0 = reflect.Kind (Complex64 or Complex128) for precision.
@@ -958,14 +958,15 @@ const CallSpreadFlag int32 = 1 << 15
 // would re-run the program/_testmain and recurse without bound.
 const nilFuncAddr = 0
 
-// retIPInfo word layout: retIP in bits 0..31, nret in bits 32..46 (retNretMask),
-// namedRetFlag in bit 47, frameBase in bits 48..63. namedRetFlag is set by
-// MarkNamedRet for functions with captured named returns and tells Return and
-// panicUnwind to finalize results from the fixed named-return slots (deref
-// cells) after defers.
+// retIPInfo word layout: retIP bits 0..31, nret bits 32..45 (retNretMask),
+// hasNamedRetFlag bit 46, namedRetFlag bit 47, frameBase bits 48..63.
+// namedRetFlag: captured returns, finalized on the normal Return path.
+// hasNamedRetFlag: any named returns; a recover returns their current values, so
+// panicUnwind finalizes from the slots rather than zeroing.
 const (
-	retNretMask         = 0x7FFF
-	namedRetFlag uint64 = 1 << 47
+	retNretMask            = 0x3FFF
+	hasNamedRetFlag uint64 = 1 << 46
+	namedRetFlag    uint64 = 1 << 47
 )
 
 func packRetIP(retIP, nret, frameBase int) uint64 {
@@ -2784,7 +2785,10 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp, mem = m.handleRecover(fp, sp, mem, deferRetAddr)
 
 		case MarkNamedRet:
-			mem[fp-2].num |= namedRetFlag
+			mem[fp-2].num |= hasNamedRetFlag
+			if c.A != 0 { // captured: normal Return finalizes too
+				mem[fp-2].num |= namedRetFlag
+			}
 
 		case Return:
 			// Read nret and frameBase from the packed retIP slot.
@@ -3899,12 +3903,11 @@ func (m *Machine) panicUnwind(mem *[]Value, fp, sp, ip *int, panicAddr int) (boo
 		*fp = m.restoreFP((*mem)[*fp-1].num)
 		newBase := ofp - frameBase
 		newSP := newBase + nret
-		if retIPInfo&namedRetFlag != 0 {
-			// Captured named returns: finalize from the fixed slots (deref
-			// cells) so a deferred recover that set a named return propagates.
+		if retIPInfo&hasNamedRetFlag != 0 {
+			// A recover returns the current named values, captured or not.
 			finalizeReturns(*mem, ofp, newBase, nret)
 		} else {
-			clear((*mem)[newBase:newSP]) // no named returns: Go returns zeros after recover
+			clear((*mem)[newBase:newSP]) // unnamed returns: zeros after recover
 		}
 		clear((*mem)[newSP:]) // clear stale slots (incl. the source slots)
 		*mem = (*mem)[:newSP]

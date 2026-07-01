@@ -2165,16 +2165,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			// Allocate a heap cell for each captured named return so a capturing closure shares the slot.
 			cellRet, _ := t.Arg[1].([]int)
 			retCellSlots = append(retCellSlots, cellRet)
-			if len(cellRet) > 0 {
-				// Mark this frame as having captured named returns so the
-				// Return opcode and panicUnwind finalize results from the
-				// fixed slots (deref cells) after defers.
-				c.emit(t, vm.MarkNamedRet)
+			hasNamedRet, _ := t.Arg[3].(bool)
+			switch {
+			case len(cellRet) > 0:
+				// Captured: finalized on both the Return and recover paths.
+				c.emit(t, vm.MarkNamedRet, 1)
 				for _, idx := range cellRet {
 					c.emit(t, vm.GetLocal, idx)
 					c.emit(t, vm.HeapAlloc)
 					c.emit(t, vm.SetLocal, idx, 0)
 				}
+			case hasNamedRet:
+				// Not captured: only the recover path needs it; Return stays fast.
+				c.emit(t, vm.MarkNamedRet, 0)
 			}
 			// Box captured params into cells unconditionally (no MarkNamedRet:
 			// params are not named returns), so a conditional/absent reassign

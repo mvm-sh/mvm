@@ -131,8 +131,8 @@ func newGoto(label string, pos int) Token             { return newToken(lang.Got
 func newLabel(label string, pos int) Token            { return newToken(lang.Label, label, pos) }
 func newJumpFalse(label string, pos int) Token        { return newToken(lang.JumpFalse, label, pos) }
 func newNext(label string, pos, n int) Token          { return newToken(lang.Next, label, pos, n) }
-func newGrow(size, pos int, cellRet, cellParams []int) Token {
-	return newToken(lang.Grow, "", pos, size, cellRet, cellParams)
+func newGrow(size, pos int, cellRet, cellParams []int, hasNamedRet bool) Token {
+	return newToken(lang.Grow, "", pos, size, cellRet, cellParams, hasNamedRet)
 }
 func newSemicolon(pos int) Token { return newToken(lang.Semicolon, "", pos) }
 func newDrop(pos int) Token      { return newToken(lang.Drop, "", pos) }

@@ -471,8 +471,9 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 			if ps == nil || ps.CellSlot || ps.Type == nil {
 				continue
 			}
+			// Reference-header kinds: &param + write-through aliases the caller's arg without its own cell.
 			switch ps.Type.Kind() {
-			case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer:
+			case reflect.Slice, reflect.Map, reflect.Chan, reflect.Pointer, reflect.String:
 				addrParams[ps] = true
 			}
 		}
@@ -487,7 +488,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 			}
 		}
 	}
-	out = append(out, newGrow(l, in[0].Pos, cellRet, cellParams))
+	out = append(out, newGrow(l, in[0].Pos, cellRet, cellParams, len(p.namedOut) > 0))
 	if n := len(p.namedOut); n > 0 {
 		initVars := make([]string, n)
 		initTypes := make([]*mtype.Type, n)
