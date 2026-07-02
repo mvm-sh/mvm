@@ -53,7 +53,7 @@ func TestStructFuncFieldByValueCycleMaterialize(t *testing.T) {
 	if rt.Kind() != reflect.Struct {
 		t.Fatalf("Clause rtype = %v, want struct", rt)
 	}
-	if !isPending(clause) {
+	if !pendingFinalize.has(clause) {
 		t.Fatal("Clause should be pending while its func field's iface IO is unsynthable")
 	}
 
@@ -62,7 +62,7 @@ func TestStructFuncFieldByValueCycleMaterialize(t *testing.T) {
 	builder.IfaceMethods[0].Rtype = reflect.TypeFor[func() bool]()
 	FinalizeDeferred()
 
-	if isPending(clause) {
+	if pendingFinalize.has(clause) {
 		t.Fatal("Clause should no longer be pending after the func field synths")
 	}
 	if _, ok := rt.FieldByName("Build"); !ok {

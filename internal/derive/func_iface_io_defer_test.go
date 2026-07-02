@@ -54,7 +54,7 @@ func TestFuncIfaceResultDeferredSynth(t *testing.T) {
 	if got := f.Type.Out(0).NumMethod(); got != 0 {
 		t.Fatalf("erased phase: Out(0).NumMethod() = %d, want 0 (interface{})", got)
 	}
-	if !isPending(srv) {
+	if !pendingFinalize.has(srv) {
 		t.Fatal("Srv should be pending while its func field's iface IO is unsynthable")
 	}
 
@@ -67,7 +67,7 @@ func TestFuncIfaceResultDeferredSynth(t *testing.T) {
 	if got := f.Type.Out(0).NumMethod(); got != 1 {
 		t.Fatalf("after FinalizeDeferred: Out(0).NumMethod() = %d, want 1 (WS.Pop)", got)
 	}
-	if isPending(srv) {
+	if pendingFinalize.has(srv) {
 		t.Fatal("Srv should no longer be pending after the func field synths")
 	}
 }
