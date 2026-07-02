@@ -883,6 +883,11 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			rf[i].Type = f.Rtype
 		case keepIface && f.Rtype != nil && f.Rtype.Kind() == reflect.Interface && f.Rtype.NumMethod() > 0:
 			rf[i].Type = f.Rtype // native non-empty interface kept as iface, not erased
+		case !embSet[i] && f.Rtype != nil && f.Rtype.Kind() == reflect.Interface &&
+			f.Rtype.NumMethod() > 0 && runtype.IsSynth(f.Rtype):
+			// Keep a named interpreted iface field (derive set the synth rtype) so
+			// reflect reports `pkg.I` not `interface {}`; stores bridge via assignSlot.
+			rf[i].Type = f.Rtype
 		default:
 			rf[i].Type = AnyRtype
 		}

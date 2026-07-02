@@ -5585,6 +5585,14 @@ func (m *Machine) unboxIfaceFor(val Value, dst reflect.Type) (reflect.Value, boo
 	}
 	// Native interface target: bridge so the mvm-typed concrete value is assignable.
 	if dst.NumMethod() > 0 {
+		// A synth interface field keeps the raw concrete (which satisfies dst on
+		// wasm), not a native-boundary shim, so a later assertion still sees its
+		// dynamic type (archive/zip's countWriter.w.(*bufio.Writer)).
+		if !keepInterpreted && runtype.IsSynth(dst) {
+			if c := adoptNamedType(numReflect(iv.Typ.Rtype, iv.Val), iv.Typ.Rtype); c.IsValid() && c.Type().AssignableTo(dst) {
+				return c, true
+			}
+		}
 		if w := m.bridgeIface(iv, dst); w.IsValid() {
 			return w, true
 		}

@@ -35,8 +35,7 @@ var reservations = map[*mtype.Type]*SynthReservation{} // guarded by derivedMu
 
 // sharedStructs shares one reserved rtype per (name, layout) across Evals so a
 // process-global registry keyed by reflect.Type (gob's nameToConcreteType) sees a
-// single rtype per name. Sound only for methodless-table types: a method stub
-// captures the attaching *Machine, but a methodless identity is a pure carrier.
+// single rtype per name.
 type sharedStructKey struct {
 	name      string
 	layoutSig string
@@ -44,8 +43,6 @@ type sharedStructKey struct {
 
 var sharedStructs = map[sharedStructKey]*SynthReservation{} // guarded by derivedMu
 
-// sharedCarriers shares one methodless named non-struct identity per (name,
-// layout) across Evals and field clones; sound for the same reason as sharedStructs.
 var sharedCarriers = map[sharedStructKey]*SynthReservation{} // guarded by derivedMu
 
 // MethodStructKey keys the per-execution rtype cache (ActiveRtypeCache), deduping
@@ -57,9 +54,6 @@ type MethodStructKey struct {
 	methodSig string
 }
 
-// methodFingerprint is the set of resolved/symbolic method indices (= the method
-// name set, IDs being global per name), so two same-name+layout types with
-// different method sets do not share one identity.
 func methodFingerprint(t *mtype.Type) string {
 	var b strings.Builder
 	for i := range t.Methods {
@@ -70,14 +64,9 @@ func methodFingerprint(t *mtype.Type) string {
 	return b.String()
 }
 
-// materializingRtypes holds struct layout rtypes whose placeholder/reservation is
-// installed but not yet patched to the real layout (in-flight). Guarded by derivedMu.
-var materializingRtypes = map[reflect.Type]bool{}
+var materializingRtypes = map[reflect.Type]bool{} // guarded by derivedMu
 
-// reservingStruct holds named structs whose field loop is live on the current call stack.
-// A re-entry while the entry is live is a type cycle that reaches the struct by value:
-// return the in-flight identity instead of recursing. Guarded by derivedMu.
-var reservingStruct = map[*mtype.Type]bool{}
+var reservingStruct = map[*mtype.Type]bool{} // guarded by derivedMu
 
 // pendingFinalize holds structs that installed their placeholder but deferred the
 // real-layout patch because a by-value field was still in-flight.
@@ -124,8 +113,6 @@ func propagateGeom(layoutRT, carrier reflect.Type) reflect.Type {
 	return carrier
 }
 
-// takePendingGeom drains the tracked rtypes, partitioned by kind: arrays recompute
-// inside the FinalizeDeferred fixpoint (a struct re-patch reads their stride), maps after.
 func takePendingGeom() (arrays, maps []reflect.Type) {
 	if pendingGeomCount.Load() == 0 {
 		return nil, nil
@@ -180,11 +167,6 @@ func isMaterializing(rt reflect.Type) bool {
 	return materializingRtypes[rt]
 }
 
-// enterReserving marks named struct t as live on the current reserve/placeholder
-// stack. reentrant=true means t was already live (a by-value type cycle reached it,
-// e.g. a `func(t, ...)` field): the caller returns t's in-flight identity instead
-// of recursing into the field loop again. Otherwise release clears the mark and
-// must run on every return path (defer).
 func enterReserving(t *mtype.Type) (release func(), reentrant bool) {
 	derivedMu.Lock()
 	if reservingStruct[t] {
@@ -200,9 +182,6 @@ func enterReserving(t *mtype.Type) (release func(), reentrant bool) {
 	}, false
 }
 
-// geomDepInFlight reports whether t's inline (by-value) layout reaches a still-
-// materializing struct placeholder -- through arrays and nested structs, not
-// through word-sized pointers/maps/slices/chans.
 func geomDepInFlight(t *mtype.Type) bool {
 	if materializingCount.Load() == 0 {
 		return false
@@ -258,10 +237,6 @@ func isPending(t *mtype.Type) bool {
 	return pendingFinalize[t]
 }
 
-// anyByValueStructField reports whether t holds, by value, a struct (a direct
-// struct field or array-of-struct elem) for which pred holds -- pred receives the
-// struct's own *Type. Only a by-value struct field can place t in a by-value
-// pointer cycle, so pointers/slices/maps/chans (word-sized) are skipped.
 func anyByValueStructField(t *mtype.Type, pred func(*mtype.Type) bool) bool {
 	for _, f := range t.Fields {
 		switch f.Kind() {
@@ -278,25 +253,16 @@ func anyByValueStructField(t *mtype.Type, pred func(*mtype.Type) bool) bool {
 	return false
 }
 
-// hasByValueStructField reports whether t holds a struct by value. Anon structs
-// without one cannot be in a by-value cycle, so they skip the placeholder path.
 func hasByValueStructField(t *mtype.Type) bool {
 	return anyByValueStructField(t, func(*mtype.Type) bool { return true })
 }
 
-// byValueDepInFlight reports whether a by-value struct field of t is still an
-// in-flight placeholder. Finalizing t's layout now would bake the placeholder's
-// word size in place of the real one, so t must defer.
 func byValueDepInFlight(t *mtype.Type) bool {
 	return anyByValueStructField(t, func(f *mtype.Type) bool { return isMaterializing(f.Rtype) })
 }
 
-// finishStructOrDefer completes a struct whose placeholder ph holds the current
-// best-effort layout: if a by-value field is still in-flight, mark t pending so
-// FinalizeDeferred re-patches once the cycle settles; otherwise clear the in-flight
-// bookkeeping. Returns ph either way (its identity is stable across the re-patch).
 func finishStructOrDefer(t *mtype.Type, ph reflect.Type) reflect.Type {
-	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) || synthIfaceFieldDeferred(t) {
 		markPending(t)
 		return ph
 	}
@@ -306,9 +272,7 @@ func finishStructOrDefer(t *mtype.Type, ph reflect.Type) reflect.Type {
 }
 
 // FinalizeDeferred patches deferred struct layouts and recomputes maps/arrays
-// derived over an in-flight placeholder. Structs and arrays settle in one fixpoint
-// (a re-patched struct reads its array fields' strides); maps follow.
-// Holds materializeMu for the whole pass so it never races a concurrent materialization on a shared rtype.
+// derived over an in-flight placeholder.
 func FinalizeDeferred() {
 	materializeMu.Lock()
 	defer materializeMu.Unlock()
@@ -365,8 +329,7 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 		if (ft != nil && ft.Kind() == reflect.Interface) || (emb.Type != nil && emb.Type.IsInterface()) {
 			// A struct embedding a method-bearing interface may not get usable
 			// reflect.StructOf promotion, so its promoted EmbedIface methods are
-			// synth-attached and the struct must be reserved. Over-reserving when
-			// StructOf does promote the embed is safe.
+			// synth-attached and the struct must be reserved.
 			if embIfaceHasShapedMethod(emb.Type) {
 				return true
 			}
@@ -389,9 +352,6 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 				}
 			}
 		}
-		// The embed's rtype publishes its methods only after ITS attach (so ft may
-		// be nil or method-less here); walk the mvm graph too. Over-reserving is
-		// safe (the reserve gate is a superset of the attach trigger).
 		if embTypeHasMethods(emb.Type) {
 			return true
 		}
@@ -433,9 +393,6 @@ func embIfaceHasShapedMethod(e *mtype.Type) bool {
 	return false
 }
 
-// embTypeHasMethods reports whether an embedded field's mvm type (deref'd
-// through a pointer embed, walking Base, depth-capped against cycles)
-// declares any methods.
 func embTypeHasMethods(e *mtype.Type) bool {
 	if e != nil && e.IsPtr() && e.ElemType != nil {
 		e = e.ElemType
@@ -476,16 +433,13 @@ func hasSynthTableMethods(t *mtype.Type) bool {
 	return false
 }
 
-// LookupReservation returns t's synth-rtype reservation, or nil if never reserved.
 func LookupReservation(t *mtype.Type) *SynthReservation {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
 	return reservations[t]
 }
 
-// SetValueReservation seeds t's method-set-T reservation directly; normally
-// materialization populates the registry.
-// Used to exercise the TypeForReservedRtype recovery fallback.
+// SetValueReservation seeds t's method-set-T reservation directly.
 func SetValueReservation(t *mtype.Type, value *runtype.Reservation) {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()
@@ -500,9 +454,6 @@ func DeleteReservation(t *mtype.Type) {
 }
 
 // TypeForReservedRtype recovers the *Type whose reserved synth rtype is rt.
-// It is the fallback for a value-only type that round-tripped through native
-// reflect and so is absent from the globals index.
-// Returns nil for a genuine native rtype.
 func TypeForReservedRtype(rt reflect.Type) *mtype.Type {
 	if rt == nil {
 		return nil
@@ -548,17 +499,12 @@ func maybeReserve(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 		return materialize(t.Base)
 	}
 	if !hasReservableMethods(t) {
-		// Only a definition (`type X T`) owns a named identity; placeholders
-		// (generic type params) and parser-derived clones keep the native layout.
 		if !t.Defined || t.PkgName == "" {
 			return layoutRT
 		}
 		return propagateGeom(layoutRT, reserveNamedCarrier(t, layoutRT))
 	}
 	if !t.Defined && t.Base != nil {
-		// A parser clone of an unnamed method-carrying base (a `f *T` struct
-		// field clones *T with the methods copied, Base.Name == "" so the
-		// isFieldClone gate misses): the field name is not an identity.
 		return layoutRT
 	}
 	return propagateGeom(layoutRT, reserveValueAndPtr(t, layoutRT))
@@ -630,12 +576,6 @@ func reserveValueAndPtr(t *mtype.Type, layoutRT reflect.Type) reflect.Type {
 	return valueRT
 }
 
-// reserveDefinedOverBase reserves the identity of a defined type (`type T Base`)
-// over its already-materialized base layout. A defined type with its OWN methods
-// (e.g. `type ipNetValue net.IPNet`) reserves directly: maybeReserve skips
-// struct-kind layouts and treats a named base as a field clone, neither of which
-// fits a genuine defined type. A methodless or field-clone type defers to
-// maybeReserve unchanged (field clones carry no own methods, so the gate is safe).
 func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
 	if LookupReservation(t) != nil {
 		return t.Rtype
@@ -646,18 +586,7 @@ func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
 	return maybeReserve(t, base)
 }
 
-// maybeReserveStruct reserves a named struct's identity over a provisional layout
-// (so a *T field cycle resolves to it), materializes fields, then fills the real
-// layout in place -- attach fills methods into the same identity, so composites
-// that captured it need no patching.
-// handled=false: methodless (native path); rt=nil: a field is not yet finalized,
-// retry later (reservation kept).
 func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
-	// A struct field clone (an embedded field, or any field carrying its type's
-	// name) must resolve to its canonical Base identity, not reserve its own --
-	// else an embedded main.Point field gets a distinct "Point" rtype and the
-	// composite literal's main.Point value is not assignable to it. Mirrors the
-	// isFieldClone branch in maybeReserve.
 	if isFieldClone(t) {
 		rt := materialize(t.Base)
 		t.Rtype = rt
@@ -694,9 +623,7 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		return reserved, true
 	}
 	defer release()
-	for _, f := range t.Fields {
-		materialize(f)
-	}
+	materializeStructFields(t)
 	if !fieldsMaterialized(t.Fields) {
 		clearMaterializing(reserved)
 		t.Rtype = nil // a field references a not-yet-finalized sibling; retry later
@@ -710,10 +637,11 @@ func maybeReserveStruct(t *mtype.Type) (rt reflect.Type, handled bool) {
 		// stored into native code (e.g. log.Logger -> http.Server.ErrorLog).
 		realLayout = mtype.BuildStructRtypeKeepIface(t.Fields, t.Embedded, t.Tags)
 	}
-	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) {
+	if byValueDepInFlight(t) || anyFieldPending(t) || anyFuncFieldInFlight(t) || synthIfaceFieldDeferred(t) {
 		// An embedded by-value struct is still a word-sized placeholder, so realLayout's
 		// size is provisional; or a func field's interface IO erased before its sigs were
-		// ready; or a named func field is mid-materialization (signature erased to func()).
+		// ready; or a named func field is mid-materialization (signature erased to func());
+		// or a named-iface field's synth rtype is not buildable yet.
 		// Fill the reserved rtype to this best-effort shape (so compile-time walks
 		// see a real struct) and defer the share-publish + final fill to FinalizeDeferred,
 		// which re-enters once the cycle settles / the IO synths / the signature settles.
@@ -790,9 +718,6 @@ type derivedTypes struct {
 }
 
 var (
-	// derivedMu serializes the derived/synthIface side tables.
-	// Contended only when parallel tests share a std *Type.
-	// Uncontended within one single-threaded Compiler.
 	derivedMu       sync.Mutex
 	derivedCache    = map[*mtype.Type]*derivedTypes{}
 	synthIfaceCache = map[*mtype.Type]reflect.Type{}
@@ -1104,9 +1029,7 @@ func materialize(t *mtype.Type) reflect.Type {
 			if named {
 				runtype.StampName(ph, QualifiedTypeName(t))
 			}
-			for _, f := range t.Fields {
-				materialize(f)
-			}
+			materializeStructFields(t)
 			if !fieldsMaterialized(t.Fields) {
 				// A field references a not-yet-finalized placeholder (e.g. *T sibling):
 				// reset Rtype so a later call retries once it is finalized.
@@ -1129,12 +1052,16 @@ func materialize(t *mtype.Type) reflect.Type {
 		// -- deferring if a by-value field is still in-flight. A pending re-entry
 		// (FinalizeDeferred) skips the reserve/field steps and falls through to patch.
 		if !hasByValueStructField(t) {
-			for _, f := range t.Fields {
-				materialize(f)
-			}
+			materializeStructFields(t)
 			if !fieldsMaterialized(t.Fields) {
 				return nil
 			}
+			if synthIfaceFieldDeferred(t) {
+				// Defer rather than let StructOf memoize an erased field.
+				markPending(t)
+				return nil
+			}
+			clearPending(t)
 			rt = mtype.StructOf(t.Fields, t.Embedded, t.Tags).Rtype
 			break
 		}
@@ -1145,9 +1072,7 @@ func materialize(t *mtype.Type) reflect.Type {
 				return resv.Rtype // a sibling reserved this shape; share its placeholder
 			}
 			markMaterializing(resv.Rtype)
-			for _, f := range t.Fields {
-				materialize(f)
-			}
+			materializeStructFields(t)
 			if !fieldsMaterialized(t.Fields) {
 				clearMaterializing(resv.Rtype)
 				mtype.UnreserveStruct(t.Fields, t.Embedded, t.Tags)
@@ -1173,8 +1098,6 @@ func materialize(t *mtype.Type) reflect.Type {
 	return rt
 }
 
-// compositeReachesSelf reports whether x's elem/key graph reaches target
-// without crossing a struct, interface, or func (those break their own cycles).
 func compositeReachesSelf(x, target *mtype.Type, seen map[*mtype.Type]bool) bool {
 	for x != nil {
 		if x == target {
@@ -1199,10 +1122,6 @@ func compositeReachesSelf(x, target *mtype.Type, seen map[*mtype.Type]bool) bool
 	return false
 }
 
-// materializeSelfRef materializes a named composite whose elem graph reaches t
-// (type P *P / S []S / M map[int]M), which neither elem-first recursion nor reflect can build.
-// It reserves t's identity over an elem-independent donor layout, sets t.Rtype so the self-reference resolves to it, then patches the reserved rtype's Elem in place.
-// handled=true means do not fall through; rt may still be nil for unsupported shapes.
 func materializeSelfRef(t *mtype.Type) (rt reflect.Type, handled bool) {
 	if t.Name == "" || t.ElemType == nil {
 		return nil, false
@@ -1285,8 +1204,6 @@ func reserveSelfRef(t *mtype.Type, donor reflect.Type) reflect.Type {
 	return vr.Type()
 }
 
-// selfRefStandIn returns a native type with the same size and pointer shape
-// as et, usable as the donor map-elem while the real elem is in a cycle.
 func selfRefStandIn(et *mtype.Type) reflect.Type {
 	switch et.Kind() {
 	case reflect.Pointer, reflect.Map, reflect.Chan, reflect.Func, reflect.UnsafePointer:
@@ -1303,17 +1220,12 @@ func selfRefStandIn(et *mtype.Type) reflect.Type {
 }
 
 // NamedSynthIface reports whether p is a named, non-generic, method-bearing
-// interpreted interface still erased to any -- one materializeContainerElem synths
-// (keeping its name). materializeFuncIO also requires all methods exported.
+// interpreted interface still erased to any.
 func NamedSynthIface(p *mtype.Type) bool {
 	return p != nil && p.Name != "" && p.Kind() == reflect.Interface && len(p.IfaceMethods) > 0 &&
 		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && !IsGenericInstanceName(p.Name)
 }
 
-// materializeContainerElem synths a named method-bearing interface elem (incl.
-// unexported markers like ast.Decl.declNode) so a container reflects as []ast.Decl,
-// not []interface{}. Sound only given one rtype identity per named type (see
-// ShareMethodCarriers): else a stored concrete fails reflect.Implements on the elem.
 func materializeContainerElem(p *mtype.Type) reflect.Type {
 	if NamedSynthIface(p) {
 		if rt := SynthIfaceRtype(p); rt != nil {
@@ -1323,8 +1235,43 @@ func materializeContainerElem(p *mtype.Type) reflect.Type {
 	return materialize(p)
 }
 
-// materializeFuncIO materializes a func param/return type.
-// A named interpreted interface yields its synth rtype, so the func signature exposes the method set to reflect (go-cmp probes In(0).NumMethod()); the interface itself still materializes to any for value storage.
+func synthIfaceFieldBase(f *mtype.Type) *mtype.Type {
+	if !ShareMethodCarriers {
+		return nil
+	}
+	it := f
+	if f.Base != nil && f.Base.Kind() == reflect.Interface {
+		it = f.Base
+	}
+	if NamedSynthIface(it) {
+		return it
+	}
+	return nil
+}
+
+func materializeStructFields(t *mtype.Type) {
+	for _, f := range t.Fields {
+		materialize(f)
+		if it := synthIfaceFieldBase(f); it != nil {
+			if rt := SynthIfaceRtype(it); rt != nil {
+				f.Rtype = rt
+			}
+		}
+	}
+}
+
+func synthIfaceFieldDeferred(t *mtype.Type) bool {
+	if !ShareMethodCarriers {
+		return false
+	}
+	for _, f := range t.Fields {
+		if synthIfaceFieldBase(f) != nil && (f.Rtype == nil || !runtype.IsSynth(f.Rtype)) {
+			return true
+		}
+	}
+	return false
+}
+
 func materializeFuncIO(p *mtype.Type) reflect.Type {
 	// Unexported methods never build an itab, so keep them any here: a func arg is
 	// dispatched, not just displayed like a container elem.
@@ -1336,11 +1283,6 @@ func materializeFuncIO(p *mtype.Type) reflect.Type {
 	return materialize(p)
 }
 
-// ifaceSynthDeferrable reports whether p is a named, all-exported, method-bearing
-// interface whose synth rtype cannot be built yet because a method signature is
-// still unmaterialized (im.Rtype nil).
-// materializeFuncIO erases such an IO to interface{} for now, but it will synth
-// precisely once the sigs fill, so a func type carrying it must not be cached final.
 func ifaceSynthDeferrable(p *mtype.Type) bool {
 	if p == nil || p.Name == "" || p.Kind() != reflect.Interface ||
 		len(p.IfaceMethods) == 0 || !allIfaceMethodsExported(p) ||
@@ -1358,16 +1300,11 @@ func ifaceSynthDeferrable(p *mtype.Type) bool {
 	return false
 }
 
-// funcIODeferrable reports whether func type t has any param/result that is a
-// synth-deferrable interface (see ifaceSynthDeferrable).
 func funcIODeferrable(t *mtype.Type) bool {
 	return slices.ContainsFunc(t.Params, ifaceSynthDeferrable) ||
 		slices.ContainsFunc(t.Returns, ifaceSynthDeferrable)
 }
 
-// anyFieldPending reports whether any direct field of t is pending re-materialization
-// (e.g. a func field whose interface IO was erased before its sigs were ready).
-// Such a struct must be re-patched by FinalizeDeferred once the field rebuilds precisely.
 func anyFieldPending(t *mtype.Type) bool {
 	if pendingCount.Load() == 0 {
 		return false
@@ -1509,10 +1446,6 @@ func PointerTo(t *mtype.Type) *mtype.Type {
 	return d.ptr
 }
 
-// synthIfaceNameKey fingerprints a named interface for cross-clone dedupe:
-// package, name, and sorted method name:signature pairs, so a same-named
-// interface with different sigs never adopts the other's rtype. Returns ""
-// (no dedupe) for unnamed interfaces or while any method signature is unknown.
 func synthIfaceNameKey(t *mtype.Type) string {
 	if t == nil || t.Name == "" {
 		return ""
@@ -1529,12 +1462,6 @@ func synthIfaceNameKey(t *mtype.Type) string {
 	return t.PkgName + "." + t.Name + "{" + strings.Join(names, ",") + "}"
 }
 
-// imethodSigString renders im's signature for the dedupe key. The symbolic Sig
-// names a nested interface by pkg.Name regardless of erasure, whereas im.Rtype
-// prints a cyclic position as interface{} or its name depending on build order
-// (type EnumType <-> Enum); a per-build-order key would split clones and break
-// reflect.Implements non-deterministically. Prefer Sig; native-bridged methods
-// carry only Rtype.
 func imethodSigString(im mtype.IfaceMethod) string {
 	if im.Sig != nil {
 		return im.Sig.String()
@@ -1545,10 +1472,7 @@ func imethodSigString(im mtype.IfaceMethod) string {
 	return ""
 }
 
-// AttachPtrDerived records newPtrRT (a *T-with-methods rtype) as t's derived
-// pointer type, materializing the slot if absent so a later PointerTo(t)
-// returns it instead of a fresh methodless *T. The reserve path wires the *T
-// identity once at materialize, so an existing slot just adopts newPtrRT.
+// AttachPtrDerived records newPtrRT as t's derived pointer type.
 func AttachPtrDerived(t *mtype.Type, newPtrRT reflect.Type) {
 	derivedMu.Lock()
 	defer derivedMu.Unlock()

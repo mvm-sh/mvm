@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -771,6 +772,82 @@ func main() {
 	out := evalOut(t, "ifaceelem", src)
 	want := "slice: []main.Spec\nmapkey: main.Spec\nempty: []interface {}\nlen: 1\n"
 	if out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
+
+// TestNamedIfaceStructField: a named interface struct field reflects as `pkg.I`
+// on wasm, not `interface {}` (text/template reports the field's static type in
+// nil-method errors); native stays erased (see synthIfaceFieldBase).
+func TestNamedIfaceStructField(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type I interface{ Method0() string }
+type T struct{ X string }
+
+func (t *T) Method0() string { return "M0:" + t.X }
+
+type Holder struct {
+	Name string
+	NEI  I
+	Nil  I
+}
+
+func main() {
+	h := Holder{Name: "h", NEI: &T{X: "a"}}
+	fmt.Println("lit:", h.NEI.Method0())
+	fmt.Println("ftype:", reflect.TypeOf(Holder{}).Field(1).Type)
+	fmt.Println("nil:", h.Nil == nil)
+}
+`
+	ftype := "interface {}"
+	if runtime.GOARCH == "wasm" {
+		ftype = "main.I"
+	}
+	out := evalOut(t, "ifacefield", src)
+	want := "lit: M0:a\nftype: " + ftype + "\nnil: true\n"
+	if out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
+
+// TestErrorsAsMethodBearingTargetDispatch guards the errors.As writeback: the
+// target is a synth-iface view of an interpreted eface cell, so it must stay in
+// mvm eface form (not a native itab) or a method call on it nil-derefs.
+func TestErrorsAsMethodBearingTargetDispatch(t *testing.T) {
+	const src = `package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type Coder interface {
+	error
+	Code() int
+}
+
+type myErr struct{ c int }
+
+func (e *myErr) Error() string { return fmt.Sprintf("err%d", e.c) }
+func (e *myErr) Code() int     { return e.c }
+
+func main() {
+	var target Coder
+	if errors.As(error(&myErr{42}), &target) {
+		fmt.Println("code:", target.Code())
+	} else {
+		fmt.Println("no match")
+	}
+}
+`
+	out := evalOut(t, "errorsas", src)
+	if want := "code: 42\n"; out != want {
 		t.Errorf("output: got %q, want %q", out, want)
 	}
 }
