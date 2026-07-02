@@ -499,7 +499,11 @@ func Testify() {}
 func Testable() {}
 func Benchmark() {}
 func helper() {}`
-	if _, err := i.Eval("u", src); err != nil {
+	if _, err := i.Eval("u_test.go", src); err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	// A Test-named func outside a _test.go file is not a test (fstest.TestFS).
+	if _, err := i.Eval("lib.go", "func TestExportedHelper() {}"); err != nil {
 		t.Fatalf("eval: %v", err)
 	}
 
@@ -510,7 +514,7 @@ func helper() {}`
 			t.Errorf("FuncNames(%q) missing %q; got %v", "Test", w, got)
 		}
 	}
-	for _, bad := range []string{"Testify", "Testable"} {
+	for _, bad := range []string{"Testify", "Testable", "TestExportedHelper"} {
 		if slices.Contains(got, bad) {
 			t.Errorf("FuncNames(%q) must not include lower-continuation %q; got %v", "Test", bad, got)
 		}

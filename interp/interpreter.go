@@ -388,7 +388,9 @@ func (i *Interp) patchStdStreams() {
 
 // FuncNames returns top-level functions whose name matches cmd/go's isTest for
 // prefix (exact match, e.g. "Test", or a non-lower-case rune after it), in
-// source-declaration order.
+// source-declaration order. Only funcs declared in _test.go files qualify,
+// like go test: a package's exported Test* helpers (fstest.TestFS) are not
+// tests.
 func (i *Interp) FuncNames(prefix string) []string {
 	type entry struct {
 		name string
@@ -409,6 +411,9 @@ func (i *Interp) FuncNames(prefix string) []string {
 			if addr := int(s.Value.Int()); addr >= 0 && addr < len(i.Code) {
 				pos = i.Code[addr].Pos
 			}
+		}
+		if file, _, _ := i.Sources.Resolve(int(pos)); !strings.HasSuffix(file, "_test.go") {
+			continue
 		}
 		entries = append(entries, entry{name, pos})
 	}

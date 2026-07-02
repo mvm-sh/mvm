@@ -1,9 +1,12 @@
 package stdlib
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
 	"unsafe"
 )
@@ -70,6 +73,12 @@ func init() {
 			}
 		}),
 		"MustHaveSource": reflect.ValueOf(func(testing.TB) {}),
+		"HasSymlink":     reflect.ValueOf(func() bool { ok, _ := hasSymlink(); return ok }),
+		"MustHaveSymlink": reflect.ValueOf(func(tb testing.TB) {
+			if ok, reason := hasSymlink(); !ok {
+				tb.Skip("mvm test: cannot make symlinks: " + reason)
+			}
+		}),
 		// Tests using Executable() re-exec the test binary, which mvm can't
 		// reproduce; skip them rather than fail with a bogus exec target.
 		"Executable": reflect.ValueOf(func(tb testing.TB) string {
@@ -93,3 +102,20 @@ func init() {
 // Distinct func identity from reflect.ValueOf so reflectlite.ValueOf alone can be
 // allowlisted for synth-iface target retyping (synth_iface_targets.go).
 func reflectliteValueOf(v any) reflect.Value { return reflect.ValueOf(v) }
+
+// Probe like internal/testenv: wasm runtimes may forbid symlinks.
+var hasSymlink = sync.OnceValues(func() (bool, string) {
+	dir, err := os.MkdirTemp("", "")
+	if err != nil {
+		return false, err.Error()
+	}
+	defer os.RemoveAll(dir)
+	fpath := filepath.Join(dir, "testfile.txt")
+	if err := os.WriteFile(fpath, nil, 0o644); err != nil {
+		return false, err.Error()
+	}
+	if err := os.Symlink(fpath, filepath.Join(dir, "testlink")); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+})
