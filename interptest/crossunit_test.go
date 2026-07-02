@@ -1414,3 +1414,51 @@ func TestExternal(t *testing.T) {
 		t.Fatalf("external unit: %v\nstderr: %s", err, stderr.String())
 	}
 }
+
+// A func-typed GLOBAL slot is an interface{} box like a local one, so a plain
+// Addr on it pushed a *interface{} and `var StatP = &stat` failed its init
+// (filepath export_test's LstatP = &lstat). AddrGlobal must retype the slot to
+// the declared *func, and an external unit's write through it must reach the
+// target's own calls.
+func TestAddrOfGlobalFuncVar(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/lp",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/lp\n",
+			// The pointer decl parses before the target var (export_test.go
+			// sorts before path.go in the filepath original).
+			"a_export.go": `package lp
+
+var StatP = &stat
+`,
+			"z_impl.go": `package lp
+
+var stat = func(path string) (string, error) { return "real:" + path, nil }
+
+func Call(p string) (string, error) { return stat(p) }
+`,
+		},
+	})
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	i.AutoImportPackages()
+	if _, err := i.Eval("example.com/x/lp", ""); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	i.PublishCompiledPackage("example.com/x/lp")
+
+	r, err := i.Eval("lp_test", `
+import "example.com/x/lp"
+
+*lp.StatP = func(path string) (string, error) { return "fake:" + path, nil }
+s, _ := lp.Call("x")
+s`)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "fake:x" {
+		t.Errorf("got %q, want fake:x", got)
+	}
+}

@@ -998,11 +998,31 @@ func embedMethodDepth(et *mtype.Type, id int, name string) (int, bool) {
 	return 0, false
 }
 
+// embedMethodDepthDeep extends embedMethodDepth through nested embeds, so a native method behind two embedding levels (mremapMmapper -> mmapper -> sync.Mutex) is still reachable.
+// The cap bounds pointer-embed cycles (type A struct{ *B }; type B struct{ *A }).
+func embedMethodDepthDeep(et *mtype.Type, id int, name string, depth int) (int, bool) {
+	if d, ok := embedMethodDepth(et, id, name); ok {
+		return d, true
+	}
+	if et == nil || depth >= maxEmbedWalkDepth {
+		return 0, false
+	}
+	best, found := 0, false
+	for _, emb := range et.Embedded {
+		if d, ok := embedMethodDepthDeep(emb.Type, id, name, depth+1); ok && (!found || d+1 < best) {
+			best, found = d+1, true
+		}
+	}
+	return best, found
+}
+
+const maxEmbedWalkDepth = 64
+
 // findEmbeddedMethod resolves name through typ's embeds, picking the shallowest-depth embed (not the first in field order); id is name's method id or -1.
 func findEmbeddedMethod(typ *mtype.Type, rtype reflect.Type, name string, id int, path []int) (reflect.Method, []int, bool) {
 	bestIdx, bestDepth, nAtBest := -1, 0, 0
 	for i, emb := range typ.Embedded {
-		d, ok := embedMethodDepth(emb.Type, id, name)
+		d, ok := embedMethodDepthDeep(emb.Type, id, name, 0)
 		if !ok {
 			continue
 		}
@@ -1616,6 +1636,19 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				c.Code[n-1].Op = vm.AddrLocal
 				c.Code[n-1].B = int32(retypeOp)
 				markAddressed(int(c.Code[n-1].A))
+			// A func/iface GLOBAL slot is an interface{} box like a local one;
+			// plain Addr would push a *interface{} (filepath's LstatP = &lstat).
+			case n > 0 && c.Code[n-1].Op == vm.GetGlobal && retypeOp != 0:
+				c.Code[n-1].Op = vm.AddrGlobal
+				c.Code[n-1].B = int32(retypeOp)
+			// &capturedVar: alias the cell's stable storage (setCell writes it in
+			// place); plain Addr on the CellGet/HeapGet snapshot would detach.
+			case n > 0 && c.Code[n-1].Op == vm.CellGet:
+				c.Code[n-1].Op = vm.AddrCell
+				c.Code[n-1].B = int32(retypeOp)
+			case n > 0 && c.Code[n-1].Op == vm.HeapGet:
+				c.Code[n-1].Op = vm.AddrHeap
+				c.Code[n-1].B = int32(retypeOp)
 			case n > 0 && c.Code[n-1].Op == vm.GetLocal2:
 				idx := int(c.Code[n-1].B)
 				c.Code[n-1].Op = vm.GetLocal

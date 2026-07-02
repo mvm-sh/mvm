@@ -350,7 +350,11 @@ func hasPromotedShapedMethods(t *mtype.Type) bool {
 }
 
 func sigHasSynthShape(sig reflect.Type) bool {
-	return ShapeAvailable(EraseSynthIfaceParams(sig))
+	es := EraseSynthIfaceParams(sig)
+	if IfaceShapeLog != nil {
+		IfaceShapeLog(es)
+	}
+	return ShapeAvailable(es)
 }
 
 func embIfaceHasShapedMethod(e *mtype.Type) bool {
@@ -383,7 +387,14 @@ func embIfaceHasShapedMethod(e *mtype.Type) bool {
 	return false
 }
 
-func embTypeHasMethods(e *mtype.Type) bool {
+func embTypeHasMethods(e *mtype.Type) bool { return embTypeHasMethodsAt(e, 0) }
+
+// embTypeHasMethodsAt also sees native rtype methods and nested embeds, so a type reached only through two embedding levels (mmapper -> sync.Mutex) still gets a reservation before attach.
+// The cap bounds pointer-embed cycles.
+func embTypeHasMethodsAt(e *mtype.Type, depth int) bool {
+	if depth >= maxEmbedWalkDepth {
+		return false
+	}
 	if e != nil && e.IsPtr() && e.ElemType != nil {
 		e = e.ElemType
 	}
@@ -391,9 +402,19 @@ func embTypeHasMethods(e *mtype.Type) bool {
 		if len(e.Methods) > 0 {
 			return true
 		}
+		if e.Rtype != nil && (e.Rtype.NumMethod() > 0 || reflect.PointerTo(e.Rtype).NumMethod() > 0) {
+			return true
+		}
+		for _, emb := range e.Embedded {
+			if embTypeHasMethodsAt(emb.Type, depth+1) {
+				return true
+			}
+		}
 	}
 	return false
 }
+
+const maxEmbedWalkDepth = 64
 
 func embeddedFieldRtype(t *mtype.Type, emb mtype.EmbeddedField) reflect.Type {
 	if emb.FieldIdx >= 0 && emb.FieldIdx < len(t.Fields) {
@@ -1181,8 +1202,32 @@ func NamedSynthIface(p *mtype.Type) bool {
 		(p.Rtype == nil || p.Rtype == mtype.AnyRtype) && !IsGenericInstanceName(p.Name)
 }
 
+// containerElemSynthSafe reports whether iface p's synth rtype can be satisfied
+// by every conforming concrete: each method has a known, stub-shaped signature
+// (an over-word-budget method never attaches, failing reflect.Implements), and
+// unexported methods are declared in p's own package (a foreign marker like
+// grpc SubConn's enforceSubConnEmbedding gets the wrong pkgpath in the synth
+// method table). Otherwise the container elem must stay erased.
+func containerElemSynthSafe(p *mtype.Type) bool {
+	own := RtypePkgPath(p)
+	for i := range p.IfaceMethods {
+		im := &p.IfaceMethods[i]
+		if im.PkgPath != "" && im.PkgPath != own {
+			return false
+		}
+		sig := im.Rtype
+		if sig == nil && im.Sig != nil {
+			sig = materialize(im.Sig)
+		}
+		if sig == nil || sig.Kind() != reflect.Func || !sigHasSynthShape(sig) {
+			return false
+		}
+	}
+	return true
+}
+
 func materializeContainerElem(p *mtype.Type) reflect.Type {
-	if NamedSynthIface(p) {
+	if NamedSynthIface(p) && containerElemSynthSafe(p) {
 		if rt := SynthIfaceRtype(p); rt != nil {
 			return rt
 		}

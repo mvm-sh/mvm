@@ -26,8 +26,10 @@ func TestDetectWordShape(t *testing.T) {
 		{reflect.TypeOf((func() time.Time)(nil)), "_iip", true},     // word-sized-leaf struct result
 		{reflect.TypeOf((func(float32) float32)(nil)), "g_g", true}, // single-precision unary op
 		{reflect.TypeOf((func() complex64)(nil)), "_gg", true},      // complex64 result -> two 'g' halves
+		// _iii gained a pool in the 2026-07-02 corpus harvest.
+		{reflect.TypeOf((func() (int, int, int))(nil)), "_iii", true},
 		// no generated pool for this word-shape -> drop (not error).
-		{reflect.TypeOf((func() (int, int, int))(nil)), "", false},
+		{reflect.TypeOf((func(uintptr, uintptr, uintptr, uintptr, uintptr) (bool, bool, bool))(nil)), "", false},
 		// a sub-word-packed struct param flattens to its leaves' words (ii) -> "ii_i".
 		{reflect.TypeOf((func(struct{ X, Y int32 }) int32)(nil)), "ii_i", true},
 		// over the register-word budget -> drop.

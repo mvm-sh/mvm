@@ -408,7 +408,17 @@ func (p *Parser) parseTypeExpr(in Tokens) (typ *mtype.Type, n int, err error) {
 					return nil, 0, p.undef(lt[0].Str, lt[0])
 				}
 				ifaceType.EnsureIfaceMethods()
-				methods = append(methods, ifaceType.IfaceMethods...)
+				for _, im := range ifaceType.IfaceMethods {
+					// Record an unexported method's declaring package across the
+					// embed, so derive can tell a foreign marker (grpc SubConn's
+					// enforceSubConnEmbedding) from a same-package one (ast.Decl).
+					if im.PkgPath == "" && !IsExported(im.Name) {
+						if im.PkgPath = ifaceType.ImportPath; im.PkgPath == "" {
+							im.PkgPath = ifaceType.PkgName
+						}
+					}
+					methods = append(methods, im)
+				}
 				continue
 			}
 			p.typeOnly = true

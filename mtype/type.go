@@ -113,6 +113,10 @@ type IfaceMethod struct {
 	ID    int          // global method ID; -1 = not yet assigned
 	Rtype reflect.Type // method signature (no receiver, as declared in the interface body); nil if unknown
 	Sig   *Type        // symbolic method signature, the materialize-time source of Rtype
+	// PkgPath is the declaring package of an unexported method merged from an
+	// embedded interface (grpc's internal.EnforceSubConnEmbedding); empty for
+	// exported methods and same-interface declarations.
+	PkgPath string
 }
 
 // TypeElem describes one member of a constraint interface's type-element union.

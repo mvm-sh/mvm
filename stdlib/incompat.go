@@ -52,11 +52,19 @@ var Incompat = map[string]map[string]string{
 		"TestDefineAfterSet": "runtime.Caller through reflect.Call adapter masks the user call site",
 	},
 	"sync": {
-		"TestIssue76126": "re-execs os.Args[0] with -test.run to observe a child crash; under mvm that is the mvm binary, not a test binary, so the child never panics",
+		"TestIssue76126":             "re-execs os.Args[0] with -test.run to observe a child crash; under mvm that is the mvm binary, not a test binary, so the child never panics",
+		"TestOnceFunc":               "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 per call (escape-analysis assertion)",
+		"TestOnceValue":              "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 per call (escape-analysis assertion)",
+		"TestOnceValues":             "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 per call (escape-analysis assertion)",
+		"TestOnceFuncPanicTraceback": "greps debug.Stack for sync_test.onceFuncPanic; an interpreted func runs via reflect.MakeFunc, so frames show reflect/VM internals (cf. runtime/debug TestStack)",
+		"TestOnceXGC":                "drives GC-collection of OnceFunc closures and blocks on runtime.blockUntilEmptyCleanupQueue via linkname; mvm does not parse linkname directives and cell-captured interpreted closures stay reachable",
 	},
 	"os": {
 		"TestLargeCopyViaNetwork": "stress test: streams a 10MB random file through a localhost TCP pair; ~15s under the interpreter (no testing.Short path)",
 		"TestCopyFileToFile":      "stress test: copies a 1MB random file across a srcStart x dstStart x limit subtest grid; ~17s under the interpreter (no testing.Short path)",
+	},
+	"path/filepath": {
+		"TestWalkFileError": "writes through export_test's LstatP to swap filepath's internal lstat hook; the native bridge's Walk keeps its own lstat, so the fake stat error can never surface",
 	},
 	"compress/gzip": {
 		"TestCVE202230631": "stress test: gunzips ~80MB (4e6 x 20-byte members) to probe stack exhaustion; no testing.Short path, impractical under the interpreter",
@@ -155,7 +163,11 @@ var Incompat = map[string]map[string]string{
 	},
 
 	"github.com/yuin/goldmark": {
-		"TestDeepNestedLabelPerformance": "wall-clock bound: 50000-deep nested link labels under 5s is a native-speed assertion; ~40s under the interpreter",
+		"TestDeepNestedLabelPerformance":           "wall-clock bound: 50000-deep nested link labels under 5s is a native-speed assertion; ~40s under the interpreter",
+		"TestManyProcessingInstructionPerformance": "wall-clock bound: 50000 raw-HTML repeats under 5s is a native-speed assertion; ~5s under the interpreter, marginal (the historical compat flap)",
+		"TestManyCDATAPerformance":                 "wall-clock bound: 50000 raw-HTML repeats under 5s is a native-speed assertion; ~5s under the interpreter, marginal (the historical compat flap)",
+		"TestManyDeclPerformance":                  "wall-clock bound: 50000 raw-HTML repeats under 5s is a native-speed assertion; ~5s under the interpreter, marginal (the historical compat flap)",
+		"TestManyCommentPerformance":               "wall-clock bound: 50000 raw-HTML repeats under 5s is a native-speed assertion; ~5s under the interpreter, marginal (the historical compat flap)",
 	},
 
 	// TODO: revisit; skipped for wall-clock only, not a failure.

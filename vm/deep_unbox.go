@@ -96,6 +96,15 @@ func (m *Machine) deepUnboxIface(v reflect.Value, depth, hops int, seen map[unbo
 		if v.IsNil() {
 			return v, false
 		}
+		// A synth-iface slot may hold mvm eface form (storeIfaceFromReflect);
+		// v.Elem() would misread its rtype word as an itab and crash.
+		if ifc, ok := mvmEfaceInSynthSlot(v, t); ok {
+			w := m.bridgeIface(ifc, t)
+			if w.IsValid() && w.Type().AssignableTo(t) {
+				return w, true
+			}
+			return v, false
+		}
 		el := runtype.Exportable(v.Elem())
 		if !el.IsValid() {
 			// A non-nil interface whose Elem is unreadable: a native unexported

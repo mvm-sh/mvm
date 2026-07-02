@@ -20,14 +20,14 @@ func TestWordShapeDropReport(t *testing.T) {
 	wordabi.SetDropLog(true)
 	defer wordabi.SetDropLog(false)
 
-	// "iii_i" has no generated pool on either arch. It uses a signature no real
-	// method has, so the assertion is immune to drops other tests record into the
-	// shared collectors.
-	noPool := reflect.TypeOf((func(uintptr, uintptr, uintptr) bool)(nil))
+	// "iiiii_iii" has no generated pool on either arch (iii_i gained one in the
+	// 2026-07-02 corpus harvest). It uses a signature no real method has, so the
+	// assertion is immune to drops other tests record into the shared collectors.
+	noPool := reflect.TypeOf((func(uintptr, uintptr, uintptr, uintptr, uintptr) (bool, bool, bool))(nil))
 	if _, ok := detectWordShape(noPool); ok {
 		t.Fatalf("expected %v to drop (no pool)", noPool)
 	}
-	want := []string{"missing pools", "iii_i", "uintptr"}
+	want := []string{"missing pools", "iiiii_iii", "uintptr"}
 
 	// An array param (length > 1) is stack-passed and unclassifiable on the
 	// register ABI; on wasm it packs to stack bytes, so the unsupported bucket

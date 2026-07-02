@@ -845,3 +845,32 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// recover() of a panicked error sentinel must keep identity: handleRecover's
+// ad-hoc Iface wrap has to carry the concrete rtype, not the eface's, or
+// Equal's dynamic-type gate rejects `recover() == sentinel` (uuid/ulid Must).
+func TestRecoverSentinelIdentity(t *testing.T) {
+	src := `package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+var sentinel = errors.New("sentinel")
+
+func main() {
+	defer func() {
+		r := recover()
+		fmt.Println("identical:", r == error(sentinel))
+		err, ok := r.(error)
+		fmt.Println("is:", ok && errors.Is(err, sentinel))
+	}()
+	panic(sentinel)
+}
+`
+	out := evalOut(t, "recoversentinel.go", src)
+	if want := "identical: true\nis: true\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}

@@ -109,9 +109,9 @@ var hasSymlink = sync.OnceValues(func() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	fpath := filepath.Join(dir, "testfile.txt")
-	if err := os.WriteFile(fpath, nil, 0o644); err != nil {
+	if err := os.WriteFile(fpath, nil, 0o600); err != nil {
 		return false, err.Error()
 	}
 	if err := os.Symlink(fpath, filepath.Join(dir, "testlink")); err != nil {

@@ -851,3 +851,116 @@ func main() {
 		t.Errorf("output: got %q, want %q", out, want)
 	}
 }
+
+// A variadic pack materializes []interface{}, but converting it to a named
+// slice type whose elem is a synth iface (cmp's Options(opts)) is statically
+// legal; execConvert must rebuild element-wise since reflect refuses the
+// direct Convert.
+func TestVariadicToNamedIfaceSliceConvert(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Option interface {
+	filter(s string) bool
+}
+
+type Options []Option
+
+func (Options) filter(string) bool { return true }
+
+type transformer struct{ name string }
+
+func (t *transformer) filter(string) bool { return t.name != "" }
+
+func apply(o Option) {
+	fmt.Println("filter:", o.filter("x"))
+}
+
+func Diff(opts ...Option) {
+	apply(Options(opts))
+	var none []Option
+	fmt.Println("nil:", Options(none) == nil)
+}
+
+func main() {
+	Diff(&transformer{"a"}, &transformer{"b"})
+}
+`
+	out := evalOut(t, "variadicconvert", src)
+	if want := "filter: true\nnil: true\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
+
+// Interpreted reflect.Value.Set into a synth-iface slice elem stores mvm eface
+// form (storeIfaceFromReflect); passing that slice to a native callee
+// (sort.SliceStable) must decode it in deepUnboxIface instead of misreading
+// the eface rtype word as an itab (the go-cmp cmpopts.SortSlices crash).
+func TestReflectSetSynthIfaceElemThenNativeSort(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+)
+
+type I interface{ V() int }
+
+type impl struct{ n int }
+
+func (i *impl) V() int { return i.n }
+
+func main() {
+	var a interface{} = []I{&impl{2}, &impl{1}}
+	src := reflect.ValueOf(a)
+	dst := reflect.MakeSlice(src.Type(), src.Len(), src.Len())
+	for i := 0; i < src.Len(); i++ {
+		dst.Index(i).Set(src.Index(i))
+	}
+	y := dst.Interface()
+	sort.SliceStable(y, func(i, j int) bool { return y.([]I)[i].V() < y.([]I)[j].V() })
+	fmt.Println("sorted:", y.([]I)[0].V(), y.([]I)[1].V())
+}
+`
+	out := evalOut(t, "synthifacesort", src)
+	if want := "sorted: 1 2\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
+
+// A variadic pack ([]interface{} at runtime) assigned to a slot or field whose
+// declared slice type materialized with a synth iface elem (protobuf's
+// `messages = append(messages, ...)` into []protoreflect.ProtoMessage);
+// assignSlot/setFuncField must rebuild element-wise across the split.
+func TestErasedSliceIntoSynthElemSlot(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type M interface{ ID() int }
+
+type impl struct{ n int }
+
+func (i *impl) ID() int { return i.n }
+
+var messages []M
+
+type holder struct{ Ms []M }
+
+func add(ms ...M) { messages = ms }
+
+func main() {
+	add(&impl{1}, &impl{2})
+	fmt.Println("global:", len(messages), messages[0].ID())
+	var h holder
+	h.Ms = messages[:1]
+	fmt.Println("field:", len(h.Ms), h.Ms[0].ID())
+}
+`
+	out := evalOut(t, "erasedslice", src)
+	if want := "global: 2 1\nfield: 1 1\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}

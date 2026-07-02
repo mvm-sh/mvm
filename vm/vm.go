@@ -55,6 +55,9 @@ const (
 	// Instruction effect on stack: values consumed -- values produced.
 	Nop          Op = iota // --
 	Addr                   // a -- &a ;
+	AddrCell               // -- &cell ; push pointer into the cell at mem[fp-1+$1]'s stable storage; $2!=0 retypes like AddrLocal
+	AddrGlobal             // -- &global ; push pointer to globals[$1]; same promotion/retype as AddrLocal
+	AddrHeap               // -- &cell ; AddrCell for the escaped cell heap[$1]
 	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]; promotes slot to addressable storage so writes via the pointer propagate back; $2!=0 retypes the slot to func/interface type globals[$2-1]
 	Append                 // slice [v0..vn-1] -- slice' ; append $0 values to slice
 	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice; elem type at mem[$1]; $0=0 means spread mode: append(a, b...)
@@ -836,6 +839,15 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		// convertibility for unnamed-pointer types.
 		mem[idx] = FromReflect(reflect.NewAt(dstType.Elem(), v.ref.UnsafePointer()))
 
+	case srcKind == reflect.Slice && dstKind == reflect.Slice &&
+		v.ref.Type().Elem() != dstType.Elem() &&
+		v.ref.Type().Elem().Kind() == reflect.Interface && dstType.Elem().Kind() == reflect.Interface:
+		// Statically legal slice conversion (identical elem in the source program)
+		// whose runtime elems diverged: an erased []interface{} (variadic pack)
+		// converted to a named slice with a synth iface elem (cmp's Options(opts)).
+		// reflect refuses the direct Convert, so rebuild element-wise.
+		mem[idx] = Value{ref: m.bridgeIfaceSliceTo(v.ref, dstType)}
+
 	default:
 		// Fallback: use reflect.
 		mem[idx] = FromReflect(v.Reflect().Convert(dstType))
@@ -889,9 +901,19 @@ func (m *Machine) handleRecover(fp, sp int, mem []Value, deferRetAddr int) (int,
 		m.panicking = false
 		pv := m.panicVal
 		if pv.IsValid() && !pv.IsIface() {
-			rt := pv.Reflect().Type()
-			typ := &mtype.Type{Name: rt.Name(), Rtype: rt}
-			pv = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: pv})}
+			rv := pv.Reflect()
+			// Unwrap an eface-boxed panic value: the ad-hoc Iface must carry the
+			// concrete rtype, or Equal's dynamic-type gate rejects
+			// `recover() == sentinel` (uuid/ulid Must tests).
+			if rv.Kind() == reflect.Interface && !rv.IsNil() {
+				rv = runtype.Exportable(rv.Elem())
+				pv = FromReflect(rv)
+			}
+			if rv.IsValid() {
+				rt := rv.Type()
+				typ := &mtype.Type{Name: rt.Name(), Rtype: rt}
+				pv = Value{ref: reflect.ValueOf(Iface{Typ: typ, Val: pv})}
+			}
 		}
 		if sp+1 >= len(mem) {
 			mem = growStack(mem, sp, 1)
@@ -1613,6 +1635,26 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					rv.Set(slot.ref)
 				}
 				slot.ref = rv
+			}
+			sp++
+			mem[sp] = Value{ref: slot.ref.Addr()}
+		case AddrGlobal:
+			slot := &m.globals[int(c.A)]
+			switch {
+			case c.B != 0:
+				m.promoteSlot(slot, m.globals[int(c.B)-1].ref.Type())
+			case !slot.ref.CanAddr():
+				rt := slot.ref.Type()
+				rv := reflect.New(rt).Elem()
+				if isNum(rt.Kind()) {
+					setNumReflect(rv, slot.num)
+				} else {
+					rv.Set(slot.ref)
+				}
+				slot.ref = rv
+			}
+			if sp+1 >= len(mem) {
+				mem = growStack(mem, sp, 1)
 			}
 			sp++
 			mem[sp] = Value{ref: slot.ref.Addr()}
@@ -3153,7 +3195,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp++
 			v := *m.heap[int(c.A)]
 			if isNum(v.ref.Kind()) && v.ref.CanAddr() {
-				v.num = numBits(v.ref) // a native write through &var (Addr) updates ref, not num
+				v.num = numBits(v.ref)
+				v.ref = reflect.Zero(v.ref.Type()) // detach; see CellGet
 			}
 			mem[sp] = v
 		case HeapSet:
@@ -3163,12 +3206,56 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			sp++
 			v := *mem[int(c.A)+fp-1].ref.Interface().(*Value)
 			if isNum(v.ref.Kind()) && v.ref.CanAddr() {
-				v.num = numBits(v.ref) // a native write through &var (Addr) updates ref, not num
+				// setCell writes the cell storage in place, so a numeric snapshot
+				// must detach its ref (num carries the payload) or a later write
+				// leaks into it (defer incrementing a returned captured var).
+				v.num = numBits(v.ref)
+				v.ref = reflect.Zero(v.ref.Type())
 			}
 			mem[sp] = v
+		case AddrCell:
+			cell := mem[int(c.A)+fp-1].ref.Interface().(*Value)
+			switch {
+			case c.B != 0:
+				m.promoteSlot(cell, m.globals[int(c.B)-1].ref.Type())
+			case !cell.ref.CanAddr():
+				rt := cell.ref.Type()
+				rv := reflect.New(rt).Elem()
+				if isNum(rt.Kind()) {
+					setNumReflect(rv, cell.num)
+				} else {
+					rv.Set(cell.ref)
+				}
+				cell.ref = rv
+			}
+			if sp+1 >= len(mem) {
+				mem = growStack(mem, sp, 1)
+			}
+			sp++
+			mem[sp] = Value{ref: cell.ref.Addr()}
 		case CellSet:
 			setCell(mem[int(c.A)+fp-1].ref.Interface().(*Value), mem[sp])
 			sp--
+		case AddrHeap:
+			cell := m.heap[int(c.A)]
+			switch {
+			case c.B != 0:
+				m.promoteSlot(cell, m.globals[int(c.B)-1].ref.Type())
+			case !cell.ref.CanAddr():
+				rt := cell.ref.Type()
+				rv := reflect.New(rt).Elem()
+				if isNum(rt.Kind()) {
+					setNumReflect(rv, cell.num)
+				} else {
+					rv.Set(cell.ref)
+				}
+				cell.ref = rv
+			}
+			if sp+1 >= len(mem) {
+				mem = growStack(mem, sp, 1)
+			}
+			sp++
+			mem[sp] = Value{ref: cell.ref.Addr()}
 		case HeapPtr:
 			if sp+1 >= len(mem) {
 				mem = growStack(mem, sp, 1)
@@ -3248,7 +3335,19 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					// append([]byte, string...) special case.
 					src = reflect.ValueOf([]byte(src.String()))
 				}
-				result := reflect.AppendSlice(mem[sp-1].ref, src)
+				dst := mem[sp-1].ref
+				var result reflect.Value
+				de, se := dst.Type().Elem(), src.Type().Elem()
+				if de != se && de.Kind() == reflect.Interface && se.Kind() == reflect.Interface {
+					// Erased vs synth iface elem split (an erased variadic pack
+					// spread onto a synth-elem slice): element-wise, like copySlice.
+					result = dst
+					for i := range src.Len() {
+						result = reflect.Append(result, m.reflectForSend(FromReflect(src.Index(i)), de))
+					}
+				} else {
+					result = reflect.AppendSlice(dst, src)
+				}
 				sp--
 				mem[sp] = Value{ref: result}
 				break
@@ -5560,6 +5659,9 @@ func (m *Machine) setFuncField(fv reflect.Value, val Value) {
 		!src.Type().AssignableTo(fv.Type()) && src.Type().ConvertibleTo(fv.Type()) {
 		src = src.Convert(fv.Type())
 	}
+	if src.IsValid() && ifaceSliceSplit(src.Type(), fv.Type()) {
+		src = m.bridgeIfaceSliceTo(src, fv.Type())
+	}
 	fv.Set(src)
 }
 
@@ -5667,6 +5769,18 @@ func (m *Machine) promoteSlot(slot *Value, dt reflect.Type) {
 // storage and must keep snapshot semantics.
 // Known gap: &var taken BEFORE a reassignment misses later writes.
 func setCell(cell *Value, src Value) {
+	// Write through the cell's existing storage: &capturedVar (CellGet;Addr)
+	// aliases it, so rebinding the cell to fresh storage would strand that
+	// pointer (sync TestOnceFuncPanic reads *calls the closure incremented).
+	if cell.ref.IsValid() && cell.ref.CanSet() && src.ref.IsValid() && src.ref.Type() == cell.ref.Type() {
+		if isNum(src.ref.Kind()) {
+			setNumReflect(cell.ref, src.num)
+		} else {
+			cell.ref.Set(runtype.Exportable(src.ref))
+		}
+		cell.num = src.num
+		return
+	}
 	if !src.ref.IsValid() && cell.ref.IsValid() {
 		src.ref = reflect.Zero(cell.ref.Type())
 	}
@@ -5757,7 +5871,35 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 			s = reflect.Zero(dt)
 		}
 	}
+	// Statically identical slice types whose runtime elems diverged (an erased
+	// []interface{} vs a synth iface elem, e.g. an append result stored back
+	// into a []protoreflect.ProtoMessage slot): rebuild element-wise.
+	if dt := dst.ref.Type(); s.IsValid() && ifaceSliceSplit(s.Type(), dt) {
+		s = m.bridgeIfaceSliceTo(s, dt)
+	}
 	dst.ref.Set(adoptNamedType(s, dst.ref.Type()))
+}
+
+// ifaceSliceSplit reports an erased-vs-synth iface slice materialization split:
+// distinct, non-assignable slice types both carrying interface elems.
+func ifaceSliceSplit(st, dt reflect.Type) bool {
+	return st != dt && st.Kind() == reflect.Slice && dt.Kind() == reflect.Slice &&
+		st.Elem().Kind() == reflect.Interface && dt.Elem().Kind() == reflect.Interface &&
+		!st.AssignableTo(dt)
+}
+
+// bridgeIfaceSliceTo rebuilds src as a dt slice, bridging each elem (see
+// ifaceSliceSplit); sharing the backing array is impossible across the split.
+func (m *Machine) bridgeIfaceSliceTo(src reflect.Value, dt reflect.Type) reflect.Value {
+	if src.IsNil() {
+		return reflect.Zero(dt)
+	}
+	n := src.Len()
+	out := reflect.MakeSlice(dt, n, n)
+	for i := range n {
+		m.setFuncField(out.Index(i), FromReflect(src.Index(i)))
+	}
+	return out
 }
 
 // adoptNamedType converts v to dt when only the named identity differs:

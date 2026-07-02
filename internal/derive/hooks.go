@@ -15,3 +15,10 @@ var ActiveRtypeCache = func() *map[MethodStructKey]*SynthReservation { return ni
 // method-bearing named non-struct types (token.Pos). The vm sets it true on wasm,
 // where the cache is global and a synth fill captures no *Machine.
 var ShareMethodCarriers = false
+
+// IfaceShapeLog records each erased iface-method signature consulted for
+// synth-shape availability; the vm sets it under MVM_IFACESHAPES.
+// The logged keys are the word pools interface satisfaction actually needs;
+// pools outside this set only serve attach traffic that reflect.Implements
+// never observes.
+var IfaceShapeLog func(sig reflect.Type)

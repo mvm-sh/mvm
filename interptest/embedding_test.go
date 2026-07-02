@@ -897,3 +897,42 @@ func main() {
 		t.Errorf("got %q, want %q", got, "true\n")
 	}
 }
+
+// A native type's methods must promote through two embedding levels
+// (x/sys/unix mremapMmapper -> mmapper -> sync.Mutex); the shallowest-depth
+// embed walk only looked one level deep for native methods, so m.Lock()
+// failed with "undefined: Lock" and x/sys/unix no longer loaded.
+func TestNativeMethodTwoLevelEmbed(t *testing.T) {
+	src := `package main
+
+import (
+	"bytes"
+	"sync"
+)
+
+type mmapper struct {
+	sync.Mutex
+	active map[*byte][]byte
+}
+
+type mremapMmapper struct {
+	mmapper
+	extra int
+}
+
+type wbuf struct{ bytes.Buffer }
+type logger struct{ wbuf }
+
+func main() {
+	m := &mremapMmapper{}
+	m.Lock()
+	m.Unlock()
+	l := &logger{}
+	l.WriteString("hi")
+	println("ok", l.Len())
+}
+`
+	if got := evalOut(t, "twolevelembed", src); got != "ok 2\n" {
+		t.Errorf("got %q, want %q", got, "ok 2\n")
+	}
+}

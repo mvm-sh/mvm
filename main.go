@@ -237,6 +237,11 @@ func main() {
 	if os.Getenv("MVM_POOLSTATS") != "" {
 		fmt.Fprint(os.Stderr, poolStatsReport())
 	}
+	// MVM_IFACESHAPES telemetry: dump the word keys iface-method sigs demanded,
+	// the set gen_pools.go wordShapes must cover (see containerElemSynthSafe).
+	if os.Getenv("MVM_IFACESHAPES") != "" {
+		fmt.Fprint(os.Stderr, vm.IfaceShapeReport())
+	}
 	if err != nil {
 		var ee *interp.ExitError
 		if errors.As(err, &ee) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -326,6 +327,10 @@ func (m *Machine) capturePanic(raw any) *PanicError {
 // capturePanicAt builds a *PanicError snapshot for a panic at instruction ip in
 // the segment (mem, fp), independent of the machine's live ip/fp/mem.
 func (m *Machine) capturePanicAt(ip, fp int, mem []Value, raw any) *PanicError {
+	if os.Getenv("MVM_DEBUG_PANIC") != "" {
+		fmt.Fprintf(os.Stderr, "MVM_DEBUG_PANIC: %v\n", raw)
+		debug.PrintStack()
+	}
 	pe := &PanicError{Raw: raw, IP: ip}
 	if ip >= 0 && ip < len(m.code) {
 		pe.Pos = m.code[ip].Pos
