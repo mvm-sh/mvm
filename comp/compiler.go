@@ -2452,6 +2452,9 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 			if n > 1 {
 				// Batched multi-assign: compiler stack has [lhs0..lhs_(n-1), rhs0..rhs_(n-1)].
 				// All RHS were pushed before any assignment, so swaps like a,b=b,a work correctly.
+				// An RHS may still alias an LHS slot's storage (callee returning its
+				// param); detach before the in-place writes below.
+				c.emit(t, vm.Detach, n)
 				l := len(stack)
 				rhss := stack[l-n:]
 				truncStack(l - n)

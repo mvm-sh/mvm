@@ -70,6 +70,7 @@ const (
 	DeleteMap              // map key -- ; delete(map, key)
 	Deref                  // x -- *x ;
 	DerefSet               // ptr val -- ; *ptr = val
+	Detach                 // -- ; copy the top $1 values that alias slot storage into fresh storage
 	Equal                  // n1 n2 -- cond ; cond = n1 == n2
 	EqualSet               // n1 n2 -- n1 cond ; cond = n1 == n2
 	Exit                   // -- ;
@@ -1230,6 +1231,17 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case SetLocal:
 			m.assignSlot(&mem[fp-1+int(c.A)], mem[sp])
 			sp--
+		case Detach:
+			// A multi-assign RHS may alias an LHS variable's storage (a callee
+			// returning its param shares the caller's slot); assignSlot's in-place
+			// write would clobber it before it is read.
+			for i := sp - int(c.A) + 1; i <= sp; i++ {
+				if r := mem[i].ref; r.IsValid() && r.CanSet() && !isNum(r.Kind()) {
+					nr := reflect.New(r.Type()).Elem()
+					nr.Set(r)
+					mem[i].ref = nr
+				}
+			}
 		case SetGlobal:
 			m.assignSlot(&m.globals[int(c.A)], mem[sp])
 			sp--

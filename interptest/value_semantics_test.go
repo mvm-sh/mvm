@@ -52,6 +52,36 @@ func main() {
 	}
 }
 
+// A callee returning its param yields a value sharing the caller's variable
+// storage; a multi-assign writing that variable must not clobber the other
+// results before they are stored (vm.Detach). Broke net/url resolvePath via
+// `elem, remaining, found = strings.Cut(remaining, "/")` with interpreted strings.
+func TestMultiAssignAliasedReturn(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+func cut(s string) (string, string, bool) { return s, "", false }
+
+func main() {
+	elem, remaining, found := "", "c", true
+	elem, remaining, found = cut(remaining)
+	fmt.Println(elem, remaining, found)
+
+	var x string
+	x, global = retG()
+	fmt.Println(x, global)
+}
+
+var global = "glob"
+
+func retG() (string, string) { return global, "new" }
+`
+	if got, want := evalOut(t, "multiassign_alias.go", src), "c  false\nglob new\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // An anonymous struct used as a struct field keeps reflect's empty type name:
 // its String() is the struct literal, not the field name. Before the materialize
 // fix the field-type clone inherited the field name and reflected as "Foo".
