@@ -209,6 +209,9 @@ func sameNamedType(cand, recv, recvCanon *mtype.Type, recvRt reflect.Type) bool 
 	return recvRt != nil && cand.Rtype != nil && cand.Rtype == recvRt
 }
 
+// Ambiguous is the sentinel MethodByName returns for a promoted method two or more embeds provide at the same shallowest depth (Go's "ambiguous selector"); callers treat it as unresolved.
+var Ambiguous = &Symbol{Name: "<ambiguous>"}
+
 // MethodByName returns the method symbol and the field index path to the receiver
 // (empty for direct methods, non-empty for promoted methods through embedded fields).
 // seg is the candidate index; nil falls back to a full scan.
@@ -499,53 +502,79 @@ func (sm SymMap) promotedMethod(typ *mtype.Type, name string, path []int, seg Se
 // promotedMethodSeen is promotedMethod with a visited set guarding against
 // self-referential embedding (legal in Go, e.g. `type A struct{ *A }`), which
 // would otherwise recurse until the stack overflows.
+// It walks breadth-first so the shallowest embed wins; a depth-first walk would pick a deeper method in an earlier embed.
 func (sm SymMap) promotedMethodSeen(typ *mtype.Type, name string, path []int, seen map[*mtype.Type]bool, seg SegIndex) (*Symbol, []int) {
 	if typ == nil {
-		return nil, nil
-	}
-	// Pointer types carry no Embedded info themselves; walk into the underlying
-	// struct so receivers like *anon-struct see their embedded fields' methods.
-	if typ.IsPtr() && typ.ElemType != nil {
-		typ = typ.ElemType
-	}
-	// A field-access clone can lack Embedded; its canonical (Base) keeps it.
-	if len(typ.Embedded) == 0 {
-		if canon := derive.CanonicalType(typ); canon != typ && len(canon.Embedded) > 0 {
-			typ = canon
-		}
-	}
-	if seen[typ] {
 		return nil, nil
 	}
 	if seen == nil {
 		seen = map[*mtype.Type]bool{}
 	}
-	seen[typ] = true
-	for _, emb := range typ.Embedded {
-		embType := emb.Type
-		if embType == nil {
-			continue
+	type node struct {
+		typ  *mtype.Type
+		path []int
+	}
+	// A pointer or field-access clone can lack Embedded; walk to the underlying struct or canonical.
+	norm := func(t *mtype.Type) *mtype.Type {
+		if t.IsPtr() && t.ElemType != nil {
+			t = t.ElemType
 		}
-		fieldPath := append(path, emb.FieldIdx) //nolint:gocritic
-		if sm.bareKeyTypeMatches(embType.Name, embType) {
-			if m := sm[embType.Name+"."+name]; m != nil {
-				return m, fieldPath
-			}
-			if m := sm["*"+embType.Name+"."+name]; m != nil {
-				return m, fieldPath
-			}
-		}
-		// Embedded type's method may live at a pkg-qualified key (Path B).
-		if embType.Name != "" {
-			if m := sm.qualifiedMethodLookup(embType, embType.Name, name, seg); m != nil {
-				return m, fieldPath
+		if len(t.Embedded) == 0 {
+			if canon := derive.CanonicalType(t); canon != t && len(canon.Embedded) > 0 {
+				t = canon
 			}
 		}
-		if m, p := sm.promotedMethodSeen(embType, name, fieldPath, seen, seg); m != nil {
-			return m, p
+		return t
+	}
+	for level := []node{{norm(typ), path}}; len(level) > 0; {
+		var next []node
+		var found *Symbol
+		var foundPath []int
+		for _, nd := range level {
+			if seen[nd.typ] {
+				continue
+			}
+			seen[nd.typ] = true
+			for _, emb := range nd.typ.Embedded {
+				embType := emb.Type
+				if embType == nil {
+					continue
+				}
+				fieldPath := append(nd.path[:len(nd.path):len(nd.path)], emb.FieldIdx) //nolint:gocritic
+				if m := sm.embedDeclaresMethod(embType, name, seg); m != nil {
+					if found != nil {
+						return Ambiguous, nil // two providers at this shallowest depth
+					}
+					found, foundPath = m, fieldPath
+					continue // resolved here; don't descend past it
+				}
+				next = append(next, node{norm(embType), fieldPath})
+			}
 		}
+		if found != nil {
+			return found, foundPath
+		}
+		level = next
 	}
 	return nil, nil
+}
+
+// embedDeclaresMethod returns the method embType declares directly (not promoted from its own embeds), or nil.
+func (sm SymMap) embedDeclaresMethod(embType *mtype.Type, name string, seg SegIndex) *Symbol {
+	if sm.bareKeyTypeMatches(embType.Name, embType) {
+		if m := sm[embType.Name+"."+name]; m != nil {
+			return m
+		}
+		if m := sm["*"+embType.Name+"."+name]; m != nil {
+			return m
+		}
+	}
+	if embType.Name != "" { // method may live at a pkg-qualified key (Path B)
+		if m := sm.qualifiedMethodLookup(embType, embType.Name, name, seg); m != nil {
+			return m
+		}
+	}
+	return nil
 }
 
 // Init fills the symbol map with default Go symbols.

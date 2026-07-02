@@ -134,6 +134,160 @@ func TestEmbedIfaceMethodChain(t *testing.T) {
 	}
 }
 
+// Embedding bytes.Buffer AND io.ReaderFrom/io.WriterTo makes WriteTo/ReadFrom ambiguous, so per Go they are absent from the method set.
+// mvm used to promote the nil embedded-interface method (the TestCopy crash on wasm; also wrong on native reflect).
+func TestEmbeddedMethodHiddenByAmbiguity(t *testing.T) {
+	src := `package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"reflect"
+)
+
+type Buffer struct {
+	bytes.Buffer
+	io.ReaderFrom
+	io.WriterTo
+}
+
+func main() {
+	_, pWT := interface{}(new(Buffer)).(io.WriterTo)
+	_, vWT := interface{}(Buffer{}).(io.WriterTo)
+	_, pRF := interface{}(new(Buffer)).(io.ReaderFrom)
+	pt := reflect.TypeOf(new(Buffer))
+	_, hasWT := pt.MethodByName("WriteTo")
+	fmt.Println(pWT, vWT, pRF, hasWT)
+}
+`
+	if got := evalOut(t, "ambigembed", src); got != "false false false false\n" {
+		t.Errorf("got %q, want %q", got, "false false false false\n")
+	}
+}
+
+// Go's ambiguity is per-depth: a method a sibling provides at a shallower depth is promoted, not ambiguous.
+// mvm's first pass ignored depth and hid the shallow method too; Sym (both at depth 2) must stay ambiguous.
+func TestEmbeddedMethodDepthAmbiguity(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Inner struct{}
+
+func (Inner) M() string { return "inner" }
+
+type A struct{ Inner } // M reachable at depth 2
+
+type B struct{} // M declared at depth 1
+
+func (B) M() string { return "b" }
+
+type S struct {
+	A
+	B
+}
+
+type B2 struct{ Inner } // M reachable at depth 2
+
+type Sym struct {
+	A
+	B2
+}
+
+type I interface{ M() string }
+
+func main() {
+	_, mismatch := interface{}(S{}).(I) // depth-1 B.M uniquely shallowest -> implements
+	_, symmetric := interface{}(Sym{}).(I) // both depth 2 -> ambiguous -> not
+	fmt.Println(mismatch, symmetric)
+}
+`
+	if got := evalOut(t, "depthambig", src); got != "true false\n" {
+		t.Errorf("got %q, want %q", got, "true false\n")
+	}
+}
+
+// The shallower embed's method must be dispatched, for both a direct call and an interface call.
+// Regression: promotion was first-embed/depth-first, so S.M() dispatched A.Inner.M (depth 2) not B.M (depth 1).
+func TestEmbeddedMethodShallowestDispatch(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Inner struct{}
+
+func (Inner) M() string { return "inner" }
+
+type A struct{ Inner } // M at depth 2
+
+type B struct{} // M at depth 1
+
+func (B) M() string { return "b" }
+
+type S struct {
+	A
+	B
+}
+
+type I interface{ M() string }
+
+func main() {
+	var s S
+	var i I = s
+	fmt.Println(s.M(), i.M()) // both must be B.M
+}
+`
+	if got := evalOut(t, "shallowdispatch", src); got != "b b\n" {
+		t.Errorf("got %q, want %q", got, "b b\n")
+	}
+}
+
+// A method two embeds provide at the same shallowest depth is Go's "ambiguous selector", not a silent first-embed dispatch.
+func TestEmbeddedMethodAmbiguousSelector(t *testing.T) {
+	cases := map[string]string{
+		"shallow":  "type A struct{}\nfunc (A) M() string { return \"a\" }\ntype B struct{}\nfunc (B) M() string { return \"b\" }\ntype S struct{ A; B }",
+		"deep":     "type C struct{}\nfunc (C) M() string { return \"c\" }\ntype D struct{}\nfunc (D) M() string { return \"d\" }\ntype A struct{ C }\ntype B struct{ D }\ntype S struct{ A; B }",
+		"samepath": "type C struct{}\nfunc (C) M() string { return \"c\" }\ntype A struct{ C }\ntype B struct{ C }\ntype S struct{ A; B }",
+	}
+	for name, decls := range cases {
+		src := "package main\n" + decls + "\nfunc main() { var s S; _ = s.M() }\n"
+		i := interp.NewInterpreter(golang.GoSpec)
+		i.ImportPackageValues(stdlib.Values)
+		_, err := i.Eval(name+".go", src)
+		if err == nil || !strings.Contains(err.Error(), "ambiguous selector") {
+			t.Errorf("%s: want ambiguous selector error, got %v", name, err)
+		}
+	}
+}
+
+// copy() into a []NamedIface from a variadic-packed []interface{} must copy element-wise; reflect.Copy rejects the differing element types.
+// Mirrors io.MultiReader's copy(r, readers...).
+func TestCopyInterfaceSliceErased(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+)
+
+func fill(readers ...io.Reader) []io.Reader {
+	r := make([]io.Reader, len(readers))
+	copy(r, readers)
+	return r
+}
+
+func main() {
+	r := fill(strings.NewReader("a"), strings.NewReader("b"))
+	fmt.Println(len(r), r[0] != nil, r[1] != nil)
+}
+`
+	if got := evalOut(t, "copyiface", src); got != "2 true true\n" {
+		t.Errorf("got %q, want %q", got, "2 true true\n")
+	}
+}
+
 // A struct embedding a method-bearing interface needs a synth reservation so the
 // promoted EmbedIface methods can be attached (a multi-field struct gets no
 // reflect.StructOf method promotion). The reserve gate skipped interface embeds,

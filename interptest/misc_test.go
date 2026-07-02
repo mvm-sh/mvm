@@ -821,3 +821,27 @@ func main() {
 		t.Errorf("output: got %q, want %q", got, want)
 	}
 }
+
+// runtime.AddCleanup is generic, so it was missing from the bridge until a hand-written shim (stdlib/ext/runtime_addcleanup.go).
+// The cleanup can't fire under mvm (objects stay reachable), so this only checks it resolves and Stop works.
+func TestRuntimeAddCleanupResolves(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"runtime"
+)
+
+type T struct{ x [8]byte }
+
+func main() {
+	p := &T{}
+	c := runtime.AddCleanup(p, func(s string) { _ = s }, "arg")
+	c.Stop()
+	fmt.Println("ok")
+}
+`
+	if got, want := evalOut(t, "addcleanup.go", src), "ok\n"; got != want {
+		t.Errorf("output: got %q, want %q", got, want)
+	}
+}

@@ -32,6 +32,7 @@ func (m Method) IsResolved() bool { return m.Index >= 0 || m.EmbedIface }
 type EmbeddedField struct {
 	FieldIdx int   // index of this field in the parent struct
 	Type     *Type // mvm type of the embedded field (shares identity with symbol table)
+	Hidden   bool  // all methods ambiguous with a sibling embed: promote nothing (Go's rule)
 }
 
 // Type is the representation of a mvm type.
@@ -70,6 +71,29 @@ type Type struct {
 	// identity and is never a field clone, even when its Base is a named type
 	// (type Y X); the field-clone copy sites clear it.
 	Defined bool
+
+	// HiddenMethods names methods two or more embeds provide at the same depth, which Go makes ambiguous and absent from the method set.
+	// The compiler fills it (it has the reliable method tables); the runtime consults it.
+	HiddenMethods map[string]bool
+}
+
+// SetHiddenMethod marks name as ambiguous (hidden) on t.
+func (t *Type) SetHiddenMethod(name string) {
+	if t.HiddenMethods == nil {
+		t.HiddenMethods = map[string]bool{}
+	}
+	t.HiddenMethods[name] = true
+}
+
+// MethodHidden reports whether name is hidden on t or on any type carrying t's method set (its pointer element and Base chain).
+func (t *Type) MethodHidden(name string) bool {
+	types, n := IfaceMethodTypes(t)
+	for _, mt := range types[:n] {
+		if mt.HiddenMethods[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // Kind returns t's kind.
@@ -142,6 +166,9 @@ func (t *Type) Implements(iface *Type) bool {
 				return false
 			}
 			continue
+		}
+		if t.MethodHidden(im.Name) {
+			return false
 		}
 		if nativeIface {
 			return t.Rtype.Implements(iface.Rtype)
@@ -836,8 +863,13 @@ func UnreserveStruct(fields []*Type, embedded []EmbeddedField, tags []string) {
 func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, keepIface bool) reflect.Type {
 	rf := make([]reflect.StructField, len(fields))
 	embSet := make(map[int]bool, len(embedded))
+	// A fully-hidden embedded interface (all its methods ambiguous with a sibling embed) is erased to interface{} so reflect.StructOf does not promote it.
+	hiddenEmbed := make(map[int]bool, len(embedded))
 	for _, e := range embedded {
 		embSet[e.FieldIdx] = true
+		if e.Hidden {
+			hiddenEmbed[e.FieldIdx] = true
+		}
 	}
 	// Embeds demoted to a methodless layout below (to satisfy reflect.StructOf);
 	// after building we restore the canonical named type so reflect identity holds.
@@ -872,6 +904,8 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		// Exception: an embedded NATIVE non-empty interface keeps its real rtype so the struct
 		// satisfies that interface via method promotion at the native boundary.
 		switch {
+		case hiddenEmbed[i]:
+			rf[i].Type = AnyRtype
 		case f.Kind() != reflect.Interface:
 			rf[i].Type = f.Rtype
 			// mvm stores interfaces as eface, so &errField is *interface{}; a *error field must match.

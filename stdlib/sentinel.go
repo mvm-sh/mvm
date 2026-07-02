@@ -59,6 +59,10 @@ func mapInterpSentinel(m *vm.Machine, v vm.Value) (reflect.Value, bool) {
 		v = v.IfaceVal().Val
 	}
 	rv := v.Reflect()
+	// A returned interpreted error often arrives boxed in an eface, which doesn't implement error; unwrap to the concrete.
+	if rv.IsValid() && rv.Kind() == reflect.Interface && !rv.IsNil() {
+		rv = rv.Elem()
+	}
 	if !rv.IsValid() || !rv.Type().Implements(errorIface) || !rv.CanInterface() {
 		return reflect.Value{}, false
 	}

@@ -442,7 +442,7 @@ func (m *Machine) promotedSynthMethods(t *mtype.Type, includePtr bool, seen map[
 			setType = reflect.PointerTo(ft)
 		}
 		for meth := range setType.Methods() {
-			if !meth.IsExported() || seen[meth.Name] {
+			if !meth.IsExported() || seen[meth.Name] || t.HiddenMethods[meth.Name] {
 				continue
 			}
 			sig := derive.StripRecvType(meth.Type)

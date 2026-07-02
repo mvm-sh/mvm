@@ -570,6 +570,7 @@ func (c *Compiler) compileDeferred(dd goparser.DeferredDecl) error {
 }
 
 func (c *Compiler) propagateEmbeddedMethods() {
+	names := c.MethodNames()
 	seen := map[*mtype.Type]bool{}
 	var visit func(t *mtype.Type)
 	visit = func(t *mtype.Type) {
@@ -580,6 +581,24 @@ func (c *Compiler) propagateEmbeddedMethods() {
 		for _, emb := range t.Embedded {
 			visit(emb.Type)
 		}
+		amb := c.ambiguousEmbedMethods(t, names)
+		for name := range amb {
+			id := mtype.MethodID(names, name) // lookup-only: don't mint ids for native-only names
+			if id >= 0 && id < len(t.Methods) && t.Methods[id].IsResolved() {
+				m := t.Methods[id]
+				if len(m.Path) == 0 && !m.EmbedIface {
+					continue // t declares it directly: its own method wins, not ambiguous.
+				}
+				t.Methods[id] = mtype.Method{Index: -1} // retract a promotion from an earlier pass
+			}
+			t.SetHiddenMethod(name)
+		}
+		for i := range t.Embedded {
+			et := t.Embedded[i].Type
+			if et != nil && et.IsInterface() && allIfaceMethodsHidden(et, t.HiddenMethods) {
+				t.Embedded[i].Hidden = true
+			}
+		}
 		for _, emb := range t.Embedded {
 			embType := emb.Type
 			if embType == nil {
@@ -589,7 +608,10 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				if !m.IsResolved() {
 					continue
 				}
-				if id < len(t.Methods) && t.Methods[id].IsResolved() {
+				if id < len(names) && amb[names[id]] {
+					continue
+				}
+				if !preferPromotion(t, id, 1+len(m.Path)) {
 					continue
 				}
 				newPath := append([]int{emb.FieldIdx}, m.Path...)
@@ -598,12 +620,15 @@ func (c *Compiler) propagateEmbeddedMethods() {
 				}
 				t.Methods[id] = mtype.Method{Index: m.Index, Path: newPath, PtrRecv: m.PtrRecv, EmbedIface: m.EmbedIface, Rtype: m.Rtype, Sig: m.Sig}
 			}
-			// An embedded interface promotes its methods as EmbedIface dispatch.
+			// An embedded interface promotes its methods (all at depth 1) as EmbedIface dispatch.
 			if embType.IsInterface() {
 				embType.EnsureIfaceMethods()
 				for _, im := range embType.IfaceMethods {
+					if amb[im.Name] {
+						continue
+					}
 					id := c.methodID(im.Name)
-					if id < len(t.Methods) && t.Methods[id].IsResolved() {
+					if !preferPromotion(t, id, 1) {
 						continue
 					}
 					for len(t.Methods) <= id {
@@ -619,6 +644,97 @@ func (c *Compiler) propagateEmbeddedMethods() {
 			visit(sym.Type)
 		}
 	}
+}
+
+// preferPromotion applies Go's shallowest-wins rule: keep t's own method (Path len 0), replace a promotion only with a strictly shallower one.
+func preferPromotion(t *mtype.Type, id, candDepth int) bool {
+	if id >= len(t.Methods) || !t.Methods[id].IsResolved() {
+		return true
+	}
+	cur := t.Methods[id]
+	if len(cur.Path) == 0 {
+		return false // t declares it directly: its own method wins
+	}
+	return candDepth < len(cur.Path)
+}
+
+// ambiguousEmbedMethods returns the method names two or more embeds provide at the same shallowest depth, which Go's rules make absent from t's method set.
+func (c *Compiler) ambiguousEmbedMethods(t *mtype.Type, names []string) map[string]bool {
+	if len(t.Embedded) < 2 {
+		return nil
+	}
+	minDepth := map[string]int{}
+	countAtMin := map[string]int{}
+	for _, emb := range t.Embedded {
+		for name, d := range embedMethodDepths(emb.Type, names) {
+			switch cur, ok := minDepth[name]; {
+			case !ok || d < cur:
+				minDepth[name], countAtMin[name] = d, 1
+			case d == cur:
+				countAtMin[name]++
+			}
+		}
+	}
+	var amb map[string]bool
+	for name, k := range countAtMin {
+		if k > 1 {
+			if amb == nil {
+				amb = map[string]bool{}
+			}
+			amb[name] = true
+		}
+	}
+	return amb
+}
+
+// embedMethodDepths maps each reachable method name to its shallowest depth from the struct: own = 1, promoted = 1+len(receiver Path), native/interface = 1 (reflect flattens native promotions).
+func embedMethodDepths(et *mtype.Type, names []string) map[string]int {
+	out := map[string]int{}
+	if et == nil {
+		return out
+	}
+	if et.IsInterface() {
+		et.EnsureIfaceMethods()
+		for _, im := range et.IfaceMethods {
+			out[im.Name] = 1
+		}
+		return out
+	}
+	types, n := mtype.IfaceMethodTypes(et)
+	for _, mt := range types[:n] {
+		for id, m := range mt.Methods {
+			if !m.IsResolved() || id >= len(names) {
+				continue
+			}
+			d := 1 + len(m.Path)
+			if cur, ok := out[names[id]]; !ok || d < cur {
+				out[names[id]] = d
+			}
+		}
+	}
+	if rt := et.Rtype; rt != nil {
+		for _, r := range [2]reflect.Type{rt, reflect.PointerTo(rt)} {
+			for meth := range r.Methods() {
+				if _, ok := out[meth.Name]; !ok {
+					out[meth.Name] = 1
+				}
+			}
+		}
+	}
+	return out
+}
+
+func allIfaceMethodsHidden(et *mtype.Type, hidden map[string]bool) bool {
+	et.EnsureIfaceMethods()
+	if len(et.IfaceMethods) == 0 {
+		return false
+	}
+	for _, im := range et.IfaceMethods {
+		if !hidden[im.Name] {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Compiler) compileDecl(decl goparser.Tokens) error {
@@ -846,25 +962,76 @@ func findEmbeddedIfaceMethod(typ *mtype.Type, name string) ([]int, reflect.Type,
 	return nil, nil, nil
 }
 
-func findEmbeddedMethod(typ *mtype.Type, rtype reflect.Type, name string, path []int) (reflect.Method, []int, bool) {
-	for _, emb := range typ.Embedded {
-		embRtype := rtype.Field(emb.FieldIdx).Type
-		fieldPath := append(path[:len(path):len(path)], emb.FieldIdx) //nolint:gocritic // intentionally creates a new slice
-		rt := embRtype
-		if rt.Kind() == reflect.Pointer {
-			rt = rt.Elem()
-		}
-		if rm, ok := rt.MethodByName(name); ok {
-			return rm, fieldPath, false
-		}
-		if rm, ok := reflect.PointerTo(rt).MethodByName(name); ok {
-			return rm, fieldPath, embRtype.Kind() != reflect.Pointer
-		}
-		if emb.Type != nil {
-			if rm, p, na := findEmbeddedMethod(emb.Type, rt, name, fieldPath); rm.Type != nil {
-				return rm, p, na
+// embedMethodDepth is embedMethodDepths for a single method (by id, or by name for native/interface).
+func embedMethodDepth(et *mtype.Type, id int, name string) (int, bool) {
+	if et == nil {
+		return 0, false
+	}
+	if et.IsInterface() {
+		et.EnsureIfaceMethods()
+		for _, im := range et.IfaceMethods {
+			if im.Name == name {
+				return 1, true
 			}
 		}
+		return 0, false
+	}
+	best, found := 0, false
+	types, n := mtype.IfaceMethodTypes(et)
+	for _, mt := range types[:n] {
+		if id >= 0 && id < len(mt.Methods) && mt.Methods[id].IsResolved() {
+			if d := 1 + len(mt.Methods[id].Path); !found || d < best {
+				best, found = d, true
+			}
+		}
+	}
+	if found {
+		return best, true
+	}
+	if rt := et.Rtype; rt != nil {
+		for _, r := range [2]reflect.Type{rt, reflect.PointerTo(rt)} {
+			if _, ok := r.MethodByName(name); ok {
+				return 1, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// findEmbeddedMethod resolves name through typ's embeds, picking the shallowest-depth embed (not the first in field order); id is name's method id or -1.
+func findEmbeddedMethod(typ *mtype.Type, rtype reflect.Type, name string, id int, path []int) (reflect.Method, []int, bool) {
+	bestIdx, bestDepth, nAtBest := -1, 0, 0
+	for i, emb := range typ.Embedded {
+		d, ok := embedMethodDepth(emb.Type, id, name)
+		if !ok {
+			continue
+		}
+		switch {
+		case bestIdx == -1 || d < bestDepth:
+			bestIdx, bestDepth, nAtBest = i, d, 1
+		case d == bestDepth:
+			nAtBest++
+		}
+	}
+	if bestIdx == -1 || nAtBest > 1 { // none, or ambiguous at the shallowest depth
+		return reflect.Method{}, nil, false
+	}
+	emb := typ.Embedded[bestIdx]
+	embRtype := rtype.Field(emb.FieldIdx).Type
+	fieldPath := append(path[:len(path):len(path)], emb.FieldIdx) //nolint:gocritic // intentionally creates a new slice
+	rt := embRtype
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if rm, ok := rt.MethodByName(name); ok {
+		return rm, fieldPath, false
+	}
+	if rm, ok := reflect.PointerTo(rt).MethodByName(name); ok {
+		return rm, fieldPath, embRtype.Kind() != reflect.Pointer
+	}
+	// reflect.StructOf synth types don't promote struct-embed methods, so drill into the winning embed to build the full path.
+	if emb.Type != nil {
+		return findEmbeddedMethod(emb.Type, rt, name, id, fieldPath)
 	}
 	return reflect.Method{}, nil, false
 }
@@ -894,7 +1061,7 @@ func (c *Compiler) registerMethods(iface, typ *mtype.Type) {
 		}
 		s := &symbol.Symbol{Kind: symbol.Var, Name: lookupTyp.Name, Type: lookupTyp}
 		m, fieldPath := c.Symbols.MethodByName(s, im.Name, c.Seg)
-		if m == nil {
+		if m == nil || m == symbol.Ambiguous {
 			// MethodByName only finds concrete function symbols; interface methods have none.
 			for _, emb := range lookupTyp.Embedded {
 				embType := emb.Type
@@ -2924,6 +3091,13 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					break
 				}
 				m, mFieldPath := c.Symbols.MethodByName(s, t.Str[1:], c.Seg)
+				if m == symbol.Ambiguous {
+					recv := s.Name
+					if i := strings.LastIndexAny(recv, "/."); i >= 0 {
+						recv = recv[i+1:]
+					}
+					return c.errAt(t, "ambiguous selector %s.%s", recv, t.Str[1:])
+				}
 				if m != nil && s.Kind != symbol.Type && fieldShadowsPromotedMethod(s.Type, t.Str[1:], len(mFieldPath)) {
 					// A same-named field shallower than a promoted method shadows it.
 					// Drop the method so the field probe below resolves it.
@@ -3143,7 +3317,11 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 						c.emit(t, vm.IfaceCall, c.methodID(methodName))
 						break
 					}
-					if rm, embFieldPath, needAddr = findEmbeddedMethod(lookupTyp, lr, methodName, nil); rm.Type != nil {
+					mid, has := c.methodIDs[methodName]
+					if !has {
+						mid = -1
+					}
+					if rm, embFieldPath, needAddr = findEmbeddedMethod(lookupTyp, lr, methodName, mid, nil); rm.Type != nil {
 						ok = true
 					}
 				}

@@ -110,6 +110,55 @@ func main() {
 	}
 }
 
+// The reverse of TestSynthIoEOFCanon: an interpreted reader's io.EOF must canonicalize to host io.EOF when a native sink (bytes.Buffer.ReadFrom via io.Copy) consumes it.
+// Without the eface unwrap in mapInterpSentinel it leaked out as an error (io.Pipe + io.Copy(os.Stdout, r) returned EOF on wasm).
+// TestSynth* runs on the wasm CI.
+func TestSynthInterpEOFToNativeReadFrom(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"io"
+	"nat"
+)
+
+type onceReader struct{ done bool }
+
+func (r *onceReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+	r.done = true
+	return copy(p, []byte("hello, sink")), nil
+}
+
+func main() {
+	n, err := io.Copy(nat.Sink(), &onceReader{})
+	fmt.Printf("n=%d err=%v got=%q\n", n, err, nat.Got())
+}
+`
+	var stdout, stderr bytes.Buffer
+	var sink bytes.Buffer // native *bytes.Buffer has ReadFrom, so io.Copy uses the native ReadFrom path
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io") // force-interpret io so the interp-EOF -> native-sink split exists on native
+	i.ImportPackageValues(map[string]map[string]reflect.Value{
+		"nat": {
+			"Sink": reflect.ValueOf(func() io.Writer { return &sink }),
+			"Got":  reflect.ValueOf(func() string { return sink.String() }),
+		},
+	})
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("interp_eof_sink.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "n=11 err=<nil> got=\"hello, sink\"\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
 // An interpreted oserror sentinel (io/fs.ErrNotExist == oserror.ErrNotExist)
 // must reconcile with the host value in both directions: bridgeArgs maps a bare
 // sentinel arg to native (a nested one is left alone), and canonNativeReturns

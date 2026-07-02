@@ -26,7 +26,13 @@ var Incompat = map[string]map[string]string{
 		"ExampleSetLogLoggerLevel_log":  "interpreted log and native-bridged slog hold separate default-logger state, so slog.Info/Debug don't interleave with log.Print",
 	},
 	"io": {
-		"TestPipeAllocations": "testing.AllocsPerRun: interpreter call/marshal allocates more than native Pipe()'s 4",
+		"TestPipeAllocations":                    "testing.AllocsPerRun: interpreter call/marshal allocates more than native Pipe()'s 4",
+		"TestMultiWriter":                        "sink is an anonymous struct{ io.Writer; fmt.Stringer } embedding interfaces; reflect.StructOf rejects methods of embedded interfaces (same limit as io/fs struct{FS})",
+		"TestMultiWriter_WriteStringSingleAlloc": "testing.AllocsPerRun: interpreted WriteString marshalling allocates more than the native expectation of 1",
+		"TestMultiWriter_StringCheckCall":        "checks io.WriteString reaches an inner writer's WriteString; when io is bridged (native) the interpreted writer crosses as a fixed io.Writer shape, so the StringWriter assertion misses WriteString (passes when io is interpreted, i.e. on wasm)",
+		"TestMultiWriterSingleChainFlatten":      "measures native call-stack depth via runtime.Callers to check multiWriter flattening; under mvm Callers sees the interpreter's marshalling frames, not the interpreted Write nesting",
+		"TestMultiReaderFlatten":                 "measures native call-stack depth via runtime.Callers to check multiReader flattening; under mvm Callers sees the interpreter's marshalling frames, not the interpreted Read nesting",
+		"TestMultiReaderFreesExhaustedReaders":   "asserts runtime.AddCleanup fires after GC frees an exhausted reader; the interpreter keeps interpreted objects reachable so native GC never collects them and the cleanup never runs (5s timeout)",
 	},
 	"reflect": {
 		"TestFields": "reflect.StructOf cannot build a struct embedding an unexported-named type (anonymous+PkgPath is rejected); VisibleFields misses its promoted fields",
@@ -50,6 +56,10 @@ var Incompat = map[string]map[string]string{
 	},
 	"encoding/asn1": {
 		"TestParsingMemoryConsumption": "measures runtime.MemStats.TotalAlloc around an interpreted Unmarshal of a 10MB DER bomb; parseSequenceOf's count loop boxes ~200K iterations so TotalAlloc exceeds the native <20MB bound, though Unmarshal still returns the expected SyntaxError",
+	},
+	"index/suffixarray": {
+		"TestNew32": "too long when interpreted",
+		"TestNew64": "too long when interpreted",
 	},
 
 	// testing.AllocsPerRun counts heap allocations of the closure body.

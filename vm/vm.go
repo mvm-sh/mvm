@@ -3244,9 +3244,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			m.appendValues(mem, sp, n)
 			sp -= n
 		case CopySlice:
-			dst := mem[sp-1].ref
-			src := mem[sp].ref
-			n := reflect.Copy(dst, src)
+			n := m.copySlice(mem[sp-1].ref, mem[sp].ref)
 			mem[sp-1] = ValueOf(n)
 			sp--
 		case DeleteMap:
@@ -5298,7 +5296,7 @@ func (m *Machine) execBuiltinDeferred(op Op, base, narg int, mem []Value) {
 	case DeleteMap:
 		mem[base].ref.SetMapIndex(m.mapKey(mem[base].ref.Type().Key(), mem[base+1]), reflect.Value{})
 	case CopySlice:
-		reflect.Copy(mem[base].ref, mem[base+1].ref)
+		m.copySlice(mem[base].ref, mem[base+1].ref)
 	case Clear:
 		clearValue(mem[base].Reflect())
 	default:
@@ -5490,6 +5488,22 @@ func (m *Machine) setGoFuncField(fv, gf reflect.Value, val Value) {
 	if gen := m.funcFields.setStrongKeep(uintptr(fp), val); gen != 0 {
 		m.funcFields.cleanupStrong(fp, gen)
 	}
+}
+
+// copySlice tolerates interpreted interface-element erasure: a variadic pack can yield a []interface{} where the destination is []NamedIface, which reflect.Copy rejects.
+// Such slices are copied element-wise (setFuncField bridges each); others take reflect.Copy.
+func (m *Machine) copySlice(dst, src reflect.Value) int {
+	if src.Kind() == reflect.Slice {
+		de, se := dst.Type().Elem(), src.Type().Elem()
+		if de != se && de.Kind() == reflect.Interface && se.Kind() == reflect.Interface {
+			n := min(dst.Len(), src.Len())
+			for i := range n {
+				m.setFuncField(dst.Index(i), FromReflect(src.Index(i)))
+			}
+			return n
+		}
+	}
+	return reflect.Copy(dst, src)
 }
 
 func (m *Machine) setFuncField(fv reflect.Value, val Value) {
