@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/stdlib"
 )
 
@@ -26,6 +27,9 @@ func unsafeAdd(p unsafe.Pointer, n int) unsafe.Pointer { return unsafe.Add(p, n)
 func unsafeString(p *byte, n int) string               { return unsafe.String(p, n) }
 func unsafeStringData(s string) *byte                  { return unsafe.StringData(s) }
 
+// Both use runtype.Derive*, not reflect.*Of: a synth elem must keep the
+// canonical synth container identity (reflect.*Of would mint a shadow rtype
+// that breaks == and DeepEqual against compiler-built values of the same type).
 func unsafeSlice(ptr any, n int) any {
 	rv := reflect.ValueOf(ptr)
 	p := rv.UnsafePointer()
@@ -34,19 +38,22 @@ func unsafeSlice(ptr any, n int) any {
 		if n != 0 {
 			panic("unsafe.Slice: ptr is nil and len is not zero")
 		}
-		return reflect.Zero(reflect.SliceOf(elemType)).Interface()
+		return reflect.Zero(runtype.DeriveSliceOf(elemType)).Interface()
 	}
-	return reflect.NewAt(reflect.ArrayOf(n, elemType), p).Elem().Slice(0, n).Interface()
+	return reflect.NewAt(runtype.DeriveArrayOf(n, elemType), p).Elem().Slice(0, n).Interface()
 }
 
 func unsafeSliceData(s any) any {
 	rv := reflect.ValueOf(s)
 	elemType := rv.Type().Elem()
+	ptrType := runtype.DerivePointerTo(elemType)
 	if rv.IsNil() {
-		return reflect.Zero(reflect.PointerTo(elemType)).Interface()
+		return reflect.Zero(ptrType).Interface()
 	}
 	// rv.Pointer() is the data pointer of any non-nil slice, even len==0.
-	return reflect.NewAt(elemType, unsafe.Pointer(rv.Pointer())).Interface()
+	rp := reflect.New(ptrType)
+	*(*unsafe.Pointer)(rp.UnsafePointer()) = unsafe.Pointer(rv.Pointer())
+	return rp.Elem().Interface()
 }
 
 func init() {

@@ -873,3 +873,47 @@ func main() {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }
+
+// unsafe.Slice must return the canonical synth []T rtype, not a shadow minted
+// by native reflect: the shadow survives boxing into any (the call-site
+// TypeAssert re-tag only covers the statically typed value) and breaks
+// reflect.DeepEqual against compiler-built slices. Distilled from log/slog
+// Value.Any on []Attr (TestValueAny).
+func TestSynthUnsafeSliceIdentity(t *testing.T) {
+	evalNoPanic(t, "synth_unsafe_slice_test.go", `package main
+
+import (
+	"reflect"
+	"unsafe"
+)
+
+type item struct{ N int }
+
+func (i item) String() string { return "item" }
+
+type itemptr *item
+
+type box struct{ any any }
+
+func mk(as []item) box { return box{any: itemptr(unsafe.SliceData(as))} }
+
+func (b box) group() []item { return unsafe.Slice((*item)(b.any.(itemptr)), 2) }
+
+func (b box) Any() any { return b.group() }
+
+func main() {
+	want := []item{{1}, {2}}
+	got := mk(want).Any()
+	if reflect.TypeOf(got) != reflect.TypeOf(want) {
+		panic("unsafe.Slice minted a shadow []item rtype")
+	}
+	if !reflect.DeepEqual(got, any(want)) {
+		panic("unsafe.Slice result not DeepEqual to its source")
+	}
+	var d any = unsafe.SliceData(want)
+	if reflect.TypeOf(d) != reflect.TypeOf(&want[0]) {
+		panic("unsafe.SliceData minted a shadow *item rtype")
+	}
+}
+`)
+}

@@ -24,6 +24,13 @@ var Incompat = map[string]map[string]string{
 		"Example_wrapping":              "runtime.Caller through the reflect.Call adapter masks the user source line (reports .:0)",
 		"ExampleSetLogLoggerLevel_slog": "interpreted log and native-bridged slog hold separate default-logger state, so log.Print doesn't route through slog.SetDefault",
 		"ExampleSetLogLoggerLevel_log":  "interpreted log and native-bridged slog hold separate default-logger state, so slog.Info/Debug don't interleave with log.Print",
+		// The internal alloc tests only run where slog is interpreted (wasm).
+		"TestAttrNoAlloc":      "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestValueNoAlloc":     "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestAnyLevelAlloc":    "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestJSONAllocs":       "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0/1",
+		"TestAlloc":            "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0/1",
+		"TestTextHandlerAlloc": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	},
 	"io": {
 		"TestPipeAllocations":                    "testing.AllocsPerRun: interpreter call/marshal allocates more than native Pipe()'s 4",

@@ -3,6 +3,7 @@ package stdlib
 import (
 	"os/exec"
 	"reflect"
+	"runtime"
 	"testing"
 	"unsafe"
 )
@@ -63,8 +64,12 @@ func init() {
 		"SkipIfOptimizationOff": reflect.ValueOf(func(testing.TB) {}),
 		"SkipFlaky":             reflect.ValueOf(func(testing.TB, int) {}),
 		"SkipIfShortAndSlow":    reflect.ValueOf(func(testing.TB) {}),
-		"MustHaveExec":          reflect.ValueOf(func(testing.TB) {}),
-		"MustHaveSource":        reflect.ValueOf(func(testing.TB) {}),
+		"MustHaveExec": reflect.ValueOf(func(tb testing.TB) {
+			if runtime.GOOS == "js" || runtime.GOOS == "wasip1" {
+				tb.Skip("mvm test: cannot exec subprocess on " + runtime.GOOS)
+			}
+		}),
+		"MustHaveSource": reflect.ValueOf(func(testing.TB) {}),
 		// Tests using Executable() re-exec the test binary, which mvm can't
 		// reproduce; skip them rather than fail with a bogus exec target.
 		"Executable": reflect.ValueOf(func(tb testing.TB) string {
