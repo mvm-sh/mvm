@@ -36,12 +36,22 @@ func reflectValueShim(m *Machine, rv reflect.Value, name string) reflect.Value {
 		return reflect.Value{}
 	}
 	synthRecv := innerRV.Type() != ifaceRtype && runtype.IsSynth(innerRV.Type())
-	if synthRecv && name == "SetIterValue" && innerRV.Kind() == reflect.Interface && innerRV.CanAddr() {
+	if name == "SetIterValue" && innerRV.Kind() == reflect.Interface && innerRV.CanAddr() {
 		dst := innerRV
 		return reflect.MakeFunc(setIterValueShimType,
 			func(args []reflect.Value) []reflect.Value {
-				if it, _ := args[0].Interface().(*reflect.MapIter); it != nil {
-					m.storeIfaceFromReflect(dst, it.Value())
+				it, _ := args[0].Interface().(*reflect.MapIter)
+				if it == nil {
+					return nil
+				}
+				v := it.Value()
+				// A synth-iface map elem must be stored in mvm eface form: the
+				// native write packs {synth iface rtype, pointer into the map
+				// bucket}, an alias a later map delete or growth invalidates.
+				if synthRecv || (v.Kind() == reflect.Interface && runtype.IsSynth(v.Type())) {
+					m.storeIfaceFromReflect(dst, v)
+				} else {
+					dst.SetIterValue(it)
 				}
 				return nil
 			})

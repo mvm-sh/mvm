@@ -495,3 +495,41 @@ func main() {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// SetIterValue from a map whose elem is a synth iface must store mvm eface
+// form: the native write packed {synth iface rtype, pointer into the bucket},
+// so a later delete (or growth) nulled the read-out value. Broke gonum
+// graph/simple TestDirected/RemoveNodes via gonum's safe map iterator.
+func TestSynthMapIterValueDetached(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Node interface{ ID() int64 }
+
+type node int64
+
+func (n node) ID() int64 { return int64(n) }
+
+func main() {
+	m := map[int64]Node{1: node(1), 2: node(2)}
+	var it reflect.MapIter
+	it.Reset(reflect.ValueOf(m))
+	var curr Node
+	val := reflect.ValueOf(&curr).Elem()
+	it.Next()
+	val.SetIterValue(&it)
+	got := curr.ID()
+	delete(m, 3-got) // other key
+	fmt.Println(curr.ID() == got)
+	delete(m, got) // own key: bucket slot cleared
+	fmt.Println(curr.ID() == got)
+}
+`
+	if got, want := evalOut(t, "synth_mapiter_value.go", src), "true\ntrue\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

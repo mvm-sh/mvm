@@ -135,3 +135,37 @@ func main() {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// The implicit & on a pointer-receiver call must alias a captured variable's
+// heap cell (AddrCell/AddrHeap), like explicit &v does; plain Addr boxed a
+// detached copy and the mutation was lost. Broke logrus TestLevelUnmarshalText
+// (u.UnmarshalText inside t.Run left u at 0).
+func TestPtrRecvCapturedAutoAddr(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type Level uint32
+
+func (l *Level) Set(v Level) { *l = v }
+
+func main() {
+	var a Level
+	func() { a.Set(1) }()
+	fmt.Println(a)
+
+	var b Level
+	g := func() { b.Set(2) }
+	g()
+	fmt.Println(b)
+
+	var c Level
+	defer func() { _ = c }()
+	c.Set(3)
+	fmt.Println(c)
+}
+`
+	if got, want := evalOut(t, "ptr_recv_captured.go", src), "1\n2\n3\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

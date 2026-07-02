@@ -3206,6 +3206,14 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 							c.Code[n-1].B = 0
 							c.emit(t, vm.AddrLocal, idx, 0)
 							markAddressed(idx)
+						// Captured receiver: alias the cell's stable storage, as
+						// the explicit &capturedVar path does (lang.Addr above).
+						case n > 0 && c.Code[n-1].Op == vm.CellGet:
+							c.Code[n-1].Op = vm.AddrCell
+							c.Code[n-1].B = 0
+						case n > 0 && c.Code[n-1].Op == vm.HeapGet:
+							c.Code[n-1].Op = vm.AddrHeap
+							c.Code[n-1].B = 0
 						default:
 							c.emit(t, vm.Addr)
 						}
