@@ -112,4 +112,5 @@ const (
 	poolSizeWi_pi          = 256
 	poolSizeWi_ii          = 256
 	poolSizeWi_iii         = 256
+	poolSizeWip_piipp      = 256
 )

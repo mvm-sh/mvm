@@ -234,6 +234,8 @@ var wordShapes = []wordShape{
 	{Params: "i", Results: "pi"},  // RowsColumnTypeDatabaseTypeName(int) string
 	{Params: "i", Results: "ii"},  // RowsColumnTypeLength/Nullable(int) (int64/bool, bool)
 	{Params: "i", Results: "iii"}, // RowsColumnTypePrecisionScale(int) (int64, int64, bool)
+	// Without this pool Token drops and fmt.ss never satisfies fmt.ScanState.
+	{Params: "ip", Results: "piipp"}, // fmt.ScanState.Token(bool, func(rune) bool) ([]byte, error)
 }
 
 // wordShape is one ABI word-class shape. Params and Results are flat class

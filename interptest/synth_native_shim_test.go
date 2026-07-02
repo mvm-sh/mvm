@@ -297,6 +297,40 @@ func main() {
 	}
 }
 
+// Interpreted fmt.pp/fmt.ss handed to a native Formatter/Scanner (big.Int, big.Rat).
+// On wasm this needs the State/ScanState shims; natively, Token's ip_piipp pool.
+// TestSynth* runs on the wasm CI.
+func TestSynthFmtStateScanState(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"math/big"
+)
+
+func main() {
+	fmt.Printf("%+d %#x %6.2s\n", big.NewInt(42), big.NewInt(255), big.NewInt(7))
+	var r big.Rat
+	n, err := fmt.Sscan("3/4", &r)
+	fmt.Println(n, err, r.String())
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("fmt")
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("fmtstate_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	want := "+42 0xff     07\n1 <nil> 3/4\n"
+	if stdout.String() != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", stdout.String(), want, stderr.String())
+	}
+}
+
 // An interpreted io.Reader read by a native sink: on wasm its Read PC is the -1
 // sentinel, so without the reader shim native io.ReadAll would trap.
 // Asserts the buffer round-trips and the interpreted io.EOF terminates the copy.
