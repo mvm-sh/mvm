@@ -82,6 +82,39 @@ func retG() (string, string) { return global, "new" }
 	}
 }
 
+// A compound assign whose LHS contains a call must run the call once: the
+// op= desugar to `lhs = lhs op rhs` duplicated it (hoistLHSCall). Broke
+// regexp/syntax `p.op(OpEndText).Flags |= WasDollar`, pushing two ops.
+func TestCompoundAssignCallLHS(t *testing.T) {
+	src := `package main
+
+import "fmt"
+
+type R struct{ Flags int }
+
+var (
+	calls int
+	r     = &R{}
+	sl    = []int{10, 20}
+)
+
+func getR() *R     { calls++; return r }
+func getPtr() *int { calls++; return &sl[0] }
+
+func main() {
+	getR().Flags |= 4
+	fmt.Println(calls, r.Flags)
+	getR().Flags++
+	fmt.Println(calls, r.Flags)
+	*getPtr() += 7
+	fmt.Println(calls, sl[0])
+}
+`
+	if got, want := evalOut(t, "compound_assign_call_lhs.go", src), "1 4\n2 5\n3 17\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // An anonymous struct used as a struct field keeps reflect's empty type name:
 // its String() is the struct literal, not the field name. Before the materialize
 // fix the field-type clone inherited the field name and reflected as "Foo".

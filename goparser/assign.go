@@ -428,28 +428,75 @@ func (p *Parser) parseIncDec(in Tokens) (Tokens, error) {
 }
 
 func (p *Parser) hoistCompoundLHS(lhs Tokens, pos int) (prefix, newLHS Tokens, err error) {
+	prefix, lhs, err = p.hoistLHSCall(lhs, pos)
+	if err != nil {
+		return nil, lhs, err
+	}
 	if len(lhs) < 2 || lhs[len(lhs)-1].Tok != lang.BracketBlock {
-		return nil, lhs, nil
+		return prefix, lhs, nil
 	}
 	idxTok := lhs[len(lhs)-1]
 	idxToks, err := p.scanBlock(idxTok.Token, false)
 	if err != nil {
-		return nil, lhs, err
+		return prefix, lhs, err
 	}
 	// Only hoist a side-effecting single index.
 	if idxToks.Index(lang.Colon) >= 0 || !p.tokensMayHaveSideEffect(idxToks) {
-		return nil, lhs, nil
+		return prefix, lhs, nil
 	}
 	name := fmt.Sprintf("_lhsidx_%d", pos)
 	defStmt := append(Tokens{newIdent(name, pos), newToken(lang.Define, ":=", pos)}, idxToks...)
-	prefix, err = p.parseAssign(defStmt, 1)
+	idxPrefix, err := p.parseAssign(defStmt, 1)
 	if err != nil {
-		return nil, lhs, err
+		return prefix, lhs, err
 	}
+	prefix = append(prefix, idxPrefix...)
 	// Rebuild lhs with the index replaced by the temp.
 	newLHS = make(Tokens, 0, len(lhs))
 	newLHS = append(newLHS, lhs[:len(lhs)-1]...)
 	newLHS = append(newLHS, newToken(lang.BracketBlock, name, pos))
+	return prefix, newLHS, nil
+}
+
+// hoistLHSCall rewrites a call in the LHS primary chain (f().x op= v) as
+// tmp := f(); tmp.x op= v so the desugared read+write runs the call once.
+func (p *Parser) hoistLHSCall(lhs Tokens, pos int) (prefix, newLHS Tokens, err error) {
+	last := -1
+	for i := 1; i < len(lhs); i++ {
+		if lhs[i].Tok != lang.ParenBlock {
+			continue
+		}
+		switch lhs[i-1].Tok {
+		case lang.Ident, lang.ParenBlock, lang.BracketBlock:
+			last = i
+		}
+	}
+	if last < 0 {
+		return nil, lhs, nil
+	}
+	start := last
+scan:
+	for start > 0 {
+		switch lhs[start-1].Tok {
+		case lang.Ident, lang.Period, lang.ParenBlock, lang.BracketBlock:
+			start--
+		default:
+			break scan
+		}
+	}
+	if start == 0 && last == len(lhs)-1 {
+		return nil, lhs, nil // whole LHS is the call, leave as is
+	}
+	name := fmt.Sprintf("_lhscall_%d", pos)
+	defStmt := append(Tokens{newIdent(name, pos), newToken(lang.Define, ":=", pos)}, lhs[start:last+1]...)
+	prefix, err = p.parseAssign(defStmt, 1)
+	if err != nil {
+		return nil, lhs, err
+	}
+	newLHS = make(Tokens, 0, len(lhs))
+	newLHS = append(newLHS, lhs[:start]...)
+	newLHS = append(newLHS, newIdent(name, pos))
+	newLHS = append(newLHS, lhs[last+1:]...)
 	return prefix, newLHS, nil
 }
 
