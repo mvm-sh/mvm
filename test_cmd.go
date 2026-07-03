@@ -228,7 +228,8 @@ func testCmd(arg []string) error {
 	// interpreter because Eval mutates compiler/VM state. A non-test-file error
 	// (failingTestFile == "") still fails hard.
 	skip := map[string]bool{}
-	pkgDir := "" // materialized module subtree; cwd while loading AND running
+	extSkip := map[string]bool{} // external-unit sources, keyed by qualified Name
+	pkgDir := ""                 // materialized module subtree; cwd while loading AND running
 	for {
 		i, mfs := newTestInterp(trace)
 		if mfs != nil {
@@ -283,7 +284,11 @@ func testCmd(arg []string) error {
 			return fmt.Errorf("loading %q: %w", target, err)
 		}
 		// Also run the target's external `package X_test` tests as a second unit.
-		loadExternalTests(i, target)
+		// A droppable failure restarts the whole load (see loadExternalTests).
+		if f := loadExternalTests(i, target, extSkip); f != "" {
+			extSkip[f] = true
+			continue
+		}
 		if mfs != nil {
 			mfs.CloseIdleConnections() // drain proxy goroutines before leak-checking tests
 		}
@@ -351,10 +356,19 @@ func sourceLoadsWithoutTests(trace traceFlag, target string) (*interp.Interp, bo
 	return src, true
 }
 
-func loadExternalTests(i *interp.Interp, target string) {
-	ext := i.ExternalTestSources()
-	if len(ext) == 0 {
-		return
+// loadExternalTests loads the target's external `package X_test` unit minus
+// the skip set, returning "" once loaded (best-effort).
+// A failure naming a droppable file returns it for a fresh-interpreter retry:
+// re-Evaling in place remints the unit's rtypes against stale globals.
+func loadExternalTests(i *interp.Interp, target string, skip map[string]bool) (retryFile string) {
+	var srcs []goparser.PackageSource
+	for _, s := range i.ExternalTestSources() {
+		if !skip[s.Name] {
+			srcs = append(srcs, s)
+		}
+	}
+	if len(srcs) == 0 {
+		return ""
 	}
 	// Publish the target so the external unit reuses it instead of re-importing.
 	i.PublishCompiledPackage(target)
@@ -362,21 +376,28 @@ func loadExternalTests(i *interp.Interp, target string) {
 	i.LenientCompile = true
 	defer func() { i.LenientCompile = false }()
 
-	if loadExternalUnit(i, target, ext) {
-		return
+	resetCommandLineFlags()
+	_, err := i.EvalFiles(srcs)
+	if err == nil {
+		return ""
+	}
+	if f := externalFailingFile(err, srcs); f != "" {
+		noteSkippedTestFile(target, f, err)
+		return f
 	}
 	// The unit failed without naming a droppable file (a recovered panic has no
 	// position); load each file alone so self-contained ones still load.
-	for _, s := range ext {
+	for _, s := range srcs {
 		resetCommandLineFlags()
 		if _, err := i.EvalFiles([]goparser.PackageSource{s}); err != nil {
 			noteSkippedTestFile(target, s.Name, err)
 		}
 	}
+	return ""
 }
 
 // resetCommandLineFlags clears the shared native flag.CommandLine before a fresh
-// load attempt (newTestInterp) or an external-unit drop-retry. Each re-run of the
+// load attempt (newTestInterp) or an external-unit load. Each re-run of the
 // _test.go flag.Bool var inits would otherwise panic "flag redefined". mvm's own
 // test flags live in a separate FlagSet and testing.Init registers the test.*
 // flags later (runTestDriver), so wiping the set here is safe.
@@ -390,32 +411,6 @@ func noteSkippedTestFile(target, name string, err error) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "mvm test: skipping %s/%s (%v)\n", target, name, err)
-}
-
-func loadExternalUnit(i *interp.Interp, target string, files []goparser.PackageSource) bool {
-	skip := map[string]bool{}
-	for {
-		var srcs []goparser.PackageSource
-		for _, s := range files {
-			if !skip[s.Name] {
-				srcs = append(srcs, s)
-			}
-		}
-		if len(srcs) == 0 {
-			return true
-		}
-		resetCommandLineFlags()
-		_, err := i.EvalFiles(srcs)
-		if err == nil {
-			return true
-		}
-		f := externalFailingFile(err, srcs)
-		if f == "" {
-			return false
-		}
-		skip[f] = true
-		noteSkippedTestFile(target, f, err)
-	}
 }
 
 func externalFailingFile(err error, files []goparser.PackageSource) string {

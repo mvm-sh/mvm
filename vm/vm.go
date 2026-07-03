@@ -5915,11 +5915,65 @@ func adoptNamedType(v reflect.Value, dt reflect.Type) reflect.Value {
 	if !v.IsValid() {
 		return v
 	}
-	if vt := v.Type(); vt != dt && v.Kind() == dt.Kind() &&
-		dt.Kind() != reflect.Interface && vt.ConvertibleTo(dt) {
+	vt := v.Type()
+	if vt == dt || v.Kind() != dt.Kind() || dt.Kind() == reflect.Interface {
+		return v
+	}
+	// Duplicate identities of one recursive type (a re-Eval remints its
+	// placeholder-built rtype): ConvertibleTo's structural walk has no cycle
+	// check and would exhaust the stack, so reinterpret instead.
+	if vt.String() == dt.String() && typeCycles(dt, nil) {
+		if r, ok := reinterpretSameLayout(v, dt); ok {
+			return r
+		}
+		return v
+	}
+	if vt.ConvertibleTo(dt) {
 		return v.Convert(dt)
 	}
 	return v
+}
+
+// typeCycles reports whether t is self-referential (start with a nil path).
+func typeCycles(t reflect.Type, path map[reflect.Type]bool) bool {
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan,
+		reflect.Map, reflect.Struct, reflect.Func:
+	default:
+		return false
+	}
+	if path[t] {
+		return true
+	}
+	if path == nil {
+		path = map[reflect.Type]bool{}
+	}
+	path[t] = true
+	defer delete(path, t)
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+		return typeCycles(t.Elem(), path)
+	case reflect.Map:
+		return typeCycles(t.Key(), path) || typeCycles(t.Elem(), path)
+	case reflect.Struct:
+		for f := range t.Fields() {
+			if typeCycles(f.Type, path) {
+				return true
+			}
+		}
+	case reflect.Func:
+		for in := range t.Ins() {
+			if typeCycles(in, path) {
+				return true
+			}
+		}
+		for out := range t.Outs() {
+			if typeCycles(out, path) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func setNumReflect(rv reflect.Value, num uint64) {
