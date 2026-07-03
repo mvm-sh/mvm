@@ -55,20 +55,20 @@ const (
 	// Instruction effect on stack: values consumed -- values produced.
 	Nop          Op = iota // --
 	Addr                   // a -- &a ;
-	AddrCell               // -- &cell ; push pointer into the cell at mem[fp-1+$1]'s stable storage; $2!=0 retypes like AddrLocal
-	AddrGlobal             // -- &global ; push pointer to globals[$1]; same promotion/retype as AddrLocal
+	AddrCell               // -- &cell ; push pointer into the cell at mem[fp-1+$1]'s stable storage
+	AddrGlobal             // -- &global ; push pointer to globals[$1]
 	AddrHeap               // -- &cell ; AddrCell for the escaped cell heap[$1]
-	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]; promotes slot to addressable storage so writes via the pointer propagate back; $2!=0 retypes the slot to func/interface type globals[$2-1]
+	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]
 	Append                 // slice [v0..vn-1] -- slice' ; append $0 values to slice
-	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice; elem type at mem[$1]; $0=0 means spread mode: append(a, b...)
+	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice
 	Call                   // f [a1 .. ai] -- [r1 .. rj] ; r1, ... = prog[f](a1, ...); B bit 15 = spread flag
 	CallImm                // [a1 .. ai] -- [r1 .. rj] ; $1=dataIdx of func, $2=narg<<16|nret
-	CallImmFast            // like CallImm; emitted when no callee param has reflect Kind Struct or Array so detachByValueArgs can be elided
+	CallImmFast            // [a1 .. ai] -- [r1 .. rj] ; like CallImm
 	Cap                    // -- x ; x = cap(mem[sp-$0])
 	Clear                  // x -- ; clear(x): delete all map entries or zero all slice elements
 	Convert                // v -- v' ; v' = convert(v, type at mem[$1]); optional $2 = stack depth offset
 	CopySlice              // dst src -- n ; n = copy(dst, src)
-	DeferPush              // func [a0..an-1] -- func [a0..an-1] [packed prevHead retIP] ; register deferred call on stack; $0=narg, $1=1 if native
+	DeferPush              // func [a0..an-1] -- func [a0..an-1] [packed prevHead retIP] ; register deferred call on stack
 	DeferRet               // -- ; sentinel: restore outer frame after a deferred call returns
 	DeleteMap              // map key -- ; delete(map, key)
 	Deref                  // x -- *x ;
@@ -106,7 +106,7 @@ const (
 	MapIndexOk             // a i -- v ok ; v, ok = a[i]
 	MapSet                 // a i v -- a; a[i] = v
 	MkClosure              // code [&c0..&cn-1] -- clo ; clo = Closure{code, heap}
-	MkMap                  // (size?) -- map ; create a map of the type at mem[$0] (keeps a named map's identity); $0<0 (= -idx-1) pops a size hint
+	MkMap                  // (size?) -- map ; create a map of the type at mem[$0]
 	MkSlice                // [v0..vn-1] -- slice ; collect $0 values into []T, elem type at mem[$1]
 	New                    // -- x; mem[fp+$1] = new mem[$2]
 	Next                   // -- ; iterator next, set K
@@ -130,10 +130,10 @@ const (
 	Stop                   // -- iterator stop; sp -= 3 + $1
 	Swap                   // --
 	Trap                   // -- ; pause VM execution and enter debug mode
-	TypeAssert             // iface -- v [ok] ; assert iface holds type at mem[$1]; $2=0 panics, $2=1 ok form
-	TypeBranch             // iface -- ; pop iface; if iface doesn't hold type at mem[$2] (or $2==-1 for nil), ip += $1
-	WrapFunc               // mvmFuncVal -- MvmFunc ; wrap mvm func in reflect.MakeFunc for native callbacks; $0=typeIdx, $1=depth from sp (0=top)
-	MkMethodExpr           // -- f ; push func value for interpreted method expression T.M; $0=method code global, $1=method-expr (recv-first) typeIdx
+	TypeAssert             // iface -- v [ok] ; assert iface holds type at mem[$1]
+	TypeBranch             // iface -- ; pop iface; if iface doesn't hold type at mem[$2], ip += $1
+	WrapFunc               // mvmFuncVal -- MvmFunc ; wrap mvm func in reflect.MakeFunc for native callbacks
+	MkMethodExpr           // -- f ; push func value for interpreted method expression T.M
 
 	// Goroutine and channel opcodes.
 	GoCall     // f [a1..ai] -- ; spawn goroutine; $0=narg
@@ -154,8 +154,8 @@ const (
 	Real    // c -- f ; f = real(c); $0 = reflect.Kind for dispatch
 	Imag    // c -- f ; f = imag(c); $0 = reflect.Kind for dispatch
 
-	// Per-type numeric opcodes. Each block of NumTypes (12) opcodes follows the
-	// order: Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64.
+	// Per-type numeric opcodes. Each block of NumTypes (12) opcodes follows the order:
+	// Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64.
 	// The compiler computes: baseOp + Op(NumKindOffset[kind]).
 
 	AddStr     // s1 s2 -- s ; s = s1 + s2 (string concatenation)
@@ -353,16 +353,14 @@ const (
 
 	MarkNamedRet // -- ; set hasNamedRetFlag; $1!=0 also sets namedRetFlag (captured)
 
-	// Complex arithmetic. Operands live in ref (complex does not fit the num
-	// word); $0 = reflect.Kind (Complex64 or Complex128) for precision.
+	// Complex arithmetic. $0 = reflect.Kind (Complex64 or Complex128) for precision.
 	AddComplex // c1 c2 -- sum
 	SubComplex // c1 c2 -- diff
 	MulComplex // c1 c2 -- prod
 	DivComplex // c1 c2 -- quot
 	NegComplex // c -- -c
 
-	// Float <= and >=. Distinct from !(>) and !(<): NaN makes every ordered
-	// comparison false, so the negated forms are wrong for floats.
+	// Float <= and >=. Distinct from !(>) and !(<): NaN makes every ordered comparison false.
 	GreaterEqualFloat // n1 n2 -- n1 >= n2
 	LowerEqualFloat   // n1 n2 -- n1 <= n2
 )
@@ -413,17 +411,13 @@ type Machine struct {
 
 	panicking     bool        // true while unwinding due to panic
 	panicVal      Value       // value passed to panic()
-	panicInfo     *PanicError // diagnostic snapshot (source pos + mvm stack) captured at panic before unwind
+	panicInfo     *PanicError // (source pos + mvm stack) captured at panic before unwind
 	panicReraised bool        // panicInfo was adopted from a re-entrant run via invokeNative
 	goexiting     bool        // true while unwinding due to runtime.Goexit (recover sees no panic)
 
 	baseCodeLen int // len(code) before Run() appends sentinel instructions
 
-	// trampBase, when non-zero, marks code as a shared pooledCode slice: the
-	// Run sentinels sit at trampBase and the static Call/Exit trampoline table
-	// follows, so re-entry never appends to code (an append on the shared
-	// capacity-capped slice would copy the whole program). See ensurePooledCode.
-	trampBase       int
+	trampBase       int           // marks code as a shared pooledCode slice
 	pooledCode      []Instruction // cached shared runner code (built by ensurePooledCode)
 	pooledCodeBase  int           // baseCodeLen pooledCode was built from
 	pooledCodeEpoch int           // codeEpoch pooledCode was built at
@@ -432,16 +426,13 @@ type Machine struct {
 	funcFields    *funcFieldsTable                  // see funcFieldsTable doc
 	funcWrappers  *funcWrapTable                    // see funcWrapTable doc
 	typesByRtype  *typesIndex                       // see typesIndex doc
-	nativeMethods map[reflect.Type]*nativeMethodSet // per-type method tables (see native_methods.go)
+	nativeMethods map[reflect.Type]*nativeMethodSet // per-type method tables
 
-	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on
-	// this Machine; per-Machine so it dies with the Machine. Guarded by derivedMu.
+	// sharedMethodStructs dedups a method-bearing struct's rtype across re-Evals on this Machine.
 	sharedMethodStructs map[derive.MethodStructKey]*derive.SynthReservation
 
-	// synthReleases nil this Machine's stub-pool handler slots (each captures the
-	// Machine) on disposal; see ReleaseSynthMethods, Interp.Close.
 	synthReleasesMu sync.Mutex
-	synthReleases   []func()
+	synthReleases   []func() //nil this Machine's stub-pool handler slots.
 
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
 	faultContinue bool            // policy seed copied into fault when it is created
@@ -453,9 +444,7 @@ type Machine struct {
 	MethodNames     []string       // names by global method ID
 	MethodFuncTypes []reflect.Type // bound-method func type (no receiver) by global method ID
 
-	// runnerPool holds reusable runner Machines for native->mvm callbacks.
-	// Safe for concurrent Get/Put across goroutines.
-	runnerPool sync.Pool
+	runnerPool sync.Pool // reusable runner Machines for native->mvm callbacks
 
 	debugInfoFn func() *DebugInfo // builds DebugInfo on demand (breaks vm->comp cycle)
 	debugIn     io.Reader         // debug command input (nil = os.Stdin)
@@ -471,10 +460,7 @@ type Machine struct {
 	iterStack []iterEntry // active range-loop iterators, kept off the value stack so a defer in the body can't displace them
 	iterBase  int         // iterStack floor for the current Run (entries below belong to an outer re-entrant Run)
 
-	// PanicNilCompat keeps panic(nil) recovering as nil (pre-Go 1.21 semantics)
-	// instead of substituting *runtime.PanicNilError. Set when the target
-	// module's go directive predates 1.21, mirroring GODEBUG panicnil.
-	PanicNilCompat bool
+	PanicNilCompat bool // keeps panic(nil) recovering as nil (pre-Go 1.21)
 
 	sentinels *sentinelTable // see sentinel.go; nil unless io is interpreted
 }
@@ -685,7 +671,6 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 	dstType := m.globals[int(c.A)].ref.Type()
 	dstKind := dstType.Kind()
 	if !v.ref.IsValid() {
-		// nil source: zero value of destination type.
 		if dstKind != reflect.Interface {
 			mem[idx] = FromReflect(reflect.Zero(dstType))
 		}
@@ -698,7 +683,6 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		bits := v.num
 		switch {
 		case isFloat(srcKind) && isFloat(dstKind):
-			// float32 -> float64 or float64 -> float32: re-precision.
 			if srcKind != dstKind {
 				f := math.Float64frombits(bits)
 				if dstKind == reflect.Float32 {
@@ -706,10 +690,6 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 				}
 			}
 		case isFloat(srcKind):
-			// float -> int/uint: truncate. Route unsigned destinations
-			// through uint64(f) directly: `int64(f)` is undefined for
-			// values above MaxInt64 (clamps to MaxInt64 on amd64/arm64),
-			// which would silently saturate uint64 results.
 			f := math.Float64frombits(bits)
 			if dstKind >= reflect.Uint && dstKind <= reflect.Uintptr {
 				bits = uint64(f)
@@ -753,18 +733,11 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		case reflect.Float64:
 			mem[idx] = Value{num: bits, ref: zfloat64}
 		}
-		// Keep a defined numeric type's named rtype (e.g. `type Grams int` with
-		// String): the canonical zXXX ref above dropped it, so a later box into
-		// an interface would lose its methods.
-		// Gated on NumMethod so plain numeric conversions keep the shared-ref
-		// fast path.
 		if dstType.NumMethod() > 0 {
-			mem[idx].ref = reflect.Zero(dstType)
+			mem[idx].ref = reflect.Zero(dstType) // preserve named type identity.
 		}
 
 	case isNum(srcKind) && (dstKind == reflect.Complex64 || dstKind == reflect.Complex128):
-		// numeric -> complex (a constant conversion in Go; reflect.Convert
-		// rejects int/float -> complex, so build it from the real part here).
 		var re float64
 		switch {
 		case isFloat(srcKind):
@@ -779,13 +752,9 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		mem[idx] = Value{ref: nv}
 
 	case isNum(srcKind) && dstKind == reflect.String:
-		// int/rune -> string (e.g. string(65) -> "A").
 		mem[idx] = Value{ref: reflect.ValueOf(string(rune(int64(v.num))))}
 
 	case srcKind == reflect.String && dstKind == reflect.Slice && dstType.Elem().Kind() == reflect.Uint8:
-		// string -> []byte, or a named type over []byte (e.g. json.RawMessage):
-		// keep the destination's named rtype so a later box into interface{}
-		// dispatches its methods / matches its own type-switch case.
 		b := reflect.ValueOf([]byte(v.ref.String()))
 		if b.Type() != dstType {
 			b = b.Convert(dstType)
@@ -793,14 +762,11 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 		mem[idx] = Value{ref: b}
 
 	case srcKind == reflect.Slice && v.ref.Type().Elem().Kind() == reflect.Uint8 && dstKind == reflect.String:
-		// []byte -> string.
 		mem[idx] = Value{ref: reflect.ValueOf(string(v.ref.Bytes()))}
 
 	case dstKind == reflect.UnsafePointer &&
 		(srcKind == reflect.Pointer || srcKind == reflect.UnsafePointer || srcKind == reflect.Uintptr):
-		// *T, unsafe.Pointer, or uintptr -> unsafe.Pointer.
-		// reflect.Value.Convert has no convertOp for UnsafePointer, so
-		// we build the destination value manually.
+		// reflect.Value.Convert has no convertOp for UnsafePointer, so we build the destination value manually.
 		var up unsafe.Pointer
 		switch srcKind {
 		case reflect.Pointer, reflect.UnsafePointer:
@@ -814,7 +780,6 @@ func (m *Machine) execConvert(c *Instruction, mem []Value, sp int) {
 
 	case srcKind == reflect.UnsafePointer &&
 		(dstKind == reflect.Pointer || dstKind == reflect.Uintptr):
-		// unsafe.Pointer -> *T or uintptr.
 		up := v.ref.UnsafePointer()
 		if dstKind == reflect.Uintptr {
 			mem[idx] = Value{num: uint64(uintptr(up)), ref: reflect.Zero(dstType)}
@@ -4555,12 +4520,7 @@ func (t *funcFieldsTable) pruneStrong(p uintptr, gen uint64) {
 
 // cleanupStrong ties the entry's lifetime to the funcval fp: when it is
 // collected the entry is pruned, so a recycled address can never resolve to a
-// dead wrapper's closure, and the entry stops pinning the closure graph. A
-// static funcval is not a heap object and makes AddCleanup panic; recover and
-// keep the entry -- a static address is never recycled, so it cannot go stale.
-// When the entry's own value graph reaches back to the funcval (field ->
-// wrapper -> mvm func -> receiver -> field), the funcval stays reachable and
-// the cleanup never fires: same lifetime as before, not a regression.
+// dead wrapper's closure, and the entry stops pinning the closure graph.
 func (t *funcFieldsTable) cleanupStrong(fp unsafe.Pointer, gen uint64) {
 	defer func() { _ = recover() }()
 	p := uintptr(fp)
@@ -4583,8 +4543,6 @@ func (t *funcFieldsTable) prune(p uintptr) {
 }
 
 // setMethodExpr records p as a method-expression wrapper for body code.
-// The entry is strong and permanent: makeMethodExprFunc caches the wrapper, so
-// its address is stable and the entry count is bounded by distinct method exprs.
 func (t *funcFieldsTable) setMethodExpr(p uintptr, code int) {
 	t.mu.Lock()
 	t.m[p] = funcFieldEntry{strong: Value{ref: reflect.ValueOf(methodExpr{code})}}
@@ -4593,7 +4551,6 @@ func (t *funcFieldsTable) setMethodExpr(p uintptr, code int) {
 }
 
 // methodExprCode returns the body code address if p is a method-expression wrapper.
-// Cheaply gated by hasMethodExpr so non-method-expr programs skip it.
 func (t *funcFieldsTable) methodExprCode(p uintptr) (int, bool) {
 	if !t.hasMethodExpr.Load() {
 		return 0, false
@@ -4608,9 +4565,7 @@ func (t *funcFieldsTable) methodExprCode(p uintptr) (int, bool) {
 	return me.code, ok
 }
 
-// funcWrapTable memoises the MakeFunc wrapper for a heap-less mvm func, keyed by
-// code address + func type, so repeated bridges share one *funcval and compare
-// equal (reflect.ValueOf(f) == reflect.ValueOf(f)). Shared like funcFields.
+// funcWrapTable memoises the MakeFunc wrapper for a heap-less mvm func.
 type funcWrapTable struct {
 	mu sync.RWMutex
 	m  map[funcWrapKey]reflect.Value
@@ -4663,10 +4618,7 @@ func staticFuncCode(val Value) (int, bool) {
 	return 0, false
 }
 
-// typesIndex memoises a reflect.Type -> *Type lookup over a Machine's
-// globals. Populated once on first lookup under sync.Once (which provides
-// happens-before for all later readers) and immutable afterward, so the
-// steady-state lookup is a plain Go map read.
+// typesIndex memoises a reflect.Type -> *Type lookup over a Machine's globals.
 type typesIndex struct {
 	once sync.Once
 	m    map[reflect.Type]*mtype.Type
@@ -4737,9 +4689,6 @@ func (t *typesIndex) lookup(globals []Value, rt reflect.Type) *mtype.Type {
 
 // runnerState captures the Machine fields needed to create lightweight runner
 // Machines for re-entrant execution (bridge callbacks, MakeFunc adapters).
-// The pool itself lives on the parent Machine and is shared across all
-// runnerStates rooted there, so a high bridge-construction count doesn't
-// multiply retained memory.
 type runnerState struct {
 	globals         []Value
 	code            []Instruction // shared pooledCode (prefix + sentinels + trampolines)
@@ -4759,10 +4708,6 @@ type runnerState struct {
 	sentinels       *sentinelTable
 }
 
-// ensureSharedTables lazy-allocates the parent-owned funcFields and
-// typesByRtype tables so they can be pointer-shared with runner Machines
-// and spawned goroutines. Callers run on the parent before any runner
-// exists, making the nil-check race-free.
 func (m *Machine) ensureSharedTables() {
 	if m.funcFields == nil {
 		m.funcFields = newFuncFieldsTable()
@@ -4778,14 +4723,9 @@ func (m *Machine) ensureSharedTables() {
 // Trampoline-table arity bounds; calls above them fall back to the append path.
 const trampMaxArgs, trampMaxRets = 16, 16
 
-// ensurePooledCode (re)builds the shared runner code: the immutable compiled
-// prefix, the three Run sentinels at the same offsets Run would append them
-// (so panicAddr/exitAddr conventions hold), and a static Call/Exit trampoline
-// per (narg, nret) pair. Runners and goroutine machines share it read-only, so
-// pooled re-entry never appends -- an append on the previous capacity-capped
-// slice copied the whole program per call (the cast OOM). Rebuilt when
-// baseCodeLen changes (new Eval, TrimCode); same single-threaded contract as
-// ensureSharedTables.
+// ensurePooledCode (re)builds the shared runner code.
+// Runners and goroutine machines share it read-only, so pooled re-entry never appends.
+// Rebuilt when baseCodeLen changes (new Eval, TrimCode).
 func (m *Machine) ensurePooledCode() {
 	if m.pooledCode != nil && m.pooledCodeBase == m.baseCodeLen && m.pooledCodeEpoch == m.codeEpoch {
 		return
@@ -4837,10 +4777,6 @@ func (m *Machine) captureRunnerState() *runnerState {
 	}
 }
 
-// acquireRunner gets a runner Machine from the shared pool and applies rs
-// to it. The parent may have mutated shared state (globals, code) since the
-// runnerState was captured, so we re-sync on every acquire. Pair with
-// releaseRunner.
 func (rs *runnerState) acquireRunner() *Machine {
 	m, _ := rs.pool.Get().(*Machine)
 	if m == nil {
@@ -4868,9 +4804,6 @@ func (rs *runnerState) acquireRunner() *Machine {
 	return m
 }
 
-// releaseRunner trims per-call execution state and returns the Machine to
-// the shared pool. Keeps the mem and code backing arrays so the next
-// acquire can reuse them.
 func (rs *runnerState) releaseRunner(m *Machine) {
 	m.mem = m.mem[:0]
 	m.code = m.code[:rs.baseCodeLen]
@@ -4884,10 +4817,6 @@ func (rs *runnerState) releaseRunner(m *Machine) {
 	rs.pool.Put(m)
 }
 
-// unwrapVariadicIface unwraps Iface elements in a packed variadic slice so
-// reflect.CallSlice passes the native callee concrete values. On the shared-PC
-// (wasm) build a synth error/Stringer element is wrapped in a native shim, since
-// the native callee (e.g. testing's fmt) cannot dispatch its -1 method PC.
 func (m *Machine) unwrapVariadicIface(last reflect.Value) reflect.Value {
 	if last.Kind() == reflect.Interface && !last.IsNil() {
 		last = last.Elem()
@@ -4919,8 +4848,6 @@ func (m *Machine) unwrapVariadicIface(last reflect.Value) reflect.Value {
 }
 
 // invokeNative runs a native func/method call, recovering any Go panic.
-// On a recoverable panic it sets the machine's panic state and returns panicked=true.
-// A clean-exit signal is re-panicked so Run's recoverPanic terminates the program.
 func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value, in []reflect.Value, spread bool) (out []reflect.Value, panicked bool) {
 	defer func() {
 		r := recover()
@@ -4935,10 +4862,6 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 		if pe, ok := asPanicError(r); ok {
 			m.panicking = true
 			m.panicVal = FromReflect(reflect.ValueOf(pe.Raw))
-			// Stitch this parent's frames onto the inner run's snapshot across
-			// the native boundary, so the mvm stack spans interp -> native -> interp.
-			// Composes across nesting: each invokeNative level on the
-			// unwind path appends its own segment.
 			m.stitchBoundary(pe, rv)
 			m.panicInfo = pe // keep the inner run's source pos + mvm stack
 			m.panicReraised = true
@@ -5039,9 +4962,7 @@ func (m *Machine) makeCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 }
 
 func (m *Machine) buildCallFunc(fval Value, fnType reflect.Type) reflect.Value {
-	rs := m.captureRunnerState() // also ensures m.funcFields is non-nil
-	// Snapshot addressable storage: the closure below captures fval for the
-	// wrapper's lifetime, and a live slot may be overwritten after the wrap.
+	rs := m.captureRunnerState()
 	if fval.ref.IsValid() && fval.ref.CanAddr() {
 		cp := reflect.New(fval.ref.Type()).Elem()
 		cp.Set(runtype.Exportable(fval.ref))
@@ -5069,9 +4990,6 @@ func (m *Machine) buildCallFunc(fval Value, fnType reflect.Type) reflect.Value {
 }
 
 // makeMethodExprFunc returns the func value for a method expression T.M.
-// The wrapper is cached (heap-less, keyed by code+type) and registered in
-// funcFields so the Call opcode can dispatch it through the interpreter; see
-// methodExpr. Registration happens only on the build (cache-miss) path.
 func (m *Machine) makeMethodExprFunc(codeAddr int, exprType reflect.Type) reflect.Value {
 	m.ensureSharedTables()
 	return m.funcWrappers.getOrBuild(funcWrapKey{code: codeAddr, rtype: exprType},
@@ -5114,11 +5032,6 @@ func (m *Machine) TrimStack() {
 }
 
 // CallFunc executes a mvm function value with the given arguments and returns the results.
-// It saves and restores per-frame execution state so it can be called from native Go
-// callbacks (reflect.MakeFunc wrappers) even while Run is in progress
-// (single-threaded re-entrancy). Globals are NOT isolated: a callback's package-var
-// write is visible to the outer Run, matching Go callback semantics and the
-// goroutine model documented in ADR-008.
 func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Value) ([]reflect.Value, error) {
 	// Save volatile per-frame state (globals are intentionally shared).
 	savedMem := m.mem
@@ -5160,8 +5073,7 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 		m.mem = append(m.mem, FromReflect(a))
 	}
 
-	// Drive the function to completion via a static trampoline when one
-	// exists, else temporarily append Call + Exit.
+	// Drive the function to completion via a static trampoline when one exists.
 	narg := funcType.NumIn()
 	nret := funcType.NumOut()
 	if ip, ok := m.trampolineIP(narg, nret); ok {
@@ -5180,10 +5092,7 @@ func (m *Machine) CallFunc(fval Value, funcType reflect.Type, args []reflect.Val
 	return m.collectReturns(funcType, nret), nil
 }
 
-// callPooled runs a mvm function on a runner Machine that has just been
-// acquired from a pool. Skips the outer-state save/restore done by
-// CallFunc, which would be wasted on a clean Machine. Caller must release
-// the Machine back to the pool.
+// callPooled runs a mvm function on a runner Machine that has just been acquired from a pool.
 func (m *Machine) callPooled(fval Value, funcType reflect.Type, args []reflect.Value) ([]reflect.Value, error) {
 	m.mem = append(m.mem, fval)
 	for _, a := range args {
@@ -5207,13 +5116,6 @@ func (m *Machine) callPooled(fval Value, funcType reflect.Type, args []reflect.V
 	return m.collectReturns(funcType, nret), nil
 }
 
-// reentrantRunErr maps the error from a re-entrant Run (one driven by CallFunc
-// or callPooled from a native callback) to the value the native caller should
-// re-panic. An unrecovered mvm panic leaves m.panicking set after the frame is
-// torn down; surface it as a *PanicError so the caller's invokeNative recover
-// re-establishes it as an mvm panic that an interpreted recover() can catch.
-// Prefer the diagnostic snapshot stageUnwind captured before unwinding (source
-// pos + mvm stack); fall back to a raw-only wrapper if none was captured.
 func (m *Machine) reentrantRunErr(runErr error) error {
 	if m.panicking {
 		if m.panicInfo != nil {
@@ -5224,9 +5126,6 @@ func (m *Machine) reentrantRunErr(runErr error) error {
 	return runErr
 }
 
-// collectReturns coerces the top nret stack values to funcType's return
-// types for delivery to a reflect.MakeFunc caller. Shared by CallFunc and
-// callPooled.
 func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Value {
 	if nret == 0 {
 		return nil
@@ -5251,20 +5150,13 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 		} else if outType := funcType.Out(i); rv.Type() != outType {
 			switch {
 			case outType.Kind() == reflect.Interface:
-				// Interface locals use interface{} internally; convert to the
-				// expected interface type (e.g. interface{} -> error) for
-				// MakeFunc callers.
+				// Interface locals use interface{} internally; convert to the expected interface type.
 				rv = interfaceToInterface(rv, outType)
 			case outType.Kind() == reflect.Func && rv.Kind() != reflect.Func:
-				// mvm func value (code or Closure) returned where a native func is
-				// expected: wrap it callable for the MakeFunc caller.
+				// mvm func value returned where a native func is expected.
 				rv = m.makeCallFunc(m.mem[i], outType)
 			case rv.Type().ConvertibleTo(outType):
-				// A loosely-typed numeric return (e.g. an untyped int constant
-				// returned from a func(rune) rune callback) must be converted
-				// to the declared return type -- which the Go compiler would
-				// have done at the return statement -- before delivery to a
-				// reflect.MakeFunc caller.
+				// A loosely-typed numeric return must be converted to the declared return type.
 				rv = rv.Convert(outType)
 			}
 		}
@@ -5273,9 +5165,6 @@ func (m *Machine) collectReturns(funcType reflect.Type, nret int) []reflect.Valu
 	return out
 }
 
-// newGoroutine spawns fval on a new goroutine. It returns panicked=true if the
-// spawn raised a (synchronous) panic in the caller -- a nil func value, matching
-// Go's "go of nil func value" -- in which case the caller must jump to panicAddr.
 func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked bool) {
 	// Inline fast path: resolve addressable struct func fields (mirrors Call opcode).
 	if fval.ref.Kind() == reflect.Func && fval.ref.CanAddr() {
@@ -5321,8 +5210,6 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		}
 	}
 	if nip == nilFuncAddr {
-		// go of a nil func: panic synchronously, else the spawned goroutine
-		// jumps to 0 and re-runs main, spawning ever more goroutines.
 		m.raiseNilDeref()
 		return true
 	}
@@ -5342,8 +5229,6 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 	mem[narg+2] = Value{num: packRetIP(exitAddr, 0, frameBase)}
 	mem[narg+3] = Value{num: 0} // prevFP = 0
 
-	// Arm the sink if EnableGoroutineFaults didn't (raw vm.Machine.Run); flag that
-	// a goroutine now exists so channel waits start watching for a fault.
 	if m.fault == nil {
 		m.fault = newGoroutineFault(m.err, m.faultContinue)
 	}
@@ -5375,8 +5260,8 @@ func (m *Machine) newGoroutine(fval Value, args []Value, spread bool) (panicked 
 		sentinels:       m.sentinels,
 	}
 	go func() {
-		// An unrecovered panic in an interpreted goroutine returns from Run as an
-		// error. Go would crash the process; record it so main surfaces it.
+		// An unrecovered panic in an interpreted goroutine returns from Run as an error.
+		// Go would crash the process; record it so main surfaces it.
 		if err := child.Run(); err != nil && m.fault != nil {
 			m.fault.record(err)
 		}
