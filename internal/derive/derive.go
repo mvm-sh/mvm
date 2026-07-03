@@ -45,6 +45,15 @@ var sharedStructs = map[sharedStructKey]*SynthReservation{} // guarded by derive
 
 var sharedCarriers = map[sharedStructKey]*SynthReservation{} // guarded by derivedMu
 
+// sharedPlainStructs converges methodless named struct rtypes, whose placeholder build mints a fresh identity per compile (see shareOrAdoptPlain).
+type plainStructKey struct {
+	name      string
+	pkgPath   string
+	layoutSig string
+}
+
+var sharedPlainStructs = map[plainStructKey]reflect.Type{} // guarded by derivedMu
+
 // MethodStructKey keys the per-execution rtype cache (ActiveRtypeCache), deduping
 // a method-bearing struct's rtype across re-Evals so reflect.Type identity holds.
 // Per-execution, not global: the stub captures the Machine, so a global would pin it.
@@ -1025,11 +1034,180 @@ func materializeNamedStruct(t *mtype.Type) reflect.Type {
 		return nil
 	}
 	// Patch ph to the current best-effort layout.
-	mtype.PatchRtype(ph, mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags))
+	layout := mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags)
+	mtype.PatchRtype(ph, layout)
 	if named {
 		runtype.StampNamePkg(ph, QualifiedTypeName(t), RtypePkgPath(t))
+		if !structDeferred(t) {
+			if shared := shareOrAdoptPlain(t, ph, layout); shared != ph {
+				return shared
+			}
+		}
 	}
 	return finishStructOrDefer(t, ph)
+}
+
+// shareOrAdoptPlain converges a finalized methodless named struct on one rtype per name+layout: reflect cannot even compare two identities of a recursive layout (structural walk, no cycle check).
+// Publishes ph on first sight, else adopts the published rtype and orphans ph.
+func shareOrAdoptPlain(t *mtype.Type, ph reflect.Type, layout reflect.Type) reflect.Type {
+	key := plainStructKey{name: QualifiedTypeName(t), pkgPath: RtypePkgPath(t), layoutSig: plainLayoutSig(layout, ph)}
+	derivedMu.Lock()
+	shared := sharedPlainStructs[key]
+	if shared == nil || shared == ph {
+		sharedPlainStructs[key] = ph
+		derivedMu.Unlock()
+		return ph
+	}
+	dropDerivedRtypes(t)
+	derivedMu.Unlock()
+	materializing.clear(ph)
+	pendingFinalize.clear(t)
+	t.Rtype = shared
+	return shared
+}
+
+// plainLayoutSig fingerprints layout by field-type identity, expanding only what reaches ph (the self-reference, printed "@").
+// A name-based sig (layout.String()) would alias same-named fields of different layouts; identities compose bottom-up, so equal sigs imply equal layouts.
+func plainLayoutSig(layout, ph reflect.Type) string {
+	var b strings.Builder
+	for f := range layout.Fields() {
+		fmt.Fprintf(&b, "%s %s %q %v;", f.Name, identSig(f.Type, ph, nil), f.Tag, f.Anonymous)
+	}
+	return b.String()
+}
+
+func identSig(rt, self reflect.Type, path map[reflect.Type]bool) string {
+	if !reachesType(rt, self, nil) {
+		return fmt.Sprintf("%p", rt)
+	}
+	if rt == self {
+		return "@"
+	}
+	if path[rt] {
+		return "^" + rt.String() // back-ref into an expansion cycle
+	}
+	if path == nil {
+		path = map[reflect.Type]bool{}
+	}
+	path[rt] = true
+	defer delete(path, rt)
+	switch rt.Kind() {
+	case reflect.Pointer:
+		return "*" + identSig(rt.Elem(), self, path)
+	case reflect.Slice:
+		return "[]" + identSig(rt.Elem(), self, path)
+	case reflect.Array:
+		return fmt.Sprintf("[%d]%s", rt.Len(), identSig(rt.Elem(), self, path))
+	case reflect.Chan:
+		return fmt.Sprintf("chan%d ", rt.ChanDir()) + identSig(rt.Elem(), self, path)
+	case reflect.Map:
+		return "map[" + identSig(rt.Key(), self, path) + "]" + identSig(rt.Elem(), self, path)
+	case reflect.Struct:
+		var b strings.Builder
+		b.WriteString(rt.String() + "{") // keep the name: expansion must not alias same-shaped named types
+		for f := range rt.Fields() {
+			fmt.Fprintf(&b, "%s %s %q %v;", f.Name, identSig(f.Type, self, path), f.Tag, f.Anonymous)
+		}
+		b.WriteString("}")
+		return b.String()
+	case reflect.Func:
+		var b strings.Builder
+		b.WriteString("func(")
+		for in := range rt.Ins() {
+			b.WriteString(identSig(in, self, path) + ",")
+		}
+		b.WriteString(")(")
+		for out := range rt.Outs() {
+			b.WriteString(identSig(out, self, path) + ",")
+		}
+		b.WriteString(")")
+		return b.String()
+	case reflect.Interface:
+		var b strings.Builder
+		b.WriteString(rt.String() + "iface{")
+		for m := range rt.Methods() {
+			b.WriteString(m.Name + " " + identSig(m.Type, self, path) + ";")
+		}
+		b.WriteString("}")
+		return b.String()
+	}
+	return fmt.Sprintf("%p", rt)
+}
+
+// reachesType reports whether t's structure reaches target (pass a nil path).
+func reachesType(t, target reflect.Type, path map[reflect.Type]bool) bool {
+	if t == target {
+		return true
+	}
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan,
+		reflect.Map, reflect.Struct, reflect.Func, reflect.Interface:
+	default:
+		return false
+	}
+	if path[t] {
+		return false
+	}
+	if path == nil {
+		path = map[reflect.Type]bool{}
+	}
+	path[t] = true
+	defer delete(path, t)
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
+		return reachesType(t.Elem(), target, path)
+	case reflect.Map:
+		return reachesType(t.Key(), target, path) || reachesType(t.Elem(), target, path)
+	case reflect.Struct:
+		for f := range t.Fields() {
+			if reachesType(f.Type, target, path) {
+				return true
+			}
+		}
+	case reflect.Func:
+		for in := range t.Ins() {
+			if reachesType(in, target, path) {
+				return true
+			}
+		}
+		for out := range t.Outs() {
+			if reachesType(out, target, path) {
+				return true
+			}
+		}
+	case reflect.Interface:
+		for m := range t.Methods() {
+			if reachesType(m.Type, target, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dropDerivedRtypes nils derived Rtypes minted against t's orphaned placeholder so they re-derive from the adopted identity.
+// Caller holds derivedMu.
+func dropDerivedRtypes(t *mtype.Type) {
+	d := derivedCache[t]
+	if d == nil {
+		return
+	}
+	nodes := []*mtype.Type{d.ptr, d.slice}
+	for _, n := range d.array {
+		nodes = append(nodes, n)
+	}
+	for _, n := range d.chans {
+		nodes = append(nodes, n)
+	}
+	for _, n := range d.maps {
+		nodes = append(nodes, n)
+	}
+	for _, n := range nodes {
+		if n != nil && n.Rtype != nil {
+			n.Rtype = nil
+			dropDerivedRtypes(n)
+		}
+	}
 }
 
 // materializeAnonStruct handles an anonymous struct. Only a by-value struct/array

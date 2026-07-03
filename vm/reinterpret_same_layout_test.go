@@ -53,3 +53,45 @@ func TestReinterpretSameLayout(t *testing.T) {
 		t.Fatal("reinterpretSameLayout: want !ok for filedesc.Enum -> other.Enum")
 	}
 }
+
+// recursiveNamedRtype mints a distinct named struct { Next *self } rtype,
+// as each re-compile of a recursive type does.
+func recursiveNamedRtype(name string) reflect.Type {
+	t := mtype.NewPlaceholderRtype("T")
+	layout := reflect.StructOf([]reflect.StructField{{Name: "Next", Type: reflect.PointerTo(t)}})
+	mtype.PatchRtype(t, layout)
+	runtype.StampName(t, name)
+	return t
+}
+
+// Duplicate identities of a recursive type must reinterpret, not ConvertibleTo
+// (no cycle check there; the wasm io/fs stack exhaustion).
+func TestAdoptNamedTypeRecursiveDup(t *testing.T) {
+	a := recursiveNamedRtype("fs.Node")
+	b := recursiveNamedRtype("fs.Node")
+	if a == b {
+		t.Fatal("expected two distinct rtypes for one recursive type")
+	}
+	if !typeCycles(a, nil) {
+		t.Fatal("typeCycles: want true for a self-referential struct")
+	}
+	if typeCycles(reflect.TypeOf(struct{ A, B [2]string }{}), nil) {
+		t.Fatal("typeCycles: want false for an acyclic struct reusing a type")
+	}
+
+	src := reflect.New(a).Elem()
+	src.Field(0).Set(reflect.New(a)) // non-nil Next so data survival is checkable
+	got := adoptNamedType(src, b)    // would overflow the stack without the guard
+	if got.Type() != b {
+		t.Fatalf("adoptNamedType type = %v (%p), want %p", got.Type(), got.Type(), b)
+	}
+	if got.Field(0).IsNil() {
+		t.Fatal("adoptNamedType lost the Next pointer")
+	}
+
+	// Distinct-printed pairs keep full Convert semantics.
+	type adoptStr string
+	if adoptNamedType(reflect.ValueOf(adoptStr("x")), reflect.TypeOf("")).Type() != reflect.TypeOf("") {
+		t.Fatal("adoptNamedType no longer converts a plain convertible pair")
+	}
+}

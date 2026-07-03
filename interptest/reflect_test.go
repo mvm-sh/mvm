@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/mvm-sh/mvm/interp"
@@ -562,5 +563,38 @@ func main() {
 	want := "S main main.S\nMyInt main main.MyInt\nM main main.M\n"
 	if got := evalOut(t, "named_pkgpath.go", src); got != want {
 		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
+// A re-compiled recursive methodless struct must converge on one rtype (sharedPlainStructs): reflect cannot even compare two identities of it (the wasm io/fs stack exhaustion).
+func TestRecursiveStructRtypeStableAcrossCompiles(t *testing.T) {
+	node := func(decl string) reflect.Type {
+		i := interp.NewInterpreter(golang.GoSpec)
+		if _, err := i.Eval("decl", decl); err != nil {
+			t.Fatal(err)
+		}
+		r, err := i.Eval("expr", `&Node{Name: "root", Entries: []*Node{{Name: "leaf"}}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Type().Elem()
+	}
+	const decl = `type Node struct {
+	Name    string
+	Entries []*Node
+	Mark    int
+}`
+	rt1, rt2 := node(decl), node(decl)
+	if rt1 != rt2 {
+		t.Errorf("recursive struct rtype reminted across compiles: %p vs %p", rt1, rt2)
+	}
+	// A different layout under the same name must not share.
+	rt3 := node(`type Node struct {
+	Name    string
+	Entries []*Node
+	Mark    int8
+}`)
+	if rt3 == rt1 {
+		t.Error("different layouts converged on one rtype")
 	}
 }
