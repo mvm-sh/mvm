@@ -432,7 +432,7 @@ type Machine struct {
 	sharedMethodStructs map[derive.MethodStructKey]*derive.SynthReservation
 
 	synthReleasesMu sync.Mutex
-	synthReleases   []func() //nil this Machine's stub-pool handler slots.
+	synthReleases   []func() // nil this Machine's stub-pool handler slots.
 
 	fault         *goroutineFault // shared goroutine-panic sink, lazily created on first `go`
 	faultContinue bool            // policy seed copied into fault when it is created
@@ -5744,8 +5744,10 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 	s := src.ref
 	if !s.IsValid() {
 		s = reflect.Zero(dst.ref.Type())
-	} else if dst.ref.Kind() == reflect.Interface && isNilable(s) && s.IsNil() {
-		// Avoid creating a typed nil inside an interface{} slot.
+	} else if dst.ref.Kind() == reflect.Interface && s.Kind() == reflect.Func && s.IsNil() {
+		// A func variable's slot is an interface{} box; a typed nil func
+		// stored in it would break `f == nil`. Other nilable kinds keep
+		// their type: `var i any = []byte(nil)` must be non-nil.
 		s = reflect.Zero(dst.ref.Type())
 	}
 	// A value read from an unexported field carries reflect's read-only flag, strip it.

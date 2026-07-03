@@ -726,6 +726,30 @@ func main() {
 	}
 }
 
+// assignSlot erased EVERY typed nil stored into an interface slot, not just nil
+// funcs (whose slots are interface{} boxes where `f == nil` needs untyped nil).
+// `var i any = []byte(nil)` must be non-nil (database/sql TestConversions #80).
+func TestIfaceStoreTypedNil(t *testing.T) {
+	const src = `package main
+
+import "fmt"
+
+func set(d *any, v []byte) { *d = v }
+
+func main() {
+	var i any
+	set(&i, nil)
+	fmt.Printf("%T %v\n", i, i == nil)
+	var f func()
+	fmt.Println("f == nil:", f == nil)
+}
+`
+	out := evalOut(t, "typednil", src)
+	if want := "[]uint8 false\nf == nil: true\n"; out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
+
 // TestNamedIfaceContainerElem: a named method-bearing interface as slice elem or
 // map key reflects with its name; a concrete built in a goroutine still stores into
 // it (the go/ast-on-wasm case). Empty interface stays erased.
