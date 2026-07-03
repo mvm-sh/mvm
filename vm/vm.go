@@ -5807,6 +5807,12 @@ func (m *Machine) assignSlot(dst *Value, src Value) {
 		*dst = src
 		return
 	}
+	// Synth-iface slot in mvm eface form: a reflect copy would misread its rtype word as an itab.
+	if src.ref.Kind() == reflect.Interface {
+		if ifc, ok := mvmEfaceInSynthSlot(src.ref, src.ref.Type()); ok {
+			src = Value{ref: reflect.ValueOf(ifc)}
+		}
+	}
 	if dst.ref.Kind() == reflect.Func && dst.ref.CanAddr() {
 		dst.num = src.num
 		if gf := m.wrapForFunc(src, dst.ref.Type()); gf.IsValid() {

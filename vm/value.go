@@ -348,9 +348,15 @@ func (v Value) IsIface() bool {
 	if v.ref.Type() == ifaceRtype {
 		return true
 	}
-	// Check inside interface{} slots: v.ref is an any holding an Iface.
-	if v.ref.Kind() == reflect.Interface && v.ref.Elem().IsValid() && v.ref.Elem().Type() == ifaceRtype {
-		return true
+	if v.ref.Kind() == reflect.Interface {
+		// Synth-iface slot in mvm eface form: Elem would misread its rtype word as an itab.
+		if _, ok := mvmEfaceInSynthSlot(v.ref, v.ref.Type()); ok {
+			return true
+		}
+		// Check inside interface{} slots: v.ref is an any holding an Iface.
+		if v.ref.Elem().IsValid() && v.ref.Elem().Type() == ifaceRtype {
+			return true
+		}
 	}
 	return false
 }
@@ -359,6 +365,9 @@ func (v Value) IsIface() bool {
 func (v Value) IfaceVal() Iface {
 	rv := runtype.Exportable(v.ref)
 	if rv.Kind() == reflect.Interface {
+		if ifc, ok := mvmEfaceInSynthSlot(rv, rv.Type()); ok {
+			return ifc
+		}
 		return rv.Elem().Interface().(Iface)
 	}
 	return rv.Interface().(Iface)

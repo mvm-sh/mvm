@@ -347,6 +347,25 @@ func StampName(t reflect.Type, name string) {
 	rt.Str = addReflectOff(unsafe.Pointer(encodeName(name, true).Bytes))
 }
 
+// StampNamePkg is StampName plus an import path, surfaced by PkgPath().
+// It fills the zeroed uncommon section StructOf leaves behind every struct rtype.
+// CALLER CONTRACT: StampName's, and t must come from reflect.StructOf.
+func StampNamePkg(t reflect.Type, name, pkgPath string) {
+	StampName(t, name)
+	rt := rtypePtr(t)
+	if rt == nil || t.Kind() != reflect.Struct || pkgPath == "" {
+		return
+	}
+	// A direct-iface struct with an uncommon section panics StructOf when embedded.
+	if rt.TFlag&tflagDirectIface != 0 {
+		return
+	}
+	st := (*abiStructType)(unsafe.Pointer(rt))
+	u := (*abiUncommon)(unsafe.Add(unsafe.Pointer(st), unsafe.Sizeof(*st)))
+	*u = makeUncommon(pkgPath, 0)
+	rt.TFlag |= tflagUncommon
+}
+
 // StampString overwrites t's String() text in place without marking it named,
 // so reflect.Type.Name() stays "". Use it to restore an anonymous struct's
 // canonical String() after PatchRtype kept a placeholder's stale Str.

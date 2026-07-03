@@ -533,3 +533,34 @@ func main() {
 		t.Errorf("stdout: got %q, want %q", got, want)
 	}
 }
+
+// Interpreted named types must surface PkgPath().
+// Regression for encoding/gob TestRegistrationNaming (gob.Register keys on it).
+func TestReflectNamedTypePkgPath(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type S struct{ X int }
+
+type MyInt int
+
+type M struct{ Y int }
+
+func (m M) Get() int { return m.Y }
+
+func main() {
+	for _, v := range []any{S{}, MyInt(0), M{}} {
+		rt := reflect.TypeOf(v)
+		fmt.Println(rt.Name(), rt.PkgPath(), rt.String())
+	}
+}
+`
+	want := "S main main.S\nMyInt main main.MyInt\nM main main.M\n"
+	if got := evalOut(t, "named_pkgpath.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}

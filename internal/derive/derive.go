@@ -546,8 +546,10 @@ func newCarrier(t *mtype.Type, donor reflect.Type) *SynthReservation {
 	if err != nil {
 		return nil
 	}
-	// Carriers never fill methods; see ClearUncommon for the StructOf constraint.
-	runtype.ClearUncommon(vr.Type())
+	// Carriers never fill methods; keep the uncommon (it carries PkgPath) unless embedding it would trip StructOf.
+	if runtype.EmbedTripsStructOf(vr.Type()) {
+		runtype.ClearUncommon(vr.Type())
+	}
 	return &SynthReservation{value: vr}
 }
 
@@ -1012,7 +1014,7 @@ func materializeNamedStruct(t *mtype.Type) reflect.Type {
 	// Method-bearing types get their name from attach instead.
 	named := len(t.Methods) == 0
 	if named {
-		runtype.StampName(ph, QualifiedTypeName(t))
+		runtype.StampNamePkg(ph, QualifiedTypeName(t), RtypePkgPath(t))
 	}
 	materializeStructFields(t)
 	if !fieldsMaterialized(t.Fields) {
@@ -1025,7 +1027,7 @@ func materializeNamedStruct(t *mtype.Type) reflect.Type {
 	// Patch ph to the current best-effort layout.
 	mtype.PatchRtype(ph, mtype.BuildStructRtype(t.Fields, t.Embedded, t.Tags))
 	if named {
-		runtype.StampName(ph, QualifiedTypeName(t))
+		runtype.StampNamePkg(ph, QualifiedTypeName(t), RtypePkgPath(t))
 	}
 	return finishStructOrDefer(t, ph)
 }

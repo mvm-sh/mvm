@@ -964,3 +964,36 @@ func main() {
 		t.Errorf("output: got %q, want %q", out, want)
 	}
 }
+
+// A reflect.Set into a synth-iface slice elem stores mvm eface form; loads must decode it.
+// Regression for encoding/gob TestInterface (decode of []Squarer).
+func TestSynthIfaceSliceReflectSet(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Squarer interface{ Square() int }
+
+type Int int
+
+func (i Int) Square() int { return int(i * i) }
+
+func main() {
+	s := make([]Squarer, 2)
+	reflect.ValueOf(s).Index(0).Set(reflect.ValueOf(Int(3)))
+	v := s[0]
+	fmt.Println("nil:", v == nil)
+	fmt.Println("square:", v.Square())
+	fmt.Printf("T=%T\n", v)
+	fmt.Println("zero:", s[1] == nil)
+}
+`
+	out := evalOut(t, "synthsliceset", src)
+	want := "nil: false\nsquare: 9\nT=main.Int\nzero: true\n"
+	if out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}
