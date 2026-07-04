@@ -60,9 +60,9 @@ func init() {
 		"GOROOT":                reflect.ValueOf(func(testing.TB) string { return findGoroot() }),
 		"GoToolPath":            reflect.ValueOf(func(testing.TB) string { return findGoroot() + "/bin/go" }),
 		"GoTool":                reflect.ValueOf(func() (string, error) { return findGoroot() + "/bin/go", nil }),
-		"HasGoBuild":            reflect.ValueOf(func() bool { return true }),
-		"MustHaveGoBuild":       reflect.ValueOf(func(testing.TB) {}),
-		"MustHaveGoRun":         reflect.ValueOf(func(testing.TB) {}),
+		"HasGoBuild":            reflect.ValueOf(hasGoBuild),
+		"MustHaveGoBuild":       reflect.ValueOf(mustHaveGoBuild),
+		"MustHaveGoRun":         reflect.ValueOf(mustHaveGoBuild),
 		"OptimizationOff":       reflect.ValueOf(func() bool { return false }),
 		"SkipIfOptimizationOff": reflect.ValueOf(func(testing.TB) {}),
 		"SkipFlaky":             reflect.ValueOf(func(testing.TB, int) {}),
@@ -102,6 +102,15 @@ func init() {
 // Distinct func identity from reflect.ValueOf so reflectlite.ValueOf alone can be
 // allowlisted for synth-iface target retyping (synth_iface_targets.go).
 func reflectliteValueOf(v any) reflect.Value { return reflect.ValueOf(v) }
+
+// No subprocess on wasm, so no go toolchain either.
+func hasGoBuild() bool { return runtime.GOOS != "js" && runtime.GOOS != "wasip1" }
+
+func mustHaveGoBuild(tb testing.TB) {
+	if !hasGoBuild() {
+		tb.Skip("mvm test: cannot run the go tool on " + runtime.GOOS)
+	}
+}
 
 // Probe like internal/testenv: wasm runtimes may forbid symlinks.
 var hasSymlink = sync.OnceValues(func() (bool, string) {

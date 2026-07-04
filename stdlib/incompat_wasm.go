@@ -17,4 +17,21 @@ func init() {
 	Incompat["mime"] = map[string]string{
 		"TestLookupMallocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
 	}
+
+	// Natively the alloc section is skipped via its GOMAXPROCS>1 guard;
+	// wasm is single-threaded so it runs and sees interpreter allocations.
+	m = Incompat["path/filepath"]
+	if m == nil {
+		m = map[string]string{}
+		Incompat["path/filepath"] = m
+	}
+	m["TestClean"] = "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0 (check gated on GOMAXPROCS==1, always true on wasm)"
+
+	// net/netip is interpreted on wasm only; native bridges it and drops the
+	// test file (export_test.go internals).
+	Incompat["net/netip"] = map[string]string{
+		"TestParsePrefixAllocs": "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestNoAllocs":          "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0",
+		"TestAddrStringAllocs":  "testing.AllocsPerRun observes mvm interpreter allocations; native expects 0/1",
+	}
 }
