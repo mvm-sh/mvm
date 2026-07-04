@@ -55,3 +55,20 @@ func main() {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// The godebug overlay must match a '#'-prefixed (undocumented) setting against
+// its env key, which omits the '#'; multipart's multipartfiles=distinct toggle
+// silently no-op'd (wasm mime/multipart TestReadForm_ManyFiles_Distinct).
+func TestSynthGodebugUndocumentedName(t *testing.T) {
+	const src = `package main
+import ("fmt"; "internal/godebug"; "os")
+func main() {
+	os.Setenv("GODEBUG", "foo=bar")
+	s := godebug.New("#foo")
+	fmt.Println(s.Name(), s.Value())
+}`
+	want := "foo bar\n"
+	if got := evalOut(t, "godebughash.go", src); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
