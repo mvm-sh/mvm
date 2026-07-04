@@ -1021,3 +1021,34 @@ func main() {
 		t.Errorf("output: got %q, want %q", out, want)
 	}
 }
+
+// make(chan SynthIface) must carry the materialized elem, not erase to chan interface{}.
+// Regression for reflect TestImplicitSendConversion (make(chan io.Reader) with io interpreted).
+func TestSynthIfaceChanElem(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Squarer interface{ Square() int }
+
+type Int int
+
+func (i Int) Square() int { return int(i * i) }
+
+func main() {
+	c := make(chan Squarer, 1)
+	fmt.Println("type:", reflect.ValueOf(c).Type())
+	reflect.ValueOf(c).Send(reflect.ValueOf(Int(3)))
+	v := <-c
+	fmt.Println("square:", v.Square())
+}
+`
+	out := evalOut(t, "synthchanelem", src)
+	want := "type: chan main.Squarer\nsquare: 9\n"
+	if out != want {
+		t.Errorf("output: got %q, want %q", out, want)
+	}
+}

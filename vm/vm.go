@@ -2534,9 +2534,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 			mem = m.mem[:cap(m.mem)]
 
 		case MkChan:
-			elemType := m.globals[int(c.A)].ref.Type()
-			// Derive, not reflect.ChanOf: a synth elem must match materialize's chan identity.
-			chanType := runtype.DeriveChanOf(reflect.BothDir, elemType)
+			var chanType reflect.Type
+			if a := int(c.A); a < 0 {
+				// make(NamedChan) or synth-iface elem: whole type passed, like MkSlice.
+				chanType = m.globals[-a-1].ref.Type()
+			} else {
+				// Derive, not reflect.ChanOf: a synth elem must match materialize's chan identity.
+				chanType = runtype.DeriveChanOf(reflect.BothDir, m.globals[a].ref.Type())
+			}
 			bufSize := int(c.B)
 			if bufSize < 0 {
 				bufSize = int(mem[sp].num)

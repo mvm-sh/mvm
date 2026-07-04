@@ -4853,7 +4853,11 @@ func (c *Compiler) compileBuiltin(
 			}
 			c.emit(t, vm.MkMap, mapIdx, 0)
 		case reflect.Chan:
+			// Named chan or named-interface elem: pass the whole type, like MkSlice.
 			elemIdx := c.typeSym(typeSym.Type.ElemType).Index
+			if typeSym.Type.Name != "" || derive.NamedSynthIface(typeSym.Type.ElemType) {
+				elemIdx = -(c.typeSym(typeSym.Type).Index + 1)
+			}
 			if narg == 2 {
 				// make(chan T, bufSize): buffer size is already on stack
 				c.emit(t, vm.MkChan, elemIdx, -1)
