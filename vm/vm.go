@@ -1870,7 +1870,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					// keeps an interface-typed result in mvm Iface form rather
 					// than losing it in the stub's result marshaling (a synth
 					// iface the concrete synth rtype does not implement).
-					if !hasNativeMethod(rt, m.MethodNames[methodID]) || isSynthOrSynthPtr(rt) {
+					if !hasNativeMethod(rt, m.MethodNames[methodID]) || isSynthOrSynthPtr(rt) ||
+						embeddedIfaceStub(rt, m.MethodNames[methodID]) {
 						if t := m.typeByRtype(rt); t != nil && t.ResolveMethodType(methodID) != nil {
 							// FromReflect, not Value{ref: rv}: a numeric concrete (rv from
 							// iface.Elem()) is non-addressable, so its data must go in num
@@ -1987,7 +1988,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 						erv = erv.Elem()
 					}
 					if erv.IsValid() &&
-						(!hasNativeMethod(erv.Type(), m.MethodNames[methodID]) || isSynthOrSynthPtr(erv.Type())) {
+						(!hasNativeMethod(erv.Type(), m.MethodNames[methodID]) || isSynthOrSynthPtr(erv.Type()) ||
+							embeddedIfaceStub(erv.Type(), m.MethodNames[methodID])) {
 						if t := m.typeByRtype(erv.Type()); t != nil {
 							if mt := t.ResolveMethodType(methodID); mt != nil {
 								methodTyp = mt
@@ -4070,6 +4072,28 @@ func isSynthOrSynthPtr(rt reflect.Type) bool {
 		return true
 	}
 	return rt.Kind() == reflect.Pointer && runtype.IsSynth(rt.Elem())
+}
+
+// embeddedIfaceStub reports a struct rtype offering method name only via an
+// embedded interface field: reflect.StructOf builds those method entries as
+// stubs that panic when called, so dispatch must stay interpreted (EmbedIface walk).
+// Over-matching a genuine native type is harmless: the caller's typeByRtype
+// check keeps unmapped types on native dispatch.
+func embeddedIfaceStub(rt reflect.Type, name string) bool {
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if rt.Kind() != reflect.Struct {
+		return false
+	}
+	for f := range rt.Fields() {
+		if f.Anonymous && f.Type.Kind() == reflect.Interface {
+			if _, ok := f.Type.MethodByName(name); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasNativeMethod(rt reflect.Type, name string) bool {

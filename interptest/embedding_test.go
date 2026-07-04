@@ -936,3 +936,31 @@ func main() {
 		t.Errorf("got %q, want %q", got, "ok 2\n")
 	}
 }
+
+// A struct embedding an interface, native-boxed through an interface-typed
+// struct field, must dispatch the promoted method through the embedded field:
+// its StructOf rtype advertises the method but as a panic stub
+// ("StructOf does not support methods of embedded interfaces").
+// Regression for wasm fmt TestScan/ReaderOnly.
+func TestSynthEmbeddedIfaceFieldRoundTrip(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+)
+
+type holder struct{ reader io.Reader }
+
+func main() {
+	h := holder{reader: struct{ io.Reader }{strings.NewReader("hello")}}
+	buf := make([]byte, 3)
+	n, err := h.reader.Read(buf)
+	fmt.Println(n, err, string(buf[:n]))
+}
+`
+	if got, want := evalOut(t, "embed_iface_field.go", src), "3 <nil> hel\n"; got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
