@@ -1445,7 +1445,11 @@ func synthIfaceFieldDeferred(t *mtype.Type) bool {
 		return false
 	}
 	for _, f := range t.Fields {
-		if synthIfaceFieldBase(f) != nil && (f.Rtype == nil || !runtype.IsSynth(f.Rtype)) {
+		it := synthIfaceFieldBase(f)
+		if it == nil {
+			continue
+		}
+		if f.Rtype == nil || (!runtype.IsSynth(f.Rtype) && f.Rtype != nativeIdentityFor(it)) {
 			return true
 		}
 	}

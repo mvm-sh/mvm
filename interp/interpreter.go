@@ -179,6 +179,9 @@ func (i *Interp) evalCompiled(name string, compile func() error) (res reflect.Va
 		// its init shims, which jump to JumpPos+1 (the next group's vars, or rest).
 		off := start - codeOffset
 		// main shim sits right after the compiled code so `rest` falls into it.
+		// Heal first: registered sentinel globals converge on the host values
+		// before user code runs (see vm.healSentinels).
+		i.PushCode(vm.Instruction{Op: vm.HealSentinels})
 		emitCall("main")
 		i.PushCode(vm.Instruction{Op: vm.Exit})
 		initIdx := initsBefore
@@ -188,6 +191,9 @@ func (i *Interp) evalCompiled(name string, compile func() error) (res reflect.Va
 				emitCall(i.InitFuncs[initIdx])
 				initIdx++
 			}
+			// Per-group heal, so a later group's `var x = fs.SkipDir` copies the
+			// host value, not the pre-heal interpreted one.
+			i.PushCode(vm.Instruction{Op: vm.HealSentinels})
 			i.PatchJump(i.PushCode(vm.Instruction{Op: vm.Jump}), g.JumpPos+1+off)
 			i.PatchJump(g.JumpPos+off, lInit)
 		}
@@ -195,6 +201,7 @@ func (i *Interp) evalCompiled(name string, compile func() error) (res reflect.Va
 		for _, fn := range i.InitFuncs[initsBefore:] {
 			emitCall(fn)
 		}
+		i.PushCode(vm.Instruction{Op: vm.HealSentinels})
 		emitCall("main")
 		i.PushCode(vm.Instruction{Op: vm.Exit})
 	}
@@ -293,7 +300,7 @@ func FormatStats(i *Interp) string {
 // Idempotent per name so a package compiled in a later Eval still registers.
 func (i *Interp) configureSentinels() {
 	i.registerSentinel("io", "io.EOF", "EOF")
-	for _, n := range []string{"ErrNotExist", "ErrExist", "ErrPermission", "ErrClosed", "ErrInvalid"} {
+	for _, n := range []string{"ErrNotExist", "ErrExist", "ErrPermission", "ErrClosed", "ErrInvalid", "SkipDir", "SkipAll"} {
 		i.registerSentinel("io/fs", "fs."+n, n)
 	}
 }

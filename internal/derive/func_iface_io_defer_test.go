@@ -1,6 +1,7 @@
 package derive
 
 import (
+	iofs "io/fs"
 	"reflect"
 	"testing"
 
@@ -69,5 +70,43 @@ func TestFuncIfaceResultDeferredSynth(t *testing.T) {
 	}
 	if pendingFinalize.has(srv) {
 		t.Fatal("Srv should no longer be pending after the func field synths")
+	}
+}
+
+// nativeIdentityFor must reject a same-named type from another package (import
+// path) and an interface skew that keeps the method count (names), else a user
+// `package fs` adopts the host io/fs rtype and native methods shadow its own.
+func TestNativeIdentityForGuards(t *testing.T) {
+	fmRt := reflect.TypeFor[iofs.FileMode]()
+	RegisterNativeIdentity("fs.FileMode", fmRt)
+	mode := func(importPath string) *mtype.Type {
+		u := mtype.SymBasic(reflect.Uint32)
+		u.Name = "FileMode"
+		u.PkgName = "fs"
+		u.ImportPath = importPath
+		return u
+	}
+	if got := nativeIdentityFor(mode("io/fs")); got != fmRt {
+		t.Errorf("mirror FileMode: got %v, want host identity", got)
+	}
+	if got := nativeIdentityFor(mode("example.com/user/fs")); got != nil {
+		t.Errorf("user fs.FileMode adopted host identity %v", got)
+	}
+
+	fsRt := reflect.TypeFor[iofs.FS]()
+	RegisterNativeIdentity("fs.FS", fsRt)
+	iface := func(method string) *mtype.Type {
+		it := mtype.SymBasic(reflect.Interface)
+		it.Name = "FS"
+		it.PkgName = "fs"
+		it.ImportPath = "io/fs"
+		it.IfaceMethods = []mtype.IfaceMethod{{Name: method}}
+		return it
+	}
+	if got := nativeIdentityFor(iface("Open")); got != fsRt {
+		t.Errorf("mirror FS: got %v, want host identity", got)
+	}
+	if got := nativeIdentityFor(iface("Root")); got != nil {
+		t.Errorf("same-count wrong-name interface adopted host identity %v", got)
 	}
 }

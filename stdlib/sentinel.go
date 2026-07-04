@@ -13,7 +13,20 @@ import (
 // syscall.Errno.Is(fs.ErrNotExist) succeed. Lives here, not in vm: it is
 // stub-specific. errorIface is declared in synth_method_shapes.go (same package).
 func init() {
-	vm.RegisterSentinelHooks(canonNativeReturns, mapInterpSentinel)
+	vm.RegisterSentinelHooks(mapInterpSentinel, hostSentinelValue)
+}
+
+// hostSentinelValue returns name's host sentinel as an error-typed value.
+// The vm's healSentinels sweep overwrites the interpreted global with it after
+// the var-inits, so both copies are one pointer everywhere.
+func hostSentinelValue(name string) (reflect.Value, bool) {
+	native, ok := nativeSentinels[name]
+	if !ok {
+		return reflect.Value{}, false
+	}
+	rv := reflect.New(errorIface).Elem()
+	rv.Set(reflect.ValueOf(native))
+	return rv, true
 }
 
 // nativeSentinels pairs each interpreted sentinel's registered name (see
@@ -25,32 +38,16 @@ var nativeSentinels = map[string]any{
 	"fs.ErrPermission": fs.ErrPermission,
 	"fs.ErrClosed":     fs.ErrClosed,
 	"fs.ErrInvalid":    fs.ErrInvalid,
-}
-
-// canonNativeReturns rewrites a returned host sentinel to its interpreted copy so
-// an interpreted `err == io.EOF` / `err == fs.ErrNotExist` succeeds.
-func canonNativeReturns(m *vm.Machine, out []reflect.Value) {
-	for i, v := range out {
-		if v.Kind() != reflect.Interface || v.IsNil() {
-			continue
-		}
-		iv := v.Interface()
-		for name, native := range nativeSentinels {
-			if iv != native {
-				continue
-			}
-			if s := m.InterpSentinelValue(name); s.IsValid() {
-				out[i] = s.Reflect()
-			}
-			break
-		}
-	}
+	"fs.SkipDir":       fs.SkipDir,
+	"fs.SkipAll":       fs.SkipAll,
 }
 
 // mapInterpSentinel maps an interpreted sentinel to its host value for a native
-// sink (io.Copy) or a native-call arg (syscall.Errno.Is). It must run before
-// bridgeIface, which on wasm would wrap the synth value in a synthErrShim that
-// hides its identity.
+// sink (io.Copy) or a native-call arg (syscall.Errno.Is).
+// It must run before bridgeIface, which on wasm would wrap the synth value in a
+// synthErrShim that hides its identity.
+// After the healSentinels sweep the slots hold the host values, so this only
+// converts pre-heal escapes (a copy captured during package init).
 func mapInterpSentinel(m *vm.Machine, v vm.Value) (reflect.Value, bool) {
 	if m == nil || !v.IsValid() {
 		return reflect.Value{}, false

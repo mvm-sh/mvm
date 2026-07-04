@@ -19,9 +19,11 @@ func RegisterNativeIdentity(name string, rt reflect.Type) {
 }
 
 // nativeIdentityFor returns the registered host rtype for t, or nil.
-// Field count must match, else a stdlib version skew falls back to synth.
+// Import path, kind, and shape (field count, interface method names) must
+// match, so a same-named type from another package or a stdlib version skew
+// falls back to synth.
 func nativeIdentityFor(t *mtype.Type) reflect.Type {
-	if t.Name == "" || t.Kind() != reflect.Struct {
+	if t.Name == "" {
 		return nil
 	}
 	v, ok := nativeIdentityTypes.Load(QualifiedTypeName(t))
@@ -29,8 +31,23 @@ func nativeIdentityFor(t *mtype.Type) reflect.Type {
 		return nil
 	}
 	rt := v.(reflect.Type)
-	if rt.Kind() != reflect.Struct || rt.NumField() != len(t.Fields) {
+	if rt.Kind() != t.Kind() || rt.PkgPath() != RtypePkgPath(t) {
 		return nil
+	}
+	switch rt.Kind() {
+	case reflect.Struct:
+		if rt.NumField() != len(t.Fields) {
+			return nil
+		}
+	case reflect.Interface:
+		if rt.NumMethod() != len(t.IfaceMethods) {
+			return nil
+		}
+		for i := range t.IfaceMethods {
+			if _, ok := rt.MethodByName(t.IfaceMethods[i].Name); !ok {
+				return nil
+			}
+		}
 	}
 	return rt
 }

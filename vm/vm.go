@@ -53,87 +53,88 @@ type SelectMeta struct {
 // Byte-code instruction set.
 const (
 	// Instruction effect on stack: values consumed -- values produced.
-	Nop          Op = iota // --
-	Addr                   // a -- &a ;
-	AddrCell               // -- &cell ; push pointer into the cell at mem[fp-1+$1]'s stable storage
-	AddrGlobal             // -- &global ; push pointer to globals[$1]
-	AddrHeap               // -- &cell ; AddrCell for the escaped cell heap[$1]
-	AddrLocal              // -- &local ; push pointer to mem[fp-1+$1]
-	Append                 // slice [v0..vn-1] -- slice' ; append $0 values to slice
-	AppendSlice            // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice
-	Call                   // f [a1 .. ai] -- [r1 .. rj] ; r1, ... = prog[f](a1, ...); B bit 15 = spread flag
-	CallImm                // [a1 .. ai] -- [r1 .. rj] ; $1=dataIdx of func, $2=narg<<16|nret
-	CallImmFast            // [a1 .. ai] -- [r1 .. rj] ; like CallImm
-	Cap                    // -- x ; x = cap(mem[sp-$0])
-	Clear                  // x -- ; clear(x): delete all map entries or zero all slice elements
-	Convert                // v -- v' ; v' = convert(v, type at mem[$1]); optional $2 = stack depth offset
-	CopySlice              // dst src -- n ; n = copy(dst, src)
-	DeferPush              // func [a0..an-1] -- func [a0..an-1] [packed prevHead retIP] ; register deferred call on stack
-	DeferRet               // -- ; sentinel: restore outer frame after a deferred call returns
-	DeleteMap              // map key -- ; delete(map, key)
-	Deref                  // x -- *x ;
-	DerefSet               // ptr val -- ; *ptr = val
-	Detach                 // -- ; copy the top $1 values that alias slot storage into fresh storage
-	Equal                  // n1 n2 -- cond ; cond = n1 == n2
-	EqualSet               // n1 n2 -- n1 cond ; cond = n1 == n2
-	Exit                   // -- ;
-	Field                  // s -- f ; f = s.FieldIndex($1, ...)
-	FieldFset              // s i v -- s; s.FieldIndex(i) = v
-	FieldRefSet            // fref v -- ; fref = v (via setFuncField)
-	FieldSet               // s d -- s ; s.FieldIndex($1, ...) = d
-	Fnew                   // -- x; x = new mem[$1]
-	FnewE                  // -- x; x = new mem[$1].Elem()
-	Get                    // addr -- value ; value = mem[addr]
-	Grow                   // -- ; sp += $1
-	HeapAlloc              // -- &cell ; cell = new(Value), push its pointer
-	HeapGet                // -- v    ; v = *State.Heap[$1]
-	HeapPtr                // -- &cell ; push State.Heap[$1] itself (transitive capture)
-	HeapSet                // v --    ; *State.Heap[$1] = v
-	CellGet                // -- v    ; cell = mem[fp-1+$1].(*Value); push *cell
-	CellSet                // v --    ; cell = mem[fp-1+$1].(*Value); *cell = v
-	IfaceCall              // iface -- closure ; dynamic dispatch method $1 on iface
-	IfaceWrap              // v -- iface ; wrap v in Iface{type at $1, v}
-	Index                  // a i -- a[i] ;
-	IndexAddr              // a i -- &a[i] ; pointer to element
-	IndexSet               // a i v -- a; a[i] = v
-	Jump                   // -- ; ip += $1
-	JumpFalse              // cond -- ; if cond { ip += $1 }
-	JumpSetFalse           //
-	JumpSetTrue            //
-	JumpTrue               // cond -- ; if cond { ip += $1 }
-	Len                    // -- x; x = mem[sp-$1]
-	MapIndex               // a i -- a[i]
-	MapIndexOk             // a i -- v ok ; v, ok = a[i]
-	MapSet                 // a i v -- a; a[i] = v
-	MkClosure              // code [&c0..&cn-1] -- clo ; clo = Closure{code, heap}
-	MkMap                  // (size?) -- map ; create a map of the type at mem[$0]
-	MkSlice                // [v0..vn-1] -- slice ; collect $0 values into []T, elem type at mem[$1]
-	New                    // -- x; mem[fp+$1] = new mem[$2]
-	Next                   // -- ; iterator next, set K
-	Next0                  // -- ; iterator next, no variable
-	Next2                  // -- ; iterator next, set K V
-	Not                    // c -- r ; r = !c
-	Panic                  // v -- ; pop value, start stack unwinding
-	PanicUnwind            // -- ; sentinel: handle panic stack unwinding
-	Pop                    // v --
-	PtrNew                 // -- ptr ; ptr = new(T), type at mem[$0]
-	Pull                   // a -- a s n; pull iterator next and stop function
-	Pull2                  // a -- a s n; pull iterator next and stop function
-	Push                   // -- v
-	Recover                // -- v ; push recovered value (or nil if not panicking in a deferred call)
-	Return                 // [r1 .. ri] -- ; exit frame, nret and frameBase from frames
-	SetGlobal              // v -- ; mem[$1] = v (globals)
-	SetLocal               // v -- ; mem[fp-1+$1] = v
-	SetS                   // dest val -- ; dest.Set(val)
-	Slice                  // a l h -- a; a = a [l:h]
-	Slice3                 // a l h m -- a; a = a[l:h:m]
-	Stop                   // -- iterator stop; sp -= 3 + $1
-	Swap                   // --
-	Trap                   // -- ; pause VM execution and enter debug mode
-	TypeAssert             // iface -- v [ok] ; assert iface holds type at mem[$1]
-	TypeBranch             // iface -- ; pop iface; if iface doesn't hold type at mem[$2], ip += $1
-	WrapFunc               // mvmFuncVal -- MvmFunc ; wrap mvm func in reflect.MakeFunc for native callbacks
-	MkMethodExpr           // -- f ; push func value for interpreted method expression T.M
+	Nop           Op = iota // --
+	Addr                    // a -- &a ;
+	AddrCell                // -- &cell ; push pointer into the cell at mem[fp-1+$1]'s stable storage
+	AddrGlobal              // -- &global ; push pointer to globals[$1]
+	AddrHeap                // -- &cell ; AddrCell for the escaped cell heap[$1]
+	AddrLocal               // -- &local ; push pointer to mem[fp-1+$1]
+	Append                  // slice [v0..vn-1] -- slice' ; append $0 values to slice
+	AppendSlice             // slice [v0..vn-1] -- slice' ; pack $0 values into []T, reflect.AppendSlice
+	Call                    // f [a1 .. ai] -- [r1 .. rj] ; r1, ... = prog[f](a1, ...); B bit 15 = spread flag
+	CallImm                 // [a1 .. ai] -- [r1 .. rj] ; $1=dataIdx of func, $2=narg<<16|nret
+	CallImmFast             // [a1 .. ai] -- [r1 .. rj] ; like CallImm
+	Cap                     // -- x ; x = cap(mem[sp-$0])
+	Clear                   // x -- ; clear(x): delete all map entries or zero all slice elements
+	Convert                 // v -- v' ; v' = convert(v, type at mem[$1]); optional $2 = stack depth offset
+	CopySlice               // dst src -- n ; n = copy(dst, src)
+	DeferPush               // func [a0..an-1] -- func [a0..an-1] [packed prevHead retIP] ; register deferred call on stack
+	DeferRet                // -- ; sentinel: restore outer frame after a deferred call returns
+	DeleteMap               // map key -- ; delete(map, key)
+	Deref                   // x -- *x ;
+	DerefSet                // ptr val -- ; *ptr = val
+	Detach                  // -- ; copy the top $1 values that alias slot storage into fresh storage
+	Equal                   // n1 n2 -- cond ; cond = n1 == n2
+	EqualSet                // n1 n2 -- n1 cond ; cond = n1 == n2
+	Exit                    // -- ;
+	Field                   // s -- f ; f = s.FieldIndex($1, ...)
+	FieldFset               // s i v -- s; s.FieldIndex(i) = v
+	FieldRefSet             // fref v -- ; fref = v (via setFuncField)
+	FieldSet                // s d -- s ; s.FieldIndex($1, ...) = d
+	Fnew                    // -- x; x = new mem[$1]
+	FnewE                   // -- x; x = new mem[$1].Elem()
+	Get                     // addr -- value ; value = mem[addr]
+	Grow                    // -- ; sp += $1
+	HealSentinels           // -- ; converge registered sentinel globals on their host values
+	HeapAlloc               // -- &cell ; cell = new(Value), push its pointer
+	HeapGet                 // -- v    ; v = *State.Heap[$1]
+	HeapPtr                 // -- &cell ; push State.Heap[$1] itself (transitive capture)
+	HeapSet                 // v --    ; *State.Heap[$1] = v
+	CellGet                 // -- v    ; cell = mem[fp-1+$1].(*Value); push *cell
+	CellSet                 // v --    ; cell = mem[fp-1+$1].(*Value); *cell = v
+	IfaceCall               // iface -- closure ; dynamic dispatch method $1 on iface
+	IfaceWrap               // v -- iface ; wrap v in Iface{type at $1, v}
+	Index                   // a i -- a[i] ;
+	IndexAddr               // a i -- &a[i] ; pointer to element
+	IndexSet                // a i v -- a; a[i] = v
+	Jump                    // -- ; ip += $1
+	JumpFalse               // cond -- ; if cond { ip += $1 }
+	JumpSetFalse            //
+	JumpSetTrue             //
+	JumpTrue                // cond -- ; if cond { ip += $1 }
+	Len                     // -- x; x = mem[sp-$1]
+	MapIndex                // a i -- a[i]
+	MapIndexOk              // a i -- v ok ; v, ok = a[i]
+	MapSet                  // a i v -- a; a[i] = v
+	MkClosure               // code [&c0..&cn-1] -- clo ; clo = Closure{code, heap}
+	MkMap                   // (size?) -- map ; create a map of the type at mem[$0]
+	MkSlice                 // [v0..vn-1] -- slice ; collect $0 values into []T, elem type at mem[$1]
+	New                     // -- x; mem[fp+$1] = new mem[$2]
+	Next                    // -- ; iterator next, set K
+	Next0                   // -- ; iterator next, no variable
+	Next2                   // -- ; iterator next, set K V
+	Not                     // c -- r ; r = !c
+	Panic                   // v -- ; pop value, start stack unwinding
+	PanicUnwind             // -- ; sentinel: handle panic stack unwinding
+	Pop                     // v --
+	PtrNew                  // -- ptr ; ptr = new(T), type at mem[$0]
+	Pull                    // a -- a s n; pull iterator next and stop function
+	Pull2                   // a -- a s n; pull iterator next and stop function
+	Push                    // -- v
+	Recover                 // -- v ; push recovered value (or nil if not panicking in a deferred call)
+	Return                  // [r1 .. ri] -- ; exit frame, nret and frameBase from frames
+	SetGlobal               // v -- ; mem[$1] = v (globals)
+	SetLocal                // v -- ; mem[fp-1+$1] = v
+	SetS                    // dest val -- ; dest.Set(val)
+	Slice                   // a l h -- a; a = a [l:h]
+	Slice3                  // a l h m -- a; a = a[l:h:m]
+	Stop                    // -- iterator stop; sp -= 3 + $1
+	Swap                    // --
+	Trap                    // -- ; pause VM execution and enter debug mode
+	TypeAssert              // iface -- v [ok] ; assert iface holds type at mem[$1]
+	TypeBranch              // iface -- ; pop iface; if iface doesn't hold type at mem[$2], ip += $1
+	WrapFunc                // mvmFuncVal -- MvmFunc ; wrap mvm func in reflect.MakeFunc for native callbacks
+	MkMethodExpr            // -- f ; push func value for interpreted method expression T.M
 
 	// Goroutine and channel opcodes.
 	GoCall     // f [a1..ai] -- ; spawn goroutine; $0=narg
@@ -1218,6 +1219,8 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 		case SetLocal:
 			m.assignSlot(&mem[fp-1+int(c.A)], mem[sp])
 			sp--
+		case HealSentinels:
+			m.healSentinels()
 		case Detach:
 			// A multi-assign RHS may alias an LHS variable's storage (a callee
 			// returning its param shares the caller's slot); assignSlot's in-place
@@ -4852,9 +4855,6 @@ func (m *Machine) invokeNative(hook NativeMethodHook, hookRecv, rv reflect.Value
 	defer func() {
 		r := recover()
 		if r == nil {
-			if m.sentinels != nil && sentinelCanonReturns != nil {
-				sentinelCanonReturns(m, out)
-			}
 			return
 		}
 		// An mvm panic that escaped a nested re-entrant Run via a native callback:

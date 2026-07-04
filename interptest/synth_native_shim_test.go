@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"reflect"
 	"strings"
@@ -161,8 +162,9 @@ func main() {
 
 // An interpreted oserror sentinel (io/fs.ErrNotExist == oserror.ErrNotExist)
 // must reconcile with the host value in both directions: bridgeArgs maps a bare
-// sentinel arg to native (a nested one is left alone), and canonNativeReturns
-// maps a host sentinel returned by a native call back to the interpreted copy.
+// sentinel arg to native (a nested one is left alone), and the healSentinels
+// sweep makes a host sentinel returned by a native call compare equal to the
+// interpreted var.
 // TestSynth* runs on the wasm CI.
 func TestSynthOserrorSentinelArg(t *testing.T) {
 	const src = `package main
@@ -381,5 +383,101 @@ func main() {
 	want := "got=\"hello, world\" err=<nil>\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q\nstderr: %s", stdout.String(), want, stderr.String())
+	}
+}
+
+// Native os concretes (*os.fileStat, os.dirFS) must satisfy the interpreted
+// io/fs mirror's interfaces: fs.FileMode and the fs interfaces reuse the host
+// rtypes (RegisterNativeIdentity), else Implements fails on the shadow
+// identities (Convert panic in FileInfoToDirEntry, failed ReadDirFS asserts).
+// The anon-struct field init covers synthIfaceFieldDeferred treating a
+// native-identity iface field as resolved (wasm shared-carrier path).
+// TestSynth* runs on the wasm CI.
+func TestSynthNativeIdentityFsIface(t *testing.T) {
+	const src = `package main
+
+import (
+	"fmt"
+	"io/fs"
+	"nat"
+)
+
+var tests = []struct {
+	fsys    fs.FS
+	pattern string
+}{
+	{nat.Dir(), "*"},
+}
+
+func main() {
+	de := fs.FileInfoToDirEntry(nat.Stat())
+	fmt.Println(de.Name() != "", de.IsDir())
+	des, err := fs.ReadDir(tests[0].fsys, ".")
+	fmt.Println(len(des) > 0, err)
+	m, err := fs.Glob(tests[0].fsys, tests[0].pattern)
+	fmt.Println(len(m) > 0, err)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io", "io/fs", "errors") // force-interpret so the split exists on native
+	i.ImportPackageValues(map[string]map[string]reflect.Value{
+		"nat": {
+			"Stat": reflect.ValueOf(func() fs.FileInfo {
+				info, err := os.Stat(".")
+				if err != nil {
+					panic(err)
+				}
+				return info
+			}),
+			"Dir": reflect.ValueOf(func() fs.FS { return os.DirFS(".") }),
+		},
+	})
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("fsident_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true true\ntrue <nil>\ntrue <nil>\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
+	}
+}
+
+// The interpreted fs.SkipDir (a fresh errors.New) must be identical to the host
+// one read from the BRIDGED filepath.SkipDir global, a crossing no call-boundary hook sees.
+// The healSentinels sweep converges the var on the host value after package init, one-shot so a deliberate reassignment sticks.
+// io/fs TestIssue51617 under MVM_INTERP=io/fs is the suite-level trigger.
+// TestSynth* runs on the wasm CI.
+func TestSynthSentinelBridgedGlobalIdentity(t *testing.T) {
+	const src = `package main
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+)
+
+func main() {
+	fmt.Println(fs.SkipDir == filepath.SkipDir, fs.SkipAll == filepath.SkipAll)
+	old := fs.SkipDir
+	fs.SkipDir = errors.New("custom")
+	fmt.Println(fs.SkipDir == filepath.SkipDir, fs.SkipDir == old)
+}
+`
+	var stdout, stderr bytes.Buffer
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.ImportPackageConsts(stdlib.ConstValues)
+	i.SkipBridges("io", "io/fs", "errors") // force-interpret so the split exists on native
+	i.SetIO(os.Stdin, &stdout, &stderr)
+
+	if _, err := i.Eval("skipdir_test.go", src); err != nil {
+		t.Fatalf("Eval: %v\nstderr: %s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "true true\nfalse false\n"; got != want {
+		t.Errorf("stdout = %q, want %q\nstderr: %s", got, want, stderr.String())
 	}
 }

@@ -24,6 +24,9 @@ import (
 // may pass unmaterialized signatures (materializeFuncIO) holds it, while callers
 // off the lock (bridgePtrToIface) pre-materialize first, taking the atomic path.
 func SynthIfaceRtype(t *mtype.Type) reflect.Type {
+	if rt := nativeIdentityFor(t); rt != nil {
+		return rt
+	}
 	derivedMu.Lock()
 	if st := synthIfaceCache[t]; st != nil {
 		derivedMu.Unlock()
