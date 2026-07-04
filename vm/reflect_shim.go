@@ -272,7 +272,7 @@ func callSynthMethodFunc(fn reflect.Value, in []reflect.Value, spread bool) ([]r
 	}
 	pc := fn.Pointer()
 	var name string
-	for mm := range recvT.Methods() {
+	for _, mm := range runtype.TypeMethods(recvT) {
 		if mm.Type == ft && mm.Func.Pointer() == pc {
 			name = mm.Name
 			break
@@ -281,7 +281,7 @@ func callSynthMethodFunc(fn reflect.Value, in []reflect.Value, spread bool) ([]r
 	if name == "" {
 		return nil, false
 	}
-	bound := in[0].MethodByName(name)
+	bound := runtype.ValueMethodByName(in[0], name)
 	if !bound.IsValid() {
 		return nil, false
 	}

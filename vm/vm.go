@@ -1918,7 +1918,7 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 					// Numeric value lost its named type (e.g. time.Duration stored as int64).
 					// Convert to the named type encoded in B-1 and retry the method lookup.
 					namedType := m.globals[int(recvHint)-1].ref.Type()
-					rv = recvRV.Convert(namedType).MethodByName(methodName)
+					rv = runtype.ValueMethodByName(recvRV.Convert(namedType), methodName)
 				}
 				if rv.IsValid() && recvRV.IsValid() &&
 					hasNativeMethodHook(recvRV.Type(), methodName) {
@@ -4065,10 +4065,10 @@ func nativeMethodLookup(m *Machine, rv reflect.Value, name string) reflect.Value
 	if shim := reflectTypeShim(m, rv, name); shim.IsValid() {
 		return shim
 	}
-	if mv := rv.MethodByName(name); mv.IsValid() {
+	if mv := runtype.ValueMethodByName(rv, name); mv.IsValid() {
 		return mv
 	}
-	return reflect.Indirect(rv).MethodByName(name)
+	return runtype.ValueMethodByName(reflect.Indirect(rv), name)
 }
 
 // isSynthOrSynthPtr reports a runtype-built rtype (or pointer to one).
@@ -4102,11 +4102,11 @@ func embeddedIfaceStub(rt reflect.Type, name string) bool {
 }
 
 func hasNativeMethod(rt reflect.Type, name string) bool {
-	if _, ok := rt.MethodByName(name); ok {
+	if runtype.TypeHasMethodByName(rt, name) {
 		return true
 	}
 	if rt.Kind() != reflect.Pointer {
-		if _, ok := reflect.PointerTo(rt).MethodByName(name); ok {
+		if runtype.TypeHasMethodByName(reflect.PointerTo(rt), name) {
 			return true
 		}
 	}

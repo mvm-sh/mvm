@@ -279,12 +279,19 @@ func CloneStructLayoutWithFields(src reflect.Type, fieldTypes map[int]reflect.Ty
 
 // SetFieldEmbedded sets field idx's embedded bit, which StructOf refuses on an unexported embed (anon+PkgPath).
 // rt MUST be a heap clone mvm owns: StructOf interns shapes, so editing a cached result corrupts every value of that shape.
-func SetFieldEmbedded(rt reflect.Type, idx int, name, tag string) {
+func SetFieldEmbedded(rt reflect.Type, idx int, name, tag string, exported bool) {
 	s := (*abiStructType)(unsafe.Pointer(rtypePtr(rt)))
 	if idx < 0 || idx >= len(s.Fields) {
 		return
 	}
-	s.Fields[idx].Name = encodeFieldName(name, tag, false, true)
+	s.Fields[idx].Name = encodeFieldName(name, tag, exported, true)
+}
+
+// HasMethods reports whether t's uncommon table declares any methods
+// (exported or not, value or pointer receiver), without building them.
+func HasMethods(t reflect.Type) bool {
+	u := uncommonOf(rtypePtr(t))
+	return u != nil && u.Mcount > 0
 }
 
 const abiStructTypeSize = unsafe.Sizeof(abiStructType{})

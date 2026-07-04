@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/scan"
@@ -295,8 +296,7 @@ func hasNativeMethod(rt reflect.Type, name string) bool {
 	if rt == nil {
 		return false
 	}
-	_, ok := rt.MethodByName(name)
-	return ok
+	return runtype.TypeHasMethodByName(rt, name)
 }
 
 func argRecvTypeNames(arg *mtype.Type) []string {
@@ -1009,7 +1009,7 @@ func (p *Parser) postfixType(in Tokens) (*mtype.Type, int) {
 		// Native/bridged method value (f.Readdir): bound func type from the
 		// rtype so callFuncType reads its return tuple for `a, b := f.M()`.
 		if leftTyp.Rtype != nil {
-			if m, ok := leftTyp.Rtype.MethodByName(fieldName); ok {
+			if m, ok := runtype.TypeMethodByName(leftTyp.Rtype, fieldName); ok {
 				if bound := boundMethodType(m.Type); bound != nil {
 					return &mtype.Type{Rtype: bound}, 1 + ln
 				}
@@ -1238,7 +1238,7 @@ func (p *Parser) postfixType(in Tokens) (*mtype.Type, int) {
 				// chain like sig.Params().Variables() types as iter.Seq[*Var] and a
 				// generic call (slices.Collect) can infer from it.
 				if recvTyp.Rtype != nil {
-					if m, ok := recvTyp.Rtype.MethodByName(member); ok && m.Type.NumOut() >= 1 {
+					if m, ok := runtype.TypeMethodByName(recvTyp.Rtype, member); ok && m.Type.NumOut() >= 1 {
 						return &mtype.Type{Rtype: m.Type.Out(0)}, totalLen
 					}
 				}

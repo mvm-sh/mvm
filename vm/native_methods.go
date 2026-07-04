@@ -1,6 +1,10 @@
 package vm
 
-import "reflect"
+import (
+	"reflect"
+
+	"github.com/mvm-sh/mvm/internal/runtype"
+)
 
 // Native method tables (ADR-023 phase 1): each native receiver type caches, per
 // global methodID, the unbound method func (reflect.Method.Func), called with
@@ -66,7 +70,7 @@ func resolveSimpleNative(rt reflect.Type, name string) (fn reflect.Value, needAd
 		isSynthOrSynthPtr(rt) || hasNativeMethodHook(rt, name) {
 		return reflect.Value{}, false, false
 	}
-	if mm, found := rt.MethodByName(name); found {
+	if mm, found := runtype.TypeMethodByName(rt, name); found {
 		if simpleParams(mm.Func.Type()) {
 			return mm.Func, false, true
 		}
@@ -77,7 +81,7 @@ func resolveSimpleNative(rt reflect.Type, name string) (fn reflect.Value, needAd
 		if hasNativeMethodHook(pt, name) {
 			return reflect.Value{}, false, false
 		}
-		if mm, found := pt.MethodByName(name); found && simpleParams(mm.Func.Type()) {
+		if mm, found := runtype.TypeMethodByName(pt, name); found && simpleParams(mm.Func.Type()) {
 			return mm.Func, true, true
 		}
 	}

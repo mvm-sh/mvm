@@ -19,6 +19,7 @@ import (
 
 	"github.com/mvm-sh/mvm/goparser"
 	"github.com/mvm-sh/mvm/internal/derive"
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/lang"
 	"github.com/mvm-sh/mvm/mtype"
 	"github.com/mvm-sh/mvm/symbol"
@@ -123,7 +124,7 @@ func NewCompiler(spec *lang.Spec) *Compiler {
 
 func ifaceMethodSig(ifaceTyp *mtype.Type, methodName string) reflect.Type {
 	if rt := derive.MaterializeRtype(ifaceTyp); rt != nil {
-		if rm, ok := rt.MethodByName(methodName); ok {
+		if rm, ok := runtype.TypeMethodByName(rt, methodName); ok {
 			return rm.Type
 		}
 		// MethodByName misses unexported interface methods; Method(i) finds them.
@@ -714,9 +715,9 @@ func embedMethodDepths(et *mtype.Type, names []string) map[string]int {
 	}
 	if rt := et.Rtype; rt != nil {
 		for _, r := range [2]reflect.Type{rt, reflect.PointerTo(rt)} {
-			for meth := range r.Methods() {
-				if _, ok := out[meth.Name]; !ok {
-					out[meth.Name] = 1
+			for _, name := range runtype.TypeMethodNames(r) {
+				if _, ok := out[name]; !ok {
+					out[name] = 1
 				}
 			}
 		}
@@ -990,7 +991,7 @@ func embedMethodDepth(et *mtype.Type, id int, name string) (int, bool) {
 	}
 	if rt := et.Rtype; rt != nil {
 		for _, r := range [2]reflect.Type{rt, reflect.PointerTo(rt)} {
-			if _, ok := r.MethodByName(name); ok {
+			if runtype.TypeHasMethodByName(r, name) {
 				return 1, true
 			}
 		}
@@ -1043,10 +1044,10 @@ func findEmbeddedMethod(typ *mtype.Type, rtype reflect.Type, name string, id int
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
-	if rm, ok := rt.MethodByName(name); ok {
+	if rm, ok := runtype.TypeMethodByName(rt, name); ok {
 		return rm, fieldPath, false
 	}
-	if rm, ok := reflect.PointerTo(rt).MethodByName(name); ok {
+	if rm, ok := runtype.TypeMethodByName(reflect.PointerTo(rt), name); ok {
 		return rm, fieldPath, embRtype.Kind() != reflect.Pointer
 	}
 	// reflect.StructOf synth types don't promote struct-embed methods, so drill into the winning embed to build the full path.
@@ -3249,7 +3250,7 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 				// calls and as a stored/passed value via Call's native-func path.
 				if s.Kind == symbol.Type && !s.Composite {
 					mname := t.Str[1:]
-					if mfunc, ok := c.rtype(s.Type).MethodByName(mname); ok {
+					if mfunc, ok := runtype.TypeMethodByName(c.rtype(s.Type), mname); ok {
 						if !s.NoFnew {
 							c.removeFnew(s.Index)
 						}
@@ -3313,10 +3314,10 @@ func (c *Compiler) generate(tokens goparser.Tokens) (err error) {
 					// Unmaterialized receiver (e.g. forward-declared field): located error, not a nil deref.
 					return c.errUndef(t, methodName)
 				}
-				rm, ok := rtype.MethodByName(methodName)
+				rm, ok := runtype.TypeMethodByName(rtype, methodName)
 				needAddr := false
 				if !ok && rtype.Kind() != reflect.Pointer {
-					rm, ok = reflect.PointerTo(rtype).MethodByName(methodName)
+					rm, ok = runtype.TypeMethodByName(reflect.PointerTo(rtype), methodName)
 					needAddr = true
 				}
 				// reflect.StructOf does not promote methods from embedded fields.

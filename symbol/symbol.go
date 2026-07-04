@@ -363,8 +363,8 @@ func (sm SymMap) MethodByName(sym *Symbol, name string, seg SegIndex) (*Symbol, 
 				// preempt the qualified lookup -- the synth wrapper would mutate
 				// a boxed copy of the receiver, losing ptr-recv write-backs.
 				if !runtype.IsSynth(ptype) {
-					_, nativeVal = rt.MethodByName(name)
-					_, nativePtr = reflect.PointerTo(ptype).MethodByName(name)
+					nativeVal = runtype.TypeHasMethodByName(rt, name)
+					nativePtr = runtype.TypeHasMethodByName(reflect.PointerTo(ptype), name)
 				}
 			}
 			if !nativeVal && !nativePtr {

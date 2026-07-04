@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/mvm-sh/mvm/internal/runtype"
 	"github.com/mvm-sh/mvm/vm"
 )
 
@@ -25,7 +26,7 @@ var debugTB = os.Getenv("MVM_DEBUG_TB")
 
 func tbName(recv reflect.Value) string {
 	defer func() { _ = recover() }()
-	if m := recv.MethodByName("Name"); m.IsValid() {
+	if m := runtype.ValueMethodByName(recv, "Name"); m.IsValid() {
 		return m.Call(nil)[0].String()
 	}
 	return "?"
@@ -129,7 +130,7 @@ func (mh tbMethods) writeLine(m *vm.Machine, recv reflect.Value, msg string) {
 }
 
 func methodIndex(t reflect.Type, name string) int {
-	m, ok := t.MethodByName(name)
+	m, ok := runtype.TypeMethodByName(t, name)
 	if !ok {
 		return -1
 	}

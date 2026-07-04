@@ -16,6 +16,22 @@ import (
 //go:noescape
 func addReflectOff(ptr unsafe.Pointer) int32
 
+// The resolve*Off trio mirrors reflect's declarations; the runtime implements
+// and push-linknames them (runtime1.go reflect_resolve*Off), so pulling them
+// here needs no -checklinkname=0.
+
+//go:linkname resolveNameOff reflect.resolveNameOff
+//go:noescape
+func resolveNameOff(ptrInModule unsafe.Pointer, off int32) unsafe.Pointer
+
+//go:linkname resolveTypeOff reflect.resolveTypeOff
+//go:noescape
+func resolveTypeOff(rtype unsafe.Pointer, off int32) unsafe.Pointer
+
+//go:linkname resolveTextOff reflect.resolveTextOff
+//go:noescape
+func resolveTextOff(rtype unsafe.Pointer, off int32) unsafe.Pointer
+
 // rtypePtr extracts the *abiType from a reflect.Type interface value.
 // reflect.Type's interface header is (itab, data); the data word is the *rtype.
 //

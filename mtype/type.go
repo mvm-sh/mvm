@@ -473,7 +473,7 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 	}
 	hasRecv := rt.Kind() != reflect.Interface
 	for _, im := range t.IfaceMethods {
-		m, ok := rt.MethodByName(im.Name)
+		m, ok := runtype.TypeMethodByName(rt, im.Name)
 		if !ok {
 			return im.Name
 		}
@@ -484,7 +484,7 @@ func (t *Type) MissingMethod(rt reflect.Type) string {
 	}
 	// Fallback: check methods declared on Rtype (for purely native interfaces).
 	for m := range t.Rtype.Methods() {
-		if _, ok := rt.MethodByName(m.Name); !ok {
+		if !runtype.TypeHasMethodByName(rt, m.Name) {
 			return m.Name
 		}
 	}
@@ -961,8 +961,57 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			rf[i].Anonymous = embSet[i]
 		}
 	}
+	// See structof_wasm.go: StructOf must not see a method-bearing anonymous
+	// field on wasm (every promoted method registers a code PC). Demote those
+	// embeds (with their canonical type back in place of any methodless
+	// stand-in) and re-flag the embedded bit post-build. A demoted interface
+	// embed's method set is re-attached dispatchless (Ifn/Tfn=-1, a constant,
+	// never in reflectOffs) so native Implements still holds
+	// (io TestNopCloserWriterToForwarding); dispatch stays interpreted.
+	var demoted []int
+	var ifaceSpecs []runtype.MethodSpec
+	if demoteMethodEmbeds {
+		nameCount := map[string]int{}
+		for i := range rf {
+			t := rf[i].Type
+			if !rf[i].Anonymous || t == nil {
+				continue
+			}
+			if t.Kind() == reflect.Interface {
+				if t.NumMethod() == 0 {
+					continue
+				}
+			} else if !runtype.HasMethods(t) {
+				continue
+			}
+			if orig, ok := restore[i]; ok {
+				rf[i].Type = orig
+				delete(restore, i)
+			}
+			rf[i].Anonymous = false
+			demoted = append(demoted, i)
+			if t.Kind() == reflect.Interface {
+				for j := range t.NumMethod() {
+					m := t.Method(j)
+					nameCount[m.Name]++
+					ifaceSpecs = append(ifaceSpecs, runtype.MethodSpec{
+						Name: m.Name, Exported: m.PkgPath == "", PkgPath: m.PkgPath, Sig: m.Type,
+					})
+				}
+			}
+		}
+		// Ambiguous promotions (same name from two embeds) leave the method set,
+		// matching Go's promotion rules.
+		kept := ifaceSpecs[:0]
+		for _, s := range ifaceSpecs {
+			if nameCount[s.Name] == 1 {
+				kept = append(kept, s)
+			}
+		}
+		ifaceSpecs = kept
+	}
 	if rt, ok := tryStructOf(rf); ok {
-		return applyEmbedFix(rt, rf, restore, embedFix)
+		return attachDispatchless(applyEmbedFix(rt, rf, restore, embedFix, demoted), ifaceSpecs)
 	}
 	// mvm promotes embedded methods itself, so retry with the embeds demoted to named fields.
 	// A non-anonymous field never trips StructOf's promotion check, so the demoted embeds
@@ -974,18 +1023,41 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 		}
 	}
 	// restore already baked into rf above, so the clone only re-flags the embeds.
-	return applyEmbedFix(reflect.StructOf(rf), rf, nil, embedFix)
+	return attachDispatchless(applyEmbedFix(reflect.StructOf(rf), rf, nil, embedFix, demoted), ifaceSpecs)
+}
+
+// attachDispatchless rebuilds rt as a synth carrying specs with the -1
+// dispatch sentinel, restoring the native method set of wasm-demoted
+// interface embeds for Implements/assignability.
+func attachDispatchless(rt reflect.Type, specs []runtype.MethodSpec) reflect.Type {
+	if len(specs) == 0 {
+		return rt
+	}
+	res, err := runtype.ReserveMethods(rt, rt.String(), "")
+	if err != nil {
+		return rt
+	}
+	if res.Fill(specs) != nil {
+		return rt
+	}
+	return res.Type()
 }
 
 // applyEmbedFix repoints restore fields and flips the embedded bit on unexported
-// embeds. Clones first: SetFieldEmbedded must not touch the interned StructOf result.
-func applyEmbedFix(rt reflect.Type, rf []reflect.StructField, restore map[int]reflect.Type, embedFix []int) reflect.Type {
-	if len(restore) == 0 && len(embedFix) == 0 {
+// embeds and wasm-demoted embeds. Clones first: SetFieldEmbedded must not touch
+// the interned StructOf result.
+func applyEmbedFix(rt reflect.Type, rf []reflect.StructField, restore map[int]reflect.Type, embedFix, demoted []int) reflect.Type {
+	if len(restore) == 0 && len(embedFix) == 0 && len(demoted) == 0 {
 		return rt
 	}
 	rt = runtype.CloneStructLayoutWithFields(rt, restore)
 	for _, i := range embedFix {
-		runtype.SetFieldEmbedded(rt, i, rf[i].Name, string(rf[i].Tag))
+		runtype.SetFieldEmbedded(rt, i, rf[i].Name, string(rf[i].Tag), false)
+	}
+	for _, i := range demoted {
+		name := rf[i].Name
+		exported := name != "" && unicode.IsUpper(rune(name[0]))
+		runtype.SetFieldEmbedded(rt, i, name, string(rf[i].Tag), exported)
 	}
 	return rt
 }
