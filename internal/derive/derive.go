@@ -626,6 +626,14 @@ func reserveDefinedOverBase(t *mtype.Type, base reflect.Type) reflect.Type {
 	if t.Name != "" && hasReservableMethods(t) {
 		return reserveValueAndPtr(t, base)
 	}
+	// maybeReserve skips structs; a methodless defined struct over a native base
+	// (type t time.Time) must not collapse to the base's identity.
+	if base.Kind() == reflect.Struct {
+		if t.Defined && t.Name != "" && t.PkgName != "" {
+			return reserveNamedCarrier(t, base)
+		}
+		return base
+	}
 	return maybeReserve(t, base)
 }
 

@@ -1351,7 +1351,8 @@ func (p *Parser) parseTypeLine(in Tokens) (out Tokens, err error) {
 			nt.CaptureKind()
 			nt.Rtype = nil
 		}
-		if nt.PkgName == "" {
+		// The clone inherits typ's package (type t time.Time); a defined type belongs to the declaring one.
+		if p.pkgName != "" {
 			nt.PkgName = p.pkgName
 			nt.ImportPath = p.importingPkg
 		}

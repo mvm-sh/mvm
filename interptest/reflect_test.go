@@ -566,6 +566,37 @@ func main() {
 	}
 }
 
+// A type defined over a native struct must own its identity and the declaring package.
+// Methodless collapsed to the base rtype; method-bearing inherited the base's pkg.
+// Regression for database/sql/driver TestValueConverters ("unsupported type driver.t, a struct").
+func TestSynthDefinedOverNativeStruct(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"reflect"
+	"time"
+)
+
+type t time.Time
+
+func (x t) M() {}
+
+type u time.Time
+
+func main() {
+	fmt.Println(reflect.TypeOf(any(t(time.Now()))))
+	fmt.Println(reflect.TypeOf(any(u(time.Now()))))
+	var z u
+	fmt.Println(reflect.TypeOf(any(z)))
+}
+`
+	want := "main.t\nmain.u\nmain.u\n"
+	if got := evalOut(t, "defined_over_native_struct.go", src); got != want {
+		t.Errorf("stdout: got %q, want %q", got, want)
+	}
+}
+
 // A re-compiled recursive methodless struct must converge on one rtype (sharedPlainStructs): reflect cannot even compare two identities of it (the wasm io/fs stack exhaustion).
 func TestRecursiveStructRtypeStableAcrossCompiles(t *testing.T) {
 	node := func(decl string) reflect.Type {
