@@ -15,6 +15,14 @@ import (
 // Method from the abi tables with the PC in an unscanned uintptr cell.
 // On native they defer to stock reflect.
 
+// The abi walk is wired in only by method_lookup_wasm.go; natively it is
+// compiled for the regression tests comparing it against stock reflect.
+// Anchor the roots so the native lint pass does not flag the family unused.
+var _ = []any{
+	typeMethodByNameABI, typeMethodABI, typeMethodsABI,
+	typeMethodNamesABI, typeHasMethodByNameABI, bindABIMethod,
+}
+
 // uncommonOf returns t's UncommonType, mirroring internal/abi.(*Type).Uncommon.
 func uncommonOf(t *abiType) *abiUncommon {
 	if t.TFlag&tflagUncommon == 0 {
@@ -81,12 +89,12 @@ func nameOffString(base *abiType, off uint32) string {
 func methodTypeWithRecv(recv reflect.Type, sig reflect.Type) reflect.Type {
 	in := make([]reflect.Type, 0, 1+sig.NumIn())
 	in = append(in, recv)
-	for i := range sig.NumIn() {
-		in = append(in, sig.In(i))
+	for t := range sig.Ins() {
+		in = append(in, t)
 	}
 	out := make([]reflect.Type, 0, sig.NumOut())
-	for i := range sig.NumOut() {
-		out = append(out, sig.Out(i))
+	for t := range sig.Outs() {
+		out = append(out, t)
 	}
 	return reflect.FuncOf(in, out, sig.IsVariadic())
 }
@@ -107,28 +115,43 @@ func forgeFuncValue(mt reflect.Type, pc uintptr) reflect.Value {
 	return out
 }
 
+// methodFromABI builds the reflect.Method for t's i'th exported abi method,
+// forged-Func like the lookups.
+func methodFromABI(t reflect.Type, at *abiType, i int, m abiMethod) (reflect.Method, bool) {
+	mtyp := (*abiType)(resolveTypeOff(unsafe.Pointer(at), int32(m.Mtyp)))
+	if mtyp == nil {
+		return reflect.Method{}, false
+	}
+	mt := methodTypeWithRecv(t, asReflectType(mtyp))
+	pc := uintptr(resolveTextOff(unsafe.Pointer(at), int32(m.Tfn)))
+	return reflect.Method{
+		Name:  nameOffString(at, m.Name),
+		Type:  mt,
+		Func:  forgeFuncValue(mt, pc),
+		Index: i,
+	}, true
+}
+
 // typeMethodByNameABI is the wasm-safe MethodByName over the abi tables.
 // Interface types never reach here (their Methods carry no Func).
 func typeMethodByNameABI(t reflect.Type, name string) (reflect.Method, bool) {
 	at := rtypePtr(t)
 	for i, m := range exportedMethodsOf(at) {
-		if nameOffString(at, m.Name) != name {
-			continue
+		if nameOffString(at, m.Name) == name {
+			return methodFromABI(t, at, i, m)
 		}
-		mtyp := (*abiType)(resolveTypeOff(unsafe.Pointer(at), int32(m.Mtyp)))
-		if mtyp == nil {
-			return reflect.Method{}, false
-		}
-		mt := methodTypeWithRecv(t, asReflectType(mtyp))
-		pc := uintptr(resolveTextOff(unsafe.Pointer(at), int32(m.Tfn)))
-		return reflect.Method{
-			Name:  name,
-			Type:  mt,
-			Func:  forgeFuncValue(mt, pc),
-			Index: i,
-		}, true
 	}
 	return reflect.Method{}, false
+}
+
+// typeMethodABI builds the i'th exported Method (Value.Method's index space).
+func typeMethodABI(t reflect.Type, i int) (reflect.Method, bool) {
+	at := rtypePtr(t)
+	ms := exportedMethodsOf(at)
+	if i < 0 || i >= len(ms) {
+		return reflect.Method{}, false
+	}
+	return methodFromABI(t, at, i, ms[i])
 }
 
 // typeHasMethodByNameABI reports the method's presence without building it.
@@ -157,20 +180,38 @@ func typeMethodsABI(t reflect.Type) []reflect.Method {
 	ms := exportedMethodsOf(at)
 	out := make([]reflect.Method, 0, len(ms))
 	for i, m := range ms {
-		mtyp := (*abiType)(resolveTypeOff(unsafe.Pointer(at), int32(m.Mtyp)))
-		if mtyp == nil {
-			continue
+		if rm, ok := methodFromABI(t, at, i, m); ok {
+			out = append(out, rm)
 		}
-		mt := methodTypeWithRecv(t, asReflectType(mtyp))
-		pc := uintptr(resolveTextOff(unsafe.Pointer(at), int32(m.Tfn)))
-		out = append(out, reflect.Method{
-			Name:  nameOffString(at, m.Name),
-			Type:  mt,
-			Func:  forgeFuncValue(mt, pc),
-			Index: i,
-		})
 	}
 	return out
+}
+
+// bindABIMethod returns a bound method func Value calling through the forged
+// unbound Method.Func. Stock bound method values (Value.Method) re-resolve the
+// code PC on every call in reflect's methodReceiver, which heap-spills it into
+// an escaping GC-scanned unsafe.Pointer cell; on wasm the PC aliases a heap
+// address and the write barrier aborts ("found bad pointer in Go heap").
+func bindABIMethod(m reflect.Method, recv reflect.Value) reflect.Value {
+	mt := m.Type
+	in := make([]reflect.Type, 0, mt.NumIn()-1)
+	for i := 1; i < mt.NumIn(); i++ {
+		in = append(in, mt.In(i))
+	}
+	out := make([]reflect.Type, mt.NumOut())
+	for i := range out {
+		out[i] = mt.Out(i)
+	}
+	sig := reflect.FuncOf(in, out, mt.IsVariadic())
+	mf := m.Func
+	return reflect.MakeFunc(sig, func(args []reflect.Value) []reflect.Value {
+		full := append(make([]reflect.Value, 0, 1+len(args)), recv)
+		full = append(full, args...)
+		if mt.IsVariadic() {
+			return mf.CallSlice(full)
+		}
+		return mf.Call(full)
+	})
 }
 
 // typeMethodNamesABI lists exported method names without building Methods.

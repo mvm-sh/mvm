@@ -991,8 +991,7 @@ func buildStructRtype(fields []*Type, embedded []EmbeddedField, tags []string, k
 			rf[i].Anonymous = false
 			demoted = append(demoted, i)
 			if t.Kind() == reflect.Interface {
-				for j := range t.NumMethod() {
-					m := t.Method(j)
+				for m := range t.Methods() {
 					nameCount[m.Name]++
 					ifaceSpecs = append(ifaceSpecs, runtype.MethodSpec{
 						Name: m.Name, Exported: m.PkgPath == "", PkgPath: m.PkgPath, Sig: m.Type,

@@ -97,3 +97,61 @@ func TestTypeMethodByNameABIForgedFuncCall(t *testing.T) {
 		t.Fatalf("AddAll result = %v", got)
 	}
 }
+
+// typeMethodABI must agree with the by-name lookup at every index.
+func TestTypeMethodABIByIndex(t *testing.T) {
+	rt := reflect.TypeFor[*bytes.Buffer]()
+	for i := range rt.NumMethod() {
+		want := rt.Method(i)
+		got, ok := typeMethodABI(rt, i)
+		if !ok {
+			t.Fatalf("index %d: not found", i)
+		}
+		if got.Name != want.Name || got.Index != want.Index || got.Type != want.Type {
+			t.Errorf("index %d: got %q/%d/%v, want %q/%d/%v",
+				i, got.Name, got.Index, got.Type, want.Name, want.Index, want.Type)
+		}
+	}
+	if _, ok := typeMethodABI(rt, rt.NumMethod()); ok {
+		t.Error("out-of-range index found a method")
+	}
+	if _, ok := typeMethodABI(rt, -1); ok {
+		t.Error("negative index found a method")
+	}
+}
+
+// A bindABIMethod value must behave like a stock bound method value, without
+// reflect's methodReceiver PC heap-spill: same signature, plain and variadic
+// calls, pointer receiver mutation visible.
+func TestBindABIMethodCall(t *testing.T) {
+	var b strings.Builder
+	m, ok := typeMethodByNameABI(reflect.TypeFor[*strings.Builder](), "WriteString")
+	if !ok {
+		t.Fatal("WriteString not found")
+	}
+	bound := bindABIMethod(m, reflect.ValueOf(&b))
+	if want := reflect.ValueOf(&b).MethodByName("WriteString").Type(); bound.Type() != want {
+		t.Fatalf("bound type %v, want %v", bound.Type(), want)
+	}
+	bound.Call([]reflect.Value{reflect.ValueOf("bound")})
+	if b.String() != "bound" {
+		t.Fatalf("builder = %q, want %q", b.String(), "bound")
+	}
+
+	mm, ok := typeMethodByNameABI(reflect.TypeFor[mlMap](), "AddAll")
+	if !ok {
+		t.Fatal("AddAll not found")
+	}
+	vb := bindABIMethod(mm, reflect.ValueOf(mlMap{}))
+	if !vb.Type().IsVariadic() {
+		t.Fatalf("bound AddAll not variadic: %v", vb.Type())
+	}
+	got := vb.Call([]reflect.Value{reflect.ValueOf(5), reflect.ValueOf(6)})[0].Interface().(mlMap)
+	if got["k"] != 5 || got["kk"] != 6 {
+		t.Fatalf("AddAll result = %v", got)
+	}
+	spread := vb.CallSlice([]reflect.Value{reflect.ValueOf([]int{7, 8})})[0].Interface().(mlMap)
+	if spread["k"] != 7 || spread["kk"] != 8 {
+		t.Fatalf("AddAll spread result = %v", spread)
+	}
+}

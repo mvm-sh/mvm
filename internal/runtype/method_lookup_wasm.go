@@ -49,15 +49,29 @@ func TypeMethods(t reflect.Type) []reflect.Method {
 }
 
 // ValueMethodByName is reflect.Value.MethodByName, wasm-GC-safe on wasm.
-// Stock Value.MethodByName resolves the index via Type.MethodByName, which
-// spills the method PC; the abi index into Value.Method avoids that.
+// A stock bound method value spills the PC at every Call (methodReceiver);
+// bindABIMethod routes the call through the forged unbound Func instead.
+// Interface receivers stay stock: methodReceiver reads their PC in place
+// from the itab, never spilling it.
 func ValueMethodByName(v reflect.Value, name string) reflect.Value {
 	if !v.IsValid() || v.Kind() == reflect.Interface {
 		return v.MethodByName(name)
 	}
-	i := exportedMethodIndexABI(v.Type(), name)
-	if i < 0 {
+	m, ok := typeMethodByNameABI(v.Type(), name)
+	if !ok {
 		return reflect.Value{}
 	}
-	return v.Method(i)
+	return bindABIMethod(m, v)
+}
+
+// ValueMethod is reflect.Value.Method, wasm-GC-safe on wasm.
+func ValueMethod(v reflect.Value, i int) reflect.Value {
+	if !v.IsValid() || v.Kind() == reflect.Interface {
+		return v.Method(i)
+	}
+	m, ok := typeMethodABI(v.Type(), i)
+	if !ok {
+		return v.Method(i) // out of range: keep stock panic behavior
+	}
+	return bindABIMethod(m, v)
 }

@@ -52,7 +52,7 @@ func registerRunHook(recv any) {
 				return f.Call(in)
 			})}
 		}
-		return recvVal.Method(runIdx).Call(args)
+		return runtype.ValueMethod(recvVal, runIdx).Call(args)
 	})
 }
 
@@ -108,7 +108,7 @@ func (mh tbMethods) hook(format msgFormatter, afterIdx int) vm.NativeMethodHook 
 		}
 		mh.writeLine(m, recv, format(m, recv, args))
 		if afterIdx >= 0 {
-			recv.Method(afterIdx).Call(nil)
+			runtype.ValueMethod(recv, afterIdx).Call(nil)
 		}
 		return nil
 	}
@@ -118,7 +118,7 @@ func (mh tbMethods) writeLine(m *vm.Machine, recv reflect.Value, msg string) {
 	if mh.output < 0 {
 		return
 	}
-	w, ok := recv.Method(mh.output).Call(nil)[0].Interface().(io.Writer)
+	w, ok := runtype.ValueMethod(recv, mh.output).Call(nil)[0].Interface().(io.Writer)
 	if !ok {
 		return
 	}

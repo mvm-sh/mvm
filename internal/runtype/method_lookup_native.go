@@ -39,3 +39,8 @@ func TypeMethods(t reflect.Type) []reflect.Method {
 func ValueMethodByName(v reflect.Value, name string) reflect.Value {
 	return v.MethodByName(name)
 }
+
+// ValueMethod is reflect.Value.Method, wasm-GC-safe on wasm.
+func ValueMethod(v reflect.Value, i int) reflect.Value {
+	return v.Method(i)
+}
