@@ -385,8 +385,11 @@ func (sc *Scanner) getNum(src string) (s string, tok lang.Token) {
 			}
 		case r == '+' || r == '-':
 			// Valid only right after an exponent prefix: 'e'/'E' (decimal) or
-			// 'p'/'P' (hex float).
-			if i < 2 || (src[i-1] != 'e' && src[i-1] != 'E' && src[i-1] != 'p' && src[i-1] != 'P') {
+			// 'p'/'P' (hex float). In a hex literal 'e'/'E' is a digit, not an
+			// exponent, so 0x7E+1 must stop before '+'.
+			decExp := !isHex && (src[i-1] == 'e' || src[i-1] == 'E')
+			hexExp := isHex && (src[i-1] == 'p' || src[i-1] == 'P')
+			if i < 2 || (!decExp && !hexExp) {
 				return s, tok
 			}
 		case r == 'x' || r == 'X' || r == 'o' || r == 'O':

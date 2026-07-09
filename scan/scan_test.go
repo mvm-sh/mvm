@@ -100,6 +100,10 @@ def"`, err: "1:1: block not terminated"},
 	{n: "#38", src: "0xff", tok: `Int"0xff" Semicolon `},
 	{n: "#39", src: "0XAB12", tok: `Int"0XAB12" Semicolon `},
 	{n: "#40", src: "0x1_2_3", tok: `Int"0x1_2_3" Semicolon `},
+	// 'e'/'E' is a hex digit, so a following sign is not an exponent sign.
+	{n: "#40f", src: "0x7E+1", tok: `Int"0x7E" Add Int"1" Semicolon `},
+	{n: "#40g", src: "0x7e-1", tok: `Int"0x7e" Sub Int"1" Semicolon `},
+	{n: "#40h", src: "0xE+1", tok: `Int"0xE" Add Int"1" Semicolon `},
 
 	// Numbers: hexadecimal floats (p/P binary exponent).
 	{n: "#40a", src: "0x1p-1022", tok: `Float"0x1p-1022" Semicolon `},
