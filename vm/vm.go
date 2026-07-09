@@ -1929,14 +1929,14 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				break
 			}
 			ifc := mem[sp].IfaceVal()
-			// Pointer types share their value type's method set in Go: mvm
-			// registers pointer-receiver methods on the value type, so *T's
-			// Methods slice may be empty even when the method is resolved
-			// on T. ResolveMethodType walks to ElemType when needed.
 			methodTyp := ifc.Typ.ResolveMethodType(methodID)
 			if methodTyp == nil {
-				// Fall back to reflect-based dispatch when neither T nor *T
-				// has a compiled method entry (native type in mvm interface).
+				if ct := m.canonicalDispatchType(ifc.Val, methodID); ct != nil {
+					ifc.Typ = ct
+					methodTyp = ct.ResolveMethodType(methodID)
+				}
+			}
+			if methodTyp == nil {
 				rv := ifc.Val.Reflect()
 				if !rv.IsValid() {
 					m.raiseNilDeref()
@@ -1951,10 +1951,6 @@ func (m *Machine) runLoop(traceFlags uint8, panicAddr, deferRetAddr int, deferRe
 				break
 			}
 			method := methodTyp.Methods[methodID]
-			// Outcome of walking the embedded-interface chain at runtime:
-			// chain = keep going to compiled-method dispatch; native = chain
-			// terminated at a Go iface and was reflect-dispatched; nilRcv =
-			// chain hit a nil interface field (Go-style panic).
 			const (
 				outChain = iota
 				outNative
@@ -4222,6 +4218,24 @@ func (m *Machine) typeByRtype(rt reflect.Type) *mtype.Type {
 	// so genuine native-rtype misses (the hot path) skip the scan.
 	if rt != nil && isSynthOrSynthPtr(rt) {
 		return derive.TypeForReservedRtype(rt)
+	}
+	return nil
+}
+
+func (m *Machine) canonicalDispatchType(v Value, methodID int) *mtype.Type {
+	rv := v.Reflect()
+	if !rv.IsValid() {
+		return nil
+	}
+	if ct := m.typeByRtype(rv.Type()); ct != nil && ct.ResolveMethodType(methodID) != nil {
+		return ct
+	}
+	if rv.Kind() == reflect.Pointer {
+		if et := m.typeByRtype(rv.Type().Elem()); et != nil {
+			if vt := et.ResolveMethodType(methodID); vt != nil {
+				return derive.PointerTo(vt)
+			}
+		}
 	}
 	return nil
 }
