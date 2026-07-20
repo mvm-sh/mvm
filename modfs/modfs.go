@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,11 +48,12 @@ type FS struct {
 	cacheDir string   // writable persistent cache root ("" = memory only)
 	readDirs []string // read-only cache roots (e.g. Go's module download cache)
 
-	mu      sync.Mutex
-	modules map[string]*module  // module path -> loaded module
-	missing map[string]struct{} // module-path candidates known to be absent
-	stats   NetStats            // proxy traffic counters; guarded by mu
-	cache   CacheStats          // disk-cache counters; guarded by mu
+	mu       sync.Mutex
+	modules  map[string]*module  // module path -> loaded module
+	fallback map[string]*module  // last-resort modules; off the missing/ path entirely
+	missing  map[string]struct{} // module-path candidates known to be absent
+	stats    NetStats            // proxy traffic counters; guarded by mu
+	cache    CacheStats          // disk-cache counters; guarded by mu
 }
 
 // NetStats summarizes the network work performed by an FS instance.
@@ -133,6 +135,7 @@ func New(opts Options) *FS {
 		cacheDir: opts.CacheDir,
 		readDirs: opts.ReadDirs,
 		modules:  map[string]*module{},
+		fallback: map[string]*module{},
 		missing:  map[string]struct{}{},
 	}
 }
@@ -147,6 +150,20 @@ func (f *FS) Inject(modPath, version string, zipBytes []byte) error {
 	defer f.mu.Unlock()
 	f.modules[modPath] = mod
 	delete(f.missing, modPath)
+	return nil
+}
+
+// InjectFallback installs a module consulted only when normal resolution fails,
+// for trimmed copies that would otherwise hide the real module's other packages.
+// It leaves missing alone: a fallback does not make the real module reachable.
+func (f *FS) InjectFallback(modPath, version string, zipBytes []byte) error {
+	mod, err := newModule(modPath, version, zipBytes)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fallback[modPath] = mod
 	return nil
 }
 
@@ -203,30 +220,63 @@ func (f *FS) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 // locate returns the owning module and the path within that module for the given import path.
+// Real modules are probed before any fallback, never interleaved by prefix length.
 func (f *FS) locate(importPath string) (*module, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Probe shortest-first (a module path has >=2 components).
-	parts := strings.Split(importPath, "/")
-	for i := 2; i <= len(parts); i++ {
-		cand := strings.Join(parts[:i], "/")
-		if _, neg := f.missing[cand]; neg {
-			continue
-		}
-		m, err := f.fetchModulePath(cand)
-		if err != nil {
-			f.missing[cand] = struct{}{}
-			continue
-		}
-		sub := strings.TrimPrefix(strings.TrimPrefix(importPath, cand), "/")
-		if !m.has(sub) {
-			// Real module, wrong one for this import: try a longer prefix.
-			continue
-		}
+	if m, sub, ok := f.probe(importPath, f.resolveModule); ok {
 		return m, sub, nil
 	}
+	if len(f.fallback) > 0 {
+		if m, sub, ok := f.probe(importPath, func(c string) *module { return f.fallback[c] }); ok {
+			return m, sub, nil
+		}
+	}
 	return nil, "", fs.ErrNotExist
+}
+
+// probe returns the shortest module prefix of importPath that holds the rest of
+// it (a module path has >=2 components).
+// Candidates are prefixes, so slicing keeps the walk allocation-free.
+func (f *FS) probe(importPath string, lookup func(string) *module) (*module, string, bool) {
+	end := strings.IndexByte(importPath, '/')
+	if end < 0 {
+		return nil, "", false
+	}
+	for end < len(importPath) {
+		if next := strings.IndexByte(importPath[end+1:], '/'); next < 0 {
+			end = len(importPath)
+		} else {
+			end += 1 + next
+		}
+		m := lookup(importPath[:end])
+		if m == nil {
+			continue
+		}
+		sub := strings.TrimPrefix(importPath[end:], "/")
+		if m.has(sub) {
+			return m, sub, true
+		}
+		// Real module, wrong one for this import: try a longer prefix.
+	}
+	return nil, "", false
+}
+
+// resolveModule looks modPath up, negative-caching only definitive misses:
+// caching a transient failure would pin the path to a trimmed fallback.
+func (f *FS) resolveModule(modPath string) *module {
+	if _, neg := f.missing[modPath]; neg {
+		return nil
+	}
+	m, err := f.fetchModulePath(modPath)
+	if err != nil {
+		if !errors.Is(err, errTransient) {
+			f.missing[modPath] = struct{}{}
+		}
+		return nil
+	}
+	return m
 }
 
 func (m *module) has(sub string) bool {
@@ -261,15 +311,111 @@ func (f *FS) resolveVersion(modPath string) (string, error) {
 		return v, nil
 	}
 	if f.offline {
+		if v, ok := f.readDirsLatest(modPath); ok {
+			return v, nil
+		}
 		return "", fs.ErrNotExist
 	}
 	v, err := f.fetchLatest(modPath)
 	if err != nil {
+		// Only once the proxy is unreachable: a stale cache must not pin an old version.
+		if cv, ok := f.readDirsLatest(modPath); ok {
+			return cv, nil
+		}
 		return "", err
 	}
 	f.writeCachedLatest(modPath, v)
 	return v, nil
 }
+
+// readDirsLatest returns the newest version of modPath a read-only root can serve.
+// Go module caches have no @latest and a stale @v/list, so the zips are the truth.
+// Newest-cached need not be the proxy's latest, so offline results vary by cache.
+func (f *FS) readDirsLatest(modPath string) (string, bool) {
+	escMod, err := escapePath(modPath)
+	if err != nil {
+		return "", false
+	}
+	best := ""
+	for _, root := range f.readDirs {
+		//nolint:gosec // G703: root derives from the user's own GOMODCACHE/GOPATH
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(escMod), "@v"))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".zip") {
+				continue
+			}
+			v := unescapeVersion(strings.TrimSuffix(name, ".zip"))
+			if best == "" || versionLess(best, v) {
+				best = v
+			}
+		}
+	}
+	return best, best != ""
+}
+
+// unescapeVersion reverses escapePath's "!x" case encoding.
+func unescapeVersion(s string) string {
+	if !strings.ContainsRune(s, '!') {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '!' && i+1 < len(s) && 'a' <= s[i+1] && s[i+1] <= 'z' {
+			b.WriteByte(s[i+1] - ('a' - 'A'))
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// versionLess orders module versions by semver precedence, enough to pick a newest.
+// Build metadata is ignored; a prerelease sorts below its release.
+func versionLess(a, b string) bool {
+	an, apre := splitVersion(a)
+	bn, bpre := splitVersion(b)
+	for i := range 3 {
+		if an[i] != bn[i] {
+			return an[i] < bn[i]
+		}
+	}
+	if (apre == "") != (bpre == "") {
+		return apre != ""
+	}
+	return apre < bpre
+}
+
+// splitVersion parses "vX.Y.Z[-pre][+build]"; unparsable fields read as 0.
+func splitVersion(v string) (num [3]int, pre string) {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v, pre = v[:i], v[i+1:]
+	}
+	for i, part := range strings.SplitN(v, ".", 3) {
+		if i > 2 {
+			break
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return num, pre
+		}
+		num[i] = n
+	}
+	return num, pre
+}
+
+// errTransient marks a recoverable fetch failure (no network, 5xx, throttling),
+// as opposed to the proxy answering "no such module", which alone is cacheable.
+var errTransient = errors.New("modfs: transient fetch failure")
 
 func (f *FS) proxyGet(path string, consume func(io.Reader) error) error {
 	url := f.proxy + "/" + path
@@ -278,10 +424,13 @@ func (f *FS) proxyGet(path string, consume func(io.Reader) error) error {
 	defer func() { f.stats.FetchTime += time.Since(start) }()
 	resp, err := f.client.Get(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: GET %s: %w", errTransient, url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusGone {
+			return fmt.Errorf("%w: GET %s: %s", errTransient, url, resp.Status)
+		}
 		return fmt.Errorf("modfs: GET %s: %s", url, resp.Status)
 	}
 	cr := &countingReader{r: resp.Body}

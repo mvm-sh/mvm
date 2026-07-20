@@ -136,6 +136,22 @@ func (p *Parser) symGet(name string) (*symbol.Symbol, string, bool) {
 	return s, sc, ok
 }
 
+// globalSym resolves a package-level name to its pkg-qualified symbol.
+// No bare fallback inside a package: a bare key is another package's
+// aliasTargetTopLevel alias, and adopting it retypes that package's symbol.
+func (p *Parser) globalSym(name string) (*symbol.Symbol, bool) {
+	pkg := p.CompilingPkg
+	if pkg == "" {
+		pkg = p.importingPkg
+	}
+	if pkg == "" {
+		s, ok := p.Symbols[name]
+		return s, ok
+	}
+	s, ok := p.Symbols[QualifyName(pkg, name)]
+	return s, ok
+}
+
 func (p *Parser) foreignBareAlias(s *symbol.Symbol, name string) bool {
 	if s == nil || !strings.HasSuffix(s.Name, "."+name) {
 		return false

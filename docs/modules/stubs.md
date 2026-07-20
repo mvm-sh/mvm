@@ -158,6 +158,11 @@ archive/zip via `modfs`), so most bridge weight is unused functions.
 `cmd/extract`'s `WasmDropPrefixes`/`WasmDropExact` tag heavy, rarely-needed
 bridges `!wasm` (crypto, net, image, debug, go, compress, archive, database/sql,
 ...); they then interpret from the mirror or error until mirrored.
+`WasmKeepExact` exempts a package from a dropped prefix: `net`, and `go/build`
+because the mirror ships only `go/build/constraint`, so `x/text/internal/gen`
+would not load (+0.5 MB).
+That buys name resolution, not a working call: `build.Import` shells out to
+`go list`, which fails on wasip1, and no `-short` run reaches it.
 This cut the binary 39.1 -> 24.2 MB (bridge-free floor ~19 MB).
 The keep-native set stays bridged: reflect/runtime/sync/unsafe/syscall plus the
 pure-compute families (math*, crypto*, hash*, compress*, archive*); the rest is

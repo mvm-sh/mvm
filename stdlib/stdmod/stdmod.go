@@ -62,17 +62,26 @@ var defaultModFS = sync.OnceValue(func() *modfs.FS {
 	if err := mfs.Inject(mp, ver, stdlib.EmbeddedStd()); err != nil {
 		panic("stdmod: inject embedded std: " + err.Error())
 	}
-	// On wasm, interpreted net/http pulls golang.org/x/net + x/text from source
-	// with no cache/proxy; inject the embedded subset (see wireFS in main).
-	if runtime.GOARCH == "wasm" {
-		for _, v := range stdlib.EmbeddedVendor() {
-			if err := mfs.Inject(v.Path, v.Version, v.Zip); err != nil {
-				panic("stdmod: inject " + v.Path + ": " + err.Error())
-			}
-		}
-	}
+	InjectVendorFallback(mfs)
 	return mfs
 })
+
+// InjectVendorFallback registers the embedded golang.org/x/net + x/text subset
+// that interpreted net/http pulls in on wasm, where there is usually no module
+// cache or proxy.
+// compat-wasm does mount GOMODCACHE, so the trimmed copies must lose to the
+// real modules wherever those resolve -- hence a fallback layer.
+// No-op off wasm, where the full modules always come from the cache or proxy.
+func InjectVendorFallback(mfs *modfs.FS) {
+	if runtime.GOARCH != "wasm" {
+		return
+	}
+	for _, v := range stdlib.EmbeddedVendor() {
+		if err := mfs.InjectFallback(v.Path, v.Version, v.Zip); err != nil {
+			panic("stdmod: inject " + v.Path + ": " + err.Error())
+		}
+	}
+}
 
 type redirectFS struct {
 	backing *modfs.FS

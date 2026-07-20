@@ -108,6 +108,9 @@ var WasmDropPrefixes = []string{
 // bridge on wasm even though its prefix is dropped.
 var WasmKeepExact = map[string]bool{
 	"net": true,
+	// Mirror ships only go/build/constraint, so x/text/internal/gen won't load.
+	// build.Import itself cannot work on wasip1: it needs `go list`.
+	"go/build": true,
 }
 
 var WasmDropExact = map[string]bool{

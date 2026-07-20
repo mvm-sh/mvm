@@ -367,6 +367,211 @@ func TestInject(t *testing.T) {
 	}
 }
 
+// vendorZip is a trimmed copy of example.com/text carrying only "trimmed".
+func vendorZip(t *testing.T) []byte {
+	t.Helper()
+	z, err := buildZip("example.com/text", "v0.38.0", map[string]string{
+		"go.mod":             "module example.com/text\n",
+		"trimmed/trimmed.go": "package trimmed\n// vendored\n",
+	})
+	if err != nil {
+		t.Fatalf("buildZip: %v", err)
+	}
+	return z
+}
+
+func TestInjectFallbackDoesNotShadow(t *testing.T) {
+	p := &fakeProxy{
+		t: t,
+		modules: map[string]map[string]string{"example.com/text@v1.0.0": {
+			"trimmed/trimmed.go": "package trimmed\n// real\n",
+			"runes/runes.go":     "package runes\n",
+		}},
+		latest: map[string]string{"example.com/text": "v1.0.0"},
+	}
+	f := newTestFS(t, p)
+	if err := f.InjectFallback("example.com/text", "v0.38.0", vendorZip(t)); err != nil {
+		t.Fatalf("InjectFallback: %v", err)
+	}
+
+	// The real module wins for a package the vendored copy also has.
+	data, err := fs.ReadFile(f, "example.com/text/trimmed/trimmed.go")
+	if err != nil {
+		t.Fatalf("read trimmed.go: %v", err)
+	}
+	if !strings.Contains(string(data), "// real") {
+		t.Errorf("vendored copy shadowed the real module: %q", data)
+	}
+	// ...and a package only the real module has stays reachable.
+	if _, err := fs.ReadFile(f, "example.com/text/runes/runes.go"); err != nil {
+		t.Errorf("read runes.go: %v", err)
+	}
+}
+
+func TestInjectFallbackServesWhenUnresolvable(t *testing.T) {
+	f := New(Options{Offline: true})
+	if err := f.InjectFallback("example.com/text", "v0.38.0", vendorZip(t)); err != nil {
+		t.Fatalf("InjectFallback: %v", err)
+	}
+	data, err := fs.ReadFile(f, "example.com/text/trimmed/trimmed.go")
+	if err != nil {
+		t.Fatalf("read trimmed.go: %v", err)
+	}
+	if !strings.Contains(string(data), "// vendored") {
+		t.Errorf("expected vendored fallback, got %q", data)
+	}
+	if _, err := fs.ReadFile(f, "example.com/text/runes/runes.go"); err == nil {
+		t.Error("expected ErrNotExist for a package absent from the fallback")
+	}
+}
+
+// A 5xx must not be negative-cached, or a recovered proxy still serves the fallback.
+func TestTransientFailureNotNegativeCached(t *testing.T) {
+	var down atomic.Bool
+	down.Store(true)
+	p := &fakeProxy{
+		t: t,
+		modules: map[string]map[string]string{"example.com/text@v1.0.0": {
+			"runes/runes.go": "package runes\n",
+		}},
+		latest: map[string]string{"example.com/text": "v1.0.0"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		p.handler(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	f := New(Options{Proxy: srv.URL})
+	if err := f.InjectFallback("example.com/text", "v0.38.0", vendorZip(t)); err != nil {
+		t.Fatalf("InjectFallback: %v", err)
+	}
+	if _, err := fs.ReadFile(f, "example.com/text/trimmed/trimmed.go"); err != nil {
+		t.Fatalf("fallback read while proxy down: %v", err)
+	}
+	down.Store(false)
+	if _, err := fs.ReadFile(f, "example.com/text/runes/runes.go"); err != nil {
+		t.Errorf("after proxy recovery: %v", err)
+	}
+}
+
+// A 404 is definitive, so it stays negative-cached and issues no repeat fetches.
+func TestNotFoundStaysNegativeCached(t *testing.T) {
+	p := &fakeProxy{t: t, latest: map[string]string{}, modules: map[string]map[string]string{}}
+	f := newTestFS(t, p)
+	for range 3 {
+		_, _ = fs.ReadFile(f, "example.com/gone/pkg/a.go")
+	}
+	if got := atomic.LoadInt64(&p.requests); got != 3 {
+		t.Errorf("expected 3 proxy requests across 3 lookups, got %d", got)
+	}
+}
+
+func TestVersionLess(t *testing.T) {
+	ordered := []string{
+		"v0.9.0", "v1.0.0-alpha", "v1.0.0-beta", "v1.0.0", "v1.0.1",
+		"v1.2.0", "v2.0.0+incompatible", "v2.1.0", "v10.0.0",
+	}
+	for i := range len(ordered) - 1 {
+		a, b := ordered[i], ordered[i+1]
+		if !versionLess(a, b) {
+			t.Errorf("versionLess(%q, %q) = false, want true", a, b)
+		}
+		if versionLess(b, a) {
+			t.Errorf("versionLess(%q, %q) = true, want false", b, a)
+		}
+	}
+	if versionLess("v1.2.3", "v1.2.3") {
+		t.Error("versionLess reported equal versions as less")
+	}
+}
+
+// writeCacheZip drops a module zip into a Go-module-cache-shaped root.
+func writeCacheZip(t *testing.T, root, modPath, version string, files map[string]string) {
+	t.Helper()
+	zb, err := buildZip(modPath, version, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zp := filepath.Join(root, filepath.FromSlash(modPath+"/@v/"+version+".zip"))
+	if err := os.MkdirAll(filepath.Dir(zp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zp, zb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A read-only Go module cache has no @latest, so the version comes from the zips.
+func TestOfflineResolvesLatestFromReadDirs(t *testing.T) {
+	goCache := t.TempDir()
+	writeCacheZip(t, goCache, "example.com/bar", "v1.9.0", map[string]string{"bar.go": "package bar\n// old\n"})
+	writeCacheZip(t, goCache, "example.com/bar", "v2.10.0", map[string]string{"bar.go": "package bar\n// new\n"})
+	writeCacheZip(t, goCache, "example.com/bar", "v2.9.0", map[string]string{"bar.go": "package bar\n// mid\n"})
+
+	f := New(Options{Offline: true, ReadDirs: []string{goCache}})
+	data, err := fs.ReadFile(f, "example.com/bar/bar.go")
+	if err != nil {
+		t.Fatalf("offline read from read-only cache: %v", err)
+	}
+	// v2.10.0 must beat v2.9.0: numeric compare, not lexical.
+	if !strings.Contains(string(data), "// new") {
+		t.Errorf("got %q, want the v2.10.0 zip", data)
+	}
+}
+
+// A reachable proxy must beat a stale read-only cache.
+func TestReadDirsLatestOnlyWhenProxyUnreachable(t *testing.T) {
+	goCache := t.TempDir()
+	writeCacheZip(t, goCache, "example.com/bar", "v1.0.0", map[string]string{"bar.go": "package bar\n// cached\n"})
+
+	p := &fakeProxy{
+		t:       t,
+		modules: map[string]map[string]string{"example.com/bar@v3.0.0": {"bar.go": "package bar\n// proxy\n"}},
+		latest:  map[string]string{"example.com/bar": "v3.0.0"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(p.handler))
+	t.Cleanup(srv.Close)
+
+	online := New(Options{Proxy: srv.URL, ReadDirs: []string{goCache}})
+	data, err := fs.ReadFile(online, "example.com/bar/bar.go")
+	if err != nil {
+		t.Fatalf("online read: %v", err)
+	}
+	if !strings.Contains(string(data), "// proxy") {
+		t.Errorf("stale read-only cache won over a reachable proxy: %q", data)
+	}
+
+	// With the proxy down, the cached zip is better than nothing.
+	down := New(Options{Proxy: "http://127.0.0.1:1", ReadDirs: []string{goCache}})
+	data, err = fs.ReadFile(down, "example.com/bar/bar.go")
+	if err != nil {
+		t.Fatalf("read with proxy down: %v", err)
+	}
+	if !strings.Contains(string(data), "// cached") {
+		t.Errorf("got %q, want the read-only cache copy", data)
+	}
+}
+
+// locate runs on every import, so the prefix walk must stay allocation-free.
+func TestProbeWalkDoesNotAllocate(t *testing.T) {
+	f := New(Options{Offline: true})
+	if err := f.InjectFallback("example.com/text", "v0.38.0", vendorZip(t)); err != nil {
+		t.Fatalf("InjectFallback: %v", err)
+	}
+	// Warm the negative cache so the walk itself is all that remains.
+	_, _, _ = f.locate("golang.org/x/text/unicode/norm")
+	got := testing.AllocsPerRun(100, func() {
+		_, _, _ = f.locate("golang.org/x/text/unicode/norm")
+	})
+	if got > 0 {
+		t.Errorf("locate allocates %v objects per call, want 0", got)
+	}
+}
+
 func TestOfflineNoFetch(t *testing.T) {
 	// Offline FS pointed at a counting proxy must never issue a request.
 	p := &fakeProxy{t: t, latest: map[string]string{}, modules: map[string]map[string]string{}}

@@ -172,6 +172,54 @@ func Count() int { return len(tests) }
 	}
 }
 
+// A dependency's top-level var must not write through the target's bare alias.
+// Repro: on wasm, idna's `var Lookup *Profile` retyped bidi's `func Lookup`.
+func TestImportedVarKeepsTargetAliasType(t *testing.T) {
+	url, _ := startFakeProxy(t, remoteModule{
+		path:    "example.com/x/al",
+		version: "v1.0.0",
+		files: map[string]string{
+			"go.mod": "module example.com/x/al\n",
+			"dep/dep.go": `package dep
+
+type Profile struct{ N int }
+
+var Lookup *Profile = &prof
+
+var prof = Profile{N: 3}
+`,
+			"al.go": `package al
+
+import "example.com/x/al/dep"
+
+// Used before its declaration, as in bidi's prop.go.
+func Call() int { return Lookup(2) }
+
+func Lookup(n int) int { return n * 10 }
+
+func Dep() int { return dep.Lookup.N }
+`,
+		},
+	})
+	i := interp.NewInterpreter(golang.GoSpec)
+	i.ImportPackageValues(stdlib.Values)
+	i.SetRemoteFS(modfs.New(modfs.Options{Proxy: url}))
+	i.AutoImportPackages()
+
+	if _, err := i.Eval("example.com/x/al", ""); err != nil {
+		t.Fatalf("load target: %v", err)
+	}
+	i.PublishCompiledPackage("example.com/x/al")
+
+	r, err := i.Eval("al_test", `Call()`)
+	if err != nil {
+		t.Fatalf("call target func through bare alias: %v", err)
+	}
+	if got := fmt.Sprintf("%v", r); got != "20" {
+		t.Errorf("Call() = %q, want 20", got)
+	}
+}
+
 func TestImportedForwardRefVarOrder(t *testing.T) {
 	url, _ := startFakeProxy(t, remoteModule{
 		path:    "example.com/x/fwd",
