@@ -2,6 +2,7 @@ package runtype
 
 import (
 	"bytes"
+	"errors"
 	"reflect"
 	"strings"
 	"sync"
@@ -153,5 +154,26 @@ func TestBindABIMethodCall(t *testing.T) {
 	spread := vb.CallSlice([]reflect.Value{reflect.ValueOf([]int{7, 8})})[0].Interface().(mlMap)
 	if spread["k"] != 7 || spread["kk"] != 8 {
 		t.Fatalf("AddAll spread result = %v", spread)
+	}
+}
+
+// mlWithStack mirrors pkg/errors' withStack: Error is promoted from an
+// embedded unexported interface field.
+type mlWithStack struct{ error }
+
+// A receiver read out of an unexported field is read-only; mf.Call runs
+// mustBeExported on it, so bindABIMethod must clear the flag.
+func TestBindABIMethodROReceiver(t *testing.T) {
+	w := &mlWithStack{errors.New("EOF")}
+	recv := reflect.ValueOf(w).Elem().Field(0).Elem() // *errorString, read-only
+	if recv.CanInterface() {
+		t.Fatal("receiver is not read-only; test no longer covers the flagRO path")
+	}
+	m, ok := typeMethodByNameABI(recv.Type(), "Error")
+	if !ok {
+		t.Fatal("Error not found")
+	}
+	if got := bindABIMethod(m, recv).Call(nil)[0].String(); got != "EOF" {
+		t.Fatalf("Error() = %q, want %q", got, "EOF")
 	}
 }

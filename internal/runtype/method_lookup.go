@@ -6,8 +6,8 @@ import (
 )
 
 // Reflect's Type.Method/MethodByName store the method's textOff-resolved code
-// PC in a heap-allocated unsafe.Pointer cell (the fake funcval behind
-// Method.Func). Native code PCs live outside the GC arena, but wasm code PCs
+// PC in a heap-allocated unsafe.Pointer cell.
+// Native code PCs live outside the GC arena, but wasm code PCs
 // are plain integers >= 0x1000_0000 that alias heap addresses once the arena
 // has grown that large, and the write barrier plus heap scans then abort the
 // process ("found bad pointer in Go heap" / "found pointer to free object").
@@ -193,6 +193,7 @@ func typeMethodsABI(t reflect.Type) []reflect.Method {
 // an escaping GC-scanned unsafe.Pointer cell; on wasm the PC aliases a heap
 // address and the write barrier aborts ("found bad pointer in Go heap").
 func bindABIMethod(m reflect.Method, recv reflect.Value) reflect.Value {
+	recv = Exportable(recv)
 	mt := m.Type
 	in := make([]reflect.Type, 0, mt.NumIn()-1)
 	for i := 1; i < mt.NumIn(); i++ {
