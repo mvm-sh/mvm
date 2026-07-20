@@ -28,7 +28,7 @@ type Parser struct {
 	function        *symbol.Symbol                    // current function
 	scope           string                            // current scope
 	pkgName         string                            // current package name
-	noPkg           bool                              // true if package statement is not mandatory (test, repl).
+	noPkg           bool                              // true if package statement is not mandatory (test, repl)
 	pkgfs           fs.FS                             // filesystem to read imported sources from
 	stdlibfs        fs.FS                             // fallback filesystem for embedded stdlib sources
 	remotefs        fs.FS                             // last-resort filesystem (e.g. network module proxy)
@@ -111,25 +111,13 @@ func (p *Parser) SymAdd(i int, name string, v vm.Value, k symbol.Kind, t *mtype.
 	}
 }
 
-// symGet resolves an unqualified name like Symbols.Get(name, p.scope), except
-// that -- while a deferred declaration is being parsed in Phase 2 (CompilingPkg
-// set) -- a top-level name resolves to that package's symbol (key
-// "CompilingPkg.name") rather than to a bare key that a sibling import may have
-// left pointing at a different package's same-named symbol. A lexical local
-// (returned scope != "") still shadows it, matching Go scoping.
 func (p *Parser) symGet(name string) (*symbol.Symbol, string, bool) {
 	s, sc, ok := p.Symbols.Get(name, p.scope)
 	if ok && sc != "" {
 		return s, sc, true
 	}
 	// Phase 2 deferred parsing: CompilingPkg is set; Phase 1 of an imported pkg:
-	// importingPkg is set. Never both at once. Probe each in turn so a top-level
-	// name resolves to this pkg's canonical Symbol rather than a bare key that
-	// might be shadowed by a sibling import (Pkg/Type/Func/Var/Const all keyed
-	// at "<pkg>.<name>" for imported pkgs by their respective writers). For
-	// pointer-method names ("*Tag.M"), the canonical form has '*' at the very
-	// front of the key ("*<pkg>.Tag.M"); pkgKey writes that shape and we mirror
-	// it here.
+	// importingPkg is set. Never both at once.
 	if p.CompilingPkg != "" {
 		if qs, qok := p.Symbols[QualifyName(p.CompilingPkg, name)]; qok {
 			return qs, "", true
@@ -148,11 +136,6 @@ func (p *Parser) symGet(name string) (*symbol.Symbol, string, bool) {
 	return s, sc, ok
 }
 
-// foreignBareAlias reports whether s, found at bare key name while parsing
-// imported package p.importingPkg, is another package's symbol aliased to that
-// key by aliasTargetTopLevel. Such an alias has a qualified Name "<pkg>.<name>"
-// for a foreign pkg; a universe alias (byte -> uint8) or dot-import is not
-// qualified for name and is kept.
 func (p *Parser) foreignBareAlias(s *symbol.Symbol, name string) bool {
 	if s == nil || !strings.HasSuffix(s.Name, "."+name) {
 		return false
@@ -160,9 +143,6 @@ func (p *Parser) foreignBareAlias(s *symbol.Symbol, name string) bool {
 	return s.Name != QualifyName(p.importingPkg, name)
 }
 
-// foreignBareDecl reports whether a bare-key top-level decl of name (no package
-// context) found an imported pkg's symbol aliased there; its canonical Name is
-// "<pkg>.<name>", whereas a same-unit bare var keeps Name == name.
 func (p *Parser) foreignBareDecl(s *symbol.Symbol, name string) bool {
 	if p.importingPkg != "" || p.CompilingPkg != "" || s == nil {
 		return false
@@ -170,11 +150,7 @@ func (p *Parser) foreignBareDecl(s *symbol.Symbol, name string) bool {
 	return s.Name != name && strings.HasSuffix(s.Name, "."+name)
 }
 
-// QualifyName composes the canonical pkg-qualified symbol-table key for a
-// top-level name. For pointer-receiver method names ("*Tag.M"), the '*' moves
-// to the very front of the key ("*<pkg>.Tag.M") so the standard pointer-
-// method composition `"*"+typeKey+"."+method` still produces the same key.
-// Exported so the comp package (qualifyLabel) shares the exact composition.
+// QualifyName composes the canonical pkg-qualified symbol-table key for a top-level name.
 func QualifyName(pkg, name string) string {
 	if strings.HasPrefix(name, "*") {
 		return "*" + pkg + "." + name[1:]
@@ -185,7 +161,6 @@ func QualifyName(pkg, name string) string {
 // ImportPackageConsts attaches high-precision constant values
 // to already-imported packages, so the compiler can fold
 // constant expressions involving bridged floats at full precision.
-// Call it after ImportPackageValues.
 func (p *Parser) ImportPackageConsts(m map[string]map[string]string) {
 	for pkg, consts := range m {
 		bp, ok := p.Packages[pkg]
@@ -221,8 +196,8 @@ func (p *Parser) ImportPackageValues(m map[string]map[string]reflect.Value) {
 }
 
 // SkipBridges unregisters the named packages' native bridges so they resolve
-// from interpreted source instead, as the wasm `!wasm` tags do. No-op for
-// unregistered paths.
+// from interpreted source instead, as the wasm `!wasm` tags do.
+// No-op for unregistered paths.
 func (p *Parser) SkipBridges(paths ...string) {
 	for _, path := range paths {
 		delete(p.Packages, path)
@@ -235,9 +210,7 @@ func (p *Parser) SetPkgfs(pkgPath string) {
 }
 
 // SetStdlibFS installs a fallback filesystem for resolving imported source
-// packages that are not present in the primary pkgfs. This is used to
-// resolve generics-first stdlib packages (cmp, slices, maps, ...) whose
-// sources are embedded in the interpreter binary.
+// packages that are not present in the primary pkgfs.
 func (p *Parser) SetStdlibFS(fsys fs.FS) {
 	p.stdlibfs = fsys
 }

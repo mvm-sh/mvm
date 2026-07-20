@@ -13,18 +13,12 @@ func (p *Parser) parseAssign(in Tokens, aindex int) (out Tokens, err error) {
 	if len(rhs) > 1 && len(lhs) != len(rhs) {
 		return out, p.errAt(in[aindex], "assignment mismatch: %d variables but %d values", len(lhs), len(rhs))
 	}
-	// `a[i], ok = f()` and similar: the multi-assign branch in
-	// compiler.go assumes Var/LocalVar lhs and mishandles indexed/deref'd
-	// lhs (the Index/Deref opcode runs at parse-emit time and consumes
-	// the container/pointer). Desugar to N temps + N single-value
-	// assigns so each lhs flows through Assign / IndexAssign / DerefAssign.
+	// Handle `a[i], ok = f()` and similar.
 	isRangeRHS := len(rhs) == 1 && len(rhs[0]) > 0 && rhs[0][0].Tok == lang.Range
 	if !define && len(rhs) == 1 && len(lhs) > 1 && lhsNeedsTemps(lhs) && !isRangeRHS {
 		return p.parseAssignSingleRHSViaTemps(lhs, rhs[0], in[aindex])
 	}
-	// Assign-form range (`for x, y = range e`): the compiler's Range path can
-	// only DEFINE loop vars, so desugar to a `:=` range over temps plus
-	// per-iteration assigns to the targets (covers captured vars, a[i], *p).
+	// Handle Assign-form range (`for x, y = range e`).
 	if !define && p.inForInit && isRangeRHS && !allBlankIdents(lhs) {
 		return p.parseRangeAssignViaTemps(in, lhs, aindex)
 	}
