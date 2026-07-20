@@ -378,8 +378,7 @@ walk:
 			if j == 0 || (toks[j-1].Tok != lang.Struct && toks[j-1].Tok != lang.Interface) {
 				break walk
 			}
-			first = j - 1
-			j-- // also step over the struct/interface keyword
+			first = j
 		default:
 			break walk
 		}
