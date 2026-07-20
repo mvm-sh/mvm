@@ -191,7 +191,7 @@ func (p *Parser) parseExpr(in Tokens, typeStr string) (out Tokens, err error) {
 			// Free variable detection: defined in an enclosing function scope.
 			// Exclude variables defined in sub-scopes of the current function.
 			isInnerScope := sc == p.funcScope || strings.HasPrefix(sc, p.funcScope+"/")
-			if ok && s != nil && s.Kind == symbol.LocalVar && sc != "" && p.fname != "" && !isInnerScope {
+			if ok && s != nil && s.Kind == symbol.LocalVar && sc != "" && p.function != nil && !isInnerScope {
 				p.propagateCapture(t.Str, sc)
 				s.Captured = true
 			}

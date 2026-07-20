@@ -549,7 +549,7 @@ func (p *Parser) parseExprStmt(in Tokens) (Tokens, error) {
 	}
 	// Discard unused values from expression statements inside function bodies or loops.
 	// At the top level outside loops, leave values for the REPL.
-	if len(expr) > 0 && (p.funcDepth > 0 || p.loopDepth > 0) {
+	if len(expr) > 0 && p.blockDepth > 0 {
 		switch expr[len(expr)-1].Tok {
 		case lang.Call:
 			out := make(Tokens, 0, len(expr)+2)

@@ -286,13 +286,13 @@ func (p *Parser) funcDeclKey(fname string) string {
 func (p *Parser) anonFuncName() string {
 	clo := p.clonum
 	p.clonum++
-	if p.fname != "" {
+	if p.function != nil {
 		p.funcN++
-		nestedAnon := strings.HasPrefix(p.fname, "#")
-		if nestedAnon {
-			return "#" + p.fname + "." + strconv.Itoa(p.funcN)
+		name := p.function.Name
+		if strings.HasPrefix(name, "#") {
+			return "#" + name + "." + strconv.Itoa(p.funcN)
 		}
-		return "#" + p.fname + ".func" + strconv.Itoa(p.funcN)
+		return "#" + name + ".func" + strconv.Itoa(p.funcN)
 	}
 	return "#f" + strconv.Itoa(clo)
 }
@@ -340,8 +340,6 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		fname = p.anonFuncName()
 	}
 
-	ofname := p.fname
-	p.fname = fname
 	ofuncN := p.funcN
 	p.funcN = 0
 	ofunc := p.function
@@ -368,6 +366,7 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 		}
 		p.SymSet(key, s)
 	}
+	p.function = s
 	p.pushScope(fname)
 	p.funcScope = p.scope
 	// Local variable indices start at 1; index 0 is the frame header (prevFP).
@@ -391,7 +390,6 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 	}
 
 	defer func() {
-		p.fname = ofname // TODO remove in favor of function.
 		p.funcN = ofuncN
 		p.function = ofunc
 		p.funcScope = funcScope
@@ -432,11 +430,10 @@ func (p *Parser) parseFunc(in Tokens) (out Tokens, err error) {
 			}
 		}
 	}
-	p.function = s
 
-	p.funcDepth++
+	p.blockDepth++
 	toks, err := p.parseTokBlock(in[bi].Token)
-	p.funcDepth--
+	p.blockDepth--
 	if err != nil {
 		return out, err
 	}

@@ -229,9 +229,9 @@ func (p *Parser) parseFor(in Tokens) (out Tokens, err error) {
 	// Assign-form range: copy the temps Next just set into the original targets.
 	out = append(out, rangeAssign...)
 	p.pushScope("b")
-	p.loopDepth++
+	p.blockDepth++
 	body, err = p.parseTokBlock(in[len(in)-1].Token)
-	p.loopDepth--
+	p.blockDepth--
 	p.popScope()
 	if err != nil {
 		return nil, err

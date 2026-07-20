@@ -27,25 +27,24 @@ type Parser struct {
 	Packages        map[string]*symbol.Package
 	function        *symbol.Symbol                    // current function
 	scope           string                            // current scope
-	fname           string                            // current function name
 	pkgName         string                            // current package name
 	noPkg           bool                              // true if package statement is not mandatory (test, repl).
 	pkgfs           fs.FS                             // filesystem to read imported sources from
 	stdlibfs        fs.FS                             // fallback filesystem for embedded stdlib sources
 	remotefs        fs.FS                             // last-resort filesystem (e.g. network module proxy)
-	testSrcFS       fs.FS                             // test-only fs for bridged-stdlib *_test.go sources ($GOROOT/src); never consulted by ordinary import resolution
-	testSkipFiles   map[string]bool                   // basenames of bridged-stdlib test files to skip (drop-on-compile-error retry); see SetTestSkipFiles
+	testSrcFS       fs.FS                             // test-only fs for bridged-stdlib *_test.go sources
+	testSkipFiles   map[string]bool                   // basenames of bridged-stdlib test files to skip
 	includeTests    bool                              // include _test.go files when loading package sources
-	externalTests   []PackageSource                   // external `package X_test` files for `mvm test` to load as a second unit (see ExternalTestSources)
-	importRemaining []DeferredDecl                    // code-gen declarations from imported source packages, tagged with their origin package
-	CompilingPkg    string                            // while a deferred decl is being parsed/compiled in Phase 2: its origin package's import path ("" = main/REPL); makes unqualified type/name lookups prefer that package's symbols (see symGet, comp.Compiler.symAt)
-	importingPkg    string                            // while parseSrc is running for an imported package: its full import path; "" outside any import. Used by pkgKey to qualify top-level Type/Func/Method/Generic symbol keys at definition time (Path B); also probed as a fallback in symGet for Phase-1 lookups.
-	fileAliases     map[int]map[string]*symbol.Symbol // per-file import scope: srcIndex (Sources.SourceIndex) -> alias name -> Pkg symbol; lets sibling files import the same alias to different paths (see pkgAlias)
-	bareAliases     map[string]bool                   // bare keys aliased to an import-path target's top-level symbols (aliasTargetTopLevel); a later unit's own same-named decl shadows the alias rather than being dropped
+	externalTests   []PackageSource                   // external `package X_test` files for `mvm test`
+	importRemaining []DeferredDecl                    // code-gen declarations from imported source packages
+	CompilingPkg    string                            // while a deferred decl is being parsed/compiled in Phase 2
+	importingPkg    string                            // while parseSrc is running for an imported package
+	fileAliases     map[int]map[string]*symbol.Symbol // per-file import scope: srcIndex -> alias name -> Pkg symbol
+	bareAliases     map[string]bool                   // bare keys aliased to an import-path target's top-level symbols
 
 	funcScope      string
 	framelen       map[string]int      // length of function frames indexed by funcScope
-	directLocals   map[string][]string // funcScope -> its direct-level LocalVar keys; lets clearDirectLocals skip scanning all Symbols
+	directLocals   map[string][]string // funcScope -> its direct-level LocalVar keys
 	labelCount     map[string]int
 	breakLabel     string
 	continueLabel  string
@@ -61,21 +60,20 @@ type Parser struct {
 	symTracker     []string                 // accumulates newly-added symbol keys during a checkpoint window; nil = not tracking
 	genCounter     int                      // monotonic source of resolveDecls generations
 	curGen         int                      // generation of the current resolveDecls (nestable; saved/restored)
-	typeGen        map[*mtype.Type]int      // generation each declared placeholder *Type was minted in; gates reuse (see reuseDeclaredType)
-	batchFuncDecls map[string]bool          // canonical keys of top-level funcs/methods registered in the current resolveDecls batch; a second hit is a redeclaration (saved/restored across nested imports)
-	forwardDecls   map[string]bool          // batch keys registered bodyless; a later body fills them instead of redeclaring
-	instanceDecls  []DeferredDecl           // generic instance bodies tagged with their template's package; comp.finishCompile compiles each under that package
-	funcInstArgs   map[string][]*mtype.Type // generic-func instance name -> bound type args, to disambiguate distinct same-named types (e.g. func-local types) that mangle alike
-	instantiating  map[string]bool          // generic-type instances whose body is parsing now; self-refs reuse the mid-build placeholder, a failed-instantiation leftover is rebuilt on retry
+	typeGen        map[*mtype.Type]int      // generation each declared placeholder *Type was minted in
+	batchFuncDecls map[string]bool          // canonical keys of top-level funcs/methods registered in the current resolveDecls batch
+	forwardDecls   map[string]bool          // batch keys registered bodyless
+	instanceDecls  []DeferredDecl           // generic instance bodies tagged with their template's package
+	funcInstArgs   map[string][]*mtype.Type // generic-func instance name -> bound type args
+	instantiating  map[string]bool          // generic-type instances whose body is parsing now
 	typeOnly       bool                     // when true, addSymVar is a no-op (Phase 1 signature-only parse)
-	regFuncSig     bool                     // set by parseFunc so the outermost func-type parse registers its params as locals; a func TYPE (composite-elem, var/field type, interface method) leaves it false so param names don't leak into the enclosing scope
+	regFuncSig     bool                     // set by parseFunc so the outermost func-type parse registers its params as locals
 	inForInit      bool                     // true while parsing for-init or range clause (marks LoopVar)
 	rangeAssign    Tokens                   // assign-form range per-iteration assigns, stashed for parseFor
-	funcDepth      int                      // nesting depth of function bodies (>0 means inside a function)
-	loopDepth      int                      // nesting depth of for loops (>0 means inside a loop)
-	instDepth      int                      // nesting depth of generic instantiations; guards unbounded-growth recursion (instantiation cycle)
+	blockDepth     int                      // nesting depth of function bodies and loops (>0 discards unused expr-statement values)
+	instDepth      int                      // nesting depth of generic instantiations
 	buildCtx       *buildContext            // build constraint context for file filtering
-	embeds         map[string][]byte        // //go:embed file bytes by canonical var key (single-file []byte/string only); see embed.go
+	embeds         map[string][]byte        // //go:embed file bytes by canonical var key
 }
 
 // RecordBareAlias marks key as a bare alias of an import-path target's
@@ -245,52 +243,29 @@ func (p *Parser) SetStdlibFS(fsys fs.FS) {
 }
 
 // SetRemoteFS installs a last-resort filesystem consulted when neither
-// pkgfs nor stdlibfs contain the requested import path. Typical use is a
-// modfs.FS that fetches modules from a proxy on demand.
+// pkgfs nor stdlibfs contain the requested import path.
 func (p *Parser) SetRemoteFS(fsys fs.FS) {
 	p.remotefs = fsys
 }
 
-// SetIncludeTests toggles whether ParseAll's directory-mode load includes
-// _test.go files. Off by default (matching `import "X"` resolution); turn
-// on for `mvm test <importpath>` so test functions become callable.
+// SetIncludeTests toggles whether ParseAll's directory-mode load includes _test.go files.
 func (p *Parser) SetIncludeTests(b bool) {
 	p.includeTests = b
 }
 
 // SetTestSourceFS installs the test-source filesystem consulted by
 // LoadPackageSources only when (a) includeTests is on and (b) the target
-// import path is a bridge-only stdlib package (i.e. has a Bin entry in
-// p.Packages but no source in pkgfs/stdlibfs/remotefs). The intended
-// supplier is stdlib.GorootTestFS(), which serves $GOROOT/src so external
-// `package X_test` files run against the existing reflect bindings.
-//
-// This FS is deliberately separate from the pkgfs -> stdlibfs -> remotefs
-// chain: feeding $GOROOT/src into that chain would make ordinary
-// `import "strings"` start loading interpreted source alongside the
-// reflect bridge, double-defining every exported symbol.
+// import path is a bridge-only stdlib package.
 func (p *Parser) SetTestSourceFS(fsys fs.FS) {
 	p.testSrcFS = fsys
 }
 
-// SetTestSkipFiles records basenames of bridged-stdlib test files that
-// loadBridgedTestSources must skip. Used by `mvm test`'s drop-on-compile-
-// error retry: a stdlib external test file that references export_test.go-
-// only symbols (e.g. a method the real native type lacks) can't compile
-// against the bridge, so the driver drops it and reloads the rest. nil or
-// empty means skip nothing.
+// SetTestSkipFiles records basenames of bridged-stdlib test files that loadBridgedTestSources must skip.
 func (p *Parser) SetTestSkipFiles(names map[string]bool) {
 	p.testSkipFiles = names
 }
 
-// WithImportingPkg sets p.importingPkg to pkg and returns a function that
-// restores the previous value. Callers loading a package's source directly
-// (e.g. `mvm test <importpath>`) use this to mirror the canonical-key setup
-// that importSrc performs for transitive imports, so the target's top-level
-// Type/Func/Method/Var/Const symbols land at `<pkg>.<name>` keys rather than
-// bare keys (which would mismatch every subsequent qualified lookup in the
-// target's own deferred bodies). See pkgKey, symGet, and the Phase 2 Path B
-// memory notes.
+// WithImportingPkg sets p.importingPkg to pkg and returns a function that restores the previous value.
 func (p *Parser) WithImportingPkg(pkg string) func() {
 	saved := p.importingPkg
 	p.importingPkg = pkg
@@ -385,19 +360,7 @@ func (p *Parser) parseAt(basePos int, src string) (out Tokens, err error) {
 
 // compositeBraceAt reports whether toks[i] is a BraceBlock that is the value
 // part of a composite literal whose LiteralType is a slice, array, map or
-// struct type (e.g. the "{}" in `[]byte{}`, `map[K]V{}`, `[N]T{}`,
-// `[]pkg.T{}`, `struct{...}{}`) rather than a statement body. Such literals may
-// appear unparenthesized in the header of a for/if/switch statement (only the
-// bare TypeName form, `T{}`, requires parentheses there), so stmtEnd must not
-// mistake their brace for the statement body when scanning past clause
-// separators.
-//
-// It walks left from toks[i-1] over the tokens that could form such a literal
-// type (the element type Idents/`.`/`*`/`<-`/`chan`, the `[]`/`[N]`/`map`
-// openers, and `struct{...}`/`interface{...}`) and returns true only if the
-// leftmost token consumed is one of those openers -- i.e. the type genuinely
-// *starts* with `[`/`map`/`struct`/`interface`, distinguishing `[]byte{...}`
-// from an index expression like `flags[i]` that happens to precede a body.
+// struct type rather than a statement body.
 func (p *Parser) compositeBraceAt(toks Tokens, i int) bool {
 	if i <= 0 || toks[i].Tok != lang.BraceBlock {
 		return false
@@ -542,10 +505,7 @@ func (p *Parser) SnapshotUnit() UnitState {
 	return UnitState{syms: syms, pkgs: pkgs, insts: insts, inits: len(p.InitFuncs)}
 }
 
-// RestoreUnit reverts a failed compile to s: deletes added symbol keys/packages,
-// restores replaced ones, truncates template instances/InitFuncs, and clears the
-// instance/import queues. In-place mutation of pre-existing symbols is not undone
-// (shared pointers), but a failed unit's own new declarations are.
+// RestoreUnit reverts a failed compile to s.
 func (p *Parser) RestoreUnit(s UnitState) {
 	for k := range p.Symbols {
 		if _, ok := s.syms[k]; !ok {

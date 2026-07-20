@@ -117,8 +117,7 @@ func Vtype(s *Symbol) *mtype.Type {
 type SymMap map[string]*Symbol
 
 // SegIndex maps a key's last dot-segment to the keys sharing it, so method
-// resolution probes a few candidates instead of scanning the whole table (O(n),
-// quadratic on 60k-symbol units like protobuf). nil means "no index": full scan.
+// resolution probes a few candidates instead of scanning the whole table (O(n).
 type SegIndex map[string][]string
 
 // LastSeg returns key's text after the final '.', or key itself if there is none.

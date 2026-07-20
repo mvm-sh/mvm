@@ -1043,7 +1043,7 @@ func ConstFromExact(s string) constant.Value {
 }
 
 func (p *Parser) parseImports(in Tokens) (out Tokens, err error) {
-	if p.fname != "" {
+	if p.function != nil {
 		return out, p.errAt(in[0], "unexpected import inside function body")
 	}
 	if len(in) < 2 {

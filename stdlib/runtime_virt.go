@@ -278,8 +278,8 @@ func qualifyFuncName(label, file string) string {
 		return "?"
 	}
 	// Mvm marks anonymous closures with a leading '#'. Nested anons in
-	// goparser stack hashes (parser builds the name as "#" + p.fname + ...
-	// where p.fname already contains its own '#'), so strip them all.
+	// goparser stack hashes (parser builds the name as "#" + enclosing func
+	// name + ..., where that name already carries its own '#'), so strip them all.
 	for strings.HasPrefix(label, "#") {
 		label = label[1:]
 	}
