@@ -258,19 +258,7 @@ func RebuildMapGeometry(mapRT reflect.Type) {
 	if elem.Size() > mapMaxElemBytes {
 		elem, elemIndirect = reflect.PointerTo(elem), true
 	}
-	n := strconv.FormatUint(geomSeq.Add(1), 36)
-	slot := reflect.StructOf([]reflect.StructField{
-		{Name: "K" + n, Type: key},
-		{Name: "E" + n, Type: elem},
-	})
-	group := reflect.StructOf([]reflect.StructField{
-		{Name: "C" + n, Type: reflect.TypeFor[uint64]()},
-		{Name: "S" + n, Type: reflect.ArrayOf(mapGroupSlots, slot)},
-	})
-	mt.Group = rtypePtr(group)
-	mt.GroupSize = group.Size()
-	mt.SlotSize = slot.Size()
-	mt.ElemOff = slot.Field(1).Offset
+	setMapGroup(mt, key, elem, strconv.FormatUint(geomSeq.Add(1), 36))
 	mt.Flags &^= mapIndirectKey | mapIndirectElem
 	if keyIndirect {
 		mt.Flags |= mapIndirectKey

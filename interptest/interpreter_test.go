@@ -1235,8 +1235,9 @@ func TestStruct(t *testing.T) {
 
 		// Go 1.21+: panic of a nil interface yields *runtime.PanicNilError; a
 		// typed nil stays itself. See [[project_panic_nil_error]].
-		{n: "panic_nil_literal", src: `func f() (s string) { defer func() { s = recover().(error).Error() }(); panic(nil); return }; f()`, res: "panic called with nil argument"},
-		{n: "panic_nil_iface", src: `func f() (s string) { defer func() { s = recover().(error).Error() }(); var e error; panic(e); return }; f()`, res: "panic called with nil argument"},
+		// Go 1.27 prefixes the PanicNilError message with "runtime error: ".
+		{n: "panic_nil_literal", src: `import "strings"; func f() (s string) { defer func() { s = strings.TrimPrefix(recover().(error).Error(), "runtime error: ") }(); panic(nil); return }; f()`, res: "panic called with nil argument"},
+		{n: "panic_nil_iface", src: `import "strings"; func f() (s string) { defer func() { s = strings.TrimPrefix(recover().(error).Error(), "runtime error: ") }(); var e error; panic(e); return }; f()`, res: "panic called with nil argument"},
 		{n: "panic_typed_nil_kept", src: `func f() (out bool) { defer func() { _, out = recover().(*int) }(); panic((*int)(nil)); return }; f()`, res: "true"},
 
 		// defer in a range body used to crash (sp-resident iterator displaced by

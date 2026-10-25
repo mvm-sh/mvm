@@ -31,21 +31,21 @@ func main() {
 	fw, _ := flate.NewWriter(&fb, flate.BestCompression)
 	fw.Write(data); fw.Close()
 	fo, _ := io.ReadAll(flate.NewReader(bytes.NewReader(fb.Bytes())))
-	fmt.Printf("flate clen=%d ok=%v\n", fb.Len(), eq(fo))
+	fmt.Printf("flate small=%v ok=%v\n", fb.Len() < len(data), eq(fo))
 
 	var gb bytes.Buffer
 	gw := gzip.NewWriter(&gb)
 	gw.Write(data); gw.Close()
 	gr, _ := gzip.NewReader(bytes.NewReader(gb.Bytes()))
 	go_, _ := io.ReadAll(gr)
-	fmt.Printf("gzip clen=%d head=%s ok=%v\n", gb.Len(), hex.EncodeToString(gb.Bytes()[:4]), eq(go_))
+	fmt.Printf("gzip head=%s ok=%v\n", hex.EncodeToString(gb.Bytes()[:4]), eq(go_))
 
 	var zb bytes.Buffer
 	zw := zlib.NewWriter(&zb)
 	zw.Write(data); zw.Close()
 	zr, _ := zlib.NewReader(bytes.NewReader(zb.Bytes()))
 	zo, _ := io.ReadAll(zr)
-	fmt.Printf("zlib clen=%d ok=%v\n", zb.Len(), eq(zo))
+	fmt.Printf("zlib ok=%v\n", eq(zo))
 
 	var lb bytes.Buffer
 	lw := lzw.NewWriter(&lb, lzw.LSB, 8)
@@ -57,9 +57,11 @@ func main() {
 	bo, _ := io.ReadAll(bzip2.NewReader(bytes.NewReader(blob)))
 	fmt.Printf("bzip2 %q\n", string(bo))
 }`
-	want := "flate clen=52 ok=true\n" +
-		"gzip clen=70 head=1f8b0800 ok=true\n" +
-		"zlib clen=58 ok=true\n" +
+	// The deflate-based sizes depend on the Go version (Go 1.27 changed
+	// compress/flate), so they are not checked, but for flate to compress.
+	want := "flate small=true ok=true\n" +
+		"gzip head=1f8b0800 ok=true\n" +
+		"zlib ok=true\n" +
 		"lzw clen=62 ok=true\n" +
 		"bzip2 \"the quick brown fox jumps over the lazy dog\\n\"\n"
 	if got := evalOut(t, "compress.go", src); got != want {

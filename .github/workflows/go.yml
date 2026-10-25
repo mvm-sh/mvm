@@ -13,10 +13,13 @@ jobs:
   build:
     # amd64 + arm64: synth word-class dispatch (vm/synth_word.go) marshals method
     # args/results through registers, an ABI-sensitive path verified per arch.
+    # Two Go releases: runtype mirrors runtime type layouts, which can change
+    # between releases (Go 1.27 changed the map type).
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm]
+        go: ['1.26', '1.27']
     runs-on: ${{ matrix.runner }}
     steps:
     - uses: actions/checkout@v6
@@ -24,9 +27,10 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.26'
+        go-version: ${{ matrix.go }}
 
     - name: Lint
+      if: matrix.go == '1.26'
       uses: golangci/golangci-lint-action@v9
       with:
         version: v2.12.0

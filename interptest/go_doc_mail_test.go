@@ -24,20 +24,21 @@ func main() {
 	}
 }
 
+// The IPv6 domain literals that net/mail accepts depend on the Go version
+// (Go 1.27 requires the "IPv6:" tag of RFC 5321), so none is checked.
 func TestSynthNetMail(t *testing.T) {
 	const src = `package main
 import ("fmt"; "net/mail")
 func main() {
 	a, _ := mail.ParseAddress("Bob <bob@example.org>")
 	fmt.Printf("%q %q\n", a.Name, a.Address)
-	for _, in := range []string{"u@[192.168.0.1]", "u@[::1]", "u@[fe80::1%eth0]", "u@[bad]"} {
+	for _, in := range []string{"u@[192.168.0.1]", "u@[fe80::1%eth0]", "u@[bad]"} {
 		_, err := mail.ParseAddress(in)
 		fmt.Printf("%s ok=%v\n", in, err == nil)
 	}
 }`
 	want := "\"Bob\" \"bob@example.org\"\n" +
 		"u@[192.168.0.1] ok=true\n" +
-		"u@[::1] ok=true\n" +
 		"u@[fe80::1%eth0] ok=false\n" +
 		"u@[bad] ok=false\n"
 	if got := evalOut(t, "netmail.go", src); got != want {
